@@ -1,0 +1,1575 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-10T09:08:21.054Z",
+  "run_id": "mesh-state-resolution-20260510T090731Z-ce396ee1",
+  "repo": {
+    "branch": "coord/mesh-current-canonical-soak-luma-evidence",
+    "commit": "136f7f23e5715f556b5d0a6b84b97932b8516ef5",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_production_topology",
+    "started_at": "2026-05-10T09:07:31.999Z",
+    "completed_at": "2026-05-10T09:08:21.054Z",
+    "duration_ms": 49055,
+    "command": "pnpm test:mesh:state-resolution-drills"
+  },
+  "status": "review_required",
+  "status_reason": "Slice 7C non-LUMA state-resolution rows passed in the bounded local three-relay harness; full production readiness remains review_required because partition/heal, disconnect, clock-skew, soak, evidence scrub, and post-M0.B LUMA-gated sections remain pending.",
+  "schema_epoch": "pre_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "pending",
+    "luma_gated_write_drills": "n/a",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "health probe": "mesh-drill",
+    "aggregate voter node": "mesh-drill",
+    "news report record": "mesh-drill",
+    "forum comment": "mesh-drill",
+    "aggregate snapshot": "mesh-drill",
+    "topic engagement summary": "mesh-drill",
+    "forum comment moderation record": "mesh-drill",
+    "forum thread": "mesh-drill",
+    "story / synthesis publication": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": false,
+    "relay_urls_redacted": [
+      "http://redacted-host-5a66502c1d68/gun",
+      "http://redacted-host-7bb97f070ab0/gun",
+      "http://redacted-host-0c1dddd73ddf/gun"
+    ],
+    "relay_ids": [
+      "relay-a",
+      "relay-b",
+      "relay-c"
+    ],
+    "relay_peer_lists": [
+      {
+        "relay_id": "relay-a",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-7bb97f070ab0/gun",
+          "http://redacted-host-0c1dddd73ddf/gun"
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-5a66502c1d68/gun",
+          "http://redacted-host-0c1dddd73ddf/gun"
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-5a66502c1d68/gun",
+          "http://redacted-host-7bb97f070ab0/gun"
+        ]
+      }
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_to_relay_auth_negative_test": "skipped",
+    "relay_to_relay_auth_negative_test_reason": "covered by pnpm test:mesh:topology-drills; Slice 7C reuses the same local/private relay-peer trust path",
+    "peer_config_id": "local-three-relay-state-resolution-mesh-state-resolution-20260510T090731Z-ce396ee1",
+    "peer_config_issued_at": "2026-05-10T09:07:34.616Z",
+    "peer_config_expires_at": "2026-05-11T09:07:34.616Z"
+  },
+  "gates": [
+    {
+      "name": "local-state-resolution-matrix",
+      "status": "pass",
+      "command": "pnpm test:mesh:state-resolution-drills",
+      "duration_ms": 49055,
+      "exit_code": 0,
+      "reason": "all non-LUMA state-resolution rows passed with direct per-relay readback and cleanup"
+    },
+    {
+      "name": "local-three-relay-peer-kill-write-readback",
+      "status": "skipped",
+      "command": "pnpm test:mesh:topology-drills",
+      "duration_ms": 0,
+      "exit_code": null,
+      "reason": "standalone local transport proof remains owned by pnpm test:mesh:topology-drills and is run separately as a regression gate"
+    }
+  ],
+  "write_class_slos": [
+    {
+      "write_class": "health probe",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 289,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "aggregate voter node",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 294,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "news report record",
+      "attempts": 3,
+      "successes": 3,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 3,
+      "p95_ms": 308,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "forum comment",
+      "attempts": 3,
+      "successes": 3,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 3,
+      "p95_ms": 286,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "aggregate snapshot",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 279,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "topic engagement summary",
+      "attempts": 3,
+      "successes": 3,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 3,
+      "p95_ms": 291,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "forum comment moderation record",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 266,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "forum thread",
+      "attempts": 3,
+      "successes": 3,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 3,
+      "p95_ms": 268,
+      "budget_ms": 10000,
+      "status": "pass"
+    },
+    {
+      "write_class": "story / synthesis publication",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 266,
+      "budget_ms": 10000,
+      "status": "pass"
+    }
+  ],
+  "resource_slos": [],
+  "per_relay_readback": [
+    {
+      "relay_id": "relay-a",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-live-20260510T090734Z-f10fb05e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 149,
+      "observed_digest": "8ddeb14a07960b8e25133d0b1ec2cab146fb84f7e872b3e0c807b13f0a9fd043",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 145,
+      "observed_digest": "fc013bce6a934a765701065a73bf9cfbf05524f75c273b44a1f68e398079f80b",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-live-20260510T090734Z-f10fb05e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 160,
+      "observed_digest": "8ddeb14a07960b8e25133d0b1ec2cab146fb84f7e872b3e0c807b13f0a9fd043",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 150,
+      "observed_digest": "fc013bce6a934a765701065a73bf9cfbf05524f75c273b44a1f68e398079f80b",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-live-20260510T090734Z-f10fb05e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 153,
+      "observed_digest": "8ddeb14a07960b8e25133d0b1ec2cab146fb84f7e872b3e0c807b13f0a9fd043",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "health probe",
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 148,
+      "observed_digest": "fc013bce6a934a765701065a73bf9cfbf05524f75c273b44a1f68e398079f80b",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-agree-20260510T090734Z-76ca1a83",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "f8254f40fff033be27b650dbb0ed06bc157cd37896bc19c656ffee5fa1f57b14",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 149,
+      "observed_digest": "ba88d765df90b5ec120ddb4bb6af952790b86584d1709b0fbe3f229fe6f8d171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-agree-20260510T090734Z-76ca1a83",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "f8254f40fff033be27b650dbb0ed06bc157cd37896bc19c656ffee5fa1f57b14",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 149,
+      "observed_digest": "ba88d765df90b5ec120ddb4bb6af952790b86584d1709b0fbe3f229fe6f8d171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-agree-20260510T090734Z-76ca1a83",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 152,
+      "observed_digest": "f8254f40fff033be27b650dbb0ed06bc157cd37896bc19c656ffee5fa1f57b14",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "aggregate voter node",
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "last-write-wins-deterministic-id",
+      "observed": true,
+      "latency_ms": 145,
+      "observed_digest": "ba88d765df90b5ec120ddb4bb6af952790b86584d1709b0fbe3f229fe6f8d171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-pending-20260510T090734Z-5e7a0b64",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "5e2784167c2de0f32f4d931a37f134ab7b765dc0874ac7f6b5fcf0f8f5d36849",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-reviewed-20260510T090734Z-bd317589",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 428,
+      "observed_digest": "45b630b9fd67d769ee86712930821204f46f09331a8789fd55b959ca434dbc07",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 207,
+      "observed_digest": "e70671be45bf4f8885b7a6682b8f45fcf685c82abe115e604ff8660a9c2d621f",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-pending-20260510T090734Z-5e7a0b64",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 176,
+      "observed_digest": "5e2784167c2de0f32f4d931a37f134ab7b765dc0874ac7f6b5fcf0f8f5d36849",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-reviewed-20260510T090734Z-bd317589",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 157,
+      "observed_digest": "45b630b9fd67d769ee86712930821204f46f09331a8789fd55b959ca434dbc07",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 168,
+      "observed_digest": "e70671be45bf4f8885b7a6682b8f45fcf685c82abe115e604ff8660a9c2d621f",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-pending-20260510T090734Z-5e7a0b64",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 172,
+      "observed_digest": "5e2784167c2de0f32f4d931a37f134ab7b765dc0874ac7f6b5fcf0f8f5d36849",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-reviewed-20260510T090734Z-bd317589",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 180,
+      "observed_digest": "45b630b9fd67d769ee86712930821204f46f09331a8789fd55b959ca434dbc07",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "news report record",
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-status-transition",
+      "observed": true,
+      "latency_ms": 178,
+      "observed_digest": "e70671be45bf4f8885b7a6682b8f45fcf685c82abe115e604ff8660a9c2d621f",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-created-20260510T090734Z-49c5fad2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 174,
+      "observed_digest": "ce011a0d59fdf31998a023f1bb78cc7d2a96abfdfc98010aea66ce740b7c01f8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-hidden-20260510T090734Z-343a76ac",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 196,
+      "observed_digest": "bdb4510e1430dd4ede9a165a433ed1b9fc20a7571af7a98187493361abfdaad2",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 176,
+      "observed_digest": "6a7b390a75c1fdecd8c0cf88e61bbd39b34e360bed53547d0d0fd7c09a46eb74",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-created-20260510T090734Z-49c5fad2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 190,
+      "observed_digest": "ce011a0d59fdf31998a023f1bb78cc7d2a96abfdfc98010aea66ce740b7c01f8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-hidden-20260510T090734Z-343a76ac",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 169,
+      "observed_digest": "bdb4510e1430dd4ede9a165a433ed1b9fc20a7571af7a98187493361abfdaad2",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 165,
+      "observed_digest": "6a7b390a75c1fdecd8c0cf88e61bbd39b34e360bed53547d0d0fd7c09a46eb74",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-created-20260510T090734Z-49c5fad2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 171,
+      "observed_digest": "ce011a0d59fdf31998a023f1bb78cc7d2a96abfdfc98010aea66ce740b7c01f8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-hidden-20260510T090734Z-343a76ac",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 149,
+      "observed_digest": "bdb4510e1430dd4ede9a165a433ed1b9fc20a7571af7a98187493361abfdaad2",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum comment",
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "hide-restore-latest",
+      "observed": true,
+      "latency_ms": 150,
+      "observed_digest": "6a7b390a75c1fdecd8c0cf88e61bbd39b34e360bed53547d0d0fd7c09a46eb74",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "75e0f1ebc9a1497590cdc22b10b4a63528861f47a4e19392ca58ee6119c98710",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-stale-recompute-20260510T090734Z-cb0fadc3",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "fdd1cf952967f4bce4212ed310371b87cdec548a05afd045203bff7b9403cac9",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "75e0f1ebc9a1497590cdc22b10b4a63528861f47a4e19392ca58ee6119c98710",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-stale-recompute-20260510T090734Z-cb0fadc3",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "fdd1cf952967f4bce4212ed310371b87cdec548a05afd045203bff7b9403cac9",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "75e0f1ebc9a1497590cdc22b10b4a63528861f47a4e19392ca58ee6119c98710",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "aggregate snapshot",
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "aggregate-snapshot-version-snapshot-stale-recompute-20260510T090734Z-cb0fadc3",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "fdd1cf952967f4bce4212ed310371b87cdec548a05afd045203bff7b9403cac9",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-actor-contribution-20260510T090734Z-f5619522",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "5f5dafa056246d3908a19255f1eb85ddccae1c742daf71d440cdc71b51561de8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "0da3b8ba5d80b284b7b72d9ca026e8d1757a6341ca3b1eaed9f366039129ccce",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-stale-double-count-20260510T090734Z-0ddc4a33",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 395,
+      "observed_digest": "513b7b80603de22186b707d794d3cec39280dade44129220efba83bbc71a7010",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-actor-contribution-20260510T090734Z-f5619522",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 147,
+      "observed_digest": "5f5dafa056246d3908a19255f1eb85ddccae1c742daf71d440cdc71b51561de8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "0da3b8ba5d80b284b7b72d9ca026e8d1757a6341ca3b1eaed9f366039129ccce",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-stale-double-count-20260510T090734Z-0ddc4a33",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "513b7b80603de22186b707d794d3cec39280dade44129220efba83bbc71a7010",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-actor-contribution-20260510T090734Z-f5619522",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "before-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "5f5dafa056246d3908a19255f1eb85ddccae1c742daf71d440cdc71b51561de8",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "0da3b8ba5d80b284b7b72d9ca026e8d1757a6341ca3b1eaed9f366039129ccce",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "topic engagement summary",
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "topic-engagement-summary-summary-stale-double-count-20260510T090734Z-0ddc4a33",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "while-down",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-version",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "513b7b80603de22186b707d794d3cec39280dade44129220efba83bbc71a7010",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-hidden-20260510T090734Z-82d984d2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "2e3d4d3dc851adb68bf1fb53378b8cd0c58ca1d4baddff2153f96b4106976ff6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "c4a51366646c2d667949c396caa0627594f776b0bd7bc8a2656968dbc880c714",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-hidden-20260510T090734Z-82d984d2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "2e3d4d3dc851adb68bf1fb53378b8cd0c58ca1d4baddff2153f96b4106976ff6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "c4a51366646c2d667949c396caa0627594f776b0bd7bc8a2656968dbc880c714",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-hidden-20260510T090734Z-82d984d2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "2e3d4d3dc851adb68bf1fb53378b8cd0c58ca1d4baddff2153f96b4106976ff6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum comment moderation record",
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "tombstone-wins",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "c4a51366646c2d667949c396caa0627594f776b0bd7bc8a2656968dbc880c714",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "711d8e37f1c103c624ff979bdb77c469851a4cb42502c5535d21652b9a66643a",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-delete-attempt-20260510T090734Z-8aa505b6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "4a56a64dd24de7695eaff10e64c8a859d5f22f57f936c392d4b33c5c3e551db6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-replay-20260510T090734Z-1d472cfa",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 392,
+      "observed_digest": "26fcb5b2f66597e3c8ed65b8c6aa3216fe6614caa00ba9b3186f016e9f8154e7",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "711d8e37f1c103c624ff979bdb77c469851a4cb42502c5535d21652b9a66643a",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-delete-attempt-20260510T090734Z-8aa505b6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 145,
+      "observed_digest": "4a56a64dd24de7695eaff10e64c8a859d5f22f57f936c392d4b33c5c3e551db6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-replay-20260510T090734Z-1d472cfa",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "26fcb5b2f66597e3c8ed65b8c6aa3216fe6614caa00ba9b3186f016e9f8154e7",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "711d8e37f1c103c624ff979bdb77c469851a4cb42502c5535d21652b9a66643a",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-delete-attempt-20260510T090734Z-8aa505b6",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 146,
+      "observed_digest": "4a56a64dd24de7695eaff10e64c8a859d5f22f57f936c392d4b33c5c3e551db6",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "forum thread",
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "forum-thread-historical-thread-replay-20260510T090734Z-1d472cfa",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "no-deletion-historical-artifact",
+      "observed": true,
+      "latency_ms": 152,
+      "observed_digest": "26fcb5b2f66597e3c8ed65b8c6aa3216fe6614caa00ba9b3186f016e9f8154e7",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-1-20260510T090734Z-78f37089",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "0b682a75d957499bce39f16168ca1b8b6624e019a052c6f7fa9342cdb9f3b171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "69f73a130e057062c5484e3403c3d9abadce183dc09d963933436e92b977aae3",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-1-20260510T090734Z-78f37089",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "0b682a75d957499bce39f16168ca1b8b6624e019a052c6f7fa9342cdb9f3b171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "69f73a130e057062c5484e3403c3d9abadce183dc09d963933436e92b977aae3",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-1-20260510T090734Z-78f37089",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 145,
+      "observed_digest": "0b682a75d957499bce39f16168ca1b8b6624e019a052c6f7fa9342cdb9f3b171",
+      "error": null
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "story / synthesis publication",
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay-state-resolution",
+      "state_rule": "monotonic-supersession-epoch",
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "69f73a130e057062c5484e3403c3d9abadce183dc09d963933436e92b977aae3",
+      "error": null
+    }
+  ],
+  "peer_failure_drills": [
+    {
+      "name": "state-resolution-before-relay-restart",
+      "down_relay_id": "relay-b",
+      "restarted_relay_id": "relay-b",
+      "status": "pass",
+      "restart_latency_ms": 110,
+      "reason": "relay restarted for before state-resolution write window"
+    },
+    {
+      "name": "state-resolution-during-relay-restart",
+      "down_relay_id": "relay-b",
+      "restarted_relay_id": "relay-b",
+      "status": "pass",
+      "restart_latency_ms": 164,
+      "reason": "relay restarted for during state-resolution write window"
+    },
+    {
+      "name": "state-resolution-after-relay-restart",
+      "down_relay_id": "relay-b",
+      "restarted_relay_id": "relay-b",
+      "status": "pass",
+      "restart_latency_ms": 107,
+      "reason": "relay restarted for after state-resolution write window"
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "health-probe-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "health probe",
+      "state_rule": "tombstone-wins",
+      "expected_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+      "observed_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+      "competing_write_ids": [
+        "health-probe-tombstone-probe-live-20260510T090734Z-f10fb05e",
+        "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "before",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "expected_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "expected_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "expected_winner_write_id": "health-probe-tombstone-probe-tombstone-20260510T090734Z-38f0d292",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "aggregate-voter-lww-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "aggregate voter node",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+      "observed_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+      "competing_write_ids": [
+        "aggregate-voter-lww-voter-agree-20260510T090734Z-76ca1a83",
+        "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "before",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "expected_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "expected_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "expected_winner_write_id": "aggregate-voter-lww-voter-disagree-20260510T090734Z-09d82b0b",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "news-report-status-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "news report record",
+      "state_rule": "monotonic-status-transition",
+      "expected_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+      "observed_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+      "competing_write_ids": [
+        "news-report-status-report-pending-20260510T090734Z-5e7a0b64",
+        "news-report-status-report-reviewed-20260510T090734Z-bd317589",
+        "news-report-status-report-actioned-20260510T090734Z-ccbbaa13"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "before",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "expected_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "expected_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "expected_winner_write_id": "news-report-status-report-actioned-20260510T090734Z-ccbbaa13",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "forum-comment-hide-restore-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "forum comment",
+      "state_rule": "hide-restore-latest",
+      "expected_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+      "observed_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+      "competing_write_ids": [
+        "forum-comment-hide-restore-comment-created-20260510T090734Z-49c5fad2",
+        "forum-comment-hide-restore-comment-hidden-20260510T090734Z-343a76ac",
+        "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "during",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "expected_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "expected_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "expected_winner_write_id": "forum-comment-hide-restore-comment-restored-20260510T090734Z-85f0b5f6",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "aggregate-snapshot-version-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "aggregate snapshot",
+      "state_rule": "monotonic-supersession-version",
+      "expected_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+      "observed_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+      "competing_write_ids": [
+        "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+        "aggregate-snapshot-version-snapshot-stale-recompute-20260510T090734Z-cb0fadc3"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "during",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "expected_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "expected_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "expected_winner_write_id": "aggregate-snapshot-version-snapshot-fresh-20260510T090734Z-4e900a59",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "topic-engagement-summary-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "topic engagement summary",
+      "state_rule": "monotonic-supersession-version",
+      "expected_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+      "observed_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+      "competing_write_ids": [
+        "topic-engagement-summary-actor-contribution-20260510T090734Z-f5619522",
+        "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+        "topic-engagement-summary-summary-stale-double-count-20260510T090734Z-0ddc4a33"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "during",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "expected_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "expected_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "expected_winner_write_id": "topic-engagement-summary-summary-fresh-20260510T090734Z-5947900f",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "forum-comment-moderation-tombstone-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "forum comment moderation record",
+      "state_rule": "tombstone-wins",
+      "expected_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+      "observed_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+      "competing_write_ids": [
+        "forum-comment-moderation-tombstone-moderation-hidden-20260510T090734Z-82d984d2",
+        "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "after",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "expected_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "expected_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "expected_winner_write_id": "forum-comment-moderation-tombstone-moderation-tombstone-20260510T090734Z-65b9daa9",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "forum-thread-historical-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "forum thread",
+      "state_rule": "no-deletion-historical-artifact",
+      "expected_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+      "observed_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+      "competing_write_ids": [
+        "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+        "forum-thread-historical-thread-delete-attempt-20260510T090734Z-8aa505b6",
+        "forum-thread-historical-thread-replay-20260510T090734Z-1d472cfa"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "after",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "expected_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "expected_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "expected_winner_write_id": "forum-thread-historical-thread-head-20260510T090734Z-c2ff448e",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "story-synthesis-epoch-mesh-state-resolution-20260510T090731Z-ce396ee1",
+      "object_class": "story / synthesis publication",
+      "state_rule": "monotonic-supersession-epoch",
+      "expected_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+      "observed_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+      "competing_write_ids": [
+        "story-synthesis-epoch-synthesis-epoch-1-20260510T090734Z-78f37089",
+        "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2"
+      ],
+      "down_relay_id": "relay-b",
+      "down_timing": "after",
+      "per_relay_observed_winners": [
+        {
+          "relay_id": "relay-a",
+          "observed_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "expected_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-b",
+          "observed_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "expected_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "missing_write_ids": [],
+          "status": "pass"
+        },
+        {
+          "relay_id": "relay-c",
+          "observed_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "expected_winner_write_id": "story-synthesis-epoch-synthesis-epoch-2-20260510T090734Z-6fc2aee2",
+          "missing_write_ids": [],
+          "status": "pass"
+        }
+      ],
+      "violation_reason": null,
+      "status": "pass"
+    },
+    {
+      "object_id": "directory-entry-luma-skip-pre-luma-m0b",
+      "object_class": "directory entry (LUMA)",
+      "state_rule": "best-effort-tombstone",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "schema_epoch is pre_luma_m0b and luma_profile is none; LUMA Reset Identity best-effort tombstone semantics are out of scope for synthetic mesh drill records."
+    }
+  ],
+  "conflict_fixtures": [
+    {
+      "fixture": "duplicate-write-disconnect-fixtures",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "status": "skipped",
+      "reason": "Slice 8 duplicate-write and disconnect fixtures are not implemented in Slice 7C."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": "skipped: Slice 9 clock-skew drill is out of scope for Slice 7C.",
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-20260510T090732Z-1cf5895d",
+      "status": "skipped",
+      "reason": "schema_epoch is pre_luma_m0b and luma_profile is none; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, or adapter migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "vh/__mesh_drills/mesh-state-resolution-20260510T090731Z-ce396ee1/state_resolution/*",
+    "ttl_ms": 86400000,
+    "objects_written": 22,
+    "objects_cleaned_or_tombstoned": 22,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 2,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": []
+  },
+  "release_claims": {
+    "allowed": [
+      "The bounded local three-relay harness directly observed non-LUMA synthetic Section 5.10 state-resolution winners after one-relay restart/heal.",
+      "The Slice 7C report records per-class state_resolution_drills rows for tombstone, hide/restore, monotonic supersession, deterministic last-write-wins, monotonic status, and no-deletion historical-artifact rules."
+    ],
+    "forbidden": [
+      "State-resolution rules are proven for LUMA-gated write classes under the current LUMA schema epoch.",
+      "Broad partition/heal behavior is production-ready.",
+      "Disconnect duplicate-write behavior is production-ready.",
+      "Clock-skew behavior is production-ready.",
+      "The mesh is release_ready."
+    ],
+    "invalidated_by_luma_epoch_change": true
+  },
+  "downstream_canary": {
+    "command": "pnpm check:mesh:production-readiness",
+    "status": "skipped",
+    "reason": "full downstream production-readiness gate is not wired in Slice 7C"
+  }
+}

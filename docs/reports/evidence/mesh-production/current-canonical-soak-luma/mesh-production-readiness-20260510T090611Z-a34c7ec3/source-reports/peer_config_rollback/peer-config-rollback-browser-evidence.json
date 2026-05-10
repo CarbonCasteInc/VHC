@@ -1,0 +1,180 @@
+{
+  "gate": "local-tls-wss-peer-config-rollback-drill",
+  "status": "pass",
+  "run_id": "mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+  "trace_id": "trace-1778406292019-09f805fb",
+  "initial_config_id": "rollback-config-a-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+  "forward_config_id": "rollback-config-b-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+  "rollback_config_id": "rollback-config-a-fresh-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+  "timeline": [
+    {
+      "phase": "initial",
+      "config_id": "rollback-config-a-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+      "proof": {
+        "status": "resolved",
+        "resolver": "resolveGunPeerTopology",
+        "topology": {
+          "peers": [
+            "wss://redacted-host-156612e15355/gun",
+            "wss://redacted-host-d36d297ec3ce/gun",
+            "wss://redacted-host-e7edcc0d4986/gun"
+          ],
+          "source": "remote-config",
+          "strict": true,
+          "signed": true,
+          "configId": "rollback-config-a-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+          "minimumPeerCount": 3,
+          "quorumRequired": 2,
+          "allowLocalPeers": false
+        },
+        "clientPeers": [
+          "wss://redacted-host-156612e15355/gun",
+          "wss://redacted-host-d36d297ec3ce/gun",
+          "wss://redacted-host-e7edcc0d4986/gun"
+        ]
+      },
+      "opened_socket_hosts": [
+        "redactedLocalEndpointHash:156612e15355",
+        "redactedLocalEndpointHash:d36d297ec3ce",
+        "redactedLocalEndpointHash:e7edcc0d4986"
+      ]
+    },
+    {
+      "phase": "roll-forward",
+      "config_id": "rollback-config-b-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+      "proof": {
+        "status": "resolved",
+        "resolver": "resolveGunPeerTopology",
+        "topology": {
+          "peers": [
+            "wss://redacted-host-e7edcc0d4986/gun",
+            "wss://redacted-host-d36d297ec3ce/gun",
+            "wss://redacted-host-156612e15355/gun"
+          ],
+          "source": "remote-config",
+          "strict": true,
+          "signed": true,
+          "configId": "rollback-config-b-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+          "minimumPeerCount": 3,
+          "quorumRequired": 2,
+          "allowLocalPeers": false
+        },
+        "clientPeers": [
+          "wss://redacted-host-e7edcc0d4986/gun",
+          "wss://redacted-host-d36d297ec3ce/gun",
+          "wss://redacted-host-156612e15355/gun"
+        ]
+      },
+      "opened_socket_hosts": [
+        "redactedLocalEndpointHash:e7edcc0d4986",
+        "redactedLocalEndpointHash:d36d297ec3ce",
+        "redactedLocalEndpointHash:156612e15355"
+      ]
+    },
+    {
+      "phase": "rollback",
+      "config_id": "rollback-config-a-fresh-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+      "proof": {
+        "status": "resolved",
+        "resolver": "resolveGunPeerTopology",
+        "topology": {
+          "peers": [
+            "wss://redacted-host-156612e15355/gun",
+            "wss://redacted-host-d36d297ec3ce/gun",
+            "wss://redacted-host-e7edcc0d4986/gun"
+          ],
+          "source": "remote-config",
+          "strict": true,
+          "signed": true,
+          "configId": "rollback-config-a-fresh-mesh-peer-config-rollback-1778406292019-cf1ac1fc",
+          "minimumPeerCount": 3,
+          "quorumRequired": 2,
+          "allowLocalPeers": false
+        },
+        "clientPeers": [
+          "wss://redacted-host-156612e15355/gun",
+          "wss://redacted-host-d36d297ec3ce/gun",
+          "wss://redacted-host-e7edcc0d4986/gun"
+        ]
+      },
+      "opened_socket_hosts": [
+        "redactedLocalEndpointHash:156612e15355",
+        "redactedLocalEndpointHash:d36d297ec3ce",
+        "redactedLocalEndpointHash:e7edcc0d4986"
+      ]
+    }
+  ],
+  "fail_closed_cases": [
+    {
+      "fixture": "expired",
+      "expected_error": "peer config is expired",
+      "observed_error": "[vh:gun] peer config is expired",
+      "feed_shell_visible": true,
+      "opened_socket_hosts": [],
+      "status": "pass"
+    },
+    {
+      "fixture": "unsigned",
+      "expected_error": "requires a signed peer config",
+      "observed_error": "[vh:gun] strict peer config requires a signed peer config envelope",
+      "feed_shell_visible": true,
+      "opened_socket_hosts": [],
+      "status": "pass"
+    },
+    {
+      "fixture": "bad_signature",
+      "expected_error": "signed peer config verification failed",
+      "observed_error": "[vh:gun] signed peer config verification failed",
+      "feed_shell_visible": true,
+      "opened_socket_hosts": [],
+      "status": "pass"
+    },
+    {
+      "fixture": "wrong_key",
+      "expected_error": "signed peer config verification failed",
+      "observed_error": "[vh:gun] signed peer config verification failed",
+      "feed_shell_visible": true,
+      "opened_socket_hosts": [],
+      "status": "pass"
+    },
+    {
+      "fixture": "local_peers",
+      "expected_error": "rejects insecure peer",
+      "observed_error": "[vh:gun] strict peer config rejects insecure peer http://redacted-host-425e4215864e/gun",
+      "feed_shell_visible": true,
+      "opened_socket_hosts": [],
+      "status": "pass"
+    }
+  ],
+  "rollback": {
+    "previous_topology_shape_restored": true,
+    "rollback_reuses_stale_config_file": false,
+    "rollback_config_id_differs_from_original": true
+  },
+  "service_worker": {
+    "status": "pass",
+    "fetch_cache_mode": "no-store",
+    "config_hits": 8,
+    "config_hits_by_label": {
+      "positive": 1,
+      "rollover": 1,
+      "expired": 1,
+      "unsigned": 1,
+      "bad_signature": 1,
+      "wrong_key": 1,
+      "local_peers": 1,
+      "rollback": 1
+    }
+  },
+  "key_rotation": {
+    "status": "pass",
+    "accepted_public_key": "o_4F27b6Yxxzs7draEe7Ar5JNgXd5ZVc-N_2J2H_LO0.oDlvGcp2H6Kljcxtodcf6a2_xk4TVqrfJO6oe1ibvm8",
+    "rejected_public_key": "XzfSlB0OfpTHz7iX7SeBF9kfReBSH4i-vLwOL8H4MWM.utbC6QJGKyLBbYG4aEjlA0ETQ23NB3e6vkFmM1xvk8I",
+    "rejected_fixture": "wrong_key"
+  },
+  "old_tab_behavior": {
+    "status": "pass",
+    "behavior": "operator rollback proof uses reload/refetch; current app does not claim live in-place topology replacement for already-open tabs",
+    "fail_closed_signal": "failed peer topology proof plus zero accepted peer socket hosts after reload; feed shell may remain visible and is not the fail-closed signal"
+  }
+}
