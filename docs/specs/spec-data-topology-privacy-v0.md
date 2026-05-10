@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-05-08
+> Last Reviewed: 2026-05-10
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/specs/spec-luma-service-v0.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md
 
 
-Version: 0.8
+Version: 0.9
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -277,9 +277,18 @@ Implementation status:
   stored public nodes. Legacy bare and explicit safe legacy-marked digest
   wrappers remain read-compatible, while invalid system-marked digest records
   fail closed without legacy downgrade.
-- Discovery indexes and topic engagement records are intentionally outside the
-  story/storyline/index/analysis/topic-synthesis/topic-digest adapter slices
-  and must migrate through separate branches.
+- Topic engagement summary records at
+  `vh/aggregates/topics/<topicId>/engagement/summary` are the seventh concrete
+  M0.B system-writer adapter migration. New summary writes use the shared
+  validator contract and carry system-writer metadata on the stored public
+  aggregate node. Legacy bare and explicit safe legacy-marked summary records
+  remain read-compatible, while invalid system-marked summary records fail
+  closed without legacy downgrade. Topic engagement actor nodes remain
+  topic-scoped actor records and are not system-writer records.
+- Discovery indexes and topic engagement actor records are intentionally
+  outside the story/storyline/index/analysis/topic-synthesis/topic-digest/topic
+  engagement summary adapter slices and must migrate or remain scoped through
+  separate branches/contracts.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -303,6 +312,11 @@ Implementation status:
   `vh/topics/<topicId>/digests/<digestId>` migrated in this slice; candidates,
   corrections, discovery indexes, topic engagement, and removal tombstones stay
   outside this system-writer migration.
+- `pnpm check:luma-topic-engagement-summary-system-v1` enforces that only
+  `vh/aggregates/topics/<topicId>/engagement/summary` migrated in this slice;
+  topic engagement actor nodes, discovery indexes, aggregate voter/snapshot
+  adapters, mesh evidence artifacts, and removal tombstones stay outside this
+  system-writer migration.
 
 Forbidden uses:
 

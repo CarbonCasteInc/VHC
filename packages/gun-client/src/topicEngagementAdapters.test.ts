@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TopicEngagementActorNode } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_SIGNATURE_SUITE,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  canonicalizeSystemWriterRecordBytes,
+  type SystemWriterPin,
+  type SystemWriterSignHook,
+} from './systemWriter';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import {
@@ -9,6 +18,10 @@ import {
   readTopicEngagementSummary,
   writeTopicEngagementActorNode,
 } from './topicEngagementAdapters';
+
+const ED25519 = 'Ed25519';
+const WRITER_ID = 'vh-system-writer-test-v1';
+const ISSUED_AT = 1_777_777_777_000;
 
 interface FakeMesh {
   root: any;
@@ -87,12 +100,44 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+const DEFAULT_SYSTEM_WRITER_PIN: SystemWriterPin = {
+  pinVersion: 1,
+  schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+  maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+  signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+  writers: [
+    {
+      id: WRITER_ID,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: 'test-public-key',
+      },
+    },
+  ],
+};
+
+const defaultSystemWriterSign: SystemWriterSignHook = ({ writerId, path }) =>
+  `test-signature:${writerId}:${path}`;
+
+function createClient(
+  mesh: FakeMesh,
+  guard: TopologyGuard,
+  config: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
-    config: { peers: [] },
+    config: {
+      peers: [],
+      systemWriterId: WRITER_ID,
+      systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
+      systemWriterSign: defaultSystemWriterSign,
+      systemWriterVerify: () => true,
+      systemWriterNow: () => ISSUED_AT,
+      ...config,
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -115,6 +160,113 @@ const OTHER_ACTOR: TopicEngagementActorNode = {
   lightbulb_weight: 0,
   updated_at: '2026-02-18T22:00:00.000Z',
 };
+
+const BASE_SUMMARY = {
+  schema_version: 'topic-engagement-aggregate-v1',
+  topic_id: 'topic-1',
+  eye_weight: 2.285,
+  lightbulb_weight: 1.285,
+  readers: 2,
+  engagers: 1,
+  version: 1_777_777_777_000,
+  computed_at: 1_777_777_777_000,
+} as const;
+
+function bytesToBase64Url(bytes: ArrayBuffer | Uint8Array): string {
+  return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString('base64url');
+}
+
+function bytesToCryptoBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function createRealSystemWriterHooks(): Promise<{
+  readonly pin: SystemWriterPin;
+  readonly sign: SystemWriterSignHook;
+}> {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+  return {
+    pin: {
+      pinVersion: 1,
+      schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+      maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+      writers: [
+        {
+          id: WRITER_ID,
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: bytesToBase64Url(spki),
+          },
+        },
+      ],
+    },
+    sign: async ({ canonicalBytes }) => {
+      const signature = await crypto.subtle.sign(
+        ED25519,
+        keyPair.privateKey,
+        bytesToCryptoBufferSource(canonicalBytes)
+      );
+      return bytesToBase64Url(signature);
+    },
+  };
+}
+
+async function signSystemWriterTestRecord(
+  sign: SystemWriterSignHook,
+  path: string,
+  record: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const signature = await sign({
+    canonicalBytes: canonicalizeSystemWriterRecordBytes(record),
+    writerId: String(record._systemWriterId),
+    path,
+    record: record as Record<string, unknown> & {
+      readonly _protocolVersion: string;
+      readonly _writerKind: typeof SYSTEM_WRITER_KIND;
+      readonly _systemWriterId: string;
+      readonly _systemIssuedAt: number;
+    },
+  });
+  return {
+    ...record,
+    _systemSignature: signature,
+  };
+}
+
+async function createSignedSummaryFixture(): Promise<{
+  readonly mesh: FakeMesh;
+  readonly client: VennClient;
+  readonly summaryRecord: Record<string, unknown>;
+}> {
+  const hooks = await createRealSystemWriterHooks();
+  const mesh = createFakeMesh();
+  const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+  const client = createClient(mesh, guard, {
+    systemWriterPin: hooks.pin,
+    systemWriterSign: hooks.sign,
+    systemWriterVerify: undefined,
+  });
+  const summaryRecord = await signSystemWriterTestRecord(
+    hooks.sign,
+    'vh/aggregates/topics/topic-1/engagement/summary/',
+    {
+      ...BASE_SUMMARY,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+    },
+  );
+  return { mesh, client, summaryRecord };
+}
 
 describe('topicEngagementAdapters', () => {
   it('materializes public aggregate weights from topic-scoped actor nodes', () => {
@@ -234,8 +386,15 @@ describe('topicEngagementAdapters', () => {
         lightbulb_weight: 1.285,
         readers: 2,
         engagers: 1,
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+        _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/aggregates/topics/topic-1/engagement/summary/`),
       }),
     });
+    expect(mesh.writes[1]?.value).not.toHaveProperty('_authorScheme');
+    expect(mesh.writes[1]?.value).not.toHaveProperty('signedWriteEnvelope');
     expect(aggregate.eye_weight).toBe(2.285);
     expect(guard.validateWrite).toHaveBeenCalledWith(
       'vh/aggregates/topics/topic-1/engagement/actors/actor-me/',
@@ -245,6 +404,61 @@ describe('topicEngagementAdapters', () => {
       'vh/aggregates/topics/topic-1/engagement/summary/',
       expect.objectContaining({ topic_id: 'topic-1' }),
     );
+  });
+
+  it('does not persist an unsigned topic engagement summary when signer metadata is unavailable or malformed', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    const missingSignerMesh = createFakeMesh();
+    missingSignerMesh.setRead('aggregates/topics/topic-1/engagement/actors', {});
+    await expect(
+      writeTopicEngagementActorNode(
+        createClient(missingSignerMesh, guard, { systemWriterSign: undefined }),
+        'topic-1',
+        'actor-me',
+        {
+          eyeWeight: 1,
+          lightbulbWeight: 1,
+          updatedAt: '2026-02-18T22:01:00.000Z',
+        },
+      ),
+    ).rejects.toThrow('system writer signer is required for topic engagement summary writes');
+    expect(missingSignerMesh.writes).toHaveLength(1);
+    expect(missingSignerMesh.writes[0]?.path).toBe('aggregates/topics/topic-1/engagement/actors/actor-me');
+
+    const invalidSignatureMesh = createFakeMesh();
+    invalidSignatureMesh.setRead('aggregates/topics/topic-1/engagement/actors', {});
+    await expect(
+      writeTopicEngagementActorNode(
+        createClient(invalidSignatureMesh, guard, { systemWriterSign: () => ' invalid-signature' }),
+        'topic-1',
+        'actor-me',
+        {
+          eyeWeight: 1,
+          lightbulbWeight: 1,
+          updatedAt: '2026-02-18T22:01:00.000Z',
+        },
+      ),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(invalidSignatureMesh.writes).toHaveLength(1);
+    expect(invalidSignatureMesh.writes[0]?.path).toBe('aggregates/topics/topic-1/engagement/actors/actor-me');
+
+    const invalidTimestampMesh = createFakeMesh();
+    invalidTimestampMesh.setRead('aggregates/topics/topic-1/engagement/actors', {});
+    await expect(
+      writeTopicEngagementActorNode(
+        createClient(invalidTimestampMesh, guard, { systemWriterNow: () => -1 }),
+        'topic-1',
+        'actor-me',
+        {
+          eyeWeight: 1,
+          lightbulbWeight: 1,
+          updatedAt: '2026-02-18T22:01:00.000Z',
+        },
+      ),
+    ).rejects.toThrow('system writer issued-at must be a non-negative safe integer');
+    expect(invalidTimestampMesh.writes).toHaveLength(1);
+    expect(invalidTimestampMesh.writes[0]?.path).toBe('aggregates/topics/topic-1/engagement/actors/actor-me');
   });
 
   it('handles non-record actor roots by materializing only the just-written actor', async () => {
@@ -295,6 +509,145 @@ describe('topicEngagementAdapters', () => {
 
     mesh.setRead('aggregates/topics/topic-3/engagement/summary', null);
     await expect(readTopicEngagementSummary(client, 'topic-3')).resolves.toBeNull();
+  });
+
+  it('validates real signed system writer topic engagement summary records', async () => {
+    const { mesh, client, summaryRecord } = await createSignedSummaryFixture();
+    mesh.setRead('aggregates/topics/topic-1/engagement/summary', {
+      _: { '#': 'metadata' },
+      ...summaryRecord,
+    });
+
+    await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toEqual(BASE_SUMMARY);
+  });
+
+  it('rejects tampered or path-mismatched system writer topic engagement summaries', async () => {
+    const { mesh, client, summaryRecord } = await createSignedSummaryFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      for (const record of [
+        { ...summaryRecord, eye_weight: 99 },
+        { ...summaryRecord, _protocolVersion: 'luma-public-v2' },
+        { ...summaryRecord, _systemWriterId: 'unknown-writer' },
+        { ...summaryRecord, _systemIssuedAt: ISSUED_AT + 1 },
+        { ...summaryRecord, _systemSignature: `${String(summaryRecord._systemSignature)}tampered` },
+        { ...summaryRecord, _writerKind: 'legacy' },
+        { ...summaryRecord, _authorScheme: 'forum-author-v1' },
+        { ...summaryRecord, signedWriteEnvelope: {} },
+      ]) {
+        mesh.setRead('aggregates/topics/topic-1/engagement/summary', record);
+        await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toBeNull();
+      }
+
+      mesh.setRead('aggregates/topics/topic-2/engagement/summary', summaryRecord);
+      await expect(readTopicEngagementSummary(client, 'topic-2')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fails closed with system-writer-validation-failed when the topic engagement summary pin is missing', async () => {
+    const { summaryRecord } = await createSignedSummaryFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/engagement/summary', summaryRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:topic-engagement] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'missing-pin',
+          path: 'vh/aggregates/topics/topic-1/engagement/summary',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'missing-pin',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('keeps legacy topic engagement summaries readable and rejects downgraded legacy fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const legacyRecord = {
+      _writerKind: 'legacy',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      ...BASE_SUMMARY,
+    };
+
+    mesh.setRead('aggregates/topics/topic-1/engagement/summary', { ...BASE_SUMMARY });
+    await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toEqual(BASE_SUMMARY);
+
+    mesh.setRead('aggregates/topics/topic-1/engagement/summary', legacyRecord);
+    await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toEqual(BASE_SUMMARY);
+
+    mesh.setRead('aggregates/topics/topic-2/engagement/summary', { ...BASE_SUMMARY });
+    await expect(readTopicEngagementSummary(client, 'topic-2')).resolves.toBeNull();
+
+    for (const record of [
+      { ...legacyRecord, _protocolVersion: 'luma-public-v2' },
+      { ...legacyRecord, _systemWriterId: WRITER_ID },
+      { ...legacyRecord, _systemIssuedAt: ISSUED_AT },
+      { ...legacyRecord, _systemSignature: 'downgraded-system-field' },
+      { ...legacyRecord, _authorScheme: 'forum-author-v1' },
+      { ...legacyRecord, signedWriteEnvelope: {} },
+      { ...BASE_SUMMARY, _writerKind: 'user' },
+    ]) {
+      mesh.setRead('aggregates/topics/topic-1/engagement/summary', record);
+      await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toBeNull();
+    }
+  });
+
+  it('blocks validly signed topic engagement summaries whose top-level topic does not match', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const record = await signSystemWriterTestRecord(
+      hooks.sign,
+      'vh/aggregates/topics/topic-1/engagement/summary/',
+      {
+        ...BASE_SUMMARY,
+        topic_id: 'topic-2',
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+      },
+    );
+
+    mesh.setRead('aggregates/topics/topic-1/engagement/summary', record);
+    await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toBeNull();
   });
 
   it('reads individual actor nodes and ignores invalid actor payloads', async () => {
