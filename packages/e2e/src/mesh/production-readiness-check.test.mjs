@@ -120,10 +120,14 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function evidenceScrubPacket({ status = 'review_required', blockers = [{ id: 'canonical-30-minute-soak', command: 'pnpm test:mesh:soak', reason: 'canonical soak remains pending' }], writerKind = 'mesh-drill' } = {}) {
+function evidenceScrubPacket({
+  status = 'review_required',
+  blockers = [{ id: 'canonical-30-minute-soak', command: 'pnpm test:mesh:soak', reason: 'canonical soak remains pending' }],
+  writerKind = 'mesh-drill',
+  commit = liveCommit(),
+} = {}) {
   const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mesh-evidence-scrub-'));
   const sourceReportPath = path.join(sourceDir, 'source-reports/topology/mesh-production-readiness-report.json');
-  const commit = liveCommit();
   const source = sourceReport({
     repo: {
       commit,
@@ -560,6 +564,30 @@ describe('mesh evidence scrub promotion', () => {
       expect(promotedText).not.toContain('mesh-control-token-should-not-survive');
       expect(promotedText).not.toContain('raw-token-value-that-must-not-survive');
       expect(promotedText).toContain('redacted-host-');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows explicit expected-commit validation for committed historical packets', () => {
+    const historicalCommit = '1111111111111111111111111111111111111111';
+    const sourceDir = evidenceScrubPacket({ commit: historicalCommit });
+    try {
+      const defaultValidation = validateAggregatePacket({ sourceDir });
+      expect(defaultValidation.ok).toBe(false);
+      expect(defaultValidation.failures).toContain(
+        `aggregate commit ${historicalCommit} does not match expected commit ${liveCommit()}`,
+      );
+
+      const historicalValidation = validateAggregatePacket({ sourceDir, expectedCommit: historicalCommit });
+      expect(historicalValidation.ok).toBe(true);
+
+      const result = runEvidenceScrub({
+        sourceDir,
+        expectedCommit: historicalCommit,
+        command: `pnpm check:mesh-evidence-scrub -- --source-dir ${path.relative(repoRoot, sourceDir)} --expected-commit ${historicalCommit}`,
+      });
+      expect(result.ok).toBe(true);
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

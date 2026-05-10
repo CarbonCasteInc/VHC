@@ -420,6 +420,16 @@ gate-run timestamp window. The packet includes
 and copied source reports under `source-reports/<gate>/`; after Slice 14A it has
 12 source reports, including `source-reports/evidence_scrub/`.
 
+When revalidating a committed packet after its evidence commit has landed, pass
+the aggregate packet's recorded source commit explicitly:
+
+```sh
+pnpm check:mesh-evidence-scrub -- --source-dir docs/reports/evidence/mesh-production/<packet>/<run-id> --expected-commit <aggregate-repo-commit>
+```
+
+Without that override, the scrub gate intentionally treats the packet as stale
+once the evidence commit or merge commit changes `HEAD`.
+
 For Slice 11A through Slice 14C, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers after
 Slice 14C are public WSS deployment proof and LUMA-gated write coverage through

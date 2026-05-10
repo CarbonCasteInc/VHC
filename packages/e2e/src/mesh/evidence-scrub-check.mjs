@@ -241,7 +241,7 @@ function sourceReportFailures({ aggregate, sourceDir }) {
   return failures;
 }
 
-export function validateAggregatePacket({ sourceDir = defaultSourceDir } = {}) {
+export function validateAggregatePacket({ sourceDir = defaultSourceDir, expectedCommit = runGit(['rev-parse', 'HEAD']) } = {}) {
   const failures = [];
   const resolvedSourceDir = path.resolve(repoRoot, sourceDir);
   const reportPath = path.join(resolvedSourceDir, AGGREGATE_REPORT);
@@ -268,7 +268,6 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir } = {}) {
     return { ok: false, failures, report: null, reportPath, manifestPath, sourceDir: resolvedSourceDir };
   }
 
-  const currentCommit = runGit(['rev-parse', 'HEAD']);
   if (report.schema_version !== 'mesh-production-readiness-v1') {
     failures.push(`unexpected schema_version ${report.schema_version || 'missing'}`);
   }
@@ -278,8 +277,8 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir } = {}) {
   if (!report.run_id) {
     failures.push('missing run_id');
   }
-  if (report.repo?.commit !== currentCommit) {
-    failures.push(`aggregate commit ${report.repo?.commit || 'missing'} does not match current HEAD ${currentCommit}`);
+  if (report.repo?.commit !== expectedCommit) {
+    failures.push(`aggregate commit ${report.repo?.commit || 'missing'} does not match expected commit ${expectedCommit}`);
   }
   if (report.repo?.dirty) {
     failures.push('aggregate repo.dirty is true');
@@ -388,7 +387,7 @@ export function scanPromotedPacket({ promotedDir }) {
   return findings;
 }
 
-function buildScrubReport({ runId, sourceReport, sourceDir, promotedDir, command, startedAt, completedAt, redactions, failures }) {
+function buildScrubReport({ runId, sourceReport, sourceDir, promotedDir, command, expectedCommit, startedAt, completedAt, redactions, failures }) {
   const status = failures.length === 0 ? 'pass' : 'blocked';
   const promotedReportPath = path.join(promotedDir, AGGREGATE_REPORT);
   const promotedManifestPath = path.join(promotedDir, AGGREGATE_MANIFEST);
@@ -406,6 +405,7 @@ function buildScrubReport({ runId, sourceReport, sourceDir, promotedDir, command
       mode: EVIDENCE_SCRUB_MODE,
       source_run_id: sourceReport?.run_id || null,
       source_dir: safeRelativeLabel(sourceDir),
+      expected_commit: expectedCommit,
       promoted_dir: safeRelativeLabel(promotedDir),
       started_at: new Date(startedAt).toISOString(),
       completed_at: new Date(completedAt).toISOString(),
@@ -491,6 +491,7 @@ function buildScrubReport({ runId, sourceReport, sourceDir, promotedDir, command
 function parseArgs(argv) {
   const options = {
     sourceDir: process.env.VH_MESH_EVIDENCE_SOURCE_DIR || defaultSourceDir,
+    expectedCommit: process.env.VH_MESH_EVIDENCE_EXPECTED_COMMIT || null,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -499,6 +500,9 @@ function parseArgs(argv) {
     }
     if (arg === '--source-dir') {
       options.sourceDir = argv[index + 1];
+      index += 1;
+    } else if (arg === '--expected-commit') {
+      options.expectedCommit = argv[index + 1];
       index += 1;
     } else if (arg === '--help' || arg === '-h') {
       options.help = true;
@@ -509,9 +513,9 @@ function parseArgs(argv) {
   return options;
 }
 
-export function runEvidenceScrub({ sourceDir = defaultSourceDir, command = null } = {}) {
+export function runEvidenceScrub({ sourceDir = defaultSourceDir, expectedCommit = runGit(['rev-parse', 'HEAD']), command = null } = {}) {
   const startedAt = Date.now();
-  const validation = validateAggregatePacket({ sourceDir });
+  const validation = validateAggregatePacket({ sourceDir, expectedCommit });
   const runId = makeId('mesh-evidence-scrub');
   const promotedDir = path.join(promotedRoot, validation.report?.run_id || runId);
   let redactions = { paths: 0, urls: 0, secrets: 0, stalePlaceholders: 0 };
@@ -533,6 +537,7 @@ export function runEvidenceScrub({ sourceDir = defaultSourceDir, command = null 
     sourceDir: validation.sourceDir,
     promotedDir,
     command: command || `pnpm check:mesh-evidence-scrub -- --source-dir ${path.relative(repoRoot, validation.sourceDir)}`,
+    expectedCommit,
     startedAt,
     completedAt,
     redactions,
@@ -559,13 +564,17 @@ export function runEvidenceScrub({ sourceDir = defaultSourceDir, command = null 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log('Usage: pnpm check:mesh-evidence-scrub [-- --source-dir <packet-dir>]');
+    console.log('Usage: pnpm check:mesh-evidence-scrub [-- --source-dir <packet-dir>] [--expected-commit <sha>]');
     return;
   }
   const resolvedSourceDir = path.resolve(repoRoot, options.sourceDir);
   const result = runEvidenceScrub({
     sourceDir: resolvedSourceDir,
-    command: `pnpm check:mesh-evidence-scrub -- --source-dir ${path.relative(repoRoot, resolvedSourceDir)}`,
+    expectedCommit: options.expectedCommit || runGit(['rev-parse', 'HEAD']),
+    command: [
+      `pnpm check:mesh-evidence-scrub -- --source-dir ${path.relative(repoRoot, resolvedSourceDir)}`,
+      options.expectedCommit ? `--expected-commit ${options.expectedCommit}` : '',
+    ].filter(Boolean).join(' '),
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) {

@@ -1779,10 +1779,14 @@ release claims that are absent from the generated report.
 Status: Implemented for `.tmp` promotion staging as
 `pnpm check:mesh-evidence-scrub`. The command consumes
 `.tmp/mesh-production-readiness/latest` by default, or an explicit
-`--source-dir` / `VH_MESH_EVIDENCE_SOURCE_DIR` packet. The production-readiness
-aggregate gate MUST call it against the current run directory, not the mutable
-`latest` alias, then record an `evidence_scrub` source report before writing
-the final aggregate.
+`--source-dir` / `VH_MESH_EVIDENCE_SOURCE_DIR` packet. By default the scrub
+gate requires the packet's aggregate commit to match the current `HEAD`. When
+reviewing a committed historical packet after the evidence commit or merge has
+changed `HEAD`, reviewers MUST provide `--expected-commit <sha>` or
+`VH_MESH_EVIDENCE_EXPECTED_COMMIT=<sha>` using the aggregate packet's recorded
+source commit. The production-readiness aggregate gate MUST call it against the
+current run directory, not the mutable `latest` alias, then record an
+`evidence_scrub` source report before writing the final aggregate.
 
 `.tmp` readiness packets are unredacted machine proof. Promoting any field from
 a `.tmp` packet into a tracked artifact under `docs/reports/evidence/` or into
