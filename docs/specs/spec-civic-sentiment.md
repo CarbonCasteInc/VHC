@@ -131,7 +131,7 @@ Lightbulb:
   'sensitive-encrypted-outbox'`
 - public mesh: aggregate-only projections
 - per-user Eye/Lightbulb weights are persisted on-device for stable reload behavior
-- topic engagement summary path: `vh/aggregates/topics/<topicId>/engagement/summary`
+- topic engagement summary path: `vh/aggregates/topics/<topicId>/engagement/summary`; new summary writes are system-writer records with `_writerKind: 'system'`, `_protocolVersion: 'luma-public-v1'`, `_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`, validated by the shared system-writer validator
 - Season 0 migration projection inputs may use `vh/aggregates/topics/<topicId>/engagement/actors/<topicScopedActorId>`; payloads contain only capped Eye/Lightbulb weights and timestamps, never nullifiers, proofs, district hashes, wallet addresses, or cross-topic actor IDs
 - on-chain civic/economic contracts remain aggregate-only with no district-identity linkage
 
@@ -148,6 +148,7 @@ District dashboards must remain aggregate-only:
 1. Signal schema validation for every emitted event.
 2. Decay monotonic/bounded tests for Eye and Lightbulb.
 3. Toggle semantics tests (`+/-` and neutral reset) by `(topic_id, synthesis_id, epoch, point_id)`.
+4. `pnpm check:luma-topic-engagement-summary-system-v1` guards the topic engagement summary system-writer migration; topic-scoped actor nodes remain unchanged and must not carry nullifiers, proofs, private identity material, `_authorScheme`, or `SignedWriteEnvelope`.
 4. Aggregate projection determinism tests by `(topic_id, synthesis_id, epoch)`.
 5. Privacy tests: ensure district dashboard payloads are aggregate-only.
 6. Public namespace leak tests: ensure local `VoteIntentRecord` fields and

@@ -9,7 +9,23 @@ import {
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+} from './systemWriter';
 import type { VennClient } from './types';
+
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+
+type TopicEngagementSummaryRecord = TopicEngagementAggregateV1 & Record<string, unknown>;
+
+type SystemWriterTopicEngagementSummaryRecord =
+  TopicEngagementSummaryRecord & SystemWriterRecordFields;
 
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   [
@@ -80,6 +96,134 @@ function topicEngagementActorPath(topicId: string, actorId: string): string {
 
 function topicEngagementSummaryPath(topicId: string): string {
   return `${topicEngagementPath(topicId)}summary/`;
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function isLegacyMarkedRecord(value: Record<string, unknown>): boolean {
+  return value._writerKind === 'legacy';
+}
+
+function stripSafeLegacyProtocolFields(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!isLegacyMarkedRecord(payload)) {
+    return payload;
+  }
+  const { _writerKind: _omittedWriterKind, _protocolVersion: _omittedProtocolVersion, ...legacyPayload } = payload;
+  return legacyPayload;
+}
+
+function stripSystemWriterFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const {
+    _protocolVersion: _omittedProtocolVersion,
+    _writerKind: _omittedWriterKind,
+    _systemWriterId: _omittedSystemWriterId,
+    _systemSignature: _omittedSystemSignature,
+    _systemIssuedAt: _omittedSystemIssuedAt,
+    ...summaryPayload
+  } = payload;
+  return summaryPayload;
+}
+
+function stripProtocolFieldsForSummary(payload: Record<string, unknown>): Record<string, unknown> {
+  return isSystemWriterMarkedRecord(payload)
+    ? stripSystemWriterFields(payload)
+    : stripSafeLegacyProtocolFields(payload);
+}
+
+function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
+  const carriesSystemOrUserFields =
+    '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value;
+
+  if (isLegacyMarkedRecord(value)) {
+    return carriesSystemOrUserFields
+      || ('_protocolVersion' in value && value._protocolVersion !== SYSTEM_WRITER_PROTOCOL_VERSION);
+  }
+
+  return '_protocolVersion' in value || '_writerKind' in value || carriesSystemOrUserFields;
+}
+
+function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailure): void {
+  console.warn(`[vh:topic-engagement] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
+}
+
+function parseTopicEngagementSummaryPayload(
+  payload: Record<string, unknown>,
+): TopicEngagementAggregateV1 | null {
+  const parsed = TopicEngagementAggregateV1Schema.safeParse(stripProtocolFieldsForSummary(payload));
+  return parsed.success ? parsed.data : null;
+}
+
+function pathMatchesSummary(
+  payload: Record<string, unknown>,
+  summary: TopicEngagementAggregateV1 | null,
+  topicId: string,
+  requireTopLevel: boolean,
+): summary is TopicEngagementAggregateV1 {
+  if (!summary || summary.topic_id !== topicId) {
+    return false;
+  }
+  return !requireTopLevel || payload.topic_id === topicId;
+}
+
+async function parseTopicEngagementSummaryFromStoredRecord(
+  client: VennClient,
+  topicId: string,
+  data: unknown,
+): Promise<TopicEngagementAggregateV1 | null> {
+  const payload = stripGunMetadata(data);
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: topicEngagementSummaryPath(topicId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+
+    const parsed = parseTopicEngagementSummaryPayload(payload);
+    return pathMatchesSummary(payload, parsed, topicId, true) ? parsed : null;
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  const parsed = parseTopicEngagementSummaryPayload(payload);
+  return pathMatchesSummary(payload, parsed, topicId, false) ? parsed : null;
+}
+
+async function buildSystemWriterTopicEngagementSummaryRecord(
+  client: VennClient,
+  summary: TopicEngagementAggregateV1,
+): Promise<SystemWriterTopicEngagementSummaryRecord> {
+  return buildSignedSystemWriterRecord({
+    path: topicEngagementSummaryPath(summary.topic_id),
+    payload: summary as TopicEngagementSummaryRecord,
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for topic engagement summary writes',
+  }) as Promise<SystemWriterTopicEngagementSummaryRecord>;
 }
 
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
@@ -321,9 +465,9 @@ export async function readTopicEngagementSummary(
   client: VennClient,
   topicId: string,
 ): Promise<TopicEngagementAggregateV1 | null> {
-  const raw = await readOnce(getTopicEngagementSummaryChain(client, topicId));
-  const parsed = TopicEngagementAggregateV1Schema.safeParse(stripGunMetadata(raw));
-  return parsed.success ? parsed.data : null;
+  const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
+  const raw = await readOnce(getTopicEngagementSummaryChain(client, normalizedTopicId));
+  return parseTopicEngagementSummaryFromStoredRecord(client, normalizedTopicId, raw);
 }
 
 export async function writeTopicEngagementActorNode(
@@ -375,8 +519,9 @@ export async function writeTopicEngagementActorNode(
     topicId: normalizedTopicId,
     actorNodes,
   });
+  const summaryRecord = await buildSystemWriterTopicEngagementSummaryRecord(client, aggregate);
 
-  await putWithAck(getTopicEngagementSummaryChain(client, normalizedTopicId), aggregate, {
+  await putWithAck(getTopicEngagementSummaryChain(client, normalizedTopicId), summaryRecord, {
     writeClass: 'topic-engagement-summary',
     timeoutError: 'topic engagement summary write timed out and readback did not confirm persistence',
     readback: () => readTopicEngagementSummary(client, normalizedTopicId),
