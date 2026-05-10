@@ -1,0 +1,1217 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-10T23:01:29.456Z",
+  "run_id": "mesh-conflict-20260510T225919Z-a521b3af",
+  "schema_epoch": "post_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "landed",
+    "luma_gated_write_drills": "pending",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "same-key deterministic write": "mesh-drill",
+    "stale overwrite guard": "mesh-drill",
+    "protocol schema reject fixture": "mesh-drill"
+  },
+  "repo": {
+    "branch": "coord/mesh-canary-merge-commit-packet-acceptance",
+    "commit": "1594fba3b757707a4fd2c4172861770068184f29",
+    "base_ref": "ccb45355e8f88717f7f26ff9fca1a3f213a2214e",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_conflict_resolution_fixtures",
+    "deployment_scope": "local_tls_wss_profile",
+    "started_at": "2026-05-10T22:59:19.300Z",
+    "completed_at": "2026-05-10T23:01:29.456Z",
+    "duration_ms": 130156,
+    "command": "pnpm test:mesh:conflict-drills"
+  },
+  "status": "review_required",
+  "topology": {
+    "strategy": "explicit_replication",
+    "selected_strategy": "explicit_read_repair",
+    "selected_strategy_scope": "conflict/protocol fixtures use synthetic mesh-drill records only; no production LUMA writes are exercised",
+    "deployment_scope": "local_tls_wss_profile",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "relay_ids": [
+      "relay-a",
+      "relay-b",
+      "relay-c"
+    ],
+    "relay_urls_redacted": [
+      "http://redacted-host-8ce49caff7d1/gun",
+      "http://redacted-host-d2222445fcaf/gun",
+      "http://redacted-host-b236a0770164/gun"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist"
+  },
+  "conflict": {
+    "status": "pass",
+    "required_fixtures": [
+      "same-key-concurrent-deterministic-writes",
+      "stale-overwrite-attempt-rejected",
+      "future-protocol-version-rejected",
+      "unknown-schema-version-quarantined",
+      "missing-drill-author-scheme-quarantined",
+      "unsupported-drill-author-scheme-quarantined"
+    ],
+    "optional_fixtures": [
+      "legacy-fixture-replay"
+    ],
+    "duplicate_canonical_writes": 0,
+    "terminal_failures": 0,
+    "protocol_schema_reject_reasons": [
+      "protocol_version_unsupported",
+      "mesh-schema-version-unknown",
+      "mesh-author-scheme-missing",
+      "mesh-author-scheme-unsupported"
+    ],
+    "reason": "all required non-LUMA conflict and protocol/schema fixture rows passed"
+  },
+  "write_class_slos": [
+    {
+      "write_class": "mesh conflict fixtures",
+      "attempts": 9,
+      "successes": 9,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 6,
+      "p95_ms": 313,
+      "budget_ms": 10000,
+      "status": "pass"
+    }
+  ],
+  "resource_slos": [],
+  "per_relay_readback": [
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-same-key-df062444460e5a71",
+      "logical_key": "same-key-concurrent-deterministic-writes:conflict-same-key-df062444460e5a71",
+      "canonical_id": "conflict-same-key-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-same-key-df062444460e5a71",
+      "readback_context": "direct-single-relay-conflict-winner",
+      "observed": true,
+      "latency_ms": 154,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+      "observed_digest": "a88aa8dd18455f041c8bfa7ccc7d36c78274dbd655c47b4738b93f6ad64c4a85",
+      "fixture": "same-key-concurrent-deterministic-writes"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-same-key-df062444460e5a71",
+      "logical_key": "same-key-concurrent-deterministic-writes:conflict-same-key-df062444460e5a71",
+      "canonical_id": "conflict-same-key-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-same-key-df062444460e5a71",
+      "readback_context": "direct-single-relay-conflict-winner",
+      "observed": true,
+      "latency_ms": 140,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+      "observed_digest": "a88aa8dd18455f041c8bfa7ccc7d36c78274dbd655c47b4738b93f6ad64c4a85",
+      "fixture": "same-key-concurrent-deterministic-writes"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-same-key-df062444460e5a71",
+      "logical_key": "same-key-concurrent-deterministic-writes:conflict-same-key-df062444460e5a71",
+      "canonical_id": "conflict-same-key-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-same-key-df062444460e5a71",
+      "readback_context": "direct-single-relay-conflict-winner",
+      "observed": true,
+      "latency_ms": 153,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+      "observed_digest": "a88aa8dd18455f041c8bfa7ccc7d36c78274dbd655c47b4738b93f6ad64c4a85",
+      "fixture": "same-key-concurrent-deterministic-writes"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-stale-overwrite-df062444460e5a71",
+      "logical_key": "stale-overwrite-attempt-rejected:conflict-stale-overwrite-df062444460e5a71",
+      "canonical_id": "conflict-stale-overwrite-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-stale-overwrite-df062444460e5a71",
+      "readback_context": "direct-single-relay-stale-overwrite-guard",
+      "observed": true,
+      "latency_ms": 207,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-fresh-winner-20260510T225921Z-4322a360",
+      "observed_digest": "ba8814a9edcfd45d33bbb9f573b52afffe9645fe116c02dd23fb277201ca83af",
+      "fixture": "stale-overwrite-attempt-rejected"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-stale-overwrite-df062444460e5a71",
+      "logical_key": "stale-overwrite-attempt-rejected:conflict-stale-overwrite-df062444460e5a71",
+      "canonical_id": "conflict-stale-overwrite-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-stale-overwrite-df062444460e5a71",
+      "readback_context": "direct-single-relay-stale-overwrite-guard",
+      "observed": true,
+      "latency_ms": 186,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-fresh-winner-20260510T225921Z-4322a360",
+      "observed_digest": "ba8814a9edcfd45d33bbb9f573b52afffe9645fe116c02dd23fb277201ca83af",
+      "fixture": "stale-overwrite-attempt-rejected"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "conflict-stale-overwrite-df062444460e5a71",
+      "logical_key": "stale-overwrite-attempt-rejected:conflict-stale-overwrite-df062444460e5a71",
+      "canonical_id": "conflict-stale-overwrite-df062444460e5a71",
+      "section": "canonical",
+      "node_id": "conflict-stale-overwrite-df062444460e5a71",
+      "readback_context": "direct-single-relay-stale-overwrite-guard",
+      "observed": true,
+      "latency_ms": 185,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "conflict-fresh-winner-20260510T225921Z-4322a360",
+      "observed_digest": "ba8814a9edcfd45d33bbb9f573b52afffe9645fe116c02dd23fb277201ca83af",
+      "fixture": "stale-overwrite-attempt-rejected"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": "future-protocol-version-rejected-df062444460e5a71",
+      "section": "rejected",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-rejected-fixture",
+      "observed": true,
+      "latency_ms": 242,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "future-protocol-version-rejected-20260510T225924Z-460ef696",
+      "observed_digest": "068d0f6386c15ba85fb731bc306c5bf06b83259e7feb1452c6eaefeea5ce9fb2",
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": "future-protocol-version-rejected-df062444460e5a71",
+      "section": "rejected",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-rejected-fixture",
+      "observed": true,
+      "latency_ms": 258,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "future-protocol-version-rejected-20260510T225924Z-460ef696",
+      "observed_digest": "068d0f6386c15ba85fb731bc306c5bf06b83259e7feb1452c6eaefeea5ce9fb2",
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": "future-protocol-version-rejected-df062444460e5a71",
+      "section": "rejected",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-rejected-fixture",
+      "observed": true,
+      "latency_ms": 257,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "future-protocol-version-rejected-20260510T225924Z-460ef696",
+      "observed_digest": "068d0f6386c15ba85fb731bc306c5bf06b83259e7feb1452c6eaefeea5ce9fb2",
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "logical_key": "future-protocol-version-rejected:future-protocol-version-rejected-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "future-protocol-version-rejected-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "future-protocol-version-rejected"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 379,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unknown-schema-version-quarantined-20260510T225940Z-f4eba098",
+      "observed_digest": "edf4ee3580a221b3cc659f18470db3926b068e86c85b436780cc1936a337155f",
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 270,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unknown-schema-version-quarantined-20260510T225940Z-f4eba098",
+      "observed_digest": "edf4ee3580a221b3cc659f18470db3926b068e86c85b436780cc1936a337155f",
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 354,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unknown-schema-version-quarantined-20260510T225940Z-f4eba098",
+      "observed_digest": "edf4ee3580a221b3cc659f18470db3926b068e86c85b436780cc1936a337155f",
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "logical_key": "unknown-schema-version-quarantined:unknown-schema-version-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unknown-schema-version-quarantined"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 526,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "missing-drill-author-scheme-quarantined-20260510T225957Z-bfc5bb6e",
+      "observed_digest": "9dfba18627e6bd50d2bf4aa722e8d12871beaeb037aa3af60ff859c4f9bd1c10",
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 508,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "missing-drill-author-scheme-quarantined-20260510T225957Z-bfc5bb6e",
+      "observed_digest": "9dfba18627e6bd50d2bf4aa722e8d12871beaeb037aa3af60ff859c4f9bd1c10",
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 523,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "missing-drill-author-scheme-quarantined-20260510T225957Z-bfc5bb6e",
+      "observed_digest": "9dfba18627e6bd50d2bf4aa722e8d12871beaeb037aa3af60ff859c4f9bd1c10",
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "missing-drill-author-scheme-quarantined:missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "missing-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 346,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unsupported-drill-author-scheme-quarantined-20260510T230013Z-df814a57",
+      "observed_digest": "d485f0ef83718a67d6166fd98301f2afd5d06c3452572d68cdc774c7bc2ebfc1",
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 243,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unsupported-drill-author-scheme-quarantined-20260510T230013Z-df814a57",
+      "observed_digest": "d485f0ef83718a67d6166fd98301f2afd5d06c3452572d68cdc774c7bc2ebfc1",
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "section": "quarantine",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-quarantine-fixture",
+      "observed": true,
+      "latency_ms": 443,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": "unsupported-drill-author-scheme-quarantined-20260510T230013Z-df814a57",
+      "observed_digest": "d485f0ef83718a67d6166fd98301f2afd5d06c3452572d68cdc774c7bc2ebfc1",
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "mesh conflict fixture",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "logical_key": "unsupported-drill-author-scheme-quarantined:unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "canonical_id": null,
+      "section": "canonical",
+      "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "readback_context": "direct-single-relay-canonical-absence-check",
+      "observed": false,
+      "latency_ms": null,
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "write_id": null,
+      "observed_digest": null,
+      "fixture": "unsupported-drill-author-scheme-quarantined"
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-covered-by-slice-7c",
+      "object_class": "state-resolution matrix",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "Slice 7C state-resolution matrix remains covered by pnpm test:mesh:state-resolution-drills; Slice 13B verifies conflict/protocol fixtures."
+    }
+  ],
+  "conflict_fixtures": [
+    {
+      "fixture": "same-key-concurrent-deterministic-writes",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "conflict-same-key-df062444460e5a71",
+      "object_class": "same-key deterministic write",
+      "expected_winner_write_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+      "observed_winner_write_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+      "competing_write_ids": [
+        "conflict-candidate-a-20260510T225919Z-f178109a",
+        "conflict-candidate-b-20260510T225919Z-1a3c4913"
+      ],
+      "duplicate_count": 0,
+      "disposition": "accepted",
+      "status": "pass",
+      "reason": "same-key concurrent candidates resolved to one canonical deterministic winner on every relay"
+    },
+    {
+      "fixture": "stale-overwrite-attempt-rejected",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "conflict-stale-overwrite-df062444460e5a71",
+      "object_class": "stale overwrite guard",
+      "expected_winner_write_id": "conflict-fresh-winner-20260510T225921Z-4322a360",
+      "observed_winner_write_id": "conflict-fresh-winner-20260510T225921Z-4322a360",
+      "competing_write_ids": [
+        "conflict-fresh-winner-20260510T225921Z-4322a360",
+        "conflict-stale-attempt-20260510T225921Z-398807e3"
+      ],
+      "duplicate_count": 0,
+      "disposition": "accepted-with-stale-rejection",
+      "named_failure": "stale-write-rejected",
+      "status": "pass",
+      "reason": "newer canonical row remained the winner and stale overwrite attempt was recorded only as rejected evidence"
+    },
+    {
+      "fixture": "future-protocol-version-rejected",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "future-protocol-version-rejected-df062444460e5a71",
+      "object_class": "protocol schema reject fixture",
+      "expected_winner_write_id": null,
+      "observed_winner_write_id": null,
+      "competing_write_ids": [
+        "future-protocol-version-rejected-20260510T225924Z-460ef696"
+      ],
+      "duplicate_count": 0,
+      "disposition": "rejected",
+      "named_failure": "protocol_version_unsupported",
+      "health_reason": "protocol_version_unsupported",
+      "status": "pass",
+      "reason": "future-protocol-version-rejected was rejected with protocol_version_unsupported and did not appear as canonical"
+    },
+    {
+      "fixture": "unknown-schema-version-quarantined",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "unknown-schema-version-quarantined-df062444460e5a71",
+      "object_class": "protocol schema reject fixture",
+      "expected_winner_write_id": null,
+      "observed_winner_write_id": null,
+      "competing_write_ids": [
+        "unknown-schema-version-quarantined-20260510T225940Z-f4eba098"
+      ],
+      "duplicate_count": 0,
+      "disposition": "quarantined",
+      "named_failure": "mesh-schema-version-unknown",
+      "health_reason": "mesh-schema-version-unknown",
+      "status": "pass",
+      "reason": "unknown-schema-version-quarantined was quarantined with mesh-schema-version-unknown and did not appear as canonical"
+    },
+    {
+      "fixture": "missing-drill-author-scheme-quarantined",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+      "object_class": "protocol schema reject fixture",
+      "expected_winner_write_id": null,
+      "observed_winner_write_id": null,
+      "competing_write_ids": [
+        "missing-drill-author-scheme-quarantined-20260510T225957Z-bfc5bb6e"
+      ],
+      "duplicate_count": 0,
+      "disposition": "quarantined",
+      "named_failure": "mesh-author-scheme-missing",
+      "health_reason": "mesh-author-scheme-missing",
+      "status": "pass",
+      "reason": "missing-drill-author-scheme-quarantined was quarantined with mesh-author-scheme-missing and did not appear as canonical"
+    },
+    {
+      "fixture": "unsupported-drill-author-scheme-quarantined",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+      "object_class": "protocol schema reject fixture",
+      "expected_winner_write_id": null,
+      "observed_winner_write_id": null,
+      "competing_write_ids": [
+        "unsupported-drill-author-scheme-quarantined-20260510T230013Z-df814a57"
+      ],
+      "duplicate_count": 0,
+      "disposition": "quarantined",
+      "named_failure": "mesh-author-scheme-unsupported",
+      "health_reason": "mesh-author-scheme-unsupported",
+      "status": "pass",
+      "reason": "unsupported-drill-author-scheme-quarantined was quarantined with mesh-author-scheme-unsupported and did not appear as canonical"
+    },
+    {
+      "fixture": "legacy-fixture-replay",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "object_id": null,
+      "object_class": "legacy replay corpus",
+      "expected_winner_write_id": null,
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "duplicate_count": null,
+      "disposition": "skipped",
+      "named_failure": "corpus-not-present",
+      "status": "skipped",
+      "reason": "No replayable legacy conflict corpus exists under packages/e2e/fixtures/mesh-conflict/legacy or packages/e2e/fixtures/mesh-drill/legacy."
+    }
+  ],
+  "read_repair_drills": [],
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated production write classes through LUMA reader path",
+      "trace_id": "trace-20260510T225919Z-7cfcc855",
+      "status": "skipped",
+      "reason": "Slice 13B exercises synthetic mesh conflict/protocol fixtures only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": null,
+    "lww_diverged": false,
+    "status": "skipped",
+    "reason": "Slice 13A owns the full clock-skew/auth-window matrix."
+  },
+  "cleanup": {
+    "namespace": "vh/__mesh_drills/mesh-conflict-20260510T225919Z-a521b3af/conflict/*",
+    "ttl_ms": 86400000,
+    "objects_written": 9,
+    "objects_cleaned_or_tombstoned": 27,
+    "retained_objects": 0,
+    "status": "pass",
+    "attempts": [
+      {
+        "relay_id": "relay-a",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-a-20260510T225919Z-f178109a",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-a-20260510T225919Z-f178109a",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-a-20260510T225919Z-f178109a",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "attempts",
+        "node_id": "conflict-candidate-b-20260510T225919Z-1a3c4913",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "canonical",
+        "node_id": "conflict-same-key-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "canonical",
+        "node_id": "conflict-same-key-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "same-key-concurrent-deterministic-writes",
+        "section": "canonical",
+        "node_id": "conflict-same-key-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "canonical",
+        "node_id": "conflict-stale-overwrite-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "canonical",
+        "node_id": "conflict-stale-overwrite-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "canonical",
+        "node_id": "conflict-stale-overwrite-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "rejected",
+        "node_id": "conflict-stale-attempt-20260510T225921Z-398807e3",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "rejected",
+        "node_id": "conflict-stale-attempt-20260510T225921Z-398807e3",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "stale-overwrite-attempt-rejected",
+        "section": "rejected",
+        "node_id": "conflict-stale-attempt-20260510T225921Z-398807e3",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "future-protocol-version-rejected",
+        "section": "rejected",
+        "node_id": "future-protocol-version-rejected-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "future-protocol-version-rejected",
+        "section": "rejected",
+        "node_id": "future-protocol-version-rejected-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "future-protocol-version-rejected",
+        "section": "rejected",
+        "node_id": "future-protocol-version-rejected-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "unknown-schema-version-quarantined",
+        "section": "quarantine",
+        "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "unknown-schema-version-quarantined",
+        "section": "quarantine",
+        "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "unknown-schema-version-quarantined",
+        "section": "quarantine",
+        "node_id": "unknown-schema-version-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "missing-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "missing-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "missing-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "missing-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-a",
+        "case_id": "unsupported-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "case_id": "unsupported-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "case_id": "unsupported-drill-author-scheme-quarantined",
+        "section": "quarantine",
+        "node_id": "unsupported-drill-author-scheme-quarantined-df062444460e5a71",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      }
+    ]
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 2,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": [
+      "protocol_version_unsupported",
+      "mesh-schema-version-unknown",
+      "mesh-author-scheme-missing",
+      "mesh-author-scheme-unsupported"
+    ]
+  },
+  "release_claims": {
+    "allowed": [
+      "The local non-LUMA mesh conflict/protocol fixture matrix passed for same-key deterministic writes, stale overwrite rejection, and protocol/schema quarantine rows."
+    ],
+    "forbidden": [
+      "The mesh is release_ready.",
+      "Public WSS conflict behavior is production-proven.",
+      "LUMA-gated production write classes are mesh-readiness-proven.",
+      "LUMA public schema migrations are covered by this synthetic conflict drill.",
+      "The full app is test-group ready."
+    ],
+    "invalidated_by_luma_epoch_change": false
+  },
+  "downstream_canary": {
+    "command": "pnpm check:production-app-canary",
+    "status": "skipped",
+    "reason": "downstream full-app production canary is out of scope for Slice 13B"
+  }
+}
