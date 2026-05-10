@@ -195,6 +195,17 @@ Directory requirements:
 - Bundled snapshot for offline startup
 - Versioned update source
 - Schema validation before replacing local cache
+- Remote public snapshots at `vh/civic/reps/<jurisdictionVersion>` are
+  system-writer records. New Gun-client snapshot writes carry
+  `_writerKind: 'system'`, `_protocolVersion: 'luma-public-v1'`,
+  `_systemWriterId`, `_systemIssuedAt`, `_systemSignature`, and an explicit
+  `jurisdictionVersion` path-binding field around the
+  `RepresentativeDirectory` payload. Readers validate system-marked snapshots
+  through the shared system-writer validator and fail closed with
+  `system-writer-validation-failed` rather than downgrading invalid system
+  records through legacy parsing. Legacy bare and safe `_writerKind: 'legacy'`
+  directory snapshots remain read-compatible when they validate against
+  `RepresentativeDirectorySchema`.
 
 ```ts
 async function checkForDirectoryUpdate(localVersion: string): Promise<boolean> {
@@ -534,8 +545,9 @@ XP invariants:
 
 ### 10.2 Directory
 
-- [ ] Representative directory file and validation
+- [x] Representative directory file and validation
 - [ ] lookup by `district_hash`
+- [x] system-writer public snapshot adapter and `pnpm check:luma-civic-reps-system-v1`
 - [ ] versioned update script
 
 ### 10.3 Gun adapters

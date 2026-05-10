@@ -704,14 +704,16 @@ also landed as a topic-domain system-writer migration.
 `vh/topics/<topicId>/digests/<digestId>` topic digest records have also landed
 as a topic-domain system-writer migration.
 `vh/aggregates/topics/<topicId>/engagement/summary` topic engagement summary
-records have also landed as a topic-domain system-writer migration. They sign
+records have also landed as a topic-domain system-writer migration.
+`vh/civic/reps/<jurisdictionVersion>` civic representative directory snapshots
+have also landed as a civic-domain system-writer migration. They sign
 the stored
 story, storyline, latest-index child, hot-index child, analysis artifact,
 analysis latest pointer, topic synthesis epoch, and topic synthesis latest
-node wrappers plus topic digest and topic engagement summary node wrappers with
-the build-pinned system-writer key and leave discovery and topic engagement
-actor nodes for later system-writer slices or their owning contracts. The
-storyline
+node wrappers plus topic digest, topic engagement summary, and civic
+representative directory snapshot node wrappers with the build-pinned
+system-writer key and leave discovery and topic engagement actor nodes for later
+system-writer slices or their owning contracts. The storyline
 migration does not migrate the `vh/news/storylines/` root map or removal
 tombstones into system records. The index migration does not migrate the
 `vh/news/index/latest/` or `vh/news/index/hot/` root maps, nor any removal
@@ -726,6 +728,9 @@ its own migration below.
 The topic engagement summary migration does not migrate actor nodes, discovery
 indexes, aggregate voter/snapshot adapters, mesh evidence artifacts, or removal
 tombstones into system records.
+The civic representative snapshot migration does not migrate identity directory
+schemas, bridge action/receipt/stat adapters, discovery indexes, mesh evidence
+artifacts, relay, or browser signing surfaces into system records.
 
 `pnpm check:luma-news-analysis-system-v1` guards the analysis artifact and
 analysis latest pointer system-writer migration.
@@ -735,6 +740,8 @@ epoch/latest records system-writer migration.
 system-writer migration.
 `pnpm check:luma-topic-engagement-summary-system-v1` guards the topic
 engagement summary system-writer migration.
+`pnpm check:luma-civic-reps-system-v1` guards the civic representative
+directory snapshot system-writer migration.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
