@@ -1,0 +1,556 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-10T21:39:11.640Z",
+  "run_id": "mesh-clock-skew-20260510T213850Z-a5bf5b78",
+  "schema_epoch": "post_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "landed",
+    "luma_gated_write_drills": "pending",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "clock skew lww guard": "mesh-drill",
+    "relay user-signature timestamp window": "mesh-drill",
+    "signed peer-config validity window": "mesh-drill"
+  },
+  "repo": {
+    "branch": "coord/mesh-current-main-canonical-durable-luma-evidence-2",
+    "commit": "e5ae7272f59f023aa5dd6fabcede91d1e3994568",
+    "base_ref": "80eaa59308f3f517f953c1f6b66a7d973c22fcf0",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_clock_skew_matrix",
+    "deployment_scope": "local_tls_wss_profile",
+    "started_at": "2026-05-10T21:38:50.167Z",
+    "completed_at": "2026-05-10T21:39:11.640Z",
+    "duration_ms": 21473,
+    "command": "pnpm test:mesh:clock-skew-drills"
+  },
+  "status": "review_required",
+  "topology": {
+    "strategy": "explicit_replication",
+    "selected_strategy": "explicit_read_repair",
+    "selected_strategy_scope": "clock-skew matrix uses synthetic mesh-drill records only; no production LUMA writes are exercised",
+    "deployment_scope": "local_tls_wss_profile",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "relay_ids": [
+      "relay-a",
+      "relay-b",
+      "relay-c"
+    ],
+    "relay_urls_redacted": [
+      "http://redacted-host-977e9dbcfd2c/gun",
+      "http://redacted-host-51cd7d6e8911/gun",
+      "http://redacted-host-e9d5a21aa1ee/gun"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_peer_auth_window": {
+      "fixture": "relay-peer-auth-window",
+      "skewed_actor": "relay",
+      "skewed_layer": "relay-peer-handshake-timestamp-window",
+      "skew_ms": 0,
+      "named_failure": "not-applicable:v0-private-network-allowlist",
+      "health_reason": null,
+      "lww_diverged": false,
+      "status": "skipped",
+      "reason": "v0 relay peer auth is private_network_allowlist/token based and has no timestamped signed relay-peer handshake to skew; production browser-compatible signed handshake remains a separate future surface."
+    }
+  },
+  "clock_skew": {
+    "skewed_actor": "browser",
+    "skewed_layer": "os-clock",
+    "skew_ms": 600000,
+    "named_failure": "clock-skew-detected",
+    "lww_diverged": false,
+    "status": "pass",
+    "matrix_rows": [
+      {
+        "fixture": "stale-user-signature",
+        "skewed_actor": "browser-or-client",
+        "skewed_layer": "relay-user-signature-timestamp-window",
+        "skew_ms": -600000,
+        "named_failure": "user-signature-stale",
+        "relay_id": "relay-a",
+        "http_status_code": 401,
+        "health_reason": "clock-skew-detected",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "stale-user-signature relay user-signature timestamp was rejected with user-signature-stale"
+      },
+      {
+        "fixture": "future-user-signature",
+        "skewed_actor": "browser-or-client",
+        "skewed_layer": "relay-user-signature-timestamp-window",
+        "skew_ms": 600000,
+        "named_failure": "user-signature-stale",
+        "relay_id": "relay-b",
+        "http_status_code": 401,
+        "health_reason": "clock-skew-detected",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "future-user-signature relay user-signature timestamp was rejected with user-signature-stale"
+      },
+      {
+        "fixture": "expired",
+        "skewed_actor": "browser",
+        "skewed_layer": "signed-peer-config-validity-window",
+        "skew_ms": 0,
+        "named_failure": "[vh:gun] peer config is expired",
+        "health_reason": "peer-config-expired",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "[vh:gun] peer config is expired"
+      },
+      {
+        "fixture": "futureIssued",
+        "skewed_actor": "browser",
+        "skewed_layer": "signed-peer-config-validity-window",
+        "skew_ms": 0,
+        "named_failure": "[vh:gun] peer config is not yet valid",
+        "health_reason": "peer-config-not-yet-valid",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "[vh:gun] peer config is not yet valid"
+      },
+      {
+        "fixture": "browserClockExpired",
+        "skewed_actor": "browser-os-clock-shim",
+        "skewed_layer": "signed-peer-config-validity-window",
+        "skew_ms": 54774,
+        "named_failure": "[vh:gun] peer config is expired",
+        "health_reason": "peer-config-expired",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "[vh:gun] peer config is expired"
+      },
+      {
+        "fixture": "stable-id-skewed-writer-lww-guard",
+        "skewed_actor": "writer",
+        "skewed_layer": "mesh-drill-writer-issued-at",
+        "skew_ms": 600000,
+        "named_failure": null,
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "all relays observed the deterministic final skew-guard write without LWW divergence"
+      },
+      {
+        "fixture": "relay-peer-auth-window",
+        "skewed_actor": "relay",
+        "skewed_layer": "relay-peer-handshake-timestamp-window",
+        "skew_ms": 0,
+        "named_failure": "not-applicable:v0-private-network-allowlist",
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "skipped",
+        "reason": "v0 relay peer auth is private_network_allowlist/token based and has no timestamped signed relay-peer handshake to skew; production browser-compatible signed handshake remains a separate future surface."
+      },
+      {
+        "fixture": "luma-session-expiry",
+        "skewed_actor": "reader",
+        "skewed_layer": "luma-clock",
+        "skew_ms": 0,
+        "named_failure": "skipped:luma-clock-owned-by-luma-gates",
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "skipped",
+        "reason": "LUMA session expiry must use the LUMA injectable Clock and is deferred to LUMA gates."
+      },
+      {
+        "fixture": "luma-signed-write-envelope-issued-at",
+        "skewed_actor": "reader",
+        "skewed_layer": "luma-clock",
+        "skew_ms": 0,
+        "named_failure": "skipped:luma-envelope-owned-by-luma-gates",
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "skipped",
+        "reason": "LUMA SignedWriteEnvelope issuedAt skew is not a mesh OS-clock failure and is deferred to LUMA reader gates."
+      }
+    ],
+    "browser_peer_config": {
+      "status": "pass",
+      "steps": [
+        {
+          "name": "web-pwa strict peer-config build",
+          "command": "pnpm --filter @vh/web-pwa build",
+          "duration_ms": 4451,
+          "exit_code": 0,
+          "status": "pass"
+        },
+        {
+          "name": "browser signed peer-config clock-window proof",
+          "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-clock-skew.config.ts src/mesh/clock-skew-drills.spec.ts",
+          "duration_ms": 1907,
+          "exit_code": 0,
+          "status": "pass"
+        }
+      ],
+      "manifest_path": "./.tmp/mesh-production-readiness/mesh-clock-skew-20260510T213850Z-a5bf5b78/clock-skew-browser-manifest.json",
+      "browser_evidence_path": "./.tmp/mesh-production-readiness/mesh-clock-skew-20260510T213850Z-a5bf5b78/clock-skew-browser-evidence.json",
+      "config_url_redacted": "http://redacted-host-e2f7439fad85/%3Credacted%3E",
+      "public_key_fingerprint": "9c1aa87da2782cc9",
+      "rows": [
+        {
+          "fixture": "expired",
+          "status": "pass",
+          "expected_error": "peer config is expired",
+          "observed_error": "[vh:gun] peer config is expired",
+          "skewed_actor": "browser",
+          "skewed_layer": "signed-peer-config-validity-window",
+          "skew_ms": 0,
+          "opened_socket_hosts": [],
+          "client_peers": []
+        },
+        {
+          "fixture": "futureIssued",
+          "status": "pass",
+          "expected_error": "peer config is not yet valid",
+          "observed_error": "[vh:gun] peer config is not yet valid",
+          "skewed_actor": "browser",
+          "skewed_layer": "signed-peer-config-validity-window",
+          "skew_ms": 0,
+          "opened_socket_hosts": [],
+          "client_peers": []
+        },
+        {
+          "fixture": "browserClockExpired",
+          "status": "pass",
+          "expected_error": "peer config is expired",
+          "observed_error": "[vh:gun] peer config is expired",
+          "skewed_actor": "browser-os-clock-shim",
+          "skewed_layer": "signed-peer-config-validity-window",
+          "skew_ms": 54774,
+          "opened_socket_hosts": [],
+          "client_peers": []
+        }
+      ],
+      "missing_fixtures": [],
+      "reason": "strict browser peer-config validity-window rows failed closed without opening peer sockets"
+    },
+    "relay_user_signature_auth": [
+      {
+        "fixture": "stale-user-signature",
+        "skewed_actor": "browser-or-client",
+        "skewed_layer": "relay-user-signature-timestamp-window",
+        "skew_ms": -600000,
+        "named_failure": "user-signature-stale",
+        "relay_id": "relay-a",
+        "http_status_code": 401,
+        "health_reason": "clock-skew-detected",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "stale-user-signature relay user-signature timestamp was rejected with user-signature-stale"
+      },
+      {
+        "fixture": "future-user-signature",
+        "skewed_actor": "browser-or-client",
+        "skewed_layer": "relay-user-signature-timestamp-window",
+        "skew_ms": 600000,
+        "named_failure": "user-signature-stale",
+        "relay_id": "relay-b",
+        "http_status_code": 401,
+        "health_reason": "clock-skew-detected",
+        "lww_diverged": false,
+        "status": "pass",
+        "reason": "future-user-signature relay user-signature timestamp was rejected with user-signature-stale"
+      }
+    ],
+    "relay_peer_auth_window": {
+      "fixture": "relay-peer-auth-window",
+      "skewed_actor": "relay",
+      "skewed_layer": "relay-peer-handshake-timestamp-window",
+      "skew_ms": 0,
+      "named_failure": "not-applicable:v0-private-network-allowlist",
+      "health_reason": null,
+      "lww_diverged": false,
+      "status": "skipped",
+      "reason": "v0 relay peer auth is private_network_allowlist/token based and has no timestamped signed relay-peer handshake to skew; production browser-compatible signed handshake remains a separate future surface."
+    },
+    "luma_clock_rows": [
+      {
+        "fixture": "luma-session-expiry",
+        "skewed_actor": "reader",
+        "skewed_layer": "luma-clock",
+        "skew_ms": 0,
+        "named_failure": "skipped:luma-clock-owned-by-luma-gates",
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "skipped",
+        "reason": "LUMA session expiry must use the LUMA injectable Clock and is deferred to LUMA gates."
+      },
+      {
+        "fixture": "luma-signed-write-envelope-issued-at",
+        "skewed_actor": "reader",
+        "skewed_layer": "luma-clock",
+        "skew_ms": 0,
+        "named_failure": "skipped:luma-envelope-owned-by-luma-gates",
+        "health_reason": null,
+        "lww_diverged": false,
+        "status": "skipped",
+        "reason": "LUMA SignedWriteEnvelope issuedAt skew is not a mesh OS-clock failure and is deferred to LUMA reader gates."
+      }
+    ],
+    "reason": "applicable non-LUMA mesh clock-skew/auth-window rows passed; LUMA clock/envelope rows are explicitly skipped"
+  },
+  "write_class_slos": [
+    {
+      "write_class": "clock skew lww guard",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "p95_latency_ms": 275,
+      "p95_budget_ms": 10000,
+      "duplicate_canonical_writes": 0,
+      "dropped_writes": 0,
+      "status": "pass",
+      "reason": "all relays observed the deterministic final skew-guard write without LWW divergence"
+    }
+  ],
+  "resource_slos": [
+    {
+      "resource": "clock-skew-browser-proof",
+      "observed": 1,
+      "budget": 1,
+      "status": "pass",
+      "reason": "strict browser peer-config validity-window rows failed closed without opening peer sockets"
+    }
+  ],
+  "per_relay_readback": [
+    {
+      "relay_id": "relay-a",
+      "write_class": "clock skew lww guard",
+      "object_id": "clock-skew-lww-5d42a6d76522e389",
+      "logical_key": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+      "canonical_id": "clock-skew-lww-5d42a6d76522e389",
+      "section": "canonical",
+      "node_id": "clock-skew-lww-5d42a6d76522e389",
+      "readback_context": "direct-single-relay-clock-skew-lww-guard",
+      "observed": true,
+      "latency_ms": 134,
+      "trace_id": "trace-20260510T213850Z-046ed17e",
+      "write_id": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+      "observed_digest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+      "record": {
+        "_drillAuthorScheme": "mesh-drill-stable-id-skewed-writer-lww-guard-author-v1",
+        "_drillCanonicalId": "clock-skew-lww-5d42a6d76522e389",
+        "_drillExpiresAt": 1778535530283,
+        "_drillIssuedAt": 1778449730283,
+        "_drillLogicalKey": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+        "_drillPayloadDigest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+        "_drillProfile": "local_clock_skew_matrix",
+        "_drillRunId": "mesh-clock-skew-20260510T213850Z-a5bf5b78",
+        "_drillSignature": "dsphsLXuA6Wp6jl2dWyfO7md1vVOaiqesZ-u5gFaVuJobedEqLO7kyWDC0328MITdWn6VxV2wJ5X0Ob9muY0CQ",
+        "_drillSignatureSuite": "jcs-ed25519-sha256-v1",
+        "_drillSignerId": "local-mesh-clock-skew-ephemeral-ed25519-v1",
+        "_drillTraceId": "trace-20260510T213850Z-046ed17e",
+        "_drillWriteId": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+        "_drillWriterKind": "mesh-drill",
+        "caseId": "stable-id-skewed-writer-lww-guard",
+        "objectClass": "clock skew lww guard",
+        "objectId": "clock-skew-lww-5d42a6d76522e389",
+        "payloadJson": "{\"case_id\":\"stable-id-skewed-writer-lww-guard\",\"node_id\":\"clock-skew-lww-5d42a6d76522e389\",\"run_id\":\"mesh-clock-skew-20260510T213850Z-a5bf5b78\",\"state\":{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000},\"trace_id\":\"trace-20260510T213850Z-046ed17e\",\"write_id\":\"clock-skew-future-writer-20260510T213850Z-e19b76c0\"}",
+        "recordKind": "canonical-write",
+        "schemaVersion": "mesh-clock-skew-drill-record-v1",
+        "stateJson": "{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000}"
+      }
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "clock skew lww guard",
+      "object_id": "clock-skew-lww-5d42a6d76522e389",
+      "logical_key": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+      "canonical_id": "clock-skew-lww-5d42a6d76522e389",
+      "section": "canonical",
+      "node_id": "clock-skew-lww-5d42a6d76522e389",
+      "readback_context": "direct-single-relay-clock-skew-lww-guard",
+      "observed": true,
+      "latency_ms": 130,
+      "trace_id": "trace-20260510T213850Z-046ed17e",
+      "write_id": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+      "observed_digest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+      "record": {
+        "_drillAuthorScheme": "mesh-drill-stable-id-skewed-writer-lww-guard-author-v1",
+        "_drillCanonicalId": "clock-skew-lww-5d42a6d76522e389",
+        "_drillExpiresAt": 1778535530283,
+        "_drillIssuedAt": 1778449730283,
+        "_drillLogicalKey": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+        "_drillPayloadDigest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+        "_drillProfile": "local_clock_skew_matrix",
+        "_drillRunId": "mesh-clock-skew-20260510T213850Z-a5bf5b78",
+        "_drillSignature": "dsphsLXuA6Wp6jl2dWyfO7md1vVOaiqesZ-u5gFaVuJobedEqLO7kyWDC0328MITdWn6VxV2wJ5X0Ob9muY0CQ",
+        "_drillSignatureSuite": "jcs-ed25519-sha256-v1",
+        "_drillSignerId": "local-mesh-clock-skew-ephemeral-ed25519-v1",
+        "_drillTraceId": "trace-20260510T213850Z-046ed17e",
+        "_drillWriteId": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+        "_drillWriterKind": "mesh-drill",
+        "caseId": "stable-id-skewed-writer-lww-guard",
+        "objectClass": "clock skew lww guard",
+        "objectId": "clock-skew-lww-5d42a6d76522e389",
+        "payloadJson": "{\"case_id\":\"stable-id-skewed-writer-lww-guard\",\"node_id\":\"clock-skew-lww-5d42a6d76522e389\",\"run_id\":\"mesh-clock-skew-20260510T213850Z-a5bf5b78\",\"state\":{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000},\"trace_id\":\"trace-20260510T213850Z-046ed17e\",\"write_id\":\"clock-skew-future-writer-20260510T213850Z-e19b76c0\"}",
+        "recordKind": "canonical-write",
+        "schemaVersion": "mesh-clock-skew-drill-record-v1",
+        "stateJson": "{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000}"
+      }
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "clock skew lww guard",
+      "object_id": "clock-skew-lww-5d42a6d76522e389",
+      "logical_key": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+      "canonical_id": "clock-skew-lww-5d42a6d76522e389",
+      "section": "canonical",
+      "node_id": "clock-skew-lww-5d42a6d76522e389",
+      "readback_context": "direct-single-relay-clock-skew-lww-guard",
+      "observed": true,
+      "latency_ms": 130,
+      "trace_id": "trace-20260510T213850Z-046ed17e",
+      "write_id": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+      "observed_digest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+      "record": {
+        "payloadJson": "{\"case_id\":\"stable-id-skewed-writer-lww-guard\",\"node_id\":\"clock-skew-lww-5d42a6d76522e389\",\"run_id\":\"mesh-clock-skew-20260510T213850Z-a5bf5b78\",\"state\":{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000},\"trace_id\":\"trace-20260510T213850Z-046ed17e\",\"write_id\":\"clock-skew-future-writer-20260510T213850Z-e19b76c0\"}",
+        "recordKind": "canonical-write",
+        "schemaVersion": "mesh-clock-skew-drill-record-v1",
+        "stateJson": "{\"expectedWinner\":true,\"kind\":\"clock-skew-lww-guard\",\"logicalVersion\":2,\"writerClockOffsetMs\":600000}",
+        "_drillAuthorScheme": "mesh-drill-stable-id-skewed-writer-lww-guard-author-v1",
+        "_drillCanonicalId": "clock-skew-lww-5d42a6d76522e389",
+        "_drillExpiresAt": 1778535530283,
+        "_drillIssuedAt": 1778449730283,
+        "_drillLogicalKey": "stable-id-skewed-writer-lww-guard:clock-skew-lww-5d42a6d76522e389",
+        "_drillPayloadDigest": "1bfa674e7b8c687f44c88ea05d6db8137b436cc673de19694695f55ad4125856",
+        "_drillProfile": "local_clock_skew_matrix",
+        "_drillRunId": "mesh-clock-skew-20260510T213850Z-a5bf5b78",
+        "_drillSignature": "dsphsLXuA6Wp6jl2dWyfO7md1vVOaiqesZ-u5gFaVuJobedEqLO7kyWDC0328MITdWn6VxV2wJ5X0Ob9muY0CQ",
+        "_drillSignatureSuite": "jcs-ed25519-sha256-v1",
+        "_drillSignerId": "local-mesh-clock-skew-ephemeral-ed25519-v1",
+        "_drillTraceId": "trace-20260510T213850Z-046ed17e",
+        "_drillWriteId": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+        "_drillWriterKind": "mesh-drill",
+        "caseId": "stable-id-skewed-writer-lww-guard",
+        "objectClass": "clock skew lww guard",
+        "objectId": "clock-skew-lww-5d42a6d76522e389"
+      }
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_class": "clock skew lww guard",
+      "state_rule": "deterministic-stable-id-no-lww-divergence",
+      "expected_winner_write_id": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+      "observed_winner_write_id": "clock-skew-future-writer-20260510T213850Z-e19b76c0",
+      "competing_write_ids": [
+        "clock-skew-stale-writer-20260510T213850Z-a36f33e9",
+        "clock-skew-future-writer-20260510T213850Z-e19b76c0"
+      ],
+      "down_relay_id": null,
+      "status": "pass",
+      "violation_reason": null
+    }
+  ],
+  "conflict_fixtures": [
+    {
+      "fixture": "[removed-stale-placeholder:181f93174d9f]",
+      "trace_id": "trace-20260510T213850Z-046ed17e",
+      "status": "skipped",
+      "reason": "pnpm test:mesh:conflict-drills is out of scope for Slice 13A"
+    }
+  ],
+  "read_repair_drills": [],
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated production write classes through LUMA reader path",
+      "trace_id": "trace-20260510T213850Z-046ed17e",
+      "status": "skipped",
+      "reason": "Slice 13A exercises non-LUMA mesh clock/auth windows only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "vh/__mesh_drills/mesh-clock-skew-20260510T213850Z-a5bf5b78/clock_skew/*",
+    "objects_written": 2,
+    "objects_cleaned_or_tombstoned": 3,
+    "retained_objects": 0,
+    "status": "pass",
+    "attempts": [
+      {
+        "relay_id": "relay-a",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": false,
+            "retained_after_tombstone": false,
+            "error": "put-ack-timeout"
+          },
+          {
+            "attempt": 2,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "tombstone_ack": true,
+        "retained_after_tombstone": false,
+        "error": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "tombstone_ack": true,
+            "retained_after_tombstone": false,
+            "error": null
+          }
+        ]
+      }
+    ]
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 2,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": [
+      "clock-skew-detected",
+      "peer-config-expired",
+      "peer-config-not-yet-valid"
+    ]
+  },
+  "release_claims": {
+    "allowed": [
+      "The local non-LUMA mesh clock-skew/auth-window matrix passed for relay user signatures, signed peer-config validity windows, and deterministic synthetic drill records."
+    ],
+    "forbidden": [
+      "The mesh is release_ready.",
+      "Public WSS clock-skew behavior is production-proven.",
+      "LUMA session/envelope clock behavior is mesh-readiness-proven.",
+      "The default shortened local soak satisfies the canonical thirty-minute soak claim.",
+      "LUMA-gated production write classes are mesh-readiness-proven.",
+      "The full app is test-group ready."
+    ],
+    "invalidated_by_luma_epoch_change": false
+  },
+  "downstream_canary": {
+    "command": "pnpm check:production-app-canary",
+    "status": "skipped",
+    "reason": "downstream full-app production canary is out of scope for Slice 13A"
+  }
+}
