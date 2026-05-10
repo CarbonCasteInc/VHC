@@ -1,0 +1,196 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-10T20:13:31.185Z",
+  "run_id": "mesh-signed-peer-config-1778443986718-9d821866",
+  "repo": {
+    "branch": "coord/mesh-current-main-canonical-durable-luma-evidence-2",
+    "commit": "80eaa59308f3f517f953c1f6b66a7d973c22fcf0",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_signed_peer_config_browser_boot",
+    "started_at": "2026-05-10T20:13:06.718Z",
+    "completed_at": "2026-05-10T20:13:31.185Z",
+    "duration_ms": 24467,
+    "command": "pnpm test:mesh:signed-peer-config-canary"
+  },
+  "status": "review_required",
+  "status_reason": "Slice 6A signed local peer-config browser boot proof passed; full mesh production readiness remains review_required because deployed WSS, restarted catch-up, state-resolution, clock-skew, partition/heal, soak, evidence scrub, and post-M0.B LUMA-gated write sections remain pending.",
+  "schema_epoch": "pre_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "pending",
+    "luma_gated_write_drills": "n/a",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "synthetic mesh drill object": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": true,
+    "relay_urls_redacted": [
+      "redactedUrlHash:1d3d2d4ef004633f",
+      "redactedUrlHash:1d3d2d4ef004633f",
+      "redactedUrlHash:1d3d2d4ef004633f"
+    ],
+    "relay_ids": [
+      "signed-relay-a",
+      "signed-relay-b",
+      "signed-relay-c"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_to_relay_auth_negative_test": "skipped",
+    "relay_to_relay_auth_negative_test_reason": "covered by pnpm test:mesh:topology-drills; this canary exercises app signed peer-config consumption",
+    "peer_config_id": "local-three-relay-mesh-signed-peer-config-1778443986718-9d821866",
+    "peer_config_issued_at": "2026-05-10T20:13:06.723Z",
+    "peer_config_expires_at": "2026-05-10T21:13:06.723Z",
+    "app_peer_config": {
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "config_id": "local-three-relay-mesh-signed-peer-config-1778443986718-9d821866",
+      "minimum_peer_count": 3,
+      "quorum_required": 2,
+      "local_mesh_peers_allowed": true
+    }
+  },
+  "gates": [
+    {
+      "name": "local-signed-peer-config-browser-boot",
+      "status": "pass",
+      "command": "pnpm test:mesh:signed-peer-config-canary",
+      "duration_ms": 24467,
+      "exit_code": 0,
+      "artifact_path": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778443986718-9d821866/signed-peer-config-browser-evidence.json",
+      "reason": "Web PWA boot used resolveGunPeerTopology with source remote-config, strict true, signed true, three local relays, quorum two, and deterministic fail-closed negative cases."
+    },
+    {
+      "name": "local-three-relay-peer-kill-write-readback",
+      "status": "skipped",
+      "command": "pnpm test:mesh:topology-drills",
+      "duration_ms": 0,
+      "exit_code": null,
+      "reason": "standalone transport proof remains owned by pnpm test:mesh:topology-drills and must not be counted as signed browser peer-config evidence"
+    }
+  ],
+  "gate_steps": [
+    {
+      "name": "build-common-signed-peer-config",
+      "command": "pnpm --filter @vh/web-pwa build",
+      "duration_ms": 6194,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    {
+      "name": "playwright-common-signed-peer-config",
+      "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-signed-peer-config.config.ts src/mesh/signed-peer-config-canary.spec.ts --grep @common",
+      "duration_ms": 4410,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    {
+      "name": "build-missing-public-key",
+      "command": "pnpm --filter @vh/web-pwa build",
+      "duration_ms": 4648,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    {
+      "name": "playwright-missing-public-key",
+      "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-signed-peer-config.config.ts src/mesh/signed-peer-config-canary.spec.ts --grep @build-failure",
+      "duration_ms": 2460,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    {
+      "name": "build-local-peers-disallowed",
+      "command": "pnpm --filter @vh/web-pwa build",
+      "duration_ms": 4720,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    {
+      "name": "playwright-local-peers-disallowed",
+      "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-signed-peer-config.config.ts src/mesh/signed-peer-config-canary.spec.ts --grep @build-failure",
+      "duration_ms": 2020,
+      "exit_code": 0,
+      "status": "pass"
+    }
+  ],
+  "write_class_slos": [],
+  "resource_slos": [],
+  "per_relay_readback": [],
+  "peer_failure_drills": [
+    {
+      "name": "one-peer-kill-write-readback",
+      "status": "skipped",
+      "reason": "covered by pnpm test:mesh:topology-drills; this command is app signed peer-config boot proof only"
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-skip-pre-luma-m0b",
+      "object_class": "state-resolution matrix",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "Slice 7C state-resolution matrix is out of scope for the signed peer-config browser boot proof."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": "skipped: Slice 9 clock-skew drill is out of scope for the signed peer-config browser boot proof.",
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-1778443986718-398970d8",
+      "status": "skipped",
+      "reason": "schema_epoch is pre_luma_m0b and luma_profile is none; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, or adapter migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "no vh/__mesh_drills writes in signed peer-config browser canary",
+    "ttl_ms": 3600000,
+    "objects_written": 0,
+    "objects_cleaned_or_tombstoned": 0,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 3,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": []
+  },
+  "release_claims": {
+    "allowed": [
+      "The local Web PWA can boot in strict mode from a signed three-relay local peer-config fixture when local mesh peers are explicitly allowed.",
+      "Unsigned, expired, missing-lifecycle-field, impossible-quorum, insufficient-peer, bad-signature, missing-public-key, and local-peers-without-allowance configurations fail closed before a usable Gun client is initialized."
+    ],
+    "forbidden": [
+      "The standalone topology drill proves signed browser peer-config consumption.",
+      "The mesh has production WSS signed peer-config readiness.",
+      "Restarted peers catch up automatically.",
+      "LUMA-gated write classes have mesh transport readiness under the current LUMA schema epoch."
+    ],
+    "invalidated_by_luma_epoch_change": true
+  },
+  "downstream_canary": {
+    "command": "pnpm check:mesh:production-readiness",
+    "status": "skipped",
+    "reason": "full downstream production-readiness gate is not wired in this slice"
+  }
+}
