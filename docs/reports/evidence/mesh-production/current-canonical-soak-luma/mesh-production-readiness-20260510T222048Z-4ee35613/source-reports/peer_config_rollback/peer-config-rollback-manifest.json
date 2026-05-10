@@ -1,0 +1,74 @@
+{
+  "runId": "mesh-peer-config-rollback-1778453928326-78f52307",
+  "traceId": "trace-1778453928326-dbc37a6f",
+  "configId": "rollback-config-a-mesh-peer-config-rollback-1778453928326-78f52307",
+  "forwardConfigId": "rollback-config-b-mesh-peer-config-rollback-1778453928326-78f52307",
+  "rollbackConfigId": "rollback-config-a-fresh-mesh-peer-config-rollback-1778453928326-78f52307",
+  "configUrl": "https://redacted-host-4a75c4b56654/mesh-peer-config.json",
+  "controlSelectUrl": "https://redacted-host-4a75c4b56654/__control/select",
+  "stateUrl": "https://redacted-host-4a75c4b56654/__state",
+  "controlToken": "[redacted:5ce3751b6561]",
+  "peerUrls": [
+    "wss://redacted-host-2694f3a9c776/gun",
+    "wss://redacted-host-7a91e520b725/gun",
+    "wss://redacted-host-98a43493c5fe/gun"
+  ],
+  "forwardPeerUrls": [
+    "wss://redacted-host-98a43493c5fe/gun",
+    "wss://redacted-host-7a91e520b725/gun",
+    "wss://redacted-host-2694f3a9c776/gun"
+  ],
+  "rollbackPeerUrls": [
+    "wss://redacted-host-2694f3a9c776/gun",
+    "wss://redacted-host-7a91e520b725/gun",
+    "wss://redacted-host-98a43493c5fe/gun"
+  ],
+  "relayIds": [
+    "rollback-wss-relay-a",
+    "rollback-wss-relay-b",
+    "rollback-wss-relay-c"
+  ],
+  "publicKey": "WhCyXB1ye_mtX2L-f5x622VEOXzm2IaWXZu2gQbAJ4Q.TwnFB0TZpYvYd8aCQ_0fHaAchMe18WC0mQ5cgmo1-1o",
+  "wrongKeyPublicKey": "1VS5yEJXCA486VV7nfPTQvnLgBXxbt_ZzlaPccLQ_CM.h8HFCYNrHoUDDwGppBLf6Vib9NMRI1DMFvLFrraixbs",
+  "issuedAt": 1778453928331,
+  "expiresAt": 1778457528331,
+  "deploymentScope": "local_tls_wss_profile",
+  "expectedCspConnectSrc": [
+    "wss://redacted-host-2694f3a9c776",
+    "wss://redacted-host-7a91e520b725",
+    "wss://redacted-host-98a43493c5fe",
+    "https://redacted-host-4a75c4b56654"
+  ],
+  "fixtures": {
+    "positive": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-a.json",
+    "rollover": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-b.json",
+    "rollback": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-rollback-to-a-shape.json",
+    "expired": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-expired.json",
+    "unsigned": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-unsigned.json",
+    "bad_signature": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-bad-signature.json",
+    "wrong_key": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-wrong-key.json",
+    "local_peers": "./.tmp/mesh-production-readiness/mesh-peer-config-rollback-1778453928326-78f52307/fixtures/peer-config-local-peers.json"
+  },
+  "invalidFixtures": [
+    {
+      "label": "expired",
+      "expectedError": "peer config is expired"
+    },
+    {
+      "label": "unsigned",
+      "expectedError": "requires a signed peer config"
+    },
+    {
+      "label": "bad_signature",
+      "expectedError": "signed peer config verification failed"
+    },
+    {
+      "label": "wrong_key",
+      "expectedError": "signed peer config verification failed"
+    },
+    {
+      "label": "local_peers",
+      "expectedError": "rejects insecure peer"
+    }
+  ]
+}

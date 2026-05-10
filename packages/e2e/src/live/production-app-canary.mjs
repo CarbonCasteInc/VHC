@@ -185,17 +185,21 @@ function evaluateMeshReportCommit({
   const parentCommits = lines(git(['rev-list', '--parents', '-n', '1', currentCommit], { repoRoot }))
     .flatMap((line) => line.split(/\s+/).slice(1));
   const sourceIsDirectParent = parentCommits.includes(observedCommit);
+  const mergeBase = lines(git(['merge-base', observedCommit, currentCommit], { repoRoot }))[0] || null;
+  const sourceIsAncestor = sourceIsDirectParent || mergeBase === observedCommit;
   const changedPaths = lines(git(['diff', '--name-only', observedCommit, currentCommit], { repoRoot }));
   const diffLimitedToPacket =
     changedPaths.length > 0 &&
     changedPaths.every((changedPath) => changedPath === packetRoot || changedPath.startsWith(`${packetRoot}/`));
 
-  if (sourceIsDirectParent && diffLimitedToPacket) {
+  if (sourceIsAncestor && diffLimitedToPacket) {
     return {
       ok: true,
       expected_commit: currentCommit,
       observed_commit: observedCommit,
-      accepted_via: 'committed_evidence_packet_from_parent',
+      accepted_via: sourceIsDirectParent
+        ? 'committed_evidence_packet_from_parent'
+        : 'committed_evidence_packet_from_ancestor',
       packet_root: packetRoot,
     };
   }
