@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_LUMA_SCHEMA_EPOCH,
   LUMA_GATED_WRITE_COVERAGE_COMMAND,
+  LUMA_GATED_WRITE_COVERAGE_REPORT_NAME,
   LUMA_GATED_WRITE_COVERAGE_REPORT_ENV,
   validateLumaCoverageReport,
 } from './luma-gated-write-coverage.mjs';
@@ -19,6 +20,8 @@ const SOURCE_REPORT_FRESHNESS_TOLERANCE_MS = 5000;
 const EVIDENCE_SCRUB_SOURCE_ID = 'evidence_scrub';
 const EVIDENCE_SCRUB_MODE = 'mesh_evidence_scrub_promotion';
 const EVIDENCE_SCRUB_REPORT_NAME = 'evidence-scrub-source-report.json';
+const LUMA_COVERAGE_SUPPORT_DIR = 'supporting-evidence/luma-gated-write-coverage';
+const LUMA_COVERAGE_SUPPORT_REPORT_PATH = `${LUMA_COVERAGE_SUPPORT_DIR}/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`;
 const REQUIRED_CONFLICT_FIXTURES = [
   'same-key-concurrent-deterministic-writes',
   'stale-overwrite-attempt-rejected',
@@ -142,6 +145,10 @@ function copyDir(src, dest) {
       fs.copyFileSync(sourcePath, destPath);
     }
   }
+}
+
+function packetRelativePath(relativePath) {
+  return `./${relativePath.replaceAll(path.sep, '/')}`;
 }
 
 function commandText(command) {
@@ -374,8 +381,29 @@ export function loadLumaCoverageEvidence({
     provided: true,
     status: validation.ok ? 'pass' : 'blocked',
     report_path: resolvedReportPath,
+    original_report_path: resolvedReportPath,
     report,
     validation,
+  };
+}
+
+export function persistLumaCoverageEvidenceForPacket({ artifactDir, lumaCoverageEvidence }) {
+  if (!lumaCoverageEvidence?.provided || !lumaCoverageEvidence.validation?.ok || !lumaCoverageEvidence.report_path) {
+    return lumaCoverageEvidence;
+  }
+
+  const durableReportPath = path.join(artifactDir, LUMA_COVERAGE_SUPPORT_REPORT_PATH);
+  fs.mkdirSync(path.dirname(durableReportPath), { recursive: true });
+  fs.copyFileSync(lumaCoverageEvidence.report_path, durableReportPath);
+
+  return {
+    ...lumaCoverageEvidence,
+    original_report_path: lumaCoverageEvidence.original_report_path || lumaCoverageEvidence.report_path,
+    report_path: packetRelativePath(LUMA_COVERAGE_SUPPORT_REPORT_PATH),
+    supporting_evidence: {
+      report_path: packetRelativePath(LUMA_COVERAGE_SUPPORT_REPORT_PATH),
+      absolute_report_path: durableReportPath,
+    },
   };
 }
 
@@ -739,6 +767,7 @@ function buildManifest({ report, sources, blockers, reportPath }) {
 - Schema epoch: \`${report.schema_epoch}\`
 - LUMA profile: \`${report.luma_profile}\`
 - Report: \`${reportPath}\`
+- LUMA coverage report: \`${report.luma_gated_write_coverage.report_path || 'not provided'}\`
 
 ## Source Reports
 
@@ -779,6 +808,7 @@ function writeAggregatePacket({ report, manifest, artifactDir }) {
   fs.copyFileSync(reportPath, path.join(latestDir, 'mesh-production-readiness-report.json'));
   fs.copyFileSync(manifestPath, path.join(latestDir, 'mesh-production-readiness-evidence.md'));
   copyDir(path.join(artifactDir, 'source-reports'), path.join(latestDir, 'source-reports'));
+  copyDir(path.join(artifactDir, 'supporting-evidence'), path.join(latestDir, 'supporting-evidence'));
   return { reportPath, manifestPath, latestReportPath: path.join(latestDir, 'mesh-production-readiness-report.json') };
 }
 
@@ -872,6 +902,12 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
       report_env: LUMA_GATED_WRITE_COVERAGE_REPORT_ENV,
       report_path: lumaCoverageEvidence?.report_path || null,
+      source_run_id: lumaCoverageEvidence?.report?.run_id || null,
+      source_commit: lumaCoverageEvidence?.report?.repo?.commit || null,
+      source_dirty: lumaCoverageEvidence?.report?.repo?.dirty ?? null,
+      schema_version: lumaCoverageEvidence?.report?.schema_version || null,
+      schema_epoch: lumaCoverageEvidence?.report?.schema_epoch || null,
+      luma_profile: lumaCoverageEvidence?.report?.luma_profile || null,
       status: lumaCoverageStatus,
       failures: lumaCoverageEvidence?.validation?.failures || [],
       required_write_classes: lumaCoverageEvidence?.validation?.required_write_classes || [],
@@ -931,7 +967,11 @@ async function main() {
 
   const currentCommit = runGit(['rev-parse', 'HEAD']);
   const requireClean = process.env.VH_MESH_PRODUCTION_READINESS_ALLOW_DIRTY !== 'true';
-  const lumaCoverageEvidence = loadLumaCoverageEvidence({ currentCommit, requireClean });
+  const loadedLumaCoverageEvidence = loadLumaCoverageEvidence({ currentCommit, requireClean });
+  const lumaCoverageEvidence = persistLumaCoverageEvidenceForPacket({
+    artifactDir,
+    lumaCoverageEvidence: loadedLumaCoverageEvidence,
+  });
   const sources = [];
   for (const gate of SOURCE_GATES) {
     sources.push(runSourceGate({ gate, artifactDir, currentCommit, requireClean }));
