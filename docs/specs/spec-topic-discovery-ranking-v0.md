@@ -125,6 +125,7 @@ interface FeedItem {
 
 - sort by user-local activity score (reads, comments, votes, follows)
 - must not expose identity-linked state in public payloads
+- remains local/private and is not a public `vh/discovery/index/*` sort mode.
 
 ## 5. Hotness baseline formula
 
@@ -185,6 +186,19 @@ of simple punctuation/spacing variants.
 
 These objects must remain token-free and person/account-identity-free.
 Content identity fields such as `story_id` are allowed where explicitly specified in this contract.
+New public discovery item and index writes are system-writer signed records.
+Readers validate system-marked records through the shared system-writer
+validator and fail closed with `system-writer-validation-failed`; invalid
+system records are not routed through legacy parsing. `vh/discovery/items/<topicId>`
+stores the public `FeedItem` shape with `topic_id` bound to the path and no
+`my_activity_score`. `vh/discovery/index/<filter>/<sort>/<cursor>` stores
+ordered public `topic_ids` plus page metadata with `filter`, `sort`, and
+`cursor` bound to the path. Public index `sort` is limited to `LATEST` and
+`HOTTEST`; `MY_ACTIVITY` is derived from private local client state and MUST
+NOT be published.
+
+`pnpm check:luma-discovery-index-system-v1` guards this system-writer
+migration.
 
 ## 8. Synthesis enrichment and detail rendering
 

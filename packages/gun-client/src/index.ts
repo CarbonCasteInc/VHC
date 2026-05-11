@@ -213,6 +213,7 @@ export * from './storylineAdapters';
 export * from './analysisAdapters';
 export * from './topicEngagementAdapters';
 export * from './civicRepresentativeAdapters';
+export * from './discoveryAdapters';
 export * from './sentimentEventAdapters';
 export * from './aggregateAdapters';
 export * from './sentimentAdapters';

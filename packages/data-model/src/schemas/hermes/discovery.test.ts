@@ -5,6 +5,7 @@ import {
   DEFAULT_HOTNESS_WEIGHTS,
   DEFAULT_PERSONALIZATION_WEIGHTS,
   DEFAULT_RANKING_CONFIG,
+  DiscoveryIndexPageSchema,
   FEED_KINDS,
   FeedItemSchema,
   FeedKindSchema,
@@ -14,6 +15,9 @@ import {
   FilterChipSchema,
   HotnessWeightsSchema,
   PersonalizationWeightsSchema,
+  PublicDiscoveryItemSchema,
+  PUBLIC_DISCOVERY_SORT_MODES,
+  PublicDiscoverySortModeSchema,
   RankingConfigSchema,
   SORT_MODES,
   SortModeSchema,
@@ -58,6 +62,16 @@ describe('SortModeSchema', () => {
 
   it('rejects invalid sort mode', () => {
     expect(SortModeSchema.safeParse('POPULAR').success).toBe(false);
+  });
+});
+
+describe('PublicDiscoverySortModeSchema', () => {
+  it.each(PUBLIC_DISCOVERY_SORT_MODES)('accepts public sort mode %s', (mode) => {
+    expect(PublicDiscoverySortModeSchema.parse(mode)).toBe(mode);
+  });
+
+  it('keeps MY_ACTIVITY out of public discovery indexes', () => {
+    expect(PublicDiscoverySortModeSchema.safeParse('MY_ACTIVITY').success).toBe(false);
   });
 });
 
@@ -227,6 +241,46 @@ describe('FeedItemSchema', () => {
       unknownField: 'should-be-stripped',
     });
     expect((parsed as Record<string, unknown>).unknownField).toBeUndefined();
+  });
+});
+
+describe('PublicDiscoveryItemSchema', () => {
+  it('accepts feed items that carry only public discovery fields', () => {
+    const parsed = PublicDiscoveryItemSchema.parse(validFeedItem);
+    expect(parsed.topic_id).toBe('topic-abc-123');
+  });
+
+  it('rejects user-local activity scores from public discovery items', () => {
+    expect(
+      PublicDiscoveryItemSchema.safeParse({ ...validFeedItem, my_activity_score: 1 }).success,
+    ).toBe(false);
+  });
+});
+
+describe('DiscoveryIndexPageSchema', () => {
+  it('accepts public discovery index pages', () => {
+    const parsed = DiscoveryIndexPageSchema.parse({
+      filter: 'ALL',
+      sort: 'HOTTEST',
+      cursor: 'page-1',
+      topic_ids: ['topic-abc-123'],
+      generated_at: now,
+      next_cursor: 'page-2',
+      version: 'discovery-index-v1',
+    });
+
+    expect(parsed.topic_ids).toEqual(['topic-abc-123']);
+  });
+
+  it('rejects private MY_ACTIVITY public index pages', () => {
+    expect(
+      DiscoveryIndexPageSchema.safeParse({
+        filter: 'ALL',
+        sort: 'MY_ACTIVITY',
+        cursor: 'page-1',
+        topic_ids: ['topic-abc-123'],
+      }).success,
+    ).toBe(false);
   });
 });
 
