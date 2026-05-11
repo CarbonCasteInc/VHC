@@ -6,7 +6,7 @@ import {
   AGGREGATE_VOTER_AUTHOR_SCHEME,
 } from '@vh/data-model';
 import { createBetaLocalAssuranceEnvelope } from '@vh/luma-sdk';
-import type { IdentityRecord } from '@vh/types';
+import { deriveVoterId, type IdentityRecord } from '@vh/types';
 import {
   createLumaAggregateVoterNodeFromVoterId,
   lumaAggregateVoterDeploymentProfile,
@@ -19,6 +19,8 @@ vi.mock('@vh/identity-vault', () => ({
 }));
 
 const VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const TOPIC_ID = 'topic-1';
+const EPOCH = 4;
 
 function setNonE2EEnv(overrides: Record<string, string | boolean | undefined> = {}): void {
   vi.stubGlobal('__VH_E2E_OVERRIDE__', false);
@@ -34,9 +36,9 @@ function setNonE2EEnv(overrides: Record<string, string | boolean | undefined> = 
 
 function baseInput(overrides: Partial<Parameters<typeof createLumaAggregateVoterNodeFromVoterId>[0]> = {}) {
   return {
-    topicId: 'topic-1',
+    topicId: TOPIC_ID,
     synthesisId: 'synth-1',
-    epoch: 4,
+    epoch: EPOCH,
     voterId: VOTER_ID,
     pointId: 'point-1',
     agreement: 1 as const,
@@ -71,6 +73,21 @@ async function makePublicBetaIdentity(): Promise<IdentityRecord> {
       expiresAt: Date.now() + 60_000,
     },
   };
+}
+
+async function publicBetaInput(
+  overrides: Partial<Parameters<typeof createLumaAggregateVoterNodeFromVoterId>[0]> = {}
+) {
+  const identity = await makePublicBetaIdentity();
+  const voterId = await deriveVoterId(identity.session.nullifier, {
+    topicId: TOPIC_ID,
+    epoch: EPOCH,
+  });
+  return baseInput({
+    identity,
+    voterId,
+    ...overrides,
+  });
 }
 
 describe('lumaAggregateVoterRecords', () => {
@@ -115,20 +132,19 @@ describe('lumaAggregateVoterRecords', () => {
   it('creates aggregate voter envelopes with the browser origin when one is available', async () => {
     setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
 
-    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput({
-      identity: await makePublicBetaIdentity(),
-    }));
+    const input = await publicBetaInput();
+    const node = await createLumaAggregateVoterNodeFromVoterId(input);
 
     expect(node.signedWriteEnvelope).toMatchObject({
       audience: AGGREGATE_VOTER_AUDIENCE,
       scheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
-      publicAuthor: VOTER_ID,
+      publicAuthor: input.voterId,
       origin: globalThis.location.origin,
       payload: expect.objectContaining({
-        voter_id: VOTER_ID,
-        topic_id: 'topic-1',
+        voter_id: input.voterId,
+        topic_id: TOPIC_ID,
         synthesis_id: 'synth-1',
-        epoch: 4,
+        epoch: EPOCH,
         point_id: 'point-1',
       }),
     });
@@ -138,14 +154,15 @@ describe('lumaAggregateVoterRecords', () => {
     setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
     vi.stubGlobal('location', { origin: '' });
 
-    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput({
-      identity: await makePublicBetaIdentity(),
-    }));
+    const node = await createLumaAggregateVoterNodeFromVoterId(await publicBetaInput());
     expect(node.signedWriteEnvelope.origin).toBe('vh://local');
 
     await expect(
-      createLumaAggregateVoterNodeFromVoterId(baseInput({ voterId: 'raw-nullifier' })),
-    ).rejects.toThrow(/publicAuthor|public author/i);
+      createLumaAggregateVoterNodeFromVoterId(baseInput({
+        identity: await makePublicBetaIdentity(),
+        voterId: 'raw-nullifier',
+      })),
+    ).rejects.toThrow(/active identity voter id/);
   });
 
   it('requires an active public-beta identity at the aggregate voter action boundary', async () => {
@@ -153,5 +170,14 @@ describe('lumaAggregateVoterRecords', () => {
 
     await expect(createLumaAggregateVoterNodeFromVoterId(baseInput()))
       .rejects.toThrow(/active identity/);
+  });
+
+  it('rejects public-beta aggregate voter IDs not derived from the active identity', async () => {
+    setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
+
+    await expect(createLumaAggregateVoterNodeFromVoterId(baseInput({
+      identity: await makePublicBetaIdentity(),
+      voterId: VOTER_ID,
+    }))).rejects.toThrow(/active identity voter id/);
   });
 });
