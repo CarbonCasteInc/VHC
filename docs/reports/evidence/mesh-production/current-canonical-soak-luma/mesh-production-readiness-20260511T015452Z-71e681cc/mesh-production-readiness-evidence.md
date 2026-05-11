@@ -41,10 +41,8 @@
 
 ## Forbidden Claims
 
-- The mesh is release_ready.
-- The default shortened local soak satisfies the canonical thirty-minute soak claim.
-- Public WSS infrastructure is production-proven.
 - Public WSS clock-skew behavior is production-proven.
 - Public WSS conflict behavior is production-proven.
-- LUMA-gated production write classes are mesh-readiness-proven.
+- LUMA gate behavior is verified by mesh.
+- The production app canary passed.
 - The full app is test-group ready.
