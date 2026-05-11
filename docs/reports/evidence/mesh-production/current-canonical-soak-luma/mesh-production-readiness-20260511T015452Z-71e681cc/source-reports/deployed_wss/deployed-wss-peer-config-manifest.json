@@ -1,0 +1,45 @@
+{
+  "peer_config_url": "https://redacted-host-74f0f5470d05/mesh-peer-config.json",
+  "app_url": "https://redacted-host-74f0f5470d05",
+  "config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+  "expected_peer_count": 3,
+  "expected_peer_hashes": [
+    "53321b6e2056",
+    "900db1e9c2d8",
+    "8a8045bb873b"
+  ],
+  "expected_csp_connect_src_redacted": [
+    "'self'",
+    "https://redacted-host-74f0f5470d05",
+    "wss://redacted-host-1ce293c75b58",
+    "wss://redacted-host-46f01523cb1d",
+    "wss://redacted-host-ed8c8bfb8ccd"
+  ],
+  "minimum_peer_count": 3,
+  "quorum_required": 2,
+  "health_endpoints": [
+    {
+      "peer": "wss://redacted-host-1ce293c75b58/gun",
+      "healthz": "https://redacted-host-1ce293c75b58/healthz",
+      "readyz": "https://redacted-host-1ce293c75b58/readyz",
+      "metrics": "https://redacted-host-1ce293c75b58/metrics",
+      "source": "derived_from_wss_peer"
+    },
+    {
+      "peer": "wss://redacted-host-46f01523cb1d/gun",
+      "healthz": "https://redacted-host-46f01523cb1d/healthz",
+      "readyz": "https://redacted-host-46f01523cb1d/readyz",
+      "metrics": "https://redacted-host-46f01523cb1d/metrics",
+      "source": "derived_from_wss_peer"
+    },
+    {
+      "peer": "wss://redacted-host-ed8c8bfb8ccd/gun",
+      "healthz": "https://redacted-host-ed8c8bfb8ccd/healthz",
+      "readyz": "https://redacted-host-ed8c8bfb8ccd/readyz",
+      "metrics": "https://redacted-host-ed8c8bfb8ccd/metrics",
+      "source": "derived_from_wss_peer"
+    }
+  ],
+  "rollover": null,
+  "failures": []
+}
