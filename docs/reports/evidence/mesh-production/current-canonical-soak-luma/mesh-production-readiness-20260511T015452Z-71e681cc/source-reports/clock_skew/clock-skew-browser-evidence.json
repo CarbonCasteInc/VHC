@@ -1,0 +1,40 @@
+{
+  "gate": "local-clock-skew-matrix-browser-peer-config",
+  "run_id": "mesh-clock-skew-20260511T023301Z-899c9ed9",
+  "trace_id": "trace-20260511T023301Z-6d95b0fd",
+  "rows": [
+    {
+      "fixture": "expired",
+      "status": "pass",
+      "expected_error": "peer config is expired",
+      "observed_error": "[vh:gun] peer config is expired",
+      "skewed_actor": "browser",
+      "skewed_layer": "signed-peer-config-validity-window",
+      "skew_ms": 0,
+      "opened_socket_hosts": [],
+      "client_peers": []
+    },
+    {
+      "fixture": "futureIssued",
+      "status": "pass",
+      "expected_error": "peer config is not yet valid",
+      "observed_error": "[vh:gun] peer config is not yet valid",
+      "skewed_actor": "browser",
+      "skewed_layer": "signed-peer-config-validity-window",
+      "skew_ms": 0,
+      "opened_socket_hosts": [],
+      "client_peers": []
+    },
+    {
+      "fixture": "browserClockExpired",
+      "status": "pass",
+      "expected_error": "peer config is expired",
+      "observed_error": "[vh:gun] peer config is expired",
+      "skewed_actor": "browser-os-clock-shim",
+      "skewed_layer": "signed-peer-config-validity-window",
+      "skew_ms": 54374,
+      "opened_socket_hosts": [],
+      "client_peers": []
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-11T02:36:02.053Z",
+  "run_id": "mesh-evidence-scrub-20260511T023602Z-429b3a3f",
+  "repo": {
+    "branch": "coord/mesh-public-wss-release-ready-evidence",
+    "commit": "6db6319f54cfe64885eff176945065aaea9d57ea",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "mesh_evidence_scrub_promotion",
+    "source_run_id": "mesh-production-readiness-20260511T015452Z-71e681cc",
+    "source_dir": "./.tmp/mesh-production-readiness/latest",
+    "expected_commit": "6db6319f54cfe64885eff176945065aaea9d57ea",
+    "promoted_dir": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc",
+    "started_at": "2026-05-11T02:36:02.012Z",
+    "completed_at": "2026-05-11T02:36:02.053Z",
+    "duration_ms": 41,
+    "command": "pnpm check:mesh-evidence-scrub -- --source-dir .tmp/mesh-production-readiness/latest --expected-commit 6db6319f54cfe64885eff176945065aaea9d57ea"
+  },
+  "status": "pass",
+  "schema_epoch": "post_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "landed",
+    "luma_gated_write_drills": "pass",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {},
+  "source_reports": [],
+  "release_readiness_blockers": [],
+  "gates": [
+    {
+      "name": "evidence-scrub-promotion",
+      "status": "pass",
+      "result_status": "pass",
+      "command": "pnpm check:mesh-evidence-scrub -- --source-dir .tmp/mesh-production-readiness/latest --expected-commit 6db6319f54cfe64885eff176945065aaea9d57ea",
+      "duration_ms": 41,
+      "exit_code": 0,
+      "artifact_path": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc/mesh-production-readiness-report.json"
+    }
+  ],
+  "write_class_slos": [],
+  "resource_slos": [],
+  "per_relay_readback": [],
+  "state_resolution_drills": [],
+  "conflict_fixtures": [],
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated production write classes through LUMA reader path",
+      "trace_id": "mesh-evidence-scrub-20260511T023602Z-429b3a3f",
+      "status": "skipped",
+      "reason": "Evidence scrub promotion only verifies redaction and promotion safety for synthetic mesh evidence."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": null,
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "cleanup": {
+    "namespace": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc",
+    "objects_written": 34,
+    "objects_cleaned_or_tombstoned": 0,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 0,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": []
+  },
+  "release_claims": {
+    "allowed": [
+      "The promoted mesh evidence packet passed deterministic scrub and leak rescan."
+    ],
+    "forbidden": [
+      "The scrubbed packet proves public WSS deployment.",
+      "The scrubbed packet proves LUMA-gated production write coverage.",
+      "The scrubbed packet authorizes a release_ready claim while blockers remain."
+    ],
+    "invalidated_by_luma_epoch_change": false
+  },
+  "evidence_scrub": {
+    "status": "pass",
+    "source_run_id": "mesh-production-readiness-20260511T015452Z-71e681cc",
+    "source_dir": "./.tmp/mesh-production-readiness/latest",
+    "promoted_dir": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc",
+    "promoted_report_path": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc/mesh-production-readiness-report.json",
+    "promoted_manifest_path": "./.tmp/mesh-production-readiness/promoted/mesh-production-readiness-20260511T015452Z-71e681cc/mesh-production-readiness-evidence.md",
+    "files_scanned": 34,
+    "files_written": 34,
+    "redactions": {
+      "paths": 50,
+      "urls": 304,
+      "secrets": 1,
+      "stalePlaceholders": 1
+    },
+    "failures": []
+  }
+}

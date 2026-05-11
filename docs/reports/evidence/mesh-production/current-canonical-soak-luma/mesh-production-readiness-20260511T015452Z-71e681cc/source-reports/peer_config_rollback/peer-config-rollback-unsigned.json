@@ -1,0 +1,15 @@
+{
+  "payload": {
+    "schemaVersion": "mesh-peer-config-v1",
+    "configId": "rollback-config-a-mesh-peer-config-rollback-1778466772617-c3bff396",
+    "issuedAt": 1778466772620,
+    "expiresAt": 1778470372620,
+    "peers": [
+      "wss://redacted-host-d955a7308f49/gun",
+      "wss://redacted-host-9a52a80a70bf/gun",
+      "wss://redacted-host-958819f93201/gun"
+    ],
+    "minimumPeerCount": 3,
+    "quorumRequired": 2
+  }
+}

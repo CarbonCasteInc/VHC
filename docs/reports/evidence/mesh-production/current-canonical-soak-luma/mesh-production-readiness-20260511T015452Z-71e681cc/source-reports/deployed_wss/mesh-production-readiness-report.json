@@ -1,0 +1,273 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-11T01:55:28.684Z",
+  "run_id": "mesh-public-wss-proof-1778464523992-2756463a",
+  "repo": {
+    "branch": "coord/mesh-public-wss-release-ready-evidence",
+    "commit": "6db6319f54cfe64885eff176945065aaea9d57ea",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "deployed_wss_topology",
+    "deployment_scope": "public_wss_deployment",
+    "started_at": "2026-05-11T01:55:23.992Z",
+    "completed_at": "2026-05-11T01:55:28.684Z",
+    "duration_ms": 4692,
+    "command": "pnpm test:mesh:deployed-wss-peer-config"
+  },
+  "status": "review_required",
+  "status_reason": "Public WSS deployment proof harness passed for the operator-provided public peer-config, relay health endpoints, CSP scope, and browser app boot; full mesh production readiness remains review_required while other release blockers remain.",
+  "schema_epoch": "post_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "landed",
+    "luma_gated_write_drills": "pending",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "synthetic mesh drill object": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "deployment_scope": "public_wss_deployment",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": true,
+    "relay_urls_redacted": [
+      "wss://redacted-host-1ce293c75b58/gun",
+      "wss://redacted-host-46f01523cb1d/gun",
+      "wss://redacted-host-ed8c8bfb8ccd/gun"
+    ],
+    "relay_ids": [
+      "public-wss-53321b6e2056",
+      "public-wss-900db1e9c2d8",
+      "public-wss-8a8045bb873b"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "public_tls_wss",
+    "relay_to_relay_auth_negative_test": "skipped",
+    "relay_to_relay_auth_negative_test_reason": "public mode validates externally exposed relay health/ready/metrics and app WSS boot only; relay runtime auth internals remain out of scope",
+    "peer_config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+    "peer_config_issued_at": "2026-05-11T01:53:57.112Z",
+    "peer_config_expires_at": "2026-05-18T01:53:57.112Z",
+    "app_peer_config": {
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+      "minimum_peer_count": 3,
+      "quorum_required": 2,
+      "local_mesh_peers_allowed": false
+    },
+    "csp": {
+      "status": "pass",
+      "connect_src_expected_origins": [
+        "'self'",
+        "https://redacted-host-74f0f5470d05",
+        "wss://redacted-host-1ce293c75b58",
+        "wss://redacted-host-46f01523cb1d",
+        "wss://redacted-host-ed8c8bfb8ccd"
+      ],
+      "strict_connect_src": true,
+      "broad_https_wss_wildcards_allowed": false
+    },
+    "service_worker_peer_config_rollover": {
+      "status": "not_exercised",
+      "first_config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+      "second_config_id": null,
+      "fetch_cache_mode": "no-store"
+    }
+  },
+  "public_wss_proof": {
+    "status": "pass",
+    "deployment_scope": "public_wss_deployment",
+    "expected_peer_count": 3,
+    "expected_peer_hashes": [
+      "53321b6e2056",
+      "900db1e9c2d8",
+      "8a8045bb873b"
+    ],
+    "expected_config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+    "app_url": "https://redacted-host-74f0f5470d05",
+    "peer_config_url": "https://redacted-host-74f0f5470d05/mesh-peer-config.json",
+    "failures": [],
+    "browser_evidence": {
+      "peer_config_issued_at": "2026-05-11T01:53:57.112Z",
+      "peer_config_expires_at": "2026-05-18T01:53:57.112Z",
+      "first_boot": {
+        "config_id": "vh-mesh-public-wss-20260511T015357Z-8244d0cc",
+        "csp_connect_src_redacted": [
+          "'self'",
+          "https://redacted-host-74f0f5470d05",
+          "wss://redacted-host-1ce293c75b58",
+          "wss://redacted-host-46f01523cb1d",
+          "wss://redacted-host-ed8c8bfb8ccd"
+        ],
+        "opened_socket_host_hashes": [
+          "1f1da7681942",
+          "4b5c53ef72b5",
+          "2227160396c9"
+        ]
+      },
+      "relay_health": [
+        {
+          "peer": "wss://redacted-host-1ce293c75b58/gun",
+          "endpoint": "healthz",
+          "url": "https://redacted-host-1ce293c75b58/healthz",
+          "status": 200,
+          "body_bytes": 229
+        },
+        {
+          "peer": "wss://redacted-host-1ce293c75b58/gun",
+          "endpoint": "readyz",
+          "url": "https://redacted-host-1ce293c75b58/readyz",
+          "status": 200,
+          "body_bytes": 290
+        },
+        {
+          "peer": "wss://redacted-host-1ce293c75b58/gun",
+          "endpoint": "metrics",
+          "url": "https://redacted-host-1ce293c75b58/metrics",
+          "status": 200,
+          "body_bytes": 598
+        },
+        {
+          "peer": "wss://redacted-host-46f01523cb1d/gun",
+          "endpoint": "healthz",
+          "url": "https://redacted-host-46f01523cb1d/healthz",
+          "status": 200,
+          "body_bytes": 229
+        },
+        {
+          "peer": "wss://redacted-host-46f01523cb1d/gun",
+          "endpoint": "readyz",
+          "url": "https://redacted-host-46f01523cb1d/readyz",
+          "status": 200,
+          "body_bytes": 290
+        },
+        {
+          "peer": "wss://redacted-host-46f01523cb1d/gun",
+          "endpoint": "metrics",
+          "url": "https://redacted-host-46f01523cb1d/metrics",
+          "status": 200,
+          "body_bytes": 598
+        },
+        {
+          "peer": "wss://redacted-host-ed8c8bfb8ccd/gun",
+          "endpoint": "healthz",
+          "url": "https://redacted-host-ed8c8bfb8ccd/healthz",
+          "status": 200,
+          "body_bytes": 229
+        },
+        {
+          "peer": "wss://redacted-host-ed8c8bfb8ccd/gun",
+          "endpoint": "readyz",
+          "url": "https://redacted-host-ed8c8bfb8ccd/readyz",
+          "status": 200,
+          "body_bytes": 290
+        },
+        {
+          "peer": "wss://redacted-host-ed8c8bfb8ccd/gun",
+          "endpoint": "metrics",
+          "url": "https://redacted-host-ed8c8bfb8ccd/metrics",
+          "status": 200,
+          "body_bytes": 598
+        }
+      ]
+    }
+  },
+  "gates": [
+    {
+      "name": "public-wss-signed-peer-config-fetch-verify",
+      "status": "pass",
+      "command": "fetch https://redacted-host-74f0f5470d05/mesh-peer-config.json",
+      "duration_ms": 345,
+      "exit_code": 0
+    },
+    {
+      "name": "public-wss-relay-health-ready-metrics",
+      "status": "pass",
+      "command": "fetch public relay healthz/readyz/metrics endpoints",
+      "duration_ms": 2283,
+      "exit_code": 0
+    },
+    {
+      "name": "public-wss-browser-app-boot",
+      "status": "pass",
+      "command": "playwright public app boot https://redacted-host-74f0f5470d05",
+      "duration_ms": 2059,
+      "exit_code": 0
+    }
+  ],
+  "write_class_slos": [],
+  "resource_slos": [],
+  "per_relay_readback": [],
+  "peer_failure_drills": [
+    {
+      "name": "public-wss-peer-kill-write-readback",
+      "status": "skipped",
+      "reason": "public proof v1 validates public endpoint shape, signed peer-config, CSP, relay health, and app boot only; failure injection remains out of scope."
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-skip-public-wss-proof-v1",
+      "object_class": "state-resolution matrix",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "public WSS proof v1 does not exercise state-resolution, conflict, partition/heal, or LUMA-gated writes."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": "skipped: public WSS proof v1 does not exercise clock-skew/auth-window behavior.",
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-1778464523992-75a97626",
+      "status": "skipped",
+      "reason": "luma_profile is none; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, adapter, custody, or schema migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "no vh/__mesh_drills writes in public WSS proof harness",
+    "ttl_ms": 3600000,
+    "objects_written": 0,
+    "objects_cleaned_or_tombstoned": 0,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 3,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": []
+  },
+  "release_claims": {
+    "allowed": [
+      "The operator-provided public WSS deployment passed the Slice 14D public proof harness for signed peer-config, exact expected peers, quorum, CSP scope, relay health endpoints, and browser app boot."
+    ],
+    "forbidden": [
+      "The mesh is release_ready.",
+      "Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior is production-proven by this harness.",
+      "LUMA-gated production write classes are mesh-readiness-proven.",
+      "The full app is test-group ready."
+    ],
+    "invalidated_by_luma_epoch_change": true
+  },
+  "downstream_canary": {
+    "command": "pnpm check:production-app-canary",
+    "status": "skipped",
+    "reason": "downstream full-app production canary remains a separate fail-closed gate and is not folded into deployed-WSS proof status"
+  }
+}

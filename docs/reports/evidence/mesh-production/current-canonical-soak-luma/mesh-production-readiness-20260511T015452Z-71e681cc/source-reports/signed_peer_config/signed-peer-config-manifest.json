@@ -1,0 +1,28 @@
+{
+  "runId": "mesh-signed-peer-config-1778464502544-ac32e369",
+  "traceId": "trace-1778464502544-f3f29e14",
+  "configId": "local-three-relay-mesh-signed-peer-config-1778464502544-ac32e369",
+  "configUrl": "http://redacted-host-263f5d4c8a32/mesh-peer-config.json",
+  "peerUrls": [
+    "http://redacted-host-f9be29539209/gun",
+    "http://redacted-host-7898b73dfd2c/gun",
+    "http://redacted-host-237b586e0a6f/gun"
+  ],
+  "relayIds": [
+    "signed-relay-a",
+    "signed-relay-b",
+    "signed-relay-c"
+  ],
+  "publicKey": "fWjt0HLTQ_8S1LPOAHh1IkmFlGWS5xOo6b9MXg39Hxc.f0-V0ojYa20qDQkMNzCitRaFej4Nyiakew9d2Yu2rOc",
+  "issuedAt": 1778464502547,
+  "expiresAt": 1778468102547,
+  "fixtures": {
+    "positive": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/signed-peer-config.json",
+    "unsigned": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/unsigned-peer-config.json",
+    "expired": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/expired-peer-config.json",
+    "insufficientPeers": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/insufficient-peers-peer-config.json",
+    "missingExpiresAt": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/missing-expires-at-peer-config.json",
+    "impossibleQuorum": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/impossible-quorum-peer-config.json",
+    "badSignature": "./.tmp/mesh-production-readiness/mesh-signed-peer-config-1778464502544-ac32e369/fixtures/bad-signature-peer-config.json"
+  }
+}
