@@ -2,7 +2,7 @@ import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/t
 import { isSessionExpired } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 import type { ForumState, ForumIdentity } from './types';
-import { TRUST_THRESHOLD, SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD, isLifecycleEnabled } from './types';
+import { SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD, isLifecycleEnabled } from './types';
 import { loadIdentity } from './persistence';
 
 export const THREAD_JSON_FIELD = '__thread_json';
@@ -11,9 +11,6 @@ export function ensureIdentity(): ForumIdentity {
   const record = loadIdentity();
   if (!record?.session?.nullifier) {
     throw new Error('Identity not ready');
-  }
-  if (record.session.trustScore < TRUST_THRESHOLD) {
-    throw new Error('Insufficient trustScore for forum actions');
   }
   // Session freshness check (spec §2.1.4): block expired sessions at action boundary
   if (isLifecycleEnabled() && isSessionExpired(record.session)) {

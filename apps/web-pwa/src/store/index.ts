@@ -16,7 +16,6 @@ import {
 import {
   createLumaPublicAuthorId,
   createSignedWriteEnvelope,
-  digestSignedWritePayload,
   type DeploymentProfile,
   type SignedWriteSessionRef
 } from '@vh/luma-sdk';
@@ -28,6 +27,10 @@ import {
 } from '@vh/identity-vault';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
+import {
+  assertCanPerformMvpAction,
+  deriveIdentitySignedWriteSessionRef
+} from '../luma/mvpActionPolicy';
 import { createMockClient } from './mockClient';
 import { setClientResolver } from './clientResolver';
 import { resolveGunPeerTopology, type GunPeerTopology } from './peerConfig';
@@ -297,24 +300,16 @@ export function lumaDirectoryDeploymentProfile(): DeploymentProfile {
   ) {
     return configured;
   }
-  if (viteEnv?.DEV === true || viteEnv?.MODE === 'development') return 'dev';
+  if (viteEnv?.DEV === true || viteEnv?.MODE === 'development' || viteEnv?.MODE === 'test' || viteEnv?.VITEST === 'true') return 'dev';
   return 'public-beta';
 }
 
 export async function deriveCurrentStateSignedWriteSessionRef(
   identity: IdentityRecord
 ): Promise<SignedWriteSessionRef> {
-  const session = identity.session;
-  return {
-    tokenHash: await digestSignedWritePayload({ token: session.token }),
-    envelopeDigest: await digestSignedWritePayload({
-      kind: 'vh-current-session-ref-v0',
-      nullifier: session.nullifier,
-      scaledTrustScore: session.scaledTrustScore,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt
-    })
-  };
+  return deriveIdentitySignedWriteSessionRef(identity, {
+    allowLegacySessionDigest: lumaDirectoryDeploymentProfile() !== 'public-beta'
+  });
 }
 
 function currentOrigin(): string {
@@ -451,6 +446,8 @@ async function publishDirectoryEntryNow(client: VennClient, identity: IdentityRe
   }
   const identityDirectoryKey = await deriveIdentityDirectoryKey(identity.session.nullifier);
   const now = Date.now();
+  const profile = lumaDirectoryDeploymentProfile();
+  const origin = currentOrigin();
   const payload: DirectoryEntryPayload = {
     schemaVersion: 'hermes-directory-v1',
     _protocolVersion: DIRECTORY_ENTRY_PROTOCOL_VERSION,
@@ -465,9 +462,9 @@ async function publishDirectoryEntryNow(client: VennClient, identity: IdentityRe
     lastSeenAt: now
   };
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaDirectoryDeploymentProfile(),
+    profile,
     audience: 'vh-directory-entry',
-    origin: currentOrigin(),
+    origin,
     scheme: DIRECTORY_ENTRY_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(identityDirectoryKey, DIRECTORY_ENTRY_AUTHOR_SCHEME),
     sessionRef: await deriveCurrentStateSignedWriteSessionRef(identity),
@@ -477,6 +474,17 @@ async function publishDirectoryEntryNow(client: VennClient, identity: IdentityRe
     issuedAt: now,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity,
+      profile,
+      action: 'vh-directory-entry',
+      envelope: signedWriteEnvelope,
+      scheme: DIRECTORY_ENTRY_AUTHOR_SCHEME,
+      publicAuthor: identityDirectoryKey,
+      origin
+    });
+  }
   const entry: DirectoryEntry = {
     ...payload,
     signedWriteEnvelope: {

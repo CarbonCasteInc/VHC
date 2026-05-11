@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-04-28
+> Last Reviewed: 2026-05-11
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-04-28
-**Version:** 0.8.9 (full-product multi-user engagement lane aligned with public-beta closeout docs)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`, and a service-backed five-user local engagement lane for validating the full feed/detail/stance/thread loop across real app, relay, daemon, StoryCluster, fixture feed, and deterministic analysis-stub wiring. Live corroborated headlines remain beta-gated by production-readiness evidence; legal/commercial approval remains outside repo automation; broader admin workflow UX, notification/escalation automation, and model/cost operations visibility are classified as post-beta follow-up unless release copy claims production-grade live headline readiness.
+**Last Updated:** 2026-05-11
+**Version:** 0.9.0 (LUMA public-beta MVP readiness gate aligned with Mesh evidence boundary)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`, service-backed five-user local engagement lane coverage, and a LUMA public-beta MVP readiness gate for the beta-local identity/signed-write layer. Live corroborated headlines remain beta-gated by production-readiness evidence; LUMA production-attestation/Silver, public WSS mesh `release_ready`, and full production app readiness remain separate downstream gates; legal/commercial approval remains outside repo automation.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -20,7 +20,7 @@
 
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
-| **LUMA (Identity)** | 🟡 Hardened (trust constants, session lifecycle, constituency proof — flag-gated) | ❌ No |
+| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, signed-write envelopes, centralized action policy, public namespace guards, and current mesh LUMA coverage gate | ⚠️ Public-beta only; no production-attestation/Silver |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
 | **VENN (Analysis)** | 🟡 Pipeline end-to-end; live profile defaults to relay-backed analysis, local-first remains target-state default | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
@@ -84,6 +84,12 @@ Current policy state:
   - MVP report gate: `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
   - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
   - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
+- LUMA public-beta MVP readiness is now an explicit deterministic gate:
+  - focused gate: `pnpm check:luma:mvp-production-readiness`;
+  - report: `/Users/bldt/Desktop/VHC/VHC/.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`;
+  - MVP report gate: `luma_mvp_production_readiness` inside `pnpm check:mvp-release-gates`;
+  - success boundary: LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer;
+  - excluded claims: production-attestation/Silver, verified-human, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness.
 - Full-product local engagement validation is now a named service-backed lane:
   - stack command: `pnpm live:stack:up:analysis-stub`;
   - test command: `pnpm test:live:five-user-engagement`;
@@ -683,7 +689,7 @@ Remaining backlog:
 
 Post-Season 0 (deferred per spec §9.2):
 - TEE/VIO hardware binding
-- Real sybil resistance
+- Deferred: real Sybil resistance
 - BioKey, DBA, ZK-SNARK proofs
 - Gold/Platinum trust tiers
 

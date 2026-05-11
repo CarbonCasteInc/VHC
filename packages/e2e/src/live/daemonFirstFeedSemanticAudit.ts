@@ -59,9 +59,40 @@ async function loadSemanticAuditModule(): Promise<{
   };
 }
 
+export function normalizeSemanticAuditArticleUrlForFetch(targetUrl: string): string {
+  if (process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true') {
+    return targetUrl;
+  }
+
+  const fixtureBaseUrl = process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL?.trim()
+    || (process.env.VH_DAEMON_FEED_FIXTURE_PORT?.trim()
+      ? `http://127.0.0.1:${process.env.VH_DAEMON_FEED_FIXTURE_PORT.trim()}`
+      : '');
+  if (!fixtureBaseUrl) {
+    return targetUrl;
+  }
+
+  try {
+    const parsedTarget = new URL(targetUrl);
+    const hostIsLoopback = parsedTarget.hostname === '127.0.0.1'
+      || parsedTarget.hostname === 'localhost'
+      || parsedTarget.hostname === '[::1]'
+      || parsedTarget.hostname === '::1';
+    if (!hostIsLoopback || !parsedTarget.pathname.startsWith('/article/')) {
+      return targetUrl;
+    }
+
+    const normalized = new URL(`${parsedTarget.pathname}${parsedTarget.search}`, fixtureBaseUrl);
+    normalized.hash = parsedTarget.hash;
+    return normalized.toString();
+  } catch {
+    return targetUrl;
+  }
+}
+
 function articleTextUrl(baseUrl: string, targetUrl: string): string {
   const resolved = new URL('/article-text', baseUrl);
-  resolved.searchParams.set('url', targetUrl);
+  resolved.searchParams.set('url', normalizeSemanticAuditArticleUrlForFetch(targetUrl));
   return resolved.toString();
 }
 
@@ -382,7 +413,7 @@ export function buildDaemonFeedSemanticAuditReport(
   auditedPairCount: number,
   relatedTopicOnlyPairCount: number,
   supply: SemanticAuditSupplyDiagnostics,
-  options: Pick<DaemonFeedSemanticAuditOptions, 'openAIBaseUrl' | 'openAIModel' | 'openAIProviderId' | 'openAIUsesFixtureStub'>,
+  options: Pick<DaemonFeedSemanticAuditOptions, 'openAIBaseUrl' | 'openAIModel' | 'openAIProviderId' | 'openAIUsesFixtureStub'> = {},
   articleFetchFailures: readonly SemanticAuditArticleFetchFailure[] = [],
 ): DaemonFeedSemanticAuditReport {
   const incompleteBundleCount = reports.filter((bundle) => bundle.audit_status === 'incomplete_article_text').length;

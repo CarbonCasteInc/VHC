@@ -1,4 +1,20 @@
 export {
+  BETA_LOCAL_ASSURANCE_TTL_SECONDS,
+  BETA_LOCAL_CLAIM_VECTOR,
+  BETA_LOCAL_EVIDENCE_VAULT_KEY,
+  BETA_LOCAL_LIMITATIONS,
+  BETA_LOCAL_POLICY_VERSION,
+  BETA_LOCAL_VERIFIER_ID,
+  createBetaLocalAssuranceEnvelope,
+  deriveBetaLocalNullifier,
+  digestAssuranceEnvelope,
+  digestBetaLocalEvidence,
+  validateBetaLocalAssuranceEnvelope,
+  type BetaLocalAssuranceValidation,
+  type CreateBetaLocalAssuranceEnvelopeInput
+} from './assurance';
+
+export {
   createLinkabilityDomainRegistry,
   getLinkabilityDomain,
   INITIAL_LINKABILITY_DOMAINS,
@@ -70,9 +86,11 @@ export {
   type CreateSignedWriteEnvelopeInput,
   type LumaPublicAuthorId,
   type SignedWriteEnvelope,
+  type SignedWritePolicyFailureReason,
   type SignedWriteSessionRef,
   type SignedWriteSignHook,
   type SignedWriteSignHookInput,
+  type SignedWriteVerificationExpectations,
   type SignedWriteVerificationFailureReason,
   type SignedWriteVerificationResult,
   type SignedWriteVerifyHook,

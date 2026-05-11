@@ -20,6 +20,7 @@ import {
   deriveForumSignedWriteSessionRef,
   lumaForumDeploymentProfile
 } from './forum/lumaRecords';
+import { assertCanPerformMvpAction } from '../luma/mvpActionPolicy';
 
 interface NewsReportRecordInput {
   readonly identity: IdentityRecord | null;
@@ -34,6 +35,8 @@ interface NewsReportRecordInput {
 export async function createLumaNewsReportRecord(input: NewsReportRecordInput): Promise<HermesNewsReportV2> {
   const identity = assertLumaForumIdentity(input.identity);
   const reporterId = await deriveForumAuthorId(identity.session.nullifier);
+  const profile = lumaNewsReportDeploymentProfile();
+  const origin = currentOrigin();
   const payload: HermesNewsReportSignedPayload = stripUndefined({
     schemaVersion: 'hermes-news-report-v2',
     _protocolVersion: NEWS_REPORT_PUBLIC_PROTOCOL_VERSION,
@@ -49,9 +52,9 @@ export async function createLumaNewsReportRecord(input: NewsReportRecordInput): 
   });
 
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaNewsReportDeploymentProfile(),
+    profile,
     audience: NEWS_REPORT_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: NEWS_REPORT_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(reporterId, NEWS_REPORT_AUTHOR_SCHEME),
     sessionRef: await deriveForumSignedWriteSessionRef(identity),
@@ -61,6 +64,17 @@ export async function createLumaNewsReportRecord(input: NewsReportRecordInput): 
     issuedAt: input.createdAt,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity,
+      profile,
+      action: NEWS_REPORT_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: NEWS_REPORT_AUTHOR_SCHEME,
+      publicAuthor: reporterId,
+      origin
+    });
+  }
 
   return {
     ...payload,

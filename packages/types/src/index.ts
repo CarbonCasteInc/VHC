@@ -107,7 +107,14 @@ export const SentimentSignalSchema = z.object({
   emitted_at: z.number().int().nonnegative()
 });
 
-export type { IdentityRecord, DevicePair } from './identity';
+export type {
+  DevicePair,
+  IdentityRecord,
+  LumaAssuranceEnvelope,
+  LumaClaimLevel,
+  LumaClaimVector,
+  LumaEvidenceRef
+} from './identity';
 
 export type {
   FamiliarRecord,

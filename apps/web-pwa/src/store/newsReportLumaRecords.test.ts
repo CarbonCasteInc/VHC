@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveForumAuthorId, type IdentityRecord } from '@vh/types';
+import { createBetaLocalAssuranceEnvelope } from '@vh/luma-sdk';
 import { createLumaNewsReportRecord } from './newsReportLumaRecords';
+import { deriveIdentitySignedWriteSessionRef } from '../luma/mvpActionPolicy';
 
 vi.mock('@vh/identity-vault', () => ({
-  signWithStoredDelegationSigningKey: vi.fn(async () => 'news-report-delegation-signature')
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'news-report-delegation-signature'),
+  getDelegationSigningPublicKey: vi.fn(async () => ({
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    publicKey: { encoding: 'base64url', material: 'news-report-public-key' },
+    createdAt: 1,
+  })),
+  verifyWithDelegationSigningPublicKey: vi.fn(async () => true)
 }));
 
 const RAW_NULLIFIER = 'news-report-helper-raw-nullifier';
@@ -26,8 +34,35 @@ const IDENTITY: IdentityRecord = {
   }
 };
 
+async function publicBetaIdentity(): Promise<IdentityRecord> {
+  const now = Date.now();
+  const deviceKey = 'news-report-public-beta-device';
+  return {
+    ...IDENTITY,
+    attestation: {
+      ...IDENTITY.attestation,
+      deviceKey
+    },
+    assuranceEnvelope: await createBetaLocalAssuranceEnvelope({
+      deviceCredential: deviceKey,
+      issuedAt: now
+    }),
+    session: {
+      ...IDENTITY.session,
+      trustScore: 0.5,
+      scaledTrustScore: 5000,
+      token: 'news-report-public-beta-session',
+      createdAt: now,
+      expiresAt: now + 60_000
+    }
+  };
+}
+
 describe('createLumaNewsReportRecord', () => {
   afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock('./forum/lumaRecords');
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -86,6 +121,42 @@ describe('createLumaNewsReportRecord', () => {
     expect(report.signedWriteEnvelope.payload.reason).toBeUndefined();
     expect(report.signedWriteEnvelope.payload.reporter_handle).toBeUndefined();
     expect(report.signedWriteEnvelope.origin).toBe('vh://local');
+  });
+
+  it('routes public-beta report intake through the MVP action policy', async () => {
+    vi.resetModules();
+    vi.doMock('./forum/lumaRecords', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./forum/lumaRecords')>();
+      return {
+        ...actual,
+        lumaForumDeploymentProfile: () => 'public-beta',
+        deriveForumSignedWriteSessionRef: deriveIdentitySignedWriteSessionRef,
+      };
+    });
+    const { createLumaNewsReportRecord: createPublicBetaNewsReportRecord } = await import('./newsReportLumaRecords');
+
+    vi.stubGlobal('location', { origin: 'https://vh.example' });
+    const report = await createPublicBetaNewsReportRecord({
+      identity: await publicBetaIdentity(),
+      reportId: 'report-public-beta',
+      target: {
+        type: 'synthesis',
+        topic_id: 'topic-1',
+        synthesis_id: 'synthesis-1',
+        epoch: 2
+      },
+      reasonCode: 'other',
+      createdAt: Date.now()
+    });
+
+    expect(report.signedWriteEnvelope).toMatchObject({
+      profile: 'public-beta',
+      audience: 'vh-news-report',
+      sessionRef: {
+        tokenHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        envelopeDigest: expect.stringMatching(/^[0-9a-f]{64}$/)
+      }
+    });
   });
 
   it('fails closed without a complete identity session', async () => {

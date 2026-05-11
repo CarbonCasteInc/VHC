@@ -2,6 +2,7 @@ import type {
   PointAggregateSnapshotV1,
   VoteIntentRecord,
 } from '@vh/data-model';
+import type { IdentityRecord } from '@vh/types';
 import {
   readAggregateVoterNode,
   readAggregateVoterRows,
@@ -166,6 +167,7 @@ async function awaitSnapshotMaterialization(params: {
 export async function projectIntentRecord(params: {
   client: VennClient;
   record: VoteIntentRecord;
+  identity?: IdentityRecord | null;
   now: () => number;
   materializePointSnapshot: (args: {
     tuple: PointTuple;
@@ -183,6 +185,7 @@ export async function projectIntentRecord(params: {
   const normalizedEmittedAt = normalizeNonNegativeInt(params.record.emitted_at);
   const updatedAtIso = new Date(normalizedEmittedAt).toISOString();
   const lumaVoterNode = await createLumaAggregateVoterNodeFromVoterId({
+    identity: params.identity ?? null,
     voterId: params.record.voter_id,
     topicId: tuple.topic_id,
     synthesisId: tuple.synthesis_id,

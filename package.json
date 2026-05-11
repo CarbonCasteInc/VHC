@@ -72,6 +72,7 @@
     "check:luma-topic-engagement-summary-system-v1": "node ./tools/scripts/check-luma-topic-engagement-summary-system-v1.mjs",
     "check:luma-civic-reps-system-v1": "node ./tools/scripts/check-luma-civic-reps-system-v1.mjs",
     "check:luma-discovery-index-system-v1": "node ./tools/scripts/check-luma-discovery-index-system-v1.mjs",
+    "check:luma:mvp-production-readiness": "node ./packages/e2e/src/luma/mvp-production-readiness.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",

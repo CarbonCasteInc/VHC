@@ -1,7 +1,7 @@
 # LUMA Service v0 Roadmap
 
 > Status: Draft v0.7 — execution-sequence document; the normative service contract has been extracted to `docs/specs/spec-luma-service-v0.md`.
-> Date: 2026-05-02 (v0.1 through v0.6); 2026-05-04 (v0.7 mesh-coherence pass)
+> Date: 2026-05-02 (v0.1 through v0.6); 2026-05-04 (v0.7 mesh-coherence pass); 2026-05-11 (v0.18 public-beta MVP readiness alignment)
 > Owner: VHC Spec Owners (proposed)
 > Depends On: `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/specs/spec-mesh-production-readiness.md`, `docs/specs/spec-signed-pin-custody-v0.md`, `docs/specs/secure-storage-policy.md`, `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/STATUS.md`, `docs/foundational/System_Architecture.md`, `docs/ops/luma-verifier-current-state.md`, `services/luma-verifier-dev/src/main.rs`, `apps/web-pwa/src/hooks/useIdentity.ts`, `packages/identity-vault/src/vault.ts`, `packages/identity-vault/src/types.ts`, `packages/gun-client/src/auth.ts`
 > Scope: Sequence the work that lands `docs/specs/spec-luma-service-v0.md` in code. Implementation milestones, codebase reality check, and open decisions only — normative contract material lives in the spec.
@@ -100,7 +100,43 @@ Every locked default below is normative under the spec section in parentheses; t
 - **System writer key contract is owned by `spec-data-topology-privacy-v0.md` §8 and the cross-spec key-custody manifest in `spec-signed-pin-custody-v0.md`** (§15).
 - **LUMA profile disablement (`SignedSafetyBulletin.profileDisablements`) fails the production-app canary closed with a LUMA-named reason**, never a mesh transport reason (§16.6).
 
-## Codebase reality check (2026-05-02)
+## Current implementation addendum (2026-05-11)
+
+The 2026-05-02 codebase reality check below is preserved as historical
+planning context. Current implementation truth has moved materially since that
+snapshot:
+
+- `packages/identity-vault` is at `VAULT_VERSION = 2` with typed compartments
+  for identity, stable device credential, SEA device pair, delegation signing
+  key, and wallet binding. Sign Out preserves device-bound compartments; Reset
+  Identity rotates device credential, SEA pair, delegation signing key, and
+  clears wallet binding.
+- Public-beta identity creation persists a beta-local `AssuranceEnvelope` and
+  uses it to derive signed-write `sessionRef` values. This is the public-beta
+  MVP layer only; it does not claim production-attestation/Silver,
+  verified-human identity, one-human-one-vote, Sybil resistance, or
+  cryptographic residency.
+- The provider surface now has explicit `dev`, `e2e`, `public-beta`, and
+  `production-attestation` allow-lists. `BetaLocalAttestationProvider` and
+  `BetaLocalConstituencyProvider` are the public-beta providers; mock and Rust
+  DEV stub providers are excluded from public-beta.
+- M0.B public-surface migration has landed for forum thread/comment/post,
+  forum nomination, directory publish, aggregate voter node, news report
+  intake/status, news/storyline/index/analysis, topic synthesis/digest/topic
+  engagement summary, civic representative snapshots, and discovery item/index
+  system-writer records. Operator moderation/action seams are tracked as their
+  own follow-up if their owning contract promotes them.
+- The aggregate release gate is now
+  `pnpm check:luma:mvp-production-readiness`, which writes
+  `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`
+  and is included as `luma_mvp_production_readiness` in
+  `pnpm check:mvp-release-gates`.
+- Current mesh release truth remains separate: LUMA mesh reader-path coverage
+  must be current-commit and pass for the five required user-write classes, but
+  public WSS mesh `release_ready` and production app canary readiness remain
+  downstream gates.
+
+## Codebase reality check (2026-05-02, historical)
 
 | Area | Current state | Roadmap consequence |
 | --- | --- | --- |
@@ -740,3 +776,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.15 | 2026-05-10 | Reviewer | M0.B topic digest narrow slice. `vh/topics/<topicId>/digests/<digestId>` writes move to system-writer signed records with shared validator reads and legacy digest compatibility; synthesis candidates, corrections, discovery indexes, topic engagement, mesh drills, relay, and LUMA-gated mesh coverage remain out of scope. Added `pnpm check:luma-topic-digest-system-v1`. |
 | 0.16 | 2026-05-10 | Reviewer | M0.B topic engagement summary narrow slice. `vh/aggregates/topics/<topicId>/engagement/summary` writes move to system-writer signed records with shared validator reads and legacy summary compatibility; topic-scoped actor nodes, aggregate voter/snapshot adapters, discovery indexes, mesh evidence artifacts, relay, and browser signing remain out of scope. Added `pnpm check:luma-topic-engagement-summary-system-v1`. |
 | 0.17 | 2026-05-10 | Reviewer | M0.B civic representative directory snapshot narrow slice. `vh/civic/reps/<jurisdictionVersion>` writes move to system-writer signed records with shared validator reads and legacy directory snapshot compatibility; identity directory schemas, bridge action/receipt/stat adapters, discovery indexes, mesh evidence artifacts, relay, and browser signing remain out of scope. Added `pnpm check:luma-civic-reps-system-v1`. |
+| 0.18 | 2026-05-11 | Reviewer | Public-beta MVP readiness alignment. Added current implementation addendum for vault v2 compartments, beta-local AssuranceEnvelope runtime, provider allow-lists, discovery system-writer migration, aggregate `pnpm check:luma:mvp-production-readiness`, and the boundary that production-attestation/Silver, public WSS mesh `release_ready`, and full production app readiness remain separate gates. |

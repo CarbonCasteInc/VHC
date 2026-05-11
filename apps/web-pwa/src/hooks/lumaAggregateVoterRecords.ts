@@ -15,9 +15,15 @@ import {
   type SignedWriteSessionRef
 } from '@vh/luma-sdk';
 import { signWithStoredDelegationSigningKey } from '@vh/identity-vault';
-import { deriveVoterId } from '@vh/types';
+import { deriveVoterId, type IdentityRecord } from '@vh/types';
+import {
+  assertCanPerformMvpAction,
+  assertMvpActionIdentityReady,
+  deriveIdentitySignedWriteSessionRef
+} from '../luma/mvpActionPolicy';
 
 interface AggregateVoterNodeInput {
+  readonly identity?: IdentityRecord | null;
   readonly topicId: string;
   readonly synthesisId: string;
   readonly epoch: number;
@@ -77,6 +83,16 @@ export async function createLumaAggregateVoterNodeFromPrincipal(
 export async function createLumaAggregateVoterNodeFromVoterId(
   input: LumaAggregateVoterNodeFromVoterInput
 ): Promise<AggregateVoterNodeV1> {
+  const profile = lumaAggregateVoterDeploymentProfile();
+  const origin = currentOrigin();
+  const identity = profile === 'public-beta'
+    ? await assertPublicBetaVoterBinding(input, profile)
+    : input.identity ?? null;
+  const sessionRef = identity
+    ? await deriveIdentitySignedWriteSessionRef(identity, {
+      allowLegacySessionDigest: profile !== 'public-beta'
+    })
+    : await deriveAggregateVoterSignedWriteSessionRef(input);
   const payload: AggregateVoterSignedPayload = {
     schema_version: AGGREGATE_VOTER_NODE_VERSION,
     _protocolVersion: AGGREGATE_PUBLIC_PROTOCOL_VERSION,
@@ -92,18 +108,29 @@ export async function createLumaAggregateVoterNodeFromVoterId(
     updated_at: input.updatedAt
   };
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaAggregateVoterDeploymentProfile(),
+    profile,
     audience: AGGREGATE_VOTER_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(input.voterId, AGGREGATE_VOTER_AUTHOR_SCHEME),
-    sessionRef: await deriveAggregateVoterSignedWriteSessionRef(input),
+    sessionRef,
     payload,
     sequence: input.sequence,
     nonce: randomNonceHex(),
     issuedAt: input.sequence,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity,
+      profile,
+      action: AGGREGATE_VOTER_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
+      publicAuthor: input.voterId,
+      origin
+    });
+  }
 
   return {
     ...payload,
@@ -133,6 +160,27 @@ export async function deriveAggregateVoterSignedWriteSessionRef(
       voterId: input.voterId
     })
   };
+}
+
+async function assertPublicBetaVoterBinding(
+  input: LumaAggregateVoterNodeFromVoterInput,
+  profile: DeploymentProfile
+): Promise<IdentityRecord> {
+  const identity = input.identity ?? null;
+  assertMvpActionIdentityReady({
+    identity,
+    profile,
+    action: AGGREGATE_VOTER_AUDIENCE
+  });
+  const activeIdentity = identity as IdentityRecord;
+  const expectedVoterId = await deriveVoterId(activeIdentity.session.nullifier, {
+    topicId: input.topicId,
+    epoch: input.epoch
+  });
+  if (expectedVoterId !== input.voterId) {
+    throw new Error('MVP LUMA aggregate voter publicAuthor must match the active identity voter id');
+  }
+  return activeIdentity;
 }
 
 function currentOrigin(): string {

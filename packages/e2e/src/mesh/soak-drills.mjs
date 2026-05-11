@@ -21,6 +21,7 @@ const SOAK_DURATION_MS = Number.parseInt(process.env.VH_MESH_SOAK_DURATION_MS ||
 const READ_TIMEOUT_MS = Number.parseInt(process.env.VH_MESH_SOAK_READ_TIMEOUT_MS || '5000', 10);
 const WRITE_TIMEOUT_MS = Number.parseInt(process.env.VH_MESH_SOAK_WRITE_TIMEOUT_MS || '10000', 10);
 const RESTART_SETTLE_MS = Number.parseInt(process.env.VH_MESH_SOAK_RESTART_SETTLE_MS || '2500', 10);
+const SOAK_HEARTBEAT_MS = Number.parseInt(process.env.VH_MESH_SOAK_HEARTBEAT_MS || '60000', 10);
 
 const P95_BUDGETS_MS = new Map([
   ['health probe write/readback', 3000],
@@ -134,6 +135,27 @@ function createGun(peers) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sleepWithHeartbeat(ms, label) {
+  const heartbeatMs = Number.isFinite(SOAK_HEARTBEAT_MS) && SOAK_HEARTBEAT_MS > 0
+    ? SOAK_HEARTBEAT_MS
+    : 60000;
+  const startedAt = Date.now();
+  let elapsedMs = 0;
+  while (elapsedMs < ms) {
+    const remainingMs = ms - elapsedMs;
+    await sleep(Math.min(remainingMs, heartbeatMs));
+    elapsedMs = Date.now() - startedAt;
+    if (elapsedMs < ms) {
+      console.log(JSON.stringify({
+        event: 'mesh-soak-heartbeat',
+        label,
+        elapsed_ms: elapsedMs,
+        remaining_ms: Math.max(0, ms - elapsedMs),
+      }));
+    }
+  }
 }
 
 function canonicalize(value) {
@@ -1434,7 +1456,7 @@ async function runSoakDrill() {
       const rows = await readSampleFromRelays({ relays, runId, sample: steadySample });
       readbackRows.push(...rows);
       evaluations.push(evaluateSample(steadySample, rows));
-      if (remainingMs > 2500) await sleep(remainingMs - 2500);
+      if (remainingMs > 2500) await sleepWithHeartbeat(remainingMs - 2500, 'steady-state-tail');
     }
 
     metricsRows.push(...await collectRelayMetrics(relays, 'final'));

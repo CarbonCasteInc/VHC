@@ -123,6 +123,7 @@ export interface CreateSignedWriteEnvelopeInput<TPayload> {
 export interface VerifySignedWriteEnvelopeInput<TPayload> {
   envelope: SignedWriteEnvelope<TPayload>;
   verify: SignedWriteVerifyHook<TPayload>;
+  expected?: SignedWriteVerificationExpectations;
 }
 
 export type SignedWriteVerificationFailureReason =
@@ -146,6 +147,29 @@ export type SignedWriteVerificationFailureReason =
   | 'invalid_signature'
   | 'signature_verification_failed';
 
+export type SignedWritePolicyFailureReason =
+  | 'profile_mismatch'
+  | 'audience_mismatch'
+  | 'scheme_mismatch'
+  | 'origin_mismatch'
+  | 'public_author_mismatch'
+  | 'session_ref_mismatch'
+  | 'session_expired';
+
+export interface SignedWriteVerificationExpectations {
+  profile?: DeploymentProfile;
+  audience?: AudienceTag;
+  scheme?: LinkabilityDomainName;
+  origin?: string;
+  publicAuthor?: string;
+  sessionRef?: SignedWriteSessionRef;
+  lifecycle?: {
+    enabled: boolean;
+    expiresAt: number;
+    now?: number;
+  };
+}
+
 export type SignedWriteVerificationResult<TPayload = unknown> =
   | {
     valid: true;
@@ -156,7 +180,7 @@ export type SignedWriteVerificationResult<TPayload = unknown> =
   }
   | {
     valid: false;
-    reason: SignedWriteVerificationFailureReason;
+    reason: SignedWriteVerificationFailureReason | SignedWritePolicyFailureReason;
     message: string;
   };
 
@@ -289,7 +313,7 @@ export async function createSignedWriteEnvelope<TPayload>(
 export async function verifySignedWriteEnvelope<TPayload>(
   input: VerifySignedWriteEnvelopeInput<TPayload>
 ): Promise<SignedWriteVerificationResult<TPayload>> {
-  const validation = await validateSignedWriteEnvelope(input.envelope);
+  const validation = await validateSignedWriteEnvelope(input.envelope, input.expected);
   if (!validation.valid) {
     return validation;
   }
@@ -320,7 +344,8 @@ export async function verifySignedWriteEnvelope<TPayload>(
 }
 
 async function validateSignedWriteEnvelope<TPayload>(
-  envelope: SignedWriteEnvelope<TPayload>
+  envelope: SignedWriteEnvelope<TPayload>,
+  expected?: SignedWriteVerificationExpectations
 ): Promise<
   | {
     valid: true;
@@ -329,7 +354,7 @@ async function validateSignedWriteEnvelope<TPayload>(
   }
   | {
     valid: false;
-    reason: SignedWriteVerificationFailureReason;
+    reason: SignedWriteVerificationFailureReason | SignedWritePolicyFailureReason;
     message: string;
   }
 > {
@@ -382,11 +407,65 @@ async function validateSignedWriteEnvelope<TPayload>(
     );
   }
 
+  const policyFailure = validateExpectedEnvelopePolicy(envelope, expected);
+  if (policyFailure) {
+    return policyFailure;
+  }
+
   return {
     valid: true,
     payloadDigest,
     idempotencyKey
   };
+}
+
+function validateExpectedEnvelopePolicy<TPayload>(
+  envelope: SignedWriteEnvelope<TPayload>,
+  expected?: SignedWriteVerificationExpectations
+): { valid: false; reason: SignedWritePolicyFailureReason; message: string } | null {
+  if (!expected) return null;
+  if (expected.profile && envelope.profile !== expected.profile) {
+    return policyInvalidResult('profile_mismatch', `Signed write profile ${envelope.profile} does not match expected ${expected.profile}`);
+  }
+  if (expected.audience && envelope.audience !== expected.audience) {
+    return policyInvalidResult('audience_mismatch', `Signed write audience ${envelope.audience} does not match expected ${expected.audience}`);
+  }
+  if (expected.scheme && envelope.scheme !== expected.scheme) {
+    return policyInvalidResult('scheme_mismatch', `Signed write scheme ${envelope.scheme} does not match expected ${expected.scheme}`);
+  }
+  if (expected.origin && envelope.origin !== expected.origin) {
+    return policyInvalidResult('origin_mismatch', `Signed write origin ${envelope.origin} does not match expected ${expected.origin}`);
+  }
+  if (expected.publicAuthor && envelope.publicAuthor !== expected.publicAuthor) {
+    return policyInvalidResult('public_author_mismatch', 'Signed write publicAuthor does not match expected public author');
+  }
+  if (
+    expected.sessionRef &&
+    (
+      envelope.sessionRef.tokenHash !== expected.sessionRef.tokenHash ||
+      envelope.sessionRef.envelopeDigest !== expected.sessionRef.envelopeDigest
+    )
+  ) {
+    return policyInvalidResult('session_ref_mismatch', 'Signed write sessionRef does not match the active AssuranceEnvelope-backed session');
+  }
+  if (expected.lifecycle?.enabled) {
+    if (
+      typeof expected.lifecycle.expiresAt !== 'number' ||
+      !Number.isSafeInteger(expected.lifecycle.expiresAt) ||
+      expected.lifecycle.expiresAt <= 0 ||
+      (expected.lifecycle.now ?? Date.now()) >= expected.lifecycle.expiresAt
+    ) {
+      return policyInvalidResult('session_expired', 'Signed write session is expired');
+    }
+  }
+  return null;
+}
+
+function policyInvalidResult(
+  reason: SignedWritePolicyFailureReason,
+  message: string
+): { valid: false; reason: SignedWritePolicyFailureReason; message: string } {
+  return { valid: false, reason, message };
 }
 
 function requireCanonicalJson(value: unknown, label: string): string {
@@ -727,7 +806,7 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 function invalidResult<TPayload = unknown>(
-  reason: SignedWriteVerificationFailureReason,
+  reason: SignedWriteVerificationFailureReason | SignedWritePolicyFailureReason,
   message: string
 ): SignedWriteVerificationResult<TPayload> {
   return {

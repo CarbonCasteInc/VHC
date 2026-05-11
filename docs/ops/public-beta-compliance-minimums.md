@@ -2,10 +2,10 @@
 
 > Status: Accepted Draft for Web PWA public beta minimums
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-04-27
+> Last Reviewed: 2026-05-11
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-hermes-forum-v0.md, docs/ops/public-beta-launch-readiness-closeout.md
 
-Version: 0.5
+Version: 0.6
 Scope: Web PWA public beta policy surfaces, private support escalation protocol, and release evidence.
 
 ## 1. Purpose
@@ -79,6 +79,7 @@ Operator handling rules:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Public beta scope page exists | Implemented | `/beta` route and `PublicBetaCompliancePageView`. |
+| LUMA public-beta MVP boundary exists | Implemented | `pnpm check:luma:mvp-production-readiness` verifies beta-local AssuranceEnvelope runtime, signed-write action policy, public namespace leak guards, current LUMA mesh coverage, and no Silver/verified-human/public-WSS overclaim. |
 | Privacy notice exists | Implemented | `/privacy` route and public mesh boundary copy. |
 | Terms page exists | Implemented | `/terms` route and beta reliance limits. |
 | UGC/moderation policy exists | Implemented | `/moderation` route, report-control policy links, and report/admin action docs. |
@@ -102,6 +103,7 @@ Operator handling rules:
 - The validated snapshot does not prove live-feed freshness.
 - Native App Store or TestFlight readiness remains out of scope because no native shell is present.
 - Remote model cost governance and broader launch operations visibility remain separate from these policy pages.
+- LUMA production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness remain separate gates from the public-beta MVP LUMA layer.
 
 ## 6. Required Commands
 
@@ -109,6 +111,7 @@ Before public beta claims are made from a release branch, run:
 
 ```bash
 pnpm check:public-beta-compliance
+pnpm check:luma:mvp-production-readiness
 pnpm check:public-beta-launch-closeout
 pnpm docs:check
 pnpm check:mvp-release-gates

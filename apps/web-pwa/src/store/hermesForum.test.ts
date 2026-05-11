@@ -235,21 +235,12 @@ describe('hermesForum store', () => {
     useXpLedger.getState().setActiveNullifier(nullifier);
   };
 
-  it('rejects thread creation when trustScore is low', async () => {
-    publishIdentity({
-      session: {
-        token: 'token-low',
-        nullifier: 'low',
-        trustScore: 0.2,
-        scaledTrustScore: 2000,
-        createdAt: 1,
-        expiresAt: Date.now() + 60_000,
-      },
-    });
+  it('does not use scalar trustScore as the forum write boundary in dev/e2e', async () => {
+    setIdentity('low', 0.2);
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-1', now: () => 1 });
-    await expect(store.getState().createThread('title', 'content', [])).rejects.toThrow(
-      'Insufficient trustScore for forum actions'
-    );
+    await expect(store.getState().createThread('title', 'content', [])).resolves.toMatchObject({
+      id: 'thread-1'
+    });
   });
 
   it('createThread emits project XP when tagged', async () => {

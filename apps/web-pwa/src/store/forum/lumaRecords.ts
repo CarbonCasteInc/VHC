@@ -13,7 +13,6 @@ import {
 import {
   createLumaPublicAuthorId,
   createSignedWriteEnvelope,
-  digestSignedWritePayload,
   type DeploymentProfile,
   type SignedWriteSessionRef
 } from '@vh/luma-sdk';
@@ -25,6 +24,10 @@ import {
   type HermesThread
 } from '@vh/types';
 import { signWithStoredDelegationSigningKey } from '@vh/identity-vault';
+import {
+  assertCanPerformMvpAction,
+  deriveIdentitySignedWriteSessionRef
+} from '../../luma/mvpActionPolicy';
 
 type LumaForumIdentity = IdentityRecord & {
   session: IdentityRecord['session'] & {
@@ -35,6 +38,8 @@ type LumaForumIdentity = IdentityRecord & {
     expiresAt: number;
   };
 };
+
+type LumaForumEnv = Record<string, string | boolean | undefined>;
 
 interface ThreadRecordInput {
   readonly identity: LumaForumIdentity;
@@ -79,7 +84,7 @@ interface PostRecordInput {
 
 export function lumaForumDeploymentProfile(): DeploymentProfile {
   if (isE2EMode()) return 'e2e';
-  const viteEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
+  const viteEnv = readLumaForumEnv();
   const configured = viteEnv?.VITE_LUMA_PROFILE;
   if (
     configured === 'dev'
@@ -109,22 +114,16 @@ export function assertLumaForumIdentity(identity: IdentityRecord | null): LumaFo
 export async function deriveForumSignedWriteSessionRef(
   identity: LumaForumIdentity
 ): Promise<SignedWriteSessionRef> {
-  const session = identity.session;
-  return {
-    tokenHash: await digestSignedWritePayload({ token: session.token }),
-    envelopeDigest: await digestSignedWritePayload({
-      kind: 'vh-current-session-ref-v0',
-      nullifier: session.nullifier,
-      scaledTrustScore: session.scaledTrustScore,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt
-    })
-  };
+  return deriveIdentitySignedWriteSessionRef(identity, {
+    allowLegacySessionDigest: lumaForumDeploymentProfile() !== 'public-beta'
+  });
 }
 
 export async function createLumaForumThreadRecord(input: ThreadRecordInput): Promise<HermesThread> {
   const forumAuthorId = await deriveForumAuthorId(input.identity.session.nullifier);
   const timestamp = input.timestamp;
+  const profile = lumaForumDeploymentProfile();
+  const origin = currentOrigin();
   const payload: ForumThreadSignedPayload = stripUndefined({
     schemaVersion: 'hermes-thread-v1',
     _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
@@ -145,9 +144,9 @@ export async function createLumaForumThreadRecord(input: ThreadRecordInput): Pro
     proposal: input.proposal
   });
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaForumDeploymentProfile(),
+    profile,
     audience: FORUM_THREAD_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: FORUM_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(forumAuthorId, FORUM_AUTHOR_SCHEME),
     sessionRef: await deriveForumSignedWriteSessionRef(input.identity),
@@ -157,6 +156,17 @@ export async function createLumaForumThreadRecord(input: ThreadRecordInput): Pro
     issuedAt: timestamp,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity: input.identity,
+      profile,
+      action: FORUM_THREAD_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: FORUM_AUTHOR_SCHEME,
+      publicAuthor: forumAuthorId,
+      origin
+    });
+  }
 
   return {
     ...payload,
@@ -176,6 +186,8 @@ export async function createLumaForumThreadRecord(input: ThreadRecordInput): Pro
 export async function createLumaForumCommentRecord(input: CommentRecordInput): Promise<HermesComment> {
   const forumAuthorId = await deriveForumAuthorId(input.identity.session.nullifier);
   const timestamp = input.timestamp;
+  const profile = lumaForumDeploymentProfile();
+  const origin = currentOrigin();
   const payload: ForumCommentSignedPayload = stripUndefined({
     schemaVersion: 'hermes-comment-v2',
     _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
@@ -192,9 +204,9 @@ export async function createLumaForumCommentRecord(input: CommentRecordInput): P
     via: input.via
   });
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaForumDeploymentProfile(),
+    profile,
     audience: FORUM_COMMENT_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: FORUM_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(forumAuthorId, FORUM_AUTHOR_SCHEME),
     sessionRef: await deriveForumSignedWriteSessionRef(input.identity),
@@ -204,6 +216,17 @@ export async function createLumaForumCommentRecord(input: CommentRecordInput): P
     issuedAt: timestamp,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity: input.identity,
+      profile,
+      action: FORUM_COMMENT_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: FORUM_AUTHOR_SCHEME,
+      publicAuthor: forumAuthorId,
+      origin
+    });
+  }
 
   return {
     ...payload,
@@ -222,6 +245,8 @@ export async function createLumaForumCommentRecord(input: CommentRecordInput): P
 export async function createLumaForumPostRecord(input: PostRecordInput): Promise<ForumPost> {
   const forumAuthorId = await deriveForumAuthorId(input.identity.session.nullifier);
   const timestamp = input.timestamp;
+  const profile = lumaForumDeploymentProfile();
+  const origin = currentOrigin();
   const payload: ForumPostSignedPayload = stripUndefined({
     schemaVersion: 'hermes-post-v1',
     _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
@@ -239,9 +264,9 @@ export async function createLumaForumPostRecord(input: PostRecordInput): Promise
     articleRefId: input.articleRefId
   });
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaForumDeploymentProfile(),
+    profile,
     audience: FORUM_POST_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: FORUM_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(forumAuthorId, FORUM_AUTHOR_SCHEME),
     sessionRef: await deriveForumSignedWriteSessionRef(input.identity),
@@ -251,6 +276,17 @@ export async function createLumaForumPostRecord(input: PostRecordInput): Promise
     issuedAt: timestamp,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity: input.identity,
+      profile,
+      action: FORUM_POST_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: FORUM_AUTHOR_SCHEME,
+      publicAuthor: forumAuthorId,
+      origin
+    });
+  }
 
   return {
     ...payload,
@@ -284,7 +320,17 @@ function isE2EMode(): boolean {
   if (typeof override === 'boolean') {
     return override;
   }
-  return (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_E2E_MODE === 'true';
+  const viteEnv = readLumaForumEnv();
+  return viteEnv?.VITE_E2E_MODE === 'true'
+    || viteEnv?.MODE === 'test'
+    || viteEnv?.VITEST === 'true';
+}
+
+function readLumaForumEnv(): LumaForumEnv {
+  const override = (globalThis as typeof globalThis & {
+    __VH_IMPORT_META_ENV__?: LumaForumEnv;
+  }).__VH_IMPORT_META_ENV__;
+  return override ?? (import.meta as unknown as { env?: LumaForumEnv }).env ?? {};
 }
 
 function stripUndefined<T extends object>(obj: T): T {

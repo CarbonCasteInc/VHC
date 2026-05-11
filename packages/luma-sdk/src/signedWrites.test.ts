@@ -618,6 +618,83 @@ describe('LUMA SignedWriteEnvelope SDK surface', () => {
     expect(result.valid).toBe(true);
   });
 
+  it.each([
+    ['wrong profile', { profile: 'e2e' }, 'profile_mismatch'],
+    ['wrong audience', { audience: 'vh-forum-comment' }, 'audience_mismatch'],
+    ['wrong scheme', { scheme: 'identity-directory-v1' }, 'scheme_mismatch'],
+    ['wrong origin', { origin: 'https://other.example' }, 'origin_mismatch'],
+    ['wrong public author', { publicAuthor: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' }, 'public_author_mismatch'],
+    [
+      'mismatched envelopeDigest',
+      {
+        sessionRef: {
+          tokenHash: SESSION_REF.tokenHash,
+          envelopeDigest: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        },
+      },
+      'session_ref_mismatch',
+    ],
+  ])('rejects expected-policy mismatch for %s', async (_label, expected, reason) => {
+    const envelope = await createVectorEnvelope();
+    await expect(verifySignedWriteEnvelope({
+      envelope,
+      verify: ed25519VerifyHook(),
+      expected: {
+        profile: 'public-beta',
+        audience: 'vh-forum-thread',
+        scheme: 'forum-author-v1',
+        origin: 'https://vh.example',
+        publicAuthor: PUBLIC_AUTHOR_VALUE,
+        sessionRef: SESSION_REF,
+        ...expected,
+      },
+    })).resolves.toMatchObject({
+      valid: false,
+      reason,
+    });
+  });
+
+  it('rejects expired sessions when lifecycle validation is enabled', async () => {
+    const envelope = await createVectorEnvelope();
+    await expect(verifySignedWriteEnvelope({
+      envelope,
+      verify: ed25519VerifyHook(),
+      expected: {
+        profile: 'public-beta',
+        lifecycle: {
+          enabled: true,
+          expiresAt: ISSUED_AT - 1,
+          now: ISSUED_AT,
+        },
+      },
+    })).resolves.toMatchObject({
+      valid: false,
+      reason: 'session_expired',
+    });
+  });
+
+  it('accepts lifecycle validation using the current clock when no explicit now is supplied', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(ISSUED_AT));
+    const envelope = await createVectorEnvelope();
+
+    await expect(verifySignedWriteEnvelope({
+      envelope,
+      verify: ed25519VerifyHook(),
+      expected: {
+        profile: 'public-beta',
+        lifecycle: {
+          enabled: true,
+          expiresAt: ISSUED_AT + 1,
+        },
+      },
+    })).resolves.toMatchObject({
+      valid: true,
+    });
+
+    vi.useRealTimers();
+  });
+
   it('reports missing WebCrypto SHA-256 as a closed failure', async () => {
     vi.stubGlobal('crypto', undefined);
 

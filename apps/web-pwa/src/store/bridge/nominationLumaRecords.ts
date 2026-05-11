@@ -17,6 +17,7 @@ import {
   deriveForumSignedWriteSessionRef,
   lumaForumDeploymentProfile
 } from '../forum/lumaRecords';
+import { assertCanPerformMvpAction } from '../../luma/mvpActionPolicy';
 
 export interface NominationRecordInput {
   readonly identity: IdentityRecord | null;
@@ -32,6 +33,8 @@ export async function createLumaNominationEvent(
 ): Promise<NominationEventV1> {
   const identity = assertLumaForumIdentity(input.identity);
   const nominatorAuthorId = await deriveForumAuthorId(identity.session.nullifier);
+  const profile = lumaForumDeploymentProfile();
+  const origin = currentOrigin();
   const payload: NominationSignedPayload = {
     schemaVersion: 'hermes-nomination-v1',
     _protocolVersion: NOMINATION_PUBLIC_PROTOCOL_VERSION,
@@ -46,9 +49,9 @@ export async function createLumaNominationEvent(
   };
 
   const signedWriteEnvelope = await createSignedWriteEnvelope({
-    profile: lumaForumDeploymentProfile(),
+    profile,
     audience: NOMINATION_AUDIENCE,
-    origin: currentOrigin(),
+    origin,
     scheme: NOMINATION_AUTHOR_SCHEME,
     publicAuthor: createLumaPublicAuthorId(nominatorAuthorId, NOMINATION_AUTHOR_SCHEME),
     sessionRef: await deriveForumSignedWriteSessionRef(identity),
@@ -58,6 +61,17 @@ export async function createLumaNominationEvent(
     issuedAt: input.createdAt,
     sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
   });
+  if (profile === 'public-beta') {
+    await assertCanPerformMvpAction({
+      identity,
+      profile,
+      action: NOMINATION_AUDIENCE,
+      envelope: signedWriteEnvelope,
+      scheme: NOMINATION_AUTHOR_SCHEME,
+      publicAuthor: nominatorAuthorId,
+      origin
+    });
+  }
 
   return {
     ...payload,
