@@ -95,6 +95,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.VH_DAEMON_FEED_RUN_ID;
+  delete process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED;
+  delete process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL;
+  delete process.env.VH_DAEMON_FEED_FIXTURE_PORT;
 });
 
 describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
@@ -179,6 +182,28 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ title: 'Ignored', text: 123 }) });
     await expect(fetchArticlePayload('https://daemon.example.test', 'https://example.com/e', 'source-e'))
       .rejects.toThrow('article-text missing text for source-e');
+  });
+
+  it('rewrites stale loopback fixture article ports to the active fixture server', async () => {
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
+    process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL = 'http://127.0.0.1:8996';
+
+    const { fetchArticlePayload, normalizeSemanticAuditArticleUrlForFetch } = await import('./daemonFirstFeedSemanticAudit');
+
+    expect(normalizeSemanticAuditArticleUrlForFetch('http://127.0.0.1:8908/article/geneva-cbs'))
+      .toBe('http://127.0.0.1:8996/article/geneva-cbs');
+    expect(normalizeSemanticAuditArticleUrlForFetch('https://example.com/article/live'))
+      .toBe('https://example.com/article/live');
+
+    await fetchArticlePayload(
+      'https://daemon.example.test',
+      'http://127.0.0.1:8908/article/geneva-cbs',
+      'source-fixture',
+    );
+
+    const requestUrl = new URL(fetchMock.mock.calls[0][0]);
+    expect(requestUrl.searchParams.get('url'))
+      .toBe('http://127.0.0.1:8996/article/geneva-cbs');
   });
 
   it('rethrows non-timeout article-text fetch failures', async () => {

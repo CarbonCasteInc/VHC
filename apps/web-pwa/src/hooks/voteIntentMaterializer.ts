@@ -4,7 +4,9 @@ import {
   type VoteIntentRecord,
 } from '@vh/data-model';
 import type { VennClient } from '@vh/gun-client';
+import type { IdentityRecord } from '@vh/types';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import { getFullIdentity } from '../store/identityProvider';
 import { logMeshWriteResult } from '../utils/sentimentTelemetry';
 import {
   compareIntentLww,
@@ -130,6 +132,7 @@ export async function replayVoteIntentQueue(options?: {
   limit?: number;
   client?: VennClient | null;
   now?: () => number;
+  identity?: IdentityRecord | null;
 }): Promise<{ replayed: number; failed: number }> {
   const client = options?.client ?? resolveClientFromAppStore();
   if (!client) {
@@ -137,12 +140,14 @@ export async function replayVoteIntentQueue(options?: {
   }
 
   const now = options?.now ?? (() => Date.now());
+  const identity = options?.identity ?? getFullIdentity<IdentityRecord>();
   return replayPendingIntents(async (record) => {
     const startedAt = now();
     try {
       const projection = await projectIntentRecord({
         client,
         record,
+        identity,
         now,
         materializePointSnapshot,
       });

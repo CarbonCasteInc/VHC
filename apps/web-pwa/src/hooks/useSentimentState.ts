@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { deriveVoterId, type SentimentSignal, type ConstituencyProof } from '@vh/types';
+import { deriveVoterId, type ConstituencyProof, type IdentityRecord, type SentimentSignal } from '@vh/types';
 import {
   deriveTopicEngagementActorId,
   deriveVoteIntentId,
@@ -19,6 +19,7 @@ import {
 } from '@vh/gun-client';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import { getFullIdentity } from '../store/identityProvider';
 import { useXpLedger } from '../store/xpLedger';
 import {
   decayTowardsTopicImpactCap,
@@ -35,7 +36,11 @@ import {
 } from './pointAggregateSnapshot';
 import { enqueueIntent } from './voteIntentQueue';
 import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
-import { createLumaAggregateVoterNodeFromPrincipal } from './lumaAggregateVoterRecords';
+import {
+  createLumaAggregateVoterNodeFromPrincipal,
+  lumaAggregateVoterDeploymentProfile
+} from './lumaAggregateVoterRecords';
+import { assertMvpActionIdentityReady } from '../luma/mvpActionPolicy';
 
 interface SentimentStore {
   agreements: Record<string, Agreement>;
@@ -472,6 +477,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
 
   try {
     const aggregateVoterRecord = await createLumaAggregateVoterNodeFromPrincipal({
+      identity: getFullIdentity<IdentityRecord>(),
       principalNullifier: signal.constituency_proof.nullifier,
       topicId: signal.topic_id,
       synthesisId: signal.synthesis_id,
@@ -643,6 +649,15 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     const normalizedSynthesisId = context.synthesisId;
     const normalizedEpoch = context.epoch;
+    const lumaProfile = lumaAggregateVoterDeploymentProfile();
+    const activeIdentity = getFullIdentity<IdentityRecord>();
+    if (lumaProfile === 'public-beta') {
+      assertMvpActionIdentityReady({
+        identity: activeIdentity,
+        profile: lumaProfile,
+        action: desired === 0 ? 'vh-stance-clear' : 'vh-stance-vote'
+      });
+    }
 
     // intentional: must activate nullifier before checking its budget
     useXpLedger.getState().setActiveNullifier(constituency_proof.nullifier);

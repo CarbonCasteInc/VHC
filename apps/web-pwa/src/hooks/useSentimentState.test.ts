@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as GunClient from '@vh/gun-client';
 import * as DataModel from '@vh/data-model';
 import * as Types from '@vh/types';
+import { createBetaLocalAssuranceEnvelope } from '@vh/luma-sdk';
 import * as ClientResolver from '../store/clientResolver';
 import * as VoteIntentMaterializer from './voteIntentMaterializer';
 import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
+import { clearPublishedIdentity, publishIdentity } from '../store/identityProvider';
 
 vi.mock('@vh/identity-vault', () => ({
   signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
@@ -30,6 +32,45 @@ let activeNullifier: string | null = null;
 
 function proofFor(nullifier = 'n') {
   return { district_hash: 'd', nullifier, merkle_root: 'm' };
+}
+
+function setPublicBetaLumaEnv(): void {
+  vi.stubGlobal('__VH_E2E_OVERRIDE__', false);
+  vi.stubGlobal('__VH_IMPORT_META_ENV__', {
+    VITE_E2E: '0',
+    VITE_PLAYWRIGHT: '0',
+    MODE: 'production',
+    VITEST: 'false',
+    DEV: false,
+    VITE_LUMA_PROFILE: 'public-beta',
+  });
+}
+
+async function publicBetaIdentity(): Promise<Types.IdentityRecord> {
+  const now = Date.now();
+  const deviceCredential = 'sentiment-public-beta-device';
+  return {
+    id: 'sentiment-public-beta',
+    createdAt: now,
+    attestation: {
+      platform: 'web',
+      integrityToken: 'integrity-token',
+      deviceKey: deviceCredential,
+      nonce: 'nonce',
+    },
+    assuranceEnvelope: await createBetaLocalAssuranceEnvelope({
+      deviceCredential,
+      issuedAt: now,
+    }),
+    session: {
+      token: 'sentiment-session-token',
+      trustScore: 0.5,
+      scaledTrustScore: 5000,
+      nullifier: 'sentiment-public-beta-nullifier',
+      createdAt: now,
+      expiresAt: now + 60_000,
+    },
+  };
 }
 
 async function flushProjection(): Promise<void> {
@@ -152,7 +193,9 @@ describe('useSentimentState', () => {
 
   afterEach(() => {
     budgetMock.restore();
+    clearPublishedIdentity();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -180,6 +223,38 @@ describe('useSentimentState', () => {
     expect(signal?.weight).toBeGreaterThan(0);
     expect(signal?.topic_id).toBe(TOPIC);
     expect(signal?.analysis_id).toBe(ANALYSIS);
+  });
+
+  it('enforces public-beta action policy before stance votes and stance clears', async () => {
+    setPublicBetaLumaEnv();
+    const proof = proofFor('public-beta-proof-nullifier');
+
+    expect(() => useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proof,
+    })).toThrow(/active identity/);
+
+    publishIdentity(await publicBetaIdentity());
+    expect(() => useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proof,
+    })).not.toThrow();
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(1);
+
+    expect(() => useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 0,
+      constituency_proof: proof,
+    })).not.toThrow();
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(0);
   });
 
   it('accumulates eye_weight with decay', () => {

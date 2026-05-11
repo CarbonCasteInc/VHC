@@ -5,6 +5,8 @@ import {
   AGGREGATE_VOTER_AUDIENCE,
   AGGREGATE_VOTER_AUTHOR_SCHEME,
 } from '@vh/data-model';
+import { createBetaLocalAssuranceEnvelope } from '@vh/luma-sdk';
+import type { IdentityRecord } from '@vh/types';
 import {
   createLumaAggregateVoterNodeFromVoterId,
   lumaAggregateVoterDeploymentProfile,
@@ -12,6 +14,8 @@ import {
 
 vi.mock('@vh/identity-vault', () => ({
   signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
+  getDelegationSigningPublicKey: vi.fn(async () => 'aggregate-public-key'),
+  verifyWithDelegationSigningPublicKey: vi.fn(async () => true),
 }));
 
 const VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -40,6 +44,32 @@ function baseInput(overrides: Partial<Parameters<typeof createLumaAggregateVoter
     updatedAt: '2026-02-18T22:20:00.000Z',
     sequence: 1_777_777_777_000,
     ...overrides,
+  };
+}
+
+async function makePublicBetaIdentity(): Promise<IdentityRecord> {
+  const deviceCredential = 'aggregate-beta-device-credential';
+  return {
+    id: 'aggregate-identity',
+    createdAt: 1,
+    attestation: {
+      platform: 'web',
+      integrityToken: 'integrity-token',
+      deviceKey: deviceCredential,
+      nonce: 'nonce',
+    },
+    assuranceEnvelope: await createBetaLocalAssuranceEnvelope({
+      deviceCredential,
+      issuedAt: Date.now(),
+    }),
+    session: {
+      token: 'aggregate-session-token',
+      trustScore: 0.5,
+      scaledTrustScore: 5000,
+      nullifier: 'aggregate-raw-nullifier',
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+    },
   };
 }
 
@@ -85,7 +115,9 @@ describe('lumaAggregateVoterRecords', () => {
   it('creates aggregate voter envelopes with the browser origin when one is available', async () => {
     setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
 
-    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput());
+    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput({
+      identity: await makePublicBetaIdentity(),
+    }));
 
     expect(node.signedWriteEnvelope).toMatchObject({
       audience: AGGREGATE_VOTER_AUDIENCE,
@@ -106,11 +138,20 @@ describe('lumaAggregateVoterRecords', () => {
     setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
     vi.stubGlobal('location', { origin: '' });
 
-    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput());
+    const node = await createLumaAggregateVoterNodeFromVoterId(baseInput({
+      identity: await makePublicBetaIdentity(),
+    }));
     expect(node.signedWriteEnvelope.origin).toBe('vh://local');
 
     await expect(
       createLumaAggregateVoterNodeFromVoterId(baseInput({ voterId: 'raw-nullifier' })),
     ).rejects.toThrow(/publicAuthor|public author/i);
+  });
+
+  it('requires an active public-beta identity at the aggregate voter action boundary', async () => {
+    setNonE2EEnv({ VITE_LUMA_PROFILE: 'public-beta' });
+
+    await expect(createLumaAggregateVoterNodeFromVoterId(baseInput()))
+      .rejects.toThrow(/active identity/);
   });
 });

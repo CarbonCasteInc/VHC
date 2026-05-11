@@ -3,6 +3,12 @@ import type { IdentityRecord } from '@vh/types';
 import { isSessionExpired, isSessionNearExpiry, migrateSessionFields, DEFAULT_SESSION_TTL_MS } from '@vh/types';
 import { TRUST_MINIMUM } from '@vh/data-model';
 import { SEA, createSession } from '@vh/gun-client';
+import {
+  createBetaLocalAssuranceEnvelope,
+  deriveBetaLocalNullifier,
+  type AssuranceEnvelope,
+  type DeploymentProfile
+} from '@vh/luma-sdk';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
 import { getHandleError, isValidHandle } from '../utils/handle';
 import {
@@ -19,12 +25,33 @@ import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 import { useSentimentState } from './useSentimentState';
 import { clearDelegationStorageForPrincipal, useDelegationStore } from '../store/delegation';
 
-const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
-const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
-const LIFECYCLE_ENABLED = (import.meta as any).env?.VITE_SESSION_LIFECYCLE_ENABLED === 'true';
+type IdentityRuntimeEnv = Record<string, string | boolean | undefined>;
+
+function readIdentityEnv(): IdentityRuntimeEnv {
+  const override = (globalThis as typeof globalThis & {
+    __VH_IMPORT_META_ENV__?: IdentityRuntimeEnv;
+  }).__VH_IMPORT_META_ENV__;
+  return override ?? (import.meta as unknown as { env?: IdentityRuntimeEnv }).env ?? {};
+}
+
+const IDENTITY_ENV = readIdentityEnv();
+const E2E_MODE = IDENTITY_ENV.VITE_E2E_MODE === 'true';
+const DEV_MODE = IDENTITY_ENV.DEV === true || IDENTITY_ENV.MODE === 'development';
+const LUMA_PROFILE = resolveIdentityDeploymentProfile();
+const PUBLIC_BETA_PROFILE = LUMA_PROFILE === 'public-beta';
+const LIFECYCLE_ENABLED =
+  IDENTITY_ENV.VITE_SESSION_LIFECYCLE_ENABLED === 'true'
+  || PUBLIC_BETA_PROFILE
+  || LUMA_PROFILE === 'production-attestation';
+const CONFIGURED_ATTESTATION_URL = IDENTITY_ENV.VITE_ATTESTATION_URL;
 const ATTESTATION_URL =
-  (import.meta as any).env?.VITE_ATTESTATION_URL ?? 'http://localhost:3000/verify';
-const VERIFIER_TIMEOUT_MS = Number((import.meta as any).env?.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
+  (typeof CONFIGURED_ATTESTATION_URL === 'string' ? CONFIGURED_ATTESTATION_URL : undefined)
+  ?? (PUBLIC_BETA_PROFILE ? undefined : 'http://localhost:3000/verify');
+const VERIFIER_TIMEOUT_MS = Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
+const DEV_FALLBACK_ENABLED =
+  DEV_MODE
+  && !PUBLIC_BETA_PROFILE
+  && IDENTITY_ENV.VITE_LUMA_DEV_FALLBACK === 'true';
 
 export type IdentityStatus = 'hydrating' | 'anonymous' | 'creating' | 'ready' | 'expired' | 'error';
 
@@ -96,13 +123,16 @@ export function useIdentity() {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
 
-    loadIdentityFromVault().then((loaded) => {
+    loadIdentityFromVault().then(async (loaded) => {
       if (loaded) {
         // Migrate legacy sessions missing createdAt/expiresAt
         const migratedSession = migrateSessionFields(loaded.session);
-        const migrated = migratedSession !== loaded.session
+        let migrated = migratedSession !== loaded.session
           ? { ...loaded, session: migratedSession }
           : loaded;
+        if (PUBLIC_BETA_PROFILE) {
+          migrated = await ensurePublicBetaAssurance(migrated);
+        }
 
         // Check expiry when lifecycle feature flag is enabled
         if (LIFECYCLE_ENABLED && isSessionExpired(migrated.session)) {
@@ -128,6 +158,7 @@ export function useIdentity() {
       setStatus('creating');
       const deviceCredentialCompartment = await deviceCredential.loadOrCreate();
       const attestation = buildAttestation(deviceCredentialCompartment.material);
+      assertRuntimeProfileSafeForIdentityCreation();
       const trimmedHandle = handle?.trim();
       if (trimmedHandle) {
         const validationError = getHandleError(trimmedHandle);
@@ -137,19 +168,27 @@ export function useIdentity() {
       }
 
       let session: { token: string; trustScore: number; nullifier: string };
+      let assuranceEnvelope: AssuranceEnvelope | undefined;
       const devicePair = await seaDevicePair.loadOrCreate(() => SEA.pair());
 
-      if (E2E_MODE) {
+      if (PUBLIC_BETA_PROFILE) {
+        const betaLocal = await createBetaLocalIdentitySession(deviceCredentialCompartment.material);
+        session = betaLocal.session;
+        assuranceEnvelope = betaLocal.assuranceEnvelope;
+      } else if (E2E_MODE) {
         session = { token: `mock-session-${randomToken()}`, trustScore: 1, nullifier: `mock-nullifier-${randomToken()}` };
       } else {
         try {
+          if (!ATTESTATION_URL) {
+            throw new Error('Attestation verifier URL is required for non-public-beta identity creation');
+          }
           const verifierPromise = createSession(attestation, ATTESTATION_URL);
           const timeout = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('Verifier timeout')), VERIFIER_TIMEOUT_MS)
           );
           session = await Promise.race([verifierPromise, timeout]);
         } catch (verifierErr) {
-          if (DEV_MODE) {
+          if (DEV_FALLBACK_ENABLED) {
             console.warn('[vh:identity] Attestation verifier unavailable, using dev fallback');
             session = {
               token: `dev-session-${randomToken()}`,
@@ -175,6 +214,7 @@ export function useIdentity() {
         id: randomToken(),
         createdAt: nowMs,
         attestation,
+        ...(assuranceEnvelope ? { assuranceEnvelope } : {}),
         session: {
           token: session.token,
           trustScore: session.trustScore,
@@ -357,6 +397,77 @@ function buildAttestation(deviceKey: string): IdentityRecord['attestation'] {
     deviceKey,
     nonce: randomToken()
   };
+}
+
+function resolveIdentityDeploymentProfile(): DeploymentProfile {
+  const viteEnv = readIdentityEnv();
+  const configured = viteEnv?.VITE_LUMA_PROFILE;
+  if (
+    configured === 'dev'
+    || configured === 'public-beta'
+    || configured === 'production-attestation'
+  ) {
+    return configured;
+  }
+  if (E2E_MODE) return 'e2e';
+  if (
+    viteEnv?.DEV === true
+    || viteEnv?.MODE === 'development'
+    || viteEnv?.MODE === 'test'
+    || viteEnv?.VITEST === 'true'
+    || viteEnv?.MODE === undefined
+  ) {
+    return 'dev';
+  }
+  return 'public-beta';
+}
+
+function assertRuntimeProfileSafeForIdentityCreation(): void {
+  if (!PUBLIC_BETA_PROFILE) return;
+  if (E2E_MODE) {
+    throw new Error('public-beta identity creation requires VITE_E2E_MODE=false');
+  }
+  if (DEV_MODE) {
+    throw new Error('public-beta identity creation is not allowed from a dev-mode build');
+  }
+  if (IDENTITY_ENV.VITE_LUMA_DEV_FALLBACK === 'true') {
+    throw new Error('public-beta identity creation forbids VITE_LUMA_DEV_FALLBACK');
+  }
+  if (typeof ATTESTATION_URL === 'string' && /localhost:3000\/verify/.test(ATTESTATION_URL)) {
+    throw new Error('public-beta identity creation must not use localhost verifier defaults');
+  }
+}
+
+async function createBetaLocalIdentitySession(deviceKey: string): Promise<{
+  session: { token: string; trustScore: number; nullifier: string };
+  assuranceEnvelope: AssuranceEnvelope;
+}> {
+  const issuedAt = Date.now();
+  return {
+    session: {
+      token: `beta-local-session-${randomToken()}`,
+      trustScore: TRUST_MINIMUM,
+      nullifier: await deriveBetaLocalNullifier(deviceKey)
+    },
+    assuranceEnvelope: await createBetaLocalAssuranceEnvelope({
+      deviceCredential: deviceKey,
+      issuedAt,
+      ttlSeconds: DEFAULT_SESSION_TTL_MS / 1000
+    })
+  };
+}
+
+async function ensurePublicBetaAssurance(record: IdentityRecord): Promise<IdentityRecord> {
+  if (record.assuranceEnvelope) return record;
+  const deviceKey = record.attestation?.deviceKey;
+  if (!deviceKey) return record;
+  const assuranceEnvelope = await createBetaLocalAssuranceEnvelope({
+    deviceCredential: deviceKey,
+    ttlSeconds: DEFAULT_SESSION_TTL_MS / 1000
+  });
+  const migrated = { ...record, assuranceEnvelope };
+  await saveIdentityRecord(migrated);
+  return migrated;
 }
 
 function clampScaledTrustScore(value: number): number {

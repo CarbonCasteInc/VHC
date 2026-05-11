@@ -42,19 +42,28 @@ function deleteDatabase(name: string): Promise<void> {
   });
 }
 
-async function loadHook(e2eMode = false) {
-  const freshMod = await loadIdentityModule(e2eMode);
+async function loadHook(e2eMode = false, envOverrides: Record<string, string | boolean | undefined> = {}) {
+  const freshMod = await loadIdentityModule(e2eMode, envOverrides);
   return freshMod.useIdentity;
 }
 
-async function loadIdentityModule(e2eMode = false) {
+async function loadIdentityModule(
+  e2eMode = false,
+  envOverrides: Record<string, string | boolean | undefined> = {}
+) {
   vi.resetModules();
+  const env = {
+    VITE_E2E_MODE: e2eMode ? 'true' : 'false',
+    VITE_ATTESTATION_URL: 'http://verifier',
+    MODE: 'test',
+    VITEST: 'true',
+    DEV: false,
+    ...envOverrides
+  };
   vi.stubGlobal('import.meta', {
-    env: {
-      VITE_E2E_MODE: e2eMode ? 'true' : 'false',
-      VITE_ATTESTATION_URL: 'http://verifier'
-    }
+    env
   });
+  vi.stubGlobal('__VH_IMPORT_META_ENV__', env);
 
   return import('./useIdentity');
 }
@@ -176,6 +185,93 @@ describe('useIdentity', () => {
     // Provider must NOT contain private keys
     expect((snapshot as any).devicePair).toBeUndefined();
     expect((snapshot as any).session.token).toBeUndefined();
+  });
+
+  it('creates a public-beta beta-local AssuranceEnvelope without using the verifier or dev fallback', async () => {
+    const useIdentity = await loadHook(false, {
+      VITE_LUMA_PROFILE: 'public-beta',
+      VITE_SESSION_LIFECYCLE_ENABLED: 'true',
+      MODE: 'production',
+      VITEST: 'false',
+      DEV: false,
+      VITE_ATTESTATION_URL: undefined
+    });
+    const { result } = renderHook(() => useIdentity());
+
+    await waitFor(() => expect(result.current.status).toBe('anonymous'));
+    await act(async () => {
+      await result.current.createIdentity();
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(createSessionMock).not.toHaveBeenCalled();
+    expect(result.current.identity?.assuranceEnvelope).toMatchObject({
+      envelopeVersion: 1,
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      assuranceLevel: 'beta_local',
+      verifierId: 'beta-local',
+      policyVersion: 'beta-local-v1',
+      evidenceRecordRef: {
+        kind: 'local'
+      },
+      limitations: expect.arrayContaining([
+        'no-remote-attestation',
+        'no-residency-proof',
+        'no-coercion-resistance',
+        'no-recovery'
+      ])
+    });
+    expect(result.current.identity?.assuranceEnvelope?.claimVector).toEqual({
+      device_integrity: 'beta_local',
+      liveness: 'beta_local',
+      human_uniqueness: 'none',
+      residency: 'none',
+      coercion_resistance: 'none',
+      recovery_strength: 'none'
+    });
+    expect(result.current.identity?.session.trustScore).toBe(0.5);
+    expect(result.current.identity?.session.nullifier).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.current.identity?.session.expiresAt).toBeGreaterThan(Date.now());
+
+    const fromVault = await vaultLoad();
+    expect((fromVault as any)?.assuranceEnvelope?.verifierId).toBe('beta-local');
+  });
+
+  it.each([
+    [
+      'E2E mode',
+      { VITE_E2E_MODE: 'true', VITE_LUMA_PROFILE: 'public-beta', MODE: 'production', VITEST: 'false', DEV: false },
+      'VITE_E2E_MODE=false'
+    ],
+    [
+      'dev build',
+      { VITE_LUMA_PROFILE: 'public-beta', MODE: 'development', VITEST: 'false', DEV: true },
+      'dev-mode build'
+    ],
+    [
+      'dev fallback flag',
+      { VITE_LUMA_PROFILE: 'public-beta', MODE: 'production', VITEST: 'false', DEV: false, VITE_LUMA_DEV_FALLBACK: 'true' },
+      'VITE_LUMA_DEV_FALLBACK'
+    ],
+    [
+      'localhost verifier',
+      { VITE_LUMA_PROFILE: 'public-beta', MODE: 'production', VITEST: 'false', DEV: false, VITE_ATTESTATION_URL: 'http://localhost:3000/verify' },
+      'localhost verifier'
+    ]
+  ])('fails closed for forbidden public-beta runtime case: %s', async (_label, env, message) => {
+    const useIdentity = await loadHook(false, env);
+    const { result } = renderHook(() => useIdentity());
+
+    await waitFor(() => expect(['anonymous', 'error']).toContain(result.current.status));
+    if (result.current.status !== 'error') {
+      await act(async () => {
+        await result.current.createIdentity();
+      });
+    }
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.error).toContain(message);
+    expect(createSessionMock).not.toHaveBeenCalled();
   });
 
   it('signOut preserves device-bound compartments, delegation storage, and XP continuity', async () => {

@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveForumAuthorId, type IdentityRecord } from '@vh/types';
 import { NominationEventSchemaV1 } from '@vh/data-model';
+import { createBetaLocalAssuranceEnvelope } from '@vh/luma-sdk';
 import { createLumaNominationEvent } from './nominationLumaRecords';
+import { deriveIdentitySignedWriteSessionRef } from '../../luma/mvpActionPolicy';
 
 vi.mock('@vh/identity-vault', () => ({
-  signWithStoredDelegationSigningKey: vi.fn(async () => 'nomination-delegation-signature')
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'nomination-delegation-signature'),
+  getDelegationSigningPublicKey: vi.fn(async () => ({
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    publicKey: { encoding: 'base64url', material: 'nomination-public-key' },
+    createdAt: 1,
+  })),
+  verifyWithDelegationSigningPublicKey: vi.fn(async () => true)
 }));
 
 const rawNullifier = 'nomination-helper-raw-nullifier';
@@ -27,8 +35,35 @@ const identity: IdentityRecord = {
   }
 };
 
+async function publicBetaIdentity(): Promise<IdentityRecord> {
+  const now = Date.now();
+  const deviceKey = 'nomination-public-beta-device';
+  return {
+    ...identity,
+    attestation: {
+      ...identity.attestation,
+      deviceKey
+    },
+    assuranceEnvelope: await createBetaLocalAssuranceEnvelope({
+      deviceCredential: deviceKey,
+      issuedAt: now
+    }),
+    session: {
+      ...identity.session,
+      trustScore: 0.5,
+      scaledTrustScore: 5000,
+      token: 'nomination-public-beta-session',
+      createdAt: now,
+      expiresAt: now + 60_000
+    }
+  };
+}
+
 describe('createLumaNominationEvent', () => {
   afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock('../forum/lumaRecords');
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -81,6 +116,40 @@ describe('createLumaNominationEvent', () => {
     });
 
     expect(nomination.signedWriteEnvelope.origin).toBe('vh://local');
+  });
+
+  it('routes public-beta nominations through the MVP action policy', async () => {
+    vi.resetModules();
+    vi.doMock('../forum/lumaRecords', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../forum/lumaRecords')>();
+      return {
+        ...actual,
+        lumaForumDeploymentProfile: () => 'public-beta',
+        deriveForumSignedWriteSessionRef: deriveIdentitySignedWriteSessionRef,
+      };
+    });
+    const { createLumaNominationEvent: createPublicBetaNominationEvent } = await import('./nominationLumaRecords');
+
+    vi.stubGlobal('location', { origin: 'https://vh.example' });
+    const publicBeta = await publicBetaIdentity();
+
+    const nomination = await createPublicBetaNominationEvent({
+      identity: publicBeta,
+      id: 'nom-public-beta',
+      topicId: 'topic-42',
+      sourceType: 'news',
+      sourceId: 'source-99',
+      createdAt: Date.now()
+    });
+
+    expect(nomination.signedWriteEnvelope).toMatchObject({
+      profile: 'public-beta',
+      audience: 'vh-forum-nomination',
+      sessionRef: {
+        tokenHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        envelopeDigest: expect.stringMatching(/^[0-9a-f]{64}$/)
+      }
+    });
   });
 
   it('fails closed without a complete identity session', async () => {

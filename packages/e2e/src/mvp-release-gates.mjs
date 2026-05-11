@@ -163,6 +163,17 @@ const GATES = [
     ],
   },
   {
+    id: 'luma_mvp_production_readiness',
+    label: 'LUMA public-beta MVP readiness has current signed-write and mesh evidence',
+    command: ['pnpm', ['check:luma:mvp-production-readiness']],
+    artifactRefs: [
+      '.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json',
+      '.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json',
+      '.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json',
+      'packages/e2e/src/luma/mvp-production-readiness.mjs',
+    ],
+  },
+  {
     id: 'public_beta_launch_closeout',
     label: 'Public beta launch closeout maps launch gates to deterministic evidence',
     command: ['pnpm', ['check:public-beta-launch-closeout']],
