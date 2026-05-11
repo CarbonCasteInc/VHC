@@ -1449,6 +1449,43 @@ Acceptance gates:
   "test group ready"; that claim also requires the downstream full-app canary to
   pass.
 
+Release-claim contract v1:
+
+- `release_ready` means Mesh production readiness only. It is not a full-app,
+  downstream product, or test-group readiness claim.
+- A generated aggregate may allow a bounded Mesh `release_ready` claim only
+  when all of the following are true in the packet: `release_readiness_blockers`
+  is empty; canonical soak is full-duration at `1800000ms`; deployed-WSS source
+  evidence has `run.deployment_scope: public_wss_deployment`; durable
+  in-packet LUMA reader-path coverage passes for forum thread, forum comment,
+  vote/aggregate, directory publish, and news report/status under the current
+  commit and schema epoch; and the evidence-scrub source gate passed.
+- `release_ready` packets MUST NOT keep a stale forbidden claim that says the
+  Mesh is `release_ready` after the bounded Mesh readiness prerequisites have
+  been satisfied.
+- `release_ready` packets MUST continue to forbid full-app readiness,
+  test-group readiness, production-app canary success, and downstream app
+  observation. The production-app canary remains a separate fail-closed gate.
+- LUMA reader-path coverage is not a LUMA profile gate, signer-custody proof,
+  production write authorization proof, or production-app LUMA behavior proof.
+  A Mesh `release_ready` packet may claim only the durable reader-path coverage
+  actually supplied by `luma_gated_write_coverage`.
+- Public WSS proof validates public endpoint shape, signed peer config, exact
+  peers and quorum, CSP, relay health/ready/metrics, and browser app boot. The
+  public proof alone does not make public-infra conflict, partition/heal,
+  clock-skew, rollback, or soak behavior production-proven.
+- `blocked` and `review_required` packets may describe observed evidence only.
+  Their allowed claims MUST NOT imply Mesh `release_ready`, and their forbidden
+  claims MUST continue to include Mesh `release_ready`, full-app/test-group
+  readiness, production-app canary pass, LUMA gate/profile/custody overclaims,
+  and public-WSS behavior beyond the proof scope.
+- `pnpm check:mesh-evidence-scrub` enforces this claim contract for promoted
+  packets. It fails closed against premature Mesh `release_ready` claims,
+  release-ready packets with remaining blockers or missing prerequisites, and
+  post-release-ready overclaims for app canary, downstream app observation,
+  LUMA gate/custody/auth behavior, or public-WSS drills not exercised by the
+  public proof harness.
+
 Downstream full-app canary:
 
 - Command: `pnpm check:production-app-canary`
@@ -2455,13 +2492,24 @@ Allowed after a passing public WSS proof plus downstream LUMA-gated coverage
 pass (under `schema_epoch: post_luma_m0b` with all LUMA-gated write classes
 drilled through the LUMA reader path):
 
-- "The mesh has a production WSS three-relay topology with signed peer config,
-  authenticated relay fallbacks, named health degradation, peer-failure and
-  partition drills, websocket duplicate-write drills, and a passing 30-minute
-  rolling restart soak."
+- "The Mesh production-readiness aggregate is `release_ready` for Mesh
+  transport readiness only when blockers are empty and the packet contains
+  canonical 1800000ms soak evidence, public WSS deployment proof, durable LUMA
+  reader-path coverage for the five required classes, and passing scrub
+  evidence."
 - "LUMA-gated write classes (forum thread/comment, vote/aggregate, directory
-  publish, news report) have transport readiness under the current LUMA
-  schema epoch."
+  publish, news report/status) have durable reader-path coverage under the
+  current LUMA schema epoch."
+
+Still not allowed after Mesh `release_ready` alone:
+
+- "The full app is test-group ready."
+- "The production app canary passed."
+- "Downstream app surfaces were observed end-to-end."
+- "LUMA profile gates, signer custody, production write authorization, or
+  production-app LUMA behavior passed because Mesh reader-path coverage passed."
+- "Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior
+  is production-proven by the public WSS proof alone."
 
 Slice 14E strict coverage contract:
 

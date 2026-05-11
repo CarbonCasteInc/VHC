@@ -22,6 +22,7 @@ const EVIDENCE_SCRUB_MODE = 'mesh_evidence_scrub_promotion';
 const EVIDENCE_SCRUB_REPORT_NAME = 'evidence-scrub-source-report.json';
 const LUMA_COVERAGE_SUPPORT_DIR = 'supporting-evidence/luma-gated-write-coverage';
 const LUMA_COVERAGE_SUPPORT_REPORT_PATH = `${LUMA_COVERAGE_SUPPORT_DIR}/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`;
+const CANONICAL_SOAK_DURATION_MS = 1_800_000;
 const REQUIRED_CONFLICT_FIXTURES = [
   'same-key-concurrent-deterministic-writes',
   'stale-overwrite-attempt-rejected',
@@ -621,6 +622,103 @@ export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null } = 
   return blockers;
 }
 
+function sourceReport(sources, id) {
+  return sources.find((source) => source.id === id)?.report || null;
+}
+
+function canonicalSoakSatisfied(sources) {
+  const soak = sourceReport(sources, 'soak')?.soak;
+  return Boolean(
+    soak?.full_duration_satisfied === true &&
+      (soak.canonical_duration_ms >= CANONICAL_SOAK_DURATION_MS || soak.requested_duration_ms >= CANONICAL_SOAK_DURATION_MS),
+  );
+}
+
+function publicWssDeploymentSatisfied(sources) {
+  const deployed = sourceReport(sources, 'deployed_wss');
+  return deployed?.run?.deployment_scope === 'public_wss_deployment' && deployed?.public_wss_proof?.status === 'pass';
+}
+
+function evidenceScrubSatisfied(sources) {
+  const evidenceScrub = sources.find((source) => source.id === EVIDENCE_SCRUB_SOURCE_ID);
+  return evidenceScrub?.status === 'pass' && evidenceScrub?.report?.evidence_scrub?.status === 'pass';
+}
+
+function durableLumaCoverageSatisfied(lumaCoverageEvidence) {
+  const reportPath = lumaCoverageEvidence?.report_path || '';
+  return Boolean(
+    lumaCoverageEvidence?.provided &&
+      lumaCoverageEvidence?.validation?.ok &&
+      reportPath === `./${LUMA_COVERAGE_SUPPORT_REPORT_PATH}`,
+  );
+}
+
+function releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence }) {
+  return {
+    blockersEmpty: blockers.length === 0,
+    canonicalSoak: canonicalSoakSatisfied(sources),
+    publicWssDeployment: publicWssDeploymentSatisfied(sources),
+    durableLumaCoverage: durableLumaCoverageSatisfied(lumaCoverageEvidence),
+    evidenceScrub: evidenceScrubSatisfied(sources),
+  };
+}
+
+function releaseReadyClaimAllowed(prerequisites) {
+  return Object.values(prerequisites).every(Boolean);
+}
+
+export function buildReleaseClaims({ status, blockers, sources, lumaCoverageEvidence = null, downstreamCanary = null }) {
+  const clockSkewPassed = sourceReport(sources, 'clock_skew')?.clock_skew?.status === 'pass';
+  const conflictPassed = sourceReport(sources, 'conflict')?.conflict?.status === 'pass';
+  const prerequisites = releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence });
+  const boundedReleaseReadyAllowed = status === 'release_ready' && releaseReadyClaimAllowed(prerequisites);
+  const downstreamCanaryStatus = downstreamCanary?.status || 'skipped';
+
+  const observedClaims =
+    status === 'blocked'
+      ? []
+      : [
+          'Existing implemented Mesh proof commands can be rerun and aggregated into one evidence packet with source reports, copied artifacts, current commit metadata, dirty state, and explicit release blockers.',
+          ...(clockSkewPassed
+            ? ['The local non-LUMA Mesh clock-skew/auth-window matrix source gate passed for applicable mesh surfaces.']
+            : []),
+          ...(conflictPassed
+            ? ['The local non-LUMA Mesh conflict/protocol fixture source gate passed for applicable synthetic rows.']
+            : []),
+        ];
+
+  const allowed = boundedReleaseReadyAllowed
+    ? [
+        'The Mesh production-readiness aggregate is release_ready for Mesh transport readiness only: release_readiness_blockers is empty, canonical 1800000ms soak is satisfied, public WSS deployment proof passed, durable LUMA reader-path coverage passed for the five required Mesh user-write classes, and evidence scrub passed.',
+        ...observedClaims,
+      ]
+    : observedClaims;
+
+  const forbidden = [
+    ...(status === 'release_ready' ? [] : ['The Mesh is release_ready.']),
+    'The full app is test-group ready.',
+    'The production app canary passed.',
+    'Downstream app surfaces were observed end-to-end.',
+    'LUMA profile gates or LUMA gate behavior passed through the production app canary.',
+    'LUMA-gated production write authorization, custody, signer, or auth behavior is proven beyond durable LUMA reader-path coverage.',
+    'Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior is production-proven by the public WSS proof alone.',
+  ];
+
+  if (status !== 'release_ready') {
+    forbidden.push('The default shortened local soak satisfies the canonical 1800000ms soak claim.');
+    forbidden.push('Public WSS infrastructure is production-proven.');
+  }
+  if (downstreamCanaryStatus !== 'pass') {
+    forbidden.push('The separate production app canary cleared downstream full-app readiness.');
+  }
+
+  return {
+    allowed,
+    forbidden,
+    invalidated_by_luma_epoch_change: false,
+  };
+}
+
 function pickTopology(sources) {
   const reports = sources.map((source) => source.report).filter(Boolean);
   const deployed = sources.find((source) => source.id === 'deployed_wss')?.report;
@@ -837,8 +935,8 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
   }));
   const degradationReasons = unique(sourceReports.flatMap((report) => report.health?.degradation_reasons_seen || []));
   const soakReport = sources.find((source) => source.id === 'soak')?.report;
-  const clockSkewPassed = sources.find((source) => source.id === 'clock_skew')?.report?.clock_skew?.status === 'pass';
   const conflictPassed = sources.find((source) => source.id === 'conflict')?.report?.conflict?.status === 'pass';
+  const downstreamCanary = downstreamCanaryMetadata();
 
   return {
     schema_version: 'mesh-production-readiness-v1',
@@ -931,31 +1029,14 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       sustained_message_rate_max_per_sec: maxFinite(sourceReports.map((report) => report.health?.sustained_message_rate_max_per_sec), 0),
       degradation_reasons_seen: degradationReasons,
     },
-    release_claims: {
-      allowed: commandPassed
-        ? [
-            'Existing implemented mesh proof commands can be rerun and aggregated into one local evidence packet.',
-            'The aggregate packet identifies source reports, copied artifacts, current commit, dirty state, and unresolved release blockers.',
-            ...(clockSkewPassed
-              ? ['The local non-LUMA mesh clock-skew/auth-window matrix source gate passed for applicable mesh surfaces.']
-              : []),
-            ...(conflictPassed
-              ? ['The local non-LUMA mesh conflict/protocol fixture source gate passed for applicable synthetic rows.']
-              : []),
-          ]
-        : [],
-      forbidden: [
-        'The mesh is release_ready.',
-        'The default shortened local soak satisfies the canonical thirty-minute soak claim.',
-        'Public WSS infrastructure is production-proven.',
-        ...(clockSkewPassed ? ['Public WSS clock-skew behavior is production-proven.'] : ['The full clock-skew matrix is production-ready.']),
-        'Public WSS conflict behavior is production-proven.',
-        'LUMA-gated production write classes are mesh-readiness-proven.',
-        'The full app is test-group ready.',
-      ],
-      invalidated_by_luma_epoch_change: false,
-    },
-    downstream_canary: downstreamCanaryMetadata(),
+    release_claims: buildReleaseClaims({
+      status,
+      blockers,
+      sources,
+      lumaCoverageEvidence,
+      downstreamCanary,
+    }),
+    downstream_canary: downstreamCanary,
   };
 }
 

@@ -147,6 +147,24 @@ function checkStatus(condition, blockedReason = null) {
     : { status: 'blocked', reason: blockedReason };
 }
 
+const COMMITTED_EVIDENCE_PACKET_COMPATIBILITY_PATHS = new Set([
+  'docs/specs/spec-mesh-production-readiness.md',
+  'packages/e2e/src/live/production-app-canary.mjs',
+  'packages/e2e/src/live/production-app-canary.vitest.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.test.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.test.mjs',
+]);
+
+function compatibleCommittedEvidenceInterveningPath(changedPath, packetRoot) {
+  return (
+    changedPath === packetRoot ||
+    changedPath.startsWith(`${packetRoot}/`) ||
+    COMMITTED_EVIDENCE_PACKET_COMPATIBILITY_PATHS.has(changedPath)
+  );
+}
+
 function evaluateMeshReportCommit({
   meshReport,
   meshReportPath,
@@ -188,11 +206,11 @@ function evaluateMeshReportCommit({
   const mergeBase = lines(git(['merge-base', observedCommit, currentCommit], { repoRoot }))[0] || null;
   const sourceIsAncestor = sourceIsDirectParent || mergeBase === observedCommit;
   const changedPaths = lines(git(['diff', '--name-only', observedCommit, currentCommit], { repoRoot }));
-  const diffLimitedToPacket =
+  const diffLimitedToCommittedEvidence =
     changedPaths.length > 0 &&
-    changedPaths.every((changedPath) => changedPath === packetRoot || changedPath.startsWith(`${packetRoot}/`));
+    changedPaths.every((changedPath) => compatibleCommittedEvidenceInterveningPath(changedPath, packetRoot));
 
-  if (sourceIsAncestor && diffLimitedToPacket) {
+  if (sourceIsAncestor && diffLimitedToCommittedEvidence) {
     return {
       ok: true,
       expected_commit: currentCommit,

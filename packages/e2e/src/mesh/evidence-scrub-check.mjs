@@ -24,6 +24,7 @@ const AGGREGATE_REPORT = 'mesh-production-readiness-report.json';
 const AGGREGATE_MANIFEST = 'mesh-production-readiness-evidence.md';
 const SOURCE_REPORT_NAME = 'mesh-production-readiness-report.json';
 const LUMA_COVERAGE_SUPPORT_PREFIX = 'supporting-evidence/luma-gated-write-coverage/';
+const CANONICAL_SOAK_DURATION_MS = 1_800_000;
 const STALE_PLACEHOLDER_FIXTURES = new Set(['full-conflict-resolution-fixtures']);
 const ALLOWED_WRITER_KINDS = new Set(['mesh-drill']);
 const URL_PATTERN = /\b(?:https?|wss?):\/\/[^\s"'`<>)]+/gi;
@@ -252,6 +253,18 @@ function sourceReportFailures({ aggregate, sourceDir }) {
   return failures;
 }
 
+function readSourceReportById({ aggregate, sourceDir, id }) {
+  const row = (aggregate.source_reports || []).find((entry) => entry.id === id);
+  if (!row) return null;
+  const sourcePath = safeResolveSourceReport(sourceDir, row);
+  if (!sourcePath) return null;
+  try {
+    return readJson(sourcePath);
+  } catch {
+    return null;
+  }
+}
+
 function normalizePacketRelativePath(value) {
   return String(value || '')
     .replaceAll('\\', '/')
@@ -360,6 +373,140 @@ function lumaCoverageEvidenceFailures({ aggregate, sourceDir }) {
   return unique(failures);
 }
 
+function claimText(claims) {
+  return (Array.isArray(claims) ? claims : []).filter((claim) => typeof claim === 'string').join('\n');
+}
+
+function impliesMeshReleaseReady(value) {
+  return /\bmesh\b[\s\S]{0,120}\brelease[_ -]?ready\b/i.test(value) || /\brelease[_ -]?ready\b[\s\S]{0,120}\bmesh\b/i.test(value);
+}
+
+function impliesFullAppReady(value) {
+  return /\b(full[- ]?app|test[- ]group)\b[\s\S]{0,120}\b(ready|readiness|passed|pass|cleared|green)\b/i.test(value);
+}
+
+function impliesProductionCanaryPass(value) {
+  return /\bproduction app canary\b[\s\S]{0,120}\b(pass|passed|success|succeeded|cleared|green)\b/i.test(value);
+}
+
+function impliesDownstreamObservation(value) {
+  return /\bdownstream\b[\s\S]{0,120}\b(observed|observation|end-to-end|passed|pass|cleared)\b/i.test(value) ||
+    /\bapp surfaces\b[\s\S]{0,120}\b(observed|end-to-end|passed|pass|cleared)\b/i.test(value);
+}
+
+function impliesLumaOverclaim(value) {
+  return /\bLUMA\b[\s\S]{0,160}\b(profile[- ]?gate|profile gates|gate behavior|custody|signer|signing|auth behavior|authorization|production write authorization|production app)\b/i.test(
+    value,
+  );
+}
+
+function impliesPublicWssBehaviorOverclaim(value) {
+  return /\bpublic WSS\b[\s\S]{0,160}\b(conflict|partition|heal|clock[- ]?skew|rollback|soak)\b[\s\S]{0,160}\b(production[- ]?proven|proved|pass|passed|ready|validated|verified)\b/i.test(
+    value,
+  );
+}
+
+function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }) {
+  const failures = [];
+  const soak = aggregate.soak || {};
+  const deployedWss = readSourceReportById({ aggregate, sourceDir, id: 'deployed_wss' });
+  const evidenceScrub = readSourceReportById({ aggregate, sourceDir, id: EVIDENCE_SCRUB_SOURCE_ID });
+
+  if (
+    soak.full_duration_satisfied !== true ||
+    !(
+      soak.canonical_duration_ms >= CANONICAL_SOAK_DURATION_MS ||
+      soak.requested_duration_ms >= CANONICAL_SOAK_DURATION_MS
+    )
+  ) {
+    failures.push('release_ready claims require canonical 1800000ms full-duration soak evidence');
+  }
+  if (deployedWss?.run?.deployment_scope !== 'public_wss_deployment' || deployedWss?.public_wss_proof?.status !== 'pass') {
+    failures.push('release_ready claims require passing public_wss_deployment source evidence');
+  }
+  if (aggregate.luma_gated_write_coverage?.status !== 'pass' || lumaFailures.length > 0) {
+    failures.push('release_ready claims require durable valid LUMA reader-path coverage evidence');
+  }
+  if (evidenceScrub?.evidence_scrub?.status !== 'pass') {
+    failures.push('release_ready claims require a passing evidence_scrub source gate');
+  }
+  if (sourceFailures.length > 0) {
+    failures.push('release_ready claims require clean, current, command-matched source reports');
+  }
+
+  return failures;
+}
+
+function requiredForbiddenClaimFailures({ status, forbiddenText }) {
+  const failures = [];
+
+  if ((status === 'blocked' || status === 'review_required') && !impliesMeshReleaseReady(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep Mesh release_ready forbidden`);
+  }
+  if (!impliesFullAppReady(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep full-app or test-group readiness forbidden`);
+  }
+  if (!impliesProductionCanaryPass(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep production app canary success forbidden`);
+  }
+  if (!impliesDownstreamObservation(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep downstream app observation forbidden`);
+  }
+  if (!impliesLumaOverclaim(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep LUMA gate, custody, signer, auth, or production-app overclaims forbidden`);
+  }
+  if (!impliesPublicWssBehaviorOverclaim(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep public-WSS drill behavior overclaims forbidden`);
+  }
+
+  return failures;
+}
+
+function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }) {
+  const failures = [];
+  const allowedText = claimText(aggregate.release_claims?.allowed);
+  const forbiddenText = claimText(aggregate.release_claims?.forbidden);
+
+  if (aggregate.status === 'blocked' || aggregate.status === 'review_required') {
+    if (impliesMeshReleaseReady(allowedText)) {
+      failures.push(`${aggregate.status} release_claims.allowed imply Mesh release_ready`);
+    }
+    failures.push(...requiredForbiddenClaimFailures({ status: aggregate.status, forbiddenText }));
+    return failures;
+  }
+
+  if (aggregate.status !== 'release_ready') {
+    return failures;
+  }
+
+  if ((aggregate.release_readiness_blockers || []).length > 0) {
+    failures.push('release_ready release_claims require release_readiness_blockers to be empty');
+  }
+  failures.push(...releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }));
+  failures.push(...requiredForbiddenClaimFailures({ status: aggregate.status, forbiddenText }));
+
+  if (impliesMeshReleaseReady(forbiddenText)) {
+    failures.push('release_ready release_claims.forbidden still contradict bounded Mesh release_ready');
+  }
+  if (impliesFullAppReady(allowedText)) {
+    failures.push('release_ready release_claims.allowed imply full-app or test-group readiness');
+  }
+  if (impliesProductionCanaryPass(allowedText)) {
+    failures.push('release_ready release_claims.allowed imply production app canary success');
+  }
+  if (impliesDownstreamObservation(allowedText)) {
+    failures.push('release_ready release_claims.allowed imply downstream app observation');
+  }
+  if (impliesLumaOverclaim(allowedText)) {
+    failures.push('release_ready release_claims.allowed overclaim LUMA gate, custody, signer, auth, or production-app behavior');
+  }
+  if (impliesPublicWssBehaviorOverclaim(allowedText)) {
+    failures.push('release_ready release_claims.allowed overclaim public-WSS conflict, partition, clock-skew, rollback, or soak behavior');
+  }
+
+  return failures;
+}
+
 export function validateAggregatePacket({ sourceDir = defaultSourceDir, expectedCommit = runGit(['rev-parse', 'HEAD']) } = {}) {
   const failures = [];
   const resolvedSourceDir = path.resolve(repoRoot, sourceDir);
@@ -405,9 +552,6 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir, expected
   if (report.status === 'release_ready' && (report.release_readiness_blockers || []).length > 0) {
     failures.push('aggregate claims release_ready while release_readiness_blockers remain');
   }
-  if ((report.release_claims?.allowed || []).some((claim) => /\brelease_ready\b|production-proven|LUMA-gated production write/i.test(claim))) {
-    failures.push('allowed release_claims include a release-ready, production-proven, or LUMA-gated write claim');
-  }
   if ((report.conflict_fixtures || []).some((row) => STALE_PLACEHOLDER_FIXTURES.has(row.fixture))) {
     failures.push('aggregate contains stale placeholder conflict fixture evidence');
   }
@@ -422,8 +566,11 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir, expected
   ) {
     failures.push('aggregate implies LUMA-gated write coverage in a mesh-only evidence packet');
   }
-  failures.push(...sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir }));
-  failures.push(...lumaCoverageEvidenceFailures({ aggregate: report, sourceDir: resolvedSourceDir }));
+  const sourceFailures = sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir });
+  const lumaFailures = lumaCoverageEvidenceFailures({ aggregate: report, sourceDir: resolvedSourceDir });
+  failures.push(...releaseClaimFailures({ aggregate: report, sourceDir: resolvedSourceDir, sourceFailures, lumaFailures }));
+  failures.push(...sourceFailures);
+  failures.push(...lumaFailures);
 
   return {
     ok: failures.length === 0,

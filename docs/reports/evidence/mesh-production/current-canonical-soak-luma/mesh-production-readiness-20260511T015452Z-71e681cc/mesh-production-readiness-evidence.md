@@ -41,8 +41,9 @@
 
 ## Forbidden Claims
 
-- Public WSS clock-skew behavior is production-proven.
-- Public WSS conflict behavior is production-proven.
-- LUMA gate behavior is verified by mesh.
-- The production app canary passed.
 - The full app is test-group ready.
+- The production app canary passed.
+- Downstream app surfaces were observed end-to-end.
+- LUMA profile gates or LUMA gate behavior passed through the production app canary.
+- LUMA-gated production write authorization, custody, signer, or auth behavior is proven beyond durable LUMA reader-path coverage.
+- Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior is production-proven by the public WSS proof alone.
