@@ -19,6 +19,7 @@ import {
 import {
   SOURCE_GATES,
   buildReleaseBlockers,
+  buildReleaseClaims,
   conflictRowsForAggregate,
   downstreamCanaryMetadata,
   persistLumaCoverageEvidenceForPacket,
@@ -301,6 +302,184 @@ function addDurableLumaCoverageToPacket(sourceDir, { reportOverrides = {}, write
   ];
   writeJson(aggregatePath, aggregate);
   return { aggregate, report, durablePath, durableRelativePath };
+}
+
+function releaseReadyLumaCoverageEvidence() {
+  return {
+    ...lumaCoverageEvidence(),
+    report_path: `./supporting-evidence/luma-gated-write-coverage/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`,
+  };
+}
+
+function releaseReadySources({ includePublicWssProof = true, includeEvidenceScrub = true, includeSoak = true } = {}) {
+  return [
+    ...(includeSoak
+      ? [
+          {
+            id: 'soak',
+            status: 'pass',
+            report: {
+              soak: {
+                status: 'pass',
+                requested_duration_ms: 1800000,
+                canonical_duration_ms: 1800000,
+                full_duration_satisfied: true,
+              },
+            },
+          },
+        ]
+      : []),
+    ...(includePublicWssProof
+      ? [
+          {
+            id: 'deployed_wss',
+            status: 'pass',
+            report: {
+              run: { deployment_scope: 'public_wss_deployment' },
+              public_wss_proof: { status: 'pass' },
+            },
+          },
+        ]
+      : []),
+    ...(includeEvidenceScrub
+      ? [
+          {
+            id: 'evidence_scrub',
+            status: 'pass',
+            report: {
+              evidence_scrub: { status: 'pass' },
+            },
+          },
+        ]
+      : []),
+    {
+      id: 'clock_skew',
+      status: 'pass',
+      report: {
+        clock_skew: { status: 'pass' },
+      },
+    },
+    {
+      id: 'conflict',
+      status: 'pass',
+      report: {
+        conflict: { status: 'pass' },
+      },
+    },
+  ];
+}
+
+function claimsText(claims, field) {
+  return claims[field].join('\n');
+}
+
+function releaseReadyEvidenceScrubPacket({ releaseClaims = null } = {}) {
+  const sourceDir = evidenceScrubPacket({ status: 'release_ready', blockers: [] });
+  const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+  const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+  const commit = aggregate.repo.commit;
+
+  const sourceDefinitions = [
+    {
+      id: 'soak',
+      name: 'bounded rolling restart soak',
+      command: 'pnpm test:mesh:soak',
+      runId: 'source-soak-run',
+      report: sourceReport({
+        repo: { commit, dirty: false },
+        run_id: 'source-soak-run',
+        run: {
+          mode: 'local_rolling_restart_soak',
+          started_at: '2026-05-07T00:00:01.000Z',
+          completed_at: '2026-05-07T00:00:10.000Z',
+          command: 'pnpm test:mesh:soak',
+        },
+        soak: {
+          status: 'pass',
+          requested_duration_ms: 1800000,
+          canonical_duration_ms: 1800000,
+          full_duration_satisfied: true,
+          duplicate_canonical_writes: 0,
+          silent_drops: 0,
+          terminal_failures: 0,
+        },
+      }),
+    },
+    {
+      id: 'deployed_wss',
+      name: 'deployed WSS local TLS profile',
+      command: 'pnpm test:mesh:deployed-wss-peer-config',
+      runId: 'source-deployed-wss-run',
+      report: sourceReport({
+        repo: { commit, dirty: false },
+        run_id: 'source-deployed-wss-run',
+        run: {
+          mode: 'deployed_wss_topology',
+          deployment_scope: 'public_wss_deployment',
+          started_at: '2026-05-07T00:00:01.000Z',
+          completed_at: '2026-05-07T00:00:10.000Z',
+          command: 'pnpm test:mesh:deployed-wss-peer-config',
+        },
+        public_wss_proof: { status: 'pass' },
+      }),
+    },
+    {
+      id: 'evidence_scrub',
+      name: 'evidence scrub promotion',
+      command: 'pnpm check:mesh-evidence-scrub -- --source-dir .tmp/mesh-production-readiness/test',
+      runId: 'source-evidence-scrub-run',
+      report: sourceReport({
+        status: 'pass',
+        repo: { commit, dirty: false },
+        run_id: 'source-evidence-scrub-run',
+        run: {
+          mode: 'mesh_evidence_scrub_promotion',
+          started_at: '2026-05-07T00:00:01.000Z',
+          completed_at: '2026-05-07T00:00:10.000Z',
+          command: 'pnpm check:mesh-evidence-scrub -- --source-dir .tmp/mesh-production-readiness/test',
+        },
+        evidence_scrub: { status: 'pass' },
+      }),
+    },
+  ];
+
+  aggregate.soak = sourceDefinitions.find((definition) => definition.id === 'soak').report.soak;
+  aggregate.source_reports = [
+    ...aggregate.source_reports,
+    ...sourceDefinitions.map((definition) => {
+      const reportPath = path.join(sourceDir, 'source-reports', definition.id, 'mesh-production-readiness-report.json');
+      writeJson(reportPath, definition.report);
+      return {
+        id: definition.id,
+        name: definition.name,
+        command: definition.command,
+        status: 'pass',
+        result_status: definition.id === 'evidence_scrub' ? 'pass' : 'review_required',
+        run_id: definition.runId,
+        run_mode: definition.report.run.mode,
+        run_command: definition.report.run.command,
+        source_completed_at: definition.report.run.completed_at,
+        schema_epoch: 'post_luma_m0b',
+        luma_profile: 'none',
+        repo_dirty: false,
+        report_path: reportPath,
+        failures: [],
+      };
+    }),
+  ];
+
+  aggregate.release_claims =
+    releaseClaims ||
+    buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources(),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+  writeJson(aggregatePath, aggregate);
+  addDurableLumaCoverageToPacket(sourceDir);
+  return sourceDir;
 }
 
 describe('production-readiness source evidence validation', () => {
@@ -603,6 +782,91 @@ describe('production-readiness source evidence validation', () => {
   });
 });
 
+describe('buildReleaseClaims', () => {
+  it('keeps review_required claims observed-only and forbids Mesh release_ready', () => {
+    const claims = buildReleaseClaims({
+      status: 'review_required',
+      blockers: [{ id: 'public-wss-deployment-proof' }],
+      sources: releaseReadySources({ includePublicWssProof: false }),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(claimsText(claims, 'allowed')).not.toMatch(/\brelease_ready\b/i);
+    expect(claimsText(claims, 'forbidden')).toContain('The Mesh is release_ready.');
+  });
+
+  it('allows bounded Mesh release_ready only when all release prerequisites are present', () => {
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources(),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(claimsText(claims, 'allowed')).toContain('The Mesh production-readiness aggregate is release_ready for Mesh transport readiness only');
+    expect(claimsText(claims, 'forbidden')).not.toContain('The Mesh is release_ready.');
+  });
+
+  it('does not allow bounded Mesh release_ready when a prerequisite is absent', () => {
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources({ includeSoak: false }),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(claimsText(claims, 'allowed')).not.toContain('release_ready for Mesh transport readiness only');
+  });
+
+  it('keeps full-app and production app canary claims forbidden after Mesh release_ready', () => {
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources(),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+    const forbidden = claimsText(claims, 'forbidden');
+
+    expect(forbidden).toContain('The full app is test-group ready.');
+    expect(forbidden).toContain('The production app canary passed.');
+    expect(forbidden).toContain('Downstream app surfaces were observed end-to-end.');
+  });
+
+  it('keeps LUMA gate/profile/custody overclaims forbidden after Mesh release_ready', () => {
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources(),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+    const forbidden = claimsText(claims, 'forbidden');
+
+    expect(forbidden).toContain('LUMA profile gates or LUMA gate behavior passed through the production app canary.');
+    expect(forbidden).toContain(
+      'LUMA-gated production write authorization, custody, signer, or auth behavior is proven beyond durable LUMA reader-path coverage.',
+    );
+  });
+
+  it('keeps public-WSS conflict, partition, clock-skew, rollback, and soak overclaims forbidden after Mesh release_ready', () => {
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources: releaseReadySources(),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(claimsText(claims, 'forbidden')).toContain(
+      'Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior is production-proven by the public WSS proof alone.',
+    );
+  });
+});
+
 describe('downstreamCanaryMetadata', () => {
   it('distinguishes implemented separate canary from absent canary', () => {
     expect(downstreamCanaryMetadata({ scriptImplemented: false })).toMatchObject({
@@ -678,6 +942,177 @@ describe('mesh evidence scrub promotion', () => {
 
       expect(validation.ok).toBe(false);
       expect(validation.failures).toContain('aggregate claims release_ready while release_readiness_blockers remain');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a bounded release_ready aggregate with public WSS, canonical soak, durable LUMA coverage, and scrub source evidence', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(true);
+      expect(validation.failures).toEqual([]);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready packets when required proof prerequisites are absent', () => {
+    const cases = [
+      {
+        name: 'canonical soak',
+        expected: 'release_ready claims require canonical 1800000ms full-duration soak evidence',
+        mutate(sourceDir) {
+          const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+          const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+          aggregate.soak.full_duration_satisfied = false;
+          writeJson(aggregatePath, aggregate);
+        },
+      },
+      {
+        name: 'public WSS',
+        expected: 'release_ready claims require passing public_wss_deployment source evidence',
+        mutate(sourceDir) {
+          const deployedPath = path.join(sourceDir, 'source-reports/deployed_wss/mesh-production-readiness-report.json');
+          const deployed = JSON.parse(fs.readFileSync(deployedPath, 'utf8'));
+          deployed.run.deployment_scope = 'local_tls_wss_profile';
+          writeJson(deployedPath, deployed);
+        },
+      },
+      {
+        name: 'durable LUMA coverage',
+        expected: 'release_ready claims require durable valid LUMA reader-path coverage evidence',
+        mutate(sourceDir) {
+          const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+          const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+          aggregate.luma_gated_write_coverage.status = 'pending';
+          writeJson(aggregatePath, aggregate);
+        },
+      },
+      {
+        name: 'evidence scrub source gate',
+        expected: 'release_ready claims require a passing evidence_scrub source gate',
+        mutate(sourceDir) {
+          const scrubPath = path.join(sourceDir, 'source-reports/evidence_scrub/mesh-production-readiness-report.json');
+          const scrub = JSON.parse(fs.readFileSync(scrubPath, 'utf8'));
+          scrub.evidence_scrub.status = 'fail';
+          writeJson(scrubPath, scrub);
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const sourceDir = releaseReadyEvidenceScrubPacket();
+      try {
+        testCase.mutate(sourceDir);
+        const validation = validateAggregatePacket({ sourceDir });
+
+        expect(validation.ok, testCase.name).toBe(false);
+        expect(validation.failures).toContain(testCase.expected);
+      } finally {
+        fs.rmSync(sourceDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('rejects release_ready packets with a stale static forbidden Mesh release_ready claim', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.release_claims.forbidden.push('The mesh is release_ready.');
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain('release_ready release_claims.forbidden still contradict bounded Mesh release_ready');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready allowed full-app, test-group, and canary claims', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket({
+      releaseClaims: {
+        allowed: [
+          'The full app is test-group ready.',
+          'The production app canary passed.',
+          'Downstream app surfaces were observed end-to-end.',
+        ],
+        forbidden: [
+          'LUMA gate behavior is verified by mesh.',
+          'Public WSS conflict behavior is production-proven.',
+        ],
+        invalidated_by_luma_epoch_change: false,
+      },
+    });
+    try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain('release_ready release_claims.allowed imply full-app or test-group readiness');
+      expect(validation.failures).toContain('release_ready release_claims.allowed imply production app canary success');
+      expect(validation.failures).toContain('release_ready release_claims.allowed imply downstream app observation');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready allowed LUMA gate behavior overclaims', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket({
+      releaseClaims: {
+        allowed: ['LUMA profile gates and signer custody are production-ready through the app canary.'],
+        forbidden: ['The production app canary passed.'],
+        invalidated_by_luma_epoch_change: false,
+      },
+    });
+    try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'release_ready release_claims.allowed overclaim LUMA gate, custody, signer, auth, or production-app behavior',
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready allowed public-WSS conflict and clock-skew overclaims', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket({
+      releaseClaims: {
+        allowed: ['Public WSS conflict and clock-skew behavior is production-proven by the public WSS proof alone.'],
+        forbidden: ['The production app canary passed.'],
+        invalidated_by_luma_epoch_change: false,
+      },
+    });
+    try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'release_ready release_claims.allowed overclaim public-WSS conflict, partition, clock-skew, rollback, or soak behavior',
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects review_required allowed Mesh release_ready claims', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.release_claims.allowed = ['The Mesh production-readiness aggregate is release_ready for Mesh transport readiness only.'];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain('review_required release_claims.allowed imply Mesh release_ready');
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

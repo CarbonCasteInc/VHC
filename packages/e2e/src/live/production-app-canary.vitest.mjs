@@ -237,7 +237,7 @@ describe('production-app-canary', () => {
         if (command === 'diff --name-only abc123 branch456') {
           return [
             `${packetRoot}/mesh-production-readiness-report.json`,
-            'packages/e2e/src/live/production-app-canary.mjs',
+            'apps/web-pwa/src/App.tsx',
           ].join('\n');
         }
         return '';
@@ -289,6 +289,48 @@ describe('production-app-canary', () => {
       status: 'pass',
       observed_commit: 'abc123',
       expected_commit: 'merge789',
+      accepted_via: 'committed_evidence_packet_from_ancestor',
+    });
+  });
+
+  it('accepts an ancestor docs evidence packet when intervening changes are limited to release-claim contract maintenance', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
+    const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
+    writeJson(meshReportPath, meshReport());
+
+    const result = runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: ['--mesh-report', meshReportPath],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git: (args) => {
+        const command = args.join(' ');
+        if (command === 'rev-parse --abbrev-ref HEAD') return 'coord/mesh-release-claim-contract-v1';
+        if (command === 'rev-parse HEAD') return 'claimcontract123';
+        if (command === 'status --short') return '';
+        if (command === 'rev-list --parents -n 1 claimcontract123') return 'claimcontract123 merge789';
+        if (command === 'merge-base abc123 claimcontract123') return 'abc123';
+        if (command === 'diff --name-only abc123 claimcontract123') {
+          return [
+            `${packetRoot}/mesh-production-readiness-report.json`,
+            'packages/e2e/src/mesh/production-readiness-check.mjs',
+            'packages/e2e/src/mesh/evidence-scrub-check.mjs',
+            'packages/e2e/src/mesh/production-readiness-check.test.mjs',
+            'docs/specs/spec-mesh-production-readiness.md',
+          ].join('\n');
+        }
+        return '';
+      },
+    });
+
+    expect(result.report.reason).toBe('mesh_not_release_ready');
+    expect(result.report.checks.find((check) => check.id === 'mesh_report_current_commit')).toMatchObject({
+      status: 'pass',
+      observed_commit: 'abc123',
+      expected_commit: 'claimcontract123',
       accepted_via: 'committed_evidence_packet_from_ancestor',
     });
   });
