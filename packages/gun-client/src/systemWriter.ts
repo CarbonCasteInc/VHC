@@ -27,6 +27,7 @@ export type SystemWriterAllowedClass =
   | 'topic-synthesis-latest'
   | 'topic-synthesis-epoch'
   | 'topic-digest'
+  | 'discovery-item'
   | 'discovery-index'
   | 'civic-representative-snapshot';
 
@@ -215,11 +216,22 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && hasPathValue(pathSegment(segments, 4)),
   },
   {
-    recordClass: 'discovery-index',
-    matches: (segments) => segments.length >= 3
+    recordClass: 'discovery-item',
+    matches: (segments) => segments.length === 4
       && segments[0] === 'vh'
       && segments[1] === 'discovery'
-      && segments.slice(2).every(hasPathValue),
+      && segments[2] === 'items'
+      && hasPathValue(pathSegment(segments, 3)),
+  },
+  {
+    recordClass: 'discovery-index',
+    matches: (segments) => segments.length === 6
+      && segments[0] === 'vh'
+      && segments[1] === 'discovery'
+      && segments[2] === 'index'
+      && isPublicDiscoveryFilter(pathSegment(segments, 3))
+      && isPublicDiscoverySort(pathSegment(segments, 4))
+      && hasPathValue(pathSegment(segments, 5)),
   },
   {
     recordClass: 'civic-representative-snapshot',
@@ -475,6 +487,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasPathValue(value: string): boolean {
   return value.trim().length > 0 && value !== '_' && !value.includes('..');
+}
+
+function isPublicDiscoveryFilter(value: string): boolean {
+  return value === 'ALL'
+    || value === 'NEWS'
+    || value === 'TOPICS'
+    || value === 'SOCIAL'
+    || value === 'ARTICLES';
+}
+
+function isPublicDiscoverySort(value: string): boolean {
+  return value === 'LATEST' || value === 'HOTTEST';
 }
 
 function pathSegment(segments: readonly string[], index: number): string {

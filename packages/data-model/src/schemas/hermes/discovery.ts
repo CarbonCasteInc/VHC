@@ -30,6 +30,10 @@ export const SORT_MODES = ['LATEST', 'HOTTEST', 'MY_ACTIVITY'] as const;
 export const SortModeSchema = z.enum(SORT_MODES);
 export type SortMode = z.infer<typeof SortModeSchema>;
 
+export const PUBLIC_DISCOVERY_SORT_MODES = ['LATEST', 'HOTTEST'] as const;
+export const PublicDiscoverySortModeSchema = z.enum(PUBLIC_DISCOVERY_SORT_MODES);
+export type PublicDiscoverySortMode = z.infer<typeof PublicDiscoverySortModeSchema>;
+
 // ---------- Filter chips ----------
 
 export const FILTER_CHIPS = ['ALL', 'NEWS', 'TOPICS', 'SOCIAL', 'ARTICLES'] as const;
@@ -63,6 +67,25 @@ export const FeedItemSchema = z.object({
 });
 
 export type FeedItem = z.infer<typeof FeedItemSchema>;
+
+export const PublicDiscoveryItemSchema = FeedItemSchema.refine(
+  (item) => item.my_activity_score === undefined,
+  { message: 'public discovery items must not include my_activity_score' },
+);
+
+export type PublicDiscoveryItem = z.infer<typeof PublicDiscoveryItemSchema>;
+
+export const DiscoveryIndexPageSchema = z.object({
+  filter: FilterChipSchema,
+  sort: PublicDiscoverySortModeSchema,
+  cursor: z.string().min(1),
+  topic_ids: z.array(z.string().min(1)),
+  generated_at: z.number().int().nonnegative().optional(),
+  next_cursor: z.string().min(1).optional(),
+  version: z.string().min(1).optional(),
+});
+
+export type DiscoveryIndexPage = z.infer<typeof DiscoveryIndexPageSchema>;
 
 // ---------- Personalization config ----------
 

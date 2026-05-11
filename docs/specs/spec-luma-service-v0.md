@@ -687,7 +687,7 @@ record-derived id):
 | Topic synthesis (epoch + latest pointer) | system writer; no user author |
 | Topic digest | system writer; no user author |
 | Topic engagement summary | system writer; no user author |
-| Discovery indexes | system writer |
+| Discovery items and index pages | system writer; no user author |
 | Civic representative directory snapshot | system writer |
 | Aggregate snapshot (`PointAggregateSnapshotV1`) | record-derived id; not author-scoped |
 | Comment moderation record (`CommentModeration.operator_id`) | operator id is a system-writer-signed pseudonym; carries `_writerKind: 'system'`, no `_authorScheme` |
@@ -706,14 +706,18 @@ as a topic-domain system-writer migration.
 `vh/aggregates/topics/<topicId>/engagement/summary` topic engagement summary
 records have also landed as a topic-domain system-writer migration.
 `vh/civic/reps/<jurisdictionVersion>` civic representative directory snapshots
-have also landed as a civic-domain system-writer migration. They sign
-the stored
-story, storyline, latest-index child, hot-index child, analysis artifact,
-analysis latest pointer, topic synthesis epoch, and topic synthesis latest
-node wrappers plus topic digest, topic engagement summary, and civic
-representative directory snapshot node wrappers with the build-pinned
-system-writer key and leave discovery and topic engagement actor nodes for later
-system-writer slices or their owning contracts. The storyline
+have also landed as a civic-domain system-writer migration.
+`vh/discovery/items/<topicId>` discovery item records and
+`vh/discovery/index/<filter>/<sort>/<cursor>` discovery index page records have
+also landed as a discovery-domain system-writer migration. The landed migrations
+sign the stored story, storyline, latest-index child, hot-index child, analysis
+artifact, analysis latest pointer, topic synthesis epoch, topic synthesis latest
+node wrappers, topic digest, topic engagement summary, civic representative
+directory snapshot node wrappers, and discovery item/index page records with the
+build-pinned system-writer key. Topic engagement actor nodes remain for later
+system-writer slices or their owning contracts. Discovery public index pages are
+limited to `LATEST` and `HOTTEST`; `MY_ACTIVITY` remains user-local/private and
+is not published under `vh/discovery/index/*`. The storyline
 migration does not migrate the `vh/news/storylines/` root map or removal
 tombstones into system records. The index migration does not migrate the
 `vh/news/index/latest/` or `vh/news/index/hot/` root maps, nor any removal
@@ -731,6 +735,10 @@ tombstones into system records.
 The civic representative snapshot migration does not migrate identity directory
 schemas, bridge action/receipt/stat adapters, discovery indexes, mesh evidence
 artifacts, relay, or browser signing surfaces into system records.
+The discovery system-writer migration does not migrate app discovery
+stores/hooks/components, discovery root maps, tombstones/removal flows, mesh
+evidence artifacts, relay, browser signing surfaces, or private personalization
+state into system records.
 
 `pnpm check:luma-news-analysis-system-v1` guards the analysis artifact and
 analysis latest pointer system-writer migration.
@@ -742,6 +750,8 @@ system-writer migration.
 engagement summary system-writer migration.
 `pnpm check:luma-civic-reps-system-v1` guards the civic representative
 directory snapshot system-writer migration.
+`pnpm check:luma-discovery-index-system-v1` guards the discovery item/index page
+system-writer migration.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,

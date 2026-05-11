@@ -239,7 +239,8 @@ allowed namespaces, allowed record classes, and signature shape.
 | Synthesis latest pointer | `topic-synthesis-v2.md` | `vh/topics/<topicId>/latest` |
 | Topic synthesis epoch | `topic-synthesis-v2.md` | `vh/topics/<topicId>/epochs/<epoch>/synthesis` |
 | Topic digest | `topic-synthesis-v2.md` | `vh/topics/<topicId>/digests/<digestId>` |
-| Discovery indexes | `spec-topic-discovery-ranking-v0.md` | `vh/discovery/*` |
+| Discovery item | `spec-topic-discovery-ranking-v0.md` | `vh/discovery/items/<topicId>` |
+| Discovery index page | `spec-topic-discovery-ranking-v0.md` | `vh/discovery/index/<filter>/<sort>/<cursor>` |
 | Civic representative directory snapshot | `spec-civic-action-kit-v0.md` | `vh/civic/reps/<jurisdictionVersion>` |
 | Topic engagement summary | `spec-civic-sentiment-v0.md` / topic engagement adapters | `vh/aggregates/topics/<topicId>/engagement/summary` |
 
@@ -293,10 +294,17 @@ Implementation status:
   payload with `RepresentativeDirectorySchema`. Legacy bare and explicit safe
   legacy-marked directory snapshots remain read-compatible, while invalid
   system-marked snapshots fail closed without legacy downgrade.
-- Discovery indexes and topic engagement actor records are intentionally
-  outside the story/storyline/index/analysis/topic-synthesis/topic-digest/topic
-  engagement summary/civic representative snapshot adapter slices and must
-  migrate or remain scoped through separate branches/contracts.
+- Discovery item records at `vh/discovery/items/<topicId>` and Discovery index
+  page records at `vh/discovery/index/<filter>/<sort>/<cursor>` are the ninth
+  concrete M0.B system-writer adapter migration. New discovery writes use the
+  shared validator contract and carry system-writer metadata on the stored public
+  nodes. Item records validate the public `FeedItem` shape with `topic_id` path
+  binding and no `my_activity_score`; index page records validate public
+  `filter` / `sort` / `cursor` path binding plus ordered public `topic_ids`.
+  Public index `sort` is limited to `LATEST` and `HOTTEST`; `MY_ACTIVITY`
+  remains user-local/private and MUST NOT be published. Legacy bare and explicit
+  safe legacy-marked discovery records remain read-compatible, while invalid
+  system-marked records fail closed without legacy downgrade.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -330,6 +338,12 @@ Implementation status:
   directory schemas, bridge action/receipt/stat adapters, discovery indexes,
   mesh evidence artifacts, relay, and browser signing surfaces stay outside
   this system-writer migration.
+- `pnpm check:luma-discovery-index-system-v1` enforces that only
+  `vh/discovery/items/<topicId>` and
+  `vh/discovery/index/<filter>/<sort>/<cursor>` migrated in this slice; app
+  discovery stores/hooks/components, discovery root maps, tombstones/removal
+  flows, mesh evidence artifacts, relay, and browser signing surfaces stay
+  outside this system-writer migration.
 
 Forbidden uses:
 
