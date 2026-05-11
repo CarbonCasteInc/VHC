@@ -238,7 +238,15 @@ function evidenceScrubPacket({
     },
     release_claims: {
       allowed: ['Existing implemented mesh proof commands can be aggregated into one local evidence packet.'],
-      forbidden: ['The mesh is release_ready.'],
+      forbidden: [
+        'The Mesh is release_ready.',
+        'The full app is test-group ready.',
+        'The production app canary passed.',
+        'Downstream app surfaces were observed end-to-end.',
+        'LUMA profile gates or LUMA gate behavior passed through the production app canary.',
+        'LUMA-gated production write authorization, custody, signer, or auth behavior is proven beyond durable LUMA reader-path coverage.',
+        'Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior is production-proven by the public WSS proof alone.',
+      ],
       invalidated_by_luma_epoch_change: false,
     },
   };
@@ -1101,6 +1109,29 @@ describe('mesh evidence scrub promotion', () => {
     }
   });
 
+  it('rejects release_ready packets that omit required forbidden claim categories', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket({
+      releaseClaims: {
+        allowed: [],
+        forbidden: ['The production app canary passed.'],
+        invalidated_by_luma_epoch_change: false,
+      },
+    });
+    try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain('release_ready release_claims.forbidden must keep full-app or test-group readiness forbidden');
+      expect(validation.failures).toContain('release_ready release_claims.forbidden must keep downstream app observation forbidden');
+      expect(validation.failures).toContain(
+        'release_ready release_claims.forbidden must keep LUMA gate, custody, signer, auth, or production-app overclaims forbidden',
+      );
+      expect(validation.failures).toContain('release_ready release_claims.forbidden must keep public-WSS drill behavior overclaims forbidden');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects review_required allowed Mesh release_ready claims', () => {
     const sourceDir = evidenceScrubPacket();
     try {
@@ -1113,6 +1144,25 @@ describe('mesh evidence scrub promotion', () => {
 
       expect(validation.ok).toBe(false);
       expect(validation.failures).toContain('review_required release_claims.allowed imply Mesh release_ready');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects review_required packets that omit required forbidden claim categories', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.release_claims.forbidden = ['The Mesh is release_ready.'];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain('review_required release_claims.forbidden must keep full-app or test-group readiness forbidden');
+      expect(validation.failures).toContain('review_required release_claims.forbidden must keep production app canary success forbidden');
+      expect(validation.failures).toContain('review_required release_claims.forbidden must keep downstream app observation forbidden');
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

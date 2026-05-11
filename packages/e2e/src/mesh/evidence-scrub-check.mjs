@@ -437,6 +437,31 @@ function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures
   return failures;
 }
 
+function requiredForbiddenClaimFailures({ status, forbiddenText }) {
+  const failures = [];
+
+  if ((status === 'blocked' || status === 'review_required') && !impliesMeshReleaseReady(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep Mesh release_ready forbidden`);
+  }
+  if (!impliesFullAppReady(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep full-app or test-group readiness forbidden`);
+  }
+  if (!impliesProductionCanaryPass(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep production app canary success forbidden`);
+  }
+  if (!impliesDownstreamObservation(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep downstream app observation forbidden`);
+  }
+  if (!impliesLumaOverclaim(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep LUMA gate, custody, signer, auth, or production-app overclaims forbidden`);
+  }
+  if (!impliesPublicWssBehaviorOverclaim(forbiddenText)) {
+    failures.push(`${status} release_claims.forbidden must keep public-WSS drill behavior overclaims forbidden`);
+  }
+
+  return failures;
+}
+
 function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }) {
   const failures = [];
   const allowedText = claimText(aggregate.release_claims?.allowed);
@@ -446,6 +471,7 @@ function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailur
     if (impliesMeshReleaseReady(allowedText)) {
       failures.push(`${aggregate.status} release_claims.allowed imply Mesh release_ready`);
     }
+    failures.push(...requiredForbiddenClaimFailures({ status: aggregate.status, forbiddenText }));
     return failures;
   }
 
@@ -457,6 +483,7 @@ function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailur
     failures.push('release_ready release_claims require release_readiness_blockers to be empty');
   }
   failures.push(...releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }));
+  failures.push(...requiredForbiddenClaimFailures({ status: aggregate.status, forbiddenText }));
 
   if (impliesMeshReleaseReady(forbiddenText)) {
     failures.push('release_ready release_claims.forbidden still contradict bounded Mesh release_ready');
