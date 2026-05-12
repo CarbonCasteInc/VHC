@@ -32,7 +32,7 @@ Season 0 source contract:
 Season 0 production-readiness contract:
 
 1. StoryCluster correctness must pass through the deterministic corpus/replay gate plus the daemon-first semantic gate;
-2. source-health release evidence must remain fresh and pass over the recent run window;
+2. source-health release evidence must remain fresh and pass over the complete configured recent run window; consolidated release gates treat source-health `warn` evidence as non-green until the latest run returns to `pass`;
 3. headline-soak release evidence must remain fresh and pass over the recent run window;
 4. headline-soak release evidence currently passes the recent run window only when all of these are true:
    - at least 4 recent executions are present;

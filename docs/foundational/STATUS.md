@@ -55,7 +55,7 @@ Current policy state:
 - Release/readiness reviewers should treat that deterministic corpus plus the daemon-first semantic gate as the authoritative correctness gate.
 - Unified production-readiness now requires one explicit combined rule:
   - StoryCluster correctness must pass via `pnpm check:storycluster:correctness`;
-  - source-health release evidence must remain fresh and pass via `pnpm check:news-sources:health`;
+  - source-health release evidence must remain fresh, cover the complete configured recent run window, and pass via `pnpm check:news-sources:health`; `warn` is an adjudication state, not consolidated release-green evidence;
   - headline-soak trend evidence must remain fresh and pass via `pnpm report:storycluster:production-readiness`.
 - The combined production-readiness decision surface is:
   - command: `pnpm check:storycluster:production-readiness`
