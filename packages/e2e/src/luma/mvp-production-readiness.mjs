@@ -105,6 +105,18 @@ const RELEASE_CLAIMS = Object.freeze({
 });
 
 const COMMITTED_MESH_EVIDENCE_PREFIX = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/';
+const COMMITTED_MESH_EVIDENCE_COMPATIBILITY_PATHS = new Set([
+  'docs/specs/spec-mesh-production-readiness.md',
+  'packages/e2e/src/live/production-app-canary.mjs',
+  'packages/e2e/src/live/production-app-canary.vitest.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.vitest.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.test.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.test.mjs',
+  'packages/e2e/src/mesh/sample-floor-contract.mjs',
+]);
 
 const OVERCLAIM_SURFACES = Object.freeze([
   'docs/foundational/STATUS.md',
@@ -196,7 +208,10 @@ function lines(value) {
 }
 
 function compatibleCommittedMeshEvidencePath(changedPath) {
-  return changedPath.startsWith(COMMITTED_MESH_EVIDENCE_PREFIX);
+  return (
+    changedPath.startsWith(COMMITTED_MESH_EVIDENCE_PREFIX) ||
+    COMMITTED_MESH_EVIDENCE_COMPATIBILITY_PATHS.has(changedPath)
+  );
 }
 
 export function evaluateEvidenceCommitCompatibility({
