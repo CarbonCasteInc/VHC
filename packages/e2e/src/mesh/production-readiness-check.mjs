@@ -11,6 +11,11 @@ import {
   LUMA_GATED_WRITE_COVERAGE_REPORT_ENV,
   validateLumaCoverageReport,
 } from './luma-gated-write-coverage.mjs';
+import {
+  requiredSampleFloorBlockerForIssues,
+  requiredSampleFloorIssuesForSources,
+  sampleFloorValidationFailuresForReport,
+} from './sample-floor-contract.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -318,6 +323,7 @@ export function validationFailuresForSource({
       failures.push(`${row.resource || 'resource'} budget failed`);
     }
   }
+  failures.push(...sampleFloorValidationFailuresForReport(report));
   if ((report.soak?.terminal_failures || 0) > 0) {
     failures.push('soak terminal failures are non-zero');
   }
@@ -440,6 +446,10 @@ function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
     completedAtMs: completedAt,
   });
   if (parseError) failures.push(`failed to parse source report: ${parseError}`);
+  const sampleFloorFailures = report ? sampleFloorValidationFailuresForReport(report) : [];
+  const sampleFloorFailureSet = new Set(sampleFloorFailures);
+  const onlySampleFloorFailures =
+    failures.length > 0 && failures.every((failure) => sampleFloorFailureSet.has(failure));
   return {
     id: gate.id,
     name: gate.name,
@@ -453,7 +463,7 @@ function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
     source_dir: sourceDir,
     report_path: sourceReportPath,
     source_status: report?.status || 'missing',
-    status: failures.length === 0 ? 'pass' : 'fail',
+    status: failures.length === 0 ? 'pass' : onlySampleFloorFailures ? 'review_required' : 'fail',
     failures,
   };
 }
@@ -608,6 +618,11 @@ export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null } = 
     });
   }
 
+  const sampleFloorBlocker = requiredSampleFloorBlockerForIssues(requiredSampleFloorIssuesForSources(sources));
+  if (sampleFloorBlocker) {
+    blockers.push(sampleFloorBlocker);
+  }
+
   const lumaCoveragePassed = Boolean(lumaCoverageEvidence?.provided && lumaCoverageEvidence.validation?.ok);
   if (!lumaCoveragePassed) {
     blockers.push({
@@ -660,6 +675,7 @@ function releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidenc
     publicWssDeployment: publicWssDeploymentSatisfied(sources),
     durableLumaCoverage: durableLumaCoverageSatisfied(lumaCoverageEvidence),
     evidenceScrub: evidenceScrubSatisfied(sources),
+    requiredSampleFloors: requiredSampleFloorIssuesForSources(sources).length === 0,
   };
 }
 
@@ -689,7 +705,7 @@ export function buildReleaseClaims({ status, blockers, sources, lumaCoverageEvid
 
   const allowed = boundedReleaseReadyAllowed
     ? [
-        'The Mesh production-readiness aggregate is release_ready for Mesh transport readiness only: release_readiness_blockers is empty, canonical 1800000ms soak is satisfied, public WSS deployment proof passed, durable LUMA reader-path coverage passed for the five required Mesh user-write classes, and evidence scrub passed.',
+        'The Mesh production-readiness aggregate is release_ready for Mesh transport readiness only: release_readiness_blockers is empty, canonical 1800000ms soak is satisfied, public WSS deployment proof passed, durable LUMA reader-path coverage passed for the five required Mesh user-write classes, required write/resource SLO sample floors are satisfied or explicitly out of scope with reasons, and evidence scrub passed.',
         ...observedClaims,
       ]
     : observedClaims;
@@ -717,6 +733,10 @@ export function buildReleaseClaims({ status, blockers, sources, lumaCoverageEvid
     forbidden,
     invalidated_by_luma_epoch_change: false,
   };
+}
+
+function sourceGatePassedForAggregate(source) {
+  return source.status === 'pass' || source.status === 'review_required';
 }
 
 function pickTopology(sources) {
@@ -1059,7 +1079,7 @@ async function main() {
   }
   const initialBlockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
   const lumaCoverageCommandPassed = !lumaCoverageEvidence.provided || lumaCoverageEvidence.validation.ok;
-  const initialCommandPassed = sources.every((source) => source.status === 'pass') && lumaCoverageCommandPassed;
+  const initialCommandPassed = sources.every(sourceGatePassedForAggregate) && lumaCoverageCommandPassed;
   const candidateCompletedAt = Date.now();
   const candidateReport = buildReport({
     runId,
@@ -1084,7 +1104,7 @@ async function main() {
   }
 
   const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
-  const commandPassed = sources.every((source) => source.status === 'pass') && lumaCoverageCommandPassed;
+  const commandPassed = sources.every(sourceGatePassedForAggregate) && lumaCoverageCommandPassed;
   const completedAt = Date.now();
   const report = buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed, lumaCoverageEvidence });
   const manifest = buildManifest({ report, sources, blockers, reportPath: provisionalReportPath });

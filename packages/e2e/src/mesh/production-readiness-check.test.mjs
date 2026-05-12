@@ -664,6 +664,47 @@ describe('production-readiness source evidence validation', () => {
     expect(failures).toEqual([]);
   });
 
+  it('rejects write_class_slos insufficient_samples source evidence', () => {
+    const failures = failuresFor({
+      gate: {
+        command: ['pnpm', 'test:mesh:state-resolution-drills'],
+        expectedMode: 'local_production_topology',
+      },
+      report: sourceReport({
+        write_class_slos: [
+          {
+            write_class: 'health probe write/readback',
+            status: 'insufficient_samples',
+            successes: 5,
+            release_minimum_successful_samples: 30,
+          },
+        ],
+      }),
+    });
+
+    expect(failures).toContain('required write_class_slos row health probe write/readback is insufficient_samples');
+  });
+
+  it('rejects required resource_slos insufficient_samples source evidence', () => {
+    const failures = failuresFor({
+      gate: {
+        command: ['pnpm', 'test:mesh:state-resolution-drills'],
+        expectedMode: 'local_production_topology',
+      },
+      report: sourceReport({
+        resource_slos: [
+          {
+            resource: 'relay_open_sockets_file_descriptors',
+            status: 'insufficient_samples',
+            reason: 'not exposed by this metrics endpoint',
+          },
+        ],
+      }),
+    });
+
+    expect(failures).toContain('required resource_slos row relay_open_sockets_file_descriptors is insufficient_samples');
+  });
+
   it('rejects a same-mode source report from a different gate command', () => {
     const failures = failuresFor({
       gate: {
@@ -788,6 +829,71 @@ describe('production-readiness source evidence validation', () => {
       }),
     ]);
   });
+
+  it('adds a required sample-floor blocker when required rows are insufficient_samples', () => {
+    const sources = releaseReadySources();
+    sources[0].report.write_class_slos = [
+      {
+        write_class: 'health probe write/readback',
+        status: 'insufficient_samples',
+      },
+    ];
+    sources[0].report.resource_slos = [
+      {
+        resource: 'relay_open_sockets_file_descriptors',
+        status: 'insufficient_samples',
+      },
+    ];
+
+    const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence: releaseReadyLumaCoverageEvidence() });
+    const sampleFloorBlocker = blockers.find((blocker) => blocker.id === 'required-write-class-sample-floors');
+
+    expect(sampleFloorBlocker).toMatchObject({
+      command: 'pnpm check:mesh:production-readiness',
+    });
+    expect(sampleFloorBlocker.reason).toContain('write_class_slos:soak/health probe write/readback');
+    expect(sampleFloorBlocker.reason).toContain('resource_slos:soak/relay_open_sockets_file_descriptors');
+    expect(sampleFloorBlocker.reason).toContain('insufficient_samples');
+  });
+
+  it('prevents release_ready claims for the PR 624 insufficient sample-floor shape', () => {
+    const sources = releaseReadySources();
+    sources[0].report.write_class_slos = [
+      {
+        write_class: 'health probe write/readback',
+        status: 'insufficient_samples',
+      },
+      {
+        write_class: 'vote intent materialization',
+        status: 'insufficient_samples',
+      },
+      {
+        write_class: 'vote intent materialization (web pwa app client)',
+        status: 'insufficient_samples',
+      },
+    ];
+
+    const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence: releaseReadyLumaCoverageEvidence() });
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources,
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(blockers).toContainEqual(expect.objectContaining({ id: 'required-write-class-sample-floors' }));
+    expect(blockers.find((blocker) => blocker.id === 'required-write-class-sample-floors').reason).toContain(
+      'health probe write/readback',
+    );
+    expect(blockers.find((blocker) => blocker.id === 'required-write-class-sample-floors').reason).toContain(
+      'vote intent materialization',
+    );
+    expect(blockers.find((blocker) => blocker.id === 'required-write-class-sample-floors').reason).toContain(
+      'vote intent materialization (web pwa app client)',
+    );
+    expect(claimsText(claims, 'allowed')).not.toContain('release_ready for Mesh transport readiness only');
+  });
 });
 
 describe('buildReleaseClaims', () => {
@@ -822,6 +928,26 @@ describe('buildReleaseClaims', () => {
       status: 'release_ready',
       blockers: [],
       sources: releaseReadySources({ includeSoak: false }),
+      lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
+      downstreamCanary: downstreamCanaryMetadata(),
+    });
+
+    expect(claimsText(claims, 'allowed')).not.toContain('release_ready for Mesh transport readiness only');
+  });
+
+  it('does not allow bounded Mesh release_ready when required sample floors are insufficient', () => {
+    const sources = releaseReadySources();
+    sources[0].report.write_class_slos = [
+      {
+        write_class: 'vote intent materialization',
+        status: 'insufficient_samples',
+      },
+    ];
+
+    const claims = buildReleaseClaims({
+      status: 'release_ready',
+      blockers: [],
+      sources,
       lumaCoverageEvidence: releaseReadyLumaCoverageEvidence(),
       downstreamCanary: downstreamCanaryMetadata(),
     });
@@ -958,6 +1084,153 @@ describe('mesh evidence scrub promotion', () => {
   it('accepts a bounded release_ready aggregate with public WSS, canonical soak, durable LUMA coverage, and scrub source evidence', () => {
     const sourceDir = releaseReadyEvidenceScrubPacket();
     try {
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(true);
+      expect(validation.failures).toEqual([]);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready packets with required write_class_slos insufficient_samples rows', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.write_class_slos = [
+        {
+          write_class: 'vote intent materialization',
+          status: 'insufficient_samples',
+          successes: 4,
+          release_minimum_successful_samples: 20,
+        },
+      ];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'release_ready requires required write/resource SLO rows to pass or be explicitly out of scope: write_class_slos:aggregate/aggregate-evidence-scrub-test/vote intent materialization is insufficient_samples',
+      );
+      expect(validation.failures).toContain(
+        'release_ready packet has required insufficient_samples rows but release_readiness_blockers omits required-write-class-sample-floors: write_class_slos:aggregate/aggregate-evidence-scrub-test/vote intent materialization',
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready packets with required resource_slos insufficient_samples rows', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.resource_slos = [
+        {
+          resource: 'relay_open_sockets_file_descriptors',
+          status: 'insufficient_samples',
+          reason: 'not exposed by this metrics endpoint',
+        },
+      ];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'release_ready requires required write/resource SLO rows to pass or be explicitly out of scope: resource_slos:aggregate/aggregate-evidence-scrub-test/relay_open_sockets_file_descriptors is insufficient_samples',
+      );
+      expect(validation.failures).toContain(
+        'release_ready packet has required insufficient_samples rows but release_readiness_blockers omits required-write-class-sample-floors: resource_slos:aggregate/aggregate-evidence-scrub-test/relay_open_sockets_file_descriptors',
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects release_ready packets with insufficient_samples rows in required source reports', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const soakPath = path.join(sourceDir, 'source-reports/soak/mesh-production-readiness-report.json');
+      const soak = JSON.parse(fs.readFileSync(soakPath, 'utf8'));
+      soak.write_class_slos = [
+        {
+          write_class: 'health probe write/readback',
+          status: 'insufficient_samples',
+          successes: 5,
+          release_minimum_successful_samples: 30,
+        },
+      ];
+      writeJson(soakPath, soak);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'release_ready requires required write/resource SLO rows to pass or be explicitly out of scope: write_class_slos:soak/source-soak-run/health probe write/readback is insufficient_samples',
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('permits review_required packets with explicit sample-floor blockers', () => {
+    const sourceDir = evidenceScrubPacket({
+      blockers: [
+        {
+          id: 'required-write-class-sample-floors',
+          command: 'pnpm check:mesh:production-readiness',
+          reason: 'required write/resource SLO sample floors are insufficient_samples: write_class_slos:soak/vote intent materialization',
+        },
+      ],
+    });
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.write_class_slos = [
+        {
+          write_class: 'vote intent materialization',
+          status: 'insufficient_samples',
+        },
+      ];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(true);
+      expect(validation.failures).toEqual([]);
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('permits release_ready packets only when required SLO rows pass or are explicitly out of scope', () => {
+    const sourceDir = releaseReadyEvidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.write_class_slos = [
+        {
+          write_class: 'vote intent materialization',
+          status: 'pass',
+        },
+        {
+          write_class: 'legacy non-release corpus row',
+          status: 'skipped',
+          reason: 'excluded from the current release scope by the Mesh production-readiness spec',
+        },
+      ];
+      aggregate.resource_slos = [
+        {
+          resource: 'relay_open_sockets_file_descriptors',
+          status: 'not_applicable',
+          reason: 'excluded from the current release scope by the Mesh production-readiness spec',
+        },
+      ];
+      writeJson(aggregatePath, aggregate);
+
       const validation = validateAggregatePacket({ sourceDir });
 
       expect(validation.ok).toBe(true);
