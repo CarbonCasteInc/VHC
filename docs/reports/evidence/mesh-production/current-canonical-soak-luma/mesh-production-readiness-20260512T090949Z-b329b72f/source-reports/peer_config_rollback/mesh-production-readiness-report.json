@@ -1,0 +1,257 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-12T09:47:56.589Z",
+  "run_id": "mesh-peer-config-rollback-1778579268550-2c426818",
+  "repo": {
+    "branch": "coord/mesh-release-ready-refresh-after-luma-mvp",
+    "commit": "0372b64e14f2ddf31ab2cfd5e87fdd7dbb92ac59",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_tls_wss_peer_config_rollback",
+    "deployment_scope": "local_tls_wss_profile",
+    "started_at": "2026-05-12T09:47:48.549Z",
+    "completed_at": "2026-05-12T09:47:56.589Z",
+    "duration_ms": 8040,
+    "command": "pnpm test:mesh:peer-config-rollback-drill"
+  },
+  "status": "review_required",
+  "status_reason": "Slice 12A local TLS/WSS signed peer-config rollback drill passed; full mesh production readiness remains review_required because public WSS, canonical soak, full clock-skew, conflict fixtures, evidence scrub, downstream app canary, and LUMA-gated write coverage remain pending.",
+  "schema_epoch": "post_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "landed",
+    "luma_gated_write_drills": "pending",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "signed peer-config rollback fixture": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "selected_strategy_scope": "peer-config lifecycle proof only; no mesh data repair writes are exercised in Slice 12A",
+    "deployment_scope": "local_tls_wss_profile",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": true,
+    "relay_urls_redacted": [
+      "wss://redacted-host-c0c723199470/gun",
+      "wss://redacted-host-edbe5d3eaae7/gun",
+      "wss://redacted-host-fb1f98196b21/gun"
+    ],
+    "relay_ids": [
+      "rollback-wss-relay-a",
+      "rollback-wss-relay-b",
+      "rollback-wss-relay-c"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_to_relay_auth_negative_test": "skipped",
+    "relay_to_relay_auth_negative_test_reason": "covered by pnpm test:mesh:topology-drills; Slice 12A drills peer-config lifecycle and rollback",
+    "peer_config_id": "rollback-config-a-mesh-peer-config-rollback-1778579268550-2c426818",
+    "peer_config_issued_at": "2026-05-12T09:47:48.553Z",
+    "peer_config_expires_at": "2026-05-12T10:47:48.553Z",
+    "app_peer_config": {
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "config_id": "rollback-config-a-fresh-mesh-peer-config-rollback-1778579268550-2c426818",
+      "minimum_peer_count": 3,
+      "quorum_required": 2,
+      "local_mesh_peers_allowed": false
+    },
+    "csp": {
+      "status": "pass",
+      "connect_src_expected_origins": [
+        "wss://redacted-host-3cf77422efdc",
+        "wss://redacted-host-ae3b0efeb53e",
+        "wss://redacted-host-ec21bb92a916",
+        "https://redacted-host-54ad865ce75f"
+      ],
+      "strict_connect_src": true,
+      "broad_https_wss_wildcards_allowed": false
+    },
+    "service_worker_peer_config_rollover": {
+      "status": "pass",
+      "first_config_id": "rollback-config-a-mesh-peer-config-rollback-1778579268550-2c426818",
+      "second_config_id": "rollback-config-b-mesh-peer-config-rollback-1778579268550-2c426818",
+      "rollback_config_id": "rollback-config-a-fresh-mesh-peer-config-rollback-1778579268550-2c426818",
+      "fetch_cache_mode": "no-store",
+      "config_hits_by_label": {
+        "positive": 1,
+        "rollover": 1,
+        "expired": 1,
+        "unsigned": 1,
+        "bad_signature": 1,
+        "wrong_key": 1,
+        "local_peers": 1,
+        "rollback": 1
+      }
+    },
+    "peer_config_rollback": {
+      "status": "pass",
+      "deployment_scope": "local_tls_wss_profile",
+      "initial_config_id": "rollback-config-a-mesh-peer-config-rollback-1778579268550-2c426818",
+      "forward_config_id": "rollback-config-b-mesh-peer-config-rollback-1778579268550-2c426818",
+      "rollback_config_id": "rollback-config-a-fresh-mesh-peer-config-rollback-1778579268550-2c426818",
+      "rollback_reuses_stale_config_file": false,
+      "rollback_signed_after_forward_config": true,
+      "previous_topology_shape_restored": true,
+      "fail_closed_cases": [
+        {
+          "fixture": "expired",
+          "expected_error": "peer config is expired",
+          "observed_error": "[vh:gun] peer config is expired",
+          "feed_shell_visible": true,
+          "opened_socket_hosts": [],
+          "status": "pass"
+        },
+        {
+          "fixture": "unsigned",
+          "expected_error": "requires a signed peer config",
+          "observed_error": "[vh:gun] strict peer config requires a signed peer config envelope",
+          "feed_shell_visible": true,
+          "opened_socket_hosts": [],
+          "status": "pass"
+        },
+        {
+          "fixture": "bad_signature",
+          "expected_error": "signed peer config verification failed",
+          "observed_error": "[vh:gun] signed peer config verification failed",
+          "feed_shell_visible": true,
+          "opened_socket_hosts": [],
+          "status": "pass"
+        },
+        {
+          "fixture": "wrong_key",
+          "expected_error": "signed peer config verification failed",
+          "observed_error": "[vh:gun] signed peer config verification failed",
+          "feed_shell_visible": true,
+          "opened_socket_hosts": [],
+          "status": "pass"
+        },
+        {
+          "fixture": "local_peers",
+          "expected_error": "rejects insecure peer",
+          "observed_error": "[vh:gun] strict peer config rejects insecure peer http://redacted-host-1284230a15b0/gun",
+          "feed_shell_visible": true,
+          "opened_socket_hosts": [],
+          "status": "pass"
+        }
+      ],
+      "old_tab_behavior": {
+        "status": "pass",
+        "behavior": "operator rollback proof uses reload/refetch; current app does not claim live in-place topology replacement for already-open tabs",
+        "fail_closed_signal": "failed peer topology proof plus zero accepted peer socket hosts after reload; feed shell may remain visible and is not the fail-closed signal"
+      },
+      "key_rotation_evidence": {
+        "status": "pass",
+        "accepted_key_fingerprint": "14f353c6f84a3d35",
+        "rejected_key_fingerprint": "58b4aef391358c60",
+        "reason": "the drill proves configs signed by a removed/wrong key fail closed; production key rotation still requires a new app build or trusted public-key distribution path"
+      }
+    }
+  },
+  "gates": [
+    {
+      "name": "rollback-drill-compose-config",
+      "status": "pass",
+      "command": "docker compose -f infra/docker/docker-compose.mesh-wss.yml config",
+      "duration_ms": 169,
+      "exit_code": 0
+    },
+    {
+      "name": "build-peer-config-rollback-drill",
+      "status": "pass",
+      "command": "pnpm --filter @vh/web-pwa build",
+      "duration_ms": 4940,
+      "exit_code": 0
+    },
+    {
+      "name": "playwright-peer-config-rollback-drill",
+      "status": "pass",
+      "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-deployed-wss.config.ts src/mesh/peer-config-rollback-drill.spec.ts",
+      "duration_ms": 2890,
+      "exit_code": 0
+    }
+  ],
+  "write_class_slos": [],
+  "resource_slos": [],
+  "per_relay_readback": [],
+  "peer_failure_drills": [
+    {
+      "name": "peer-config-rollback-stale-config-fail-closed",
+      "status": "pass",
+      "reason": "local TLS/WSS app boot accepted A, accepted B, rejected invalid configs, and accepted a fresh rollback-to-A-shape signed config"
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-skip-slice-12a",
+      "object_class": "state-resolution matrix",
+      "state_rule": "out-of-scope",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "Slice 12A drills operator peer-config lifecycle and does not write synthetic state-resolution records."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": "signed-peer-config-validity-window",
+    "skew_ms": 0,
+    "named_failure": "peer-config-expired",
+    "lww_diverged": false,
+    "status": "pass",
+    "reason": "expired signed peer config was rejected as a config validity-window failure, not as generic mesh transport failure"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-1778579268550-37633be3",
+      "status": "skipped",
+      "reason": "Slice 12A uses signed peer-config fixtures only; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, adapter, custody, or schema migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "no vh/__mesh_drills writes in peer-config rollback drill",
+    "ttl_ms": 3600000,
+    "objects_written": 0,
+    "objects_cleaned_or_tombstoned": 0,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 3,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": [
+      "peer-config-expired",
+      "peer-config-signature-invalid",
+      "peer-config-local-peer-forbidden"
+    ]
+  },
+  "release_claims": {
+    "allowed": [
+      "The local TLS/WSS profile can roll from signed peer-config A to B and back to a freshly issued rollback-to-A-shape config with local peer allowance disabled.",
+      "Expired, unsigned, bad-signature, wrong-key, and local-peer signed configs fail closed without initializing accepted peer sockets.",
+      "The operator runbook has a locally rehearsed peer-config rollback drill that can feed the aggregate mesh readiness packet."
+    ],
+    "forbidden": [
+      "The mesh is release_ready.",
+      "Public WSS infrastructure rollback is production-proven.",
+      "Runtime public-key rotation works without rebuilding or otherwise distributing a new trusted key.",
+      "The full clock-skew matrix is production-ready.",
+      "LUMA-gated production write classes are mesh-readiness-proven."
+    ],
+    "invalidated_by_luma_epoch_change": false
+  },
+  "downstream_canary": {
+    "command": "pnpm check:mesh:production-readiness",
+    "status": "skipped",
+    "reason": "aggregate production-readiness gate is a separate command and remains review_required while release blockers remain"
+  }
+}
