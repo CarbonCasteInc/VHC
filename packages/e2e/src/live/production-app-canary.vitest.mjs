@@ -362,6 +362,8 @@ describe('production-app-canary', () => {
             `${packetRoot}/source-reports/soak/mesh-production-readiness-report.json`,
             'packages/e2e/src/live/production-app-canary.mjs',
             'packages/e2e/src/live/production-app-canary.vitest.mjs',
+            'packages/e2e/src/luma/mvp-production-readiness.mjs',
+            'packages/e2e/src/luma/mvp-production-readiness.vitest.mjs',
             'packages/e2e/src/mesh/evidence-scrub-check.mjs',
             'packages/e2e/src/mesh/production-readiness-check.mjs',
             'packages/e2e/src/mesh/sample-floor-contract.mjs',

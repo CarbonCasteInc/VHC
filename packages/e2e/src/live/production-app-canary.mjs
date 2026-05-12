@@ -156,6 +156,8 @@ const COMMITTED_EVIDENCE_PACKET_COMPATIBILITY_PATHS = new Set([
   'docs/specs/spec-mesh-production-readiness.md',
   'packages/e2e/src/live/production-app-canary.mjs',
   'packages/e2e/src/live/production-app-canary.vitest.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.vitest.mjs',
   'packages/e2e/src/mesh/evidence-scrub-check.mjs',
   'packages/e2e/src/mesh/evidence-scrub-check.test.mjs',
   'packages/e2e/src/mesh/production-readiness-check.mjs',
