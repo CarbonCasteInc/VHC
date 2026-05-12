@@ -134,6 +134,10 @@ Operational artifact expectations:
    - `readinessStatus`
    - `releaseEvidence.status`
    - `releaseEvidence.reasons`
+   - `releaseEvidence.recentWindowRunCount`
+   - `releaseEvidence.recentReadyRunCount`
+   - `releaseEvidence.recentReviewRunCount`
+   - `releaseEvidence.recentBlockedRunCount`
    - `recommendedAction`
    - `keepSourceIds`
    - `watchSourceIds`
@@ -164,6 +168,9 @@ Operational artifact expectations:
 7. source-health is one required input to the combined production-readiness rule, not a standalone release claim:
    - StoryCluster correctness must pass;
    - source-health release evidence must pass and remain fresh;
+   - source-health release evidence must include the full configured release window; `insufficient_release_evidence_window`, `blocked_run_within_release_window`, and `non_ready_runs_exceed_threshold` are release blockers, not review-only warnings;
+   - when the only blocker is a missing local release-evidence window, the enforced check may collect the remaining live runs; any warning, blocked run, source watch/remove transition, or non-ready threshold breach still stops the gate;
+   - `pnpm check:news-sources:health` treats any non-`pass` release evidence, including `warn` from `latest_run_not_ready` or `new_watch_sources_detected`, as non-green for consolidated release gates;
    - headline-soak trend release evidence must pass and remain fresh.
 
 ## Operational Interpretation

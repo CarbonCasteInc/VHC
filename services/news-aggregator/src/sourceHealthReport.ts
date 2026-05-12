@@ -878,6 +878,11 @@ function buildSourceHealthReleaseEvidence(
   let status: SourceHealthReleaseEvidenceStatus = 'pass';
   let recommendedAction: SourceHealthReleaseEvidence['recommendedAction'] = 'release_ready';
 
+  if (recentRuns.length < thresholds.releaseEvidenceWindowRunCount) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_trend_recovery';
+    reasons.push('insufficient_release_evidence_window');
+  }
   if (recentBlockedRunCount > 0) {
     status = 'fail';
     recommendedAction = 'hold_release_for_trend_recovery';
@@ -889,19 +894,25 @@ function buildSourceHealthReleaseEvidence(
     reasons.push('non_ready_runs_exceed_threshold');
   }
 
-  if (status !== 'fail' && latestRun?.readinessStatus !== 'ready') {
-    status = 'warn';
-    recommendedAction = 'review_recent_deterioration';
+  if (latestRun?.readinessStatus !== 'ready') {
+    if (status !== 'fail') {
+      status = 'warn';
+      recommendedAction = 'review_recent_deterioration';
+    }
     reasons.push('latest_run_not_ready');
   }
-  if (status !== 'fail' && latestNewWatchSourceIds.length > 0) {
-    status = 'warn';
-    recommendedAction = 'review_recent_deterioration';
+  if (latestNewWatchSourceIds.length > 0) {
+    if (status !== 'fail') {
+      status = 'warn';
+      recommendedAction = 'review_recent_deterioration';
+    }
     reasons.push('new_watch_sources_detected');
   }
-  if (status !== 'fail' && latestNewRemoveSourceIds.length > 0) {
-    status = 'warn';
-    recommendedAction = 'review_recent_deterioration';
+  if (latestNewRemoveSourceIds.length > 0) {
+    if (status !== 'fail') {
+      status = 'warn';
+      recommendedAction = 'review_recent_deterioration';
+    }
     reasons.push('new_remove_sources_detected');
   }
 
@@ -1368,9 +1379,63 @@ function isDirectExecution(): boolean {
   return fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 }
 
-/* c8 ignore start */
-async function main(): Promise<void> {
-  const artifact = await writeSourceHealthArtifact();
+function shouldFailEnforcedReleaseEvidence(
+  releaseStatus: SourceHealthReleaseEvidenceStatus,
+  enforceReleaseEvidence: boolean,
+  failOnWarnRaw: string | undefined,
+): boolean {
+  const failOnWarn = parseBoolean(failOnWarnRaw, enforceReleaseEvidence);
+  return (
+    enforceReleaseEvidence
+    && (
+      releaseStatus === 'fail'
+      || (failOnWarn && releaseStatus === 'warn')
+    )
+  );
+}
+
+function shouldCollectAdditionalReleaseEvidence(
+  releaseEvidence: SourceHealthReleaseEvidence,
+): boolean {
+  return (
+    releaseEvidence.status === 'fail'
+    && releaseEvidence.reasons.length === 1
+    && releaseEvidence.reasons[0] === 'insufficient_release_evidence_window'
+  );
+}
+
+async function collectCompleteReleaseEvidenceWindow(
+  initialArtifact: Awaited<ReturnType<typeof writeSourceHealthArtifact>>,
+): Promise<Awaited<ReturnType<typeof writeSourceHealthArtifact>>> {
+  let artifact = initialArtifact;
+  let remainingRuns = Math.max(
+    0,
+    artifact.sourceHealthReport.thresholds.releaseEvidenceWindowRunCount
+      - artifact.sourceHealthReport.releaseEvidence.recentWindowRunCount,
+  );
+
+  while (
+    remainingRuns > 0
+    && shouldCollectAdditionalReleaseEvidence(artifact.sourceHealthReport.releaseEvidence)
+  ) {
+    console.info('[vh:news-source-health] collecting additional release evidence run', {
+      remainingRuns,
+      latestArtifactDir: artifact.latestArtifactDir,
+    });
+    artifact = await writeSourceHealthArtifact();
+    remainingRuns = Math.max(
+      0,
+      artifact.sourceHealthReport.thresholds.releaseEvidenceWindowRunCount
+        - artifact.sourceHealthReport.releaseEvidence.recentWindowRunCount,
+    );
+  }
+
+  return artifact;
+}
+
+function logSourceHealthArtifact(
+  artifact: Awaited<ReturnType<typeof writeSourceHealthArtifact>>,
+): void {
   console.info('[vh:news-source-health] report written', {
     artifactDir: artifact.artifactDir,
     admissionReportPath: artifact.admissionReportPath,
@@ -1393,15 +1458,24 @@ async function main(): Promise<void> {
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,
     removeSourceIds: artifact.sourceHealthReport.removeSourceIds,
   });
+}
 
+/* c8 ignore start */
+async function main(): Promise<void> {
   const enforceReleaseEvidence = parseBoolean(
     process.env.VH_NEWS_SOURCE_HEALTH_ENFORCE_RELEASE_EVIDENCE,
     false,
   );
-  const failOnWarn = parseBoolean(
-    process.env.VH_NEWS_SOURCE_HEALTH_FAIL_ON_WARN,
-    false,
-  );
+  let artifact = await writeSourceHealthArtifact();
+  if (
+    enforceReleaseEvidence
+    && shouldCollectAdditionalReleaseEvidence(artifact.sourceHealthReport.releaseEvidence)
+  ) {
+    artifact = await collectCompleteReleaseEvidenceWindow(artifact);
+  }
+
+  logSourceHealthArtifact(artifact);
+
   const releaseStatus = artifact.sourceHealthReport.releaseEvidence.status;
   if (releaseStatus === 'warn') {
     const message = `[vh:news-source-health] release evidence warn: ${artifact.sourceHealthReport.releaseEvidence.reasons.join(', ') || 'recent deterioration detected'}`;
@@ -1413,10 +1487,10 @@ async function main(): Promise<void> {
   }
 
   if (
-    enforceReleaseEvidence
-    && (
-      releaseStatus === 'fail'
-      || (failOnWarn && releaseStatus === 'warn')
+    shouldFailEnforcedReleaseEvidence(
+      releaseStatus,
+      enforceReleaseEvidence,
+      process.env.VH_NEWS_SOURCE_HEALTH_FAIL_ON_WARN,
     )
   ) {
     throw new Error(
@@ -1452,5 +1526,7 @@ export const sourceHealthReportInternal = {
   isGlobalFeedStageFailureAdmissionReport,
   parseBoolean,
   parseHistoricalSourceHealthRecord,
+  shouldCollectAdditionalReleaseEvidence,
+  shouldFailEnforcedReleaseEvidence,
   readHistoricalSourceHealthReports,
 };

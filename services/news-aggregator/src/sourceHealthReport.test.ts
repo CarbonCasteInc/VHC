@@ -127,6 +127,55 @@ describe('sourceHealthReport', () => {
     expect(decision.reasons).toEqual([]);
   });
 
+  it('fails the release-enforced check on warning status by default', () => {
+    expect(
+      sourceHealthReportInternal.shouldFailEnforcedReleaseEvidence('warn', true, undefined),
+    ).toBe(true);
+    expect(
+      sourceHealthReportInternal.shouldFailEnforcedReleaseEvidence('fail', true, undefined),
+    ).toBe(true);
+    expect(
+      sourceHealthReportInternal.shouldFailEnforcedReleaseEvidence('pass', true, undefined),
+    ).toBe(false);
+    expect(
+      sourceHealthReportInternal.shouldFailEnforcedReleaseEvidence('warn', false, undefined),
+    ).toBe(false);
+    expect(
+      sourceHealthReportInternal.shouldFailEnforcedReleaseEvidence('warn', true, '0'),
+    ).toBe(false);
+  });
+
+  it('auto-collects only a clean missing release-evidence window', () => {
+    const cleanMissingWindow = {
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['insufficient_release_evidence_window'],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 1,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
+    } as const;
+
+    expect(
+      sourceHealthReportInternal.shouldCollectAdditionalReleaseEvidence(cleanMissingWindow),
+    ).toBe(true);
+    expect(
+      sourceHealthReportInternal.shouldCollectAdditionalReleaseEvidence({
+        ...cleanMissingWindow,
+        reasons: ['insufficient_release_evidence_window', 'latest_run_not_ready'],
+      }),
+    ).toBe(false);
+    expect(
+      sourceHealthReportInternal.shouldCollectAdditionalReleaseEvidence({
+        ...cleanMissingWindow,
+        status: 'warn',
+        reasons: ['latest_run_not_ready'],
+      }),
+    ).toBe(false);
+  });
+
   it('marks admitted sources with lifecycle instability for watch review', () => {
     const source = makeAdmissionSource({
       sourceId: 'guardian-us',
@@ -312,7 +361,13 @@ describe('sourceHealthReport', () => {
     expect(report.releaseEvidence).toEqual({
       status: 'fail',
       recommendedAction: 'hold_release_for_trend_recovery',
-      reasons: ['blocked_run_within_release_window'],
+      reasons: [
+        'insufficient_release_evidence_window',
+        'blocked_run_within_release_window',
+        'latest_run_not_ready',
+        'new_watch_sources_detected',
+        'new_remove_sources_detected',
+      ],
       recentWindowRunCount: 1,
       recentReadyRunCount: 0,
       recentReviewRunCount: 0,
@@ -376,14 +431,46 @@ describe('sourceHealthReport', () => {
     expect(report.recommendedAction).toBe('review_watchlist');
     expect(report.watchSourceIds).toEqual(['guardian-us']);
     expect(report.releaseEvidence).toEqual({
-      status: 'warn',
-      recommendedAction: 'review_recent_deterioration',
-      reasons: ['latest_run_not_ready', 'new_watch_sources_detected'],
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: [
+        'insufficient_release_evidence_window',
+        'latest_run_not_ready',
+        'new_watch_sources_detected',
+      ],
       recentWindowRunCount: 1,
       recentReadyRunCount: 0,
       recentReviewRunCount: 1,
       recentBlockedRunCount: 0,
       latestNewWatchSourceIds: ['guardian-us'],
+      latestNewRemoveSourceIds: [],
+    });
+  });
+
+  it('holds release evidence until the configured recovery window is complete', () => {
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: '/repo/.tmp/news-source-admission/run-ready-single',
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.readinessStatus).toBe('ready');
+    expect(report.releaseEvidence).toEqual({
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['insufficient_release_evidence_window'],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 1,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
       latestNewRemoveSourceIds: [],
     });
   });
@@ -625,13 +712,33 @@ describe('sourceHealthReport', () => {
         },
       ],
     });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-3', {
+      generatedAt: '2026-03-17T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'keep',
+          decision: 'keep',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-4', {
+      generatedAt: '2026-03-18T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'keep',
+          decision: 'keep',
+        },
+      ],
+    });
 
     const report = buildSourceHealthReport(
       makeAdmissionReport([
         makeAdmissionSource({ sourceId: 'fox-latest' }),
       ]),
       {
-        artifactDir: path.join(artifactRoot, 'run-3'),
+        artifactDir: path.join(artifactRoot, 'run-5'),
         thresholds: {
           minContributingSourceCount: 0,
         },
@@ -648,13 +755,13 @@ describe('sourceHealthReport', () => {
 
     expect(trendIndex.schemaVersion).toBe(SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION);
     expect(trendIndex.lookbackRunCount).toBe(8);
-    expect(trendIndex.runCount).toBe(3);
+    expect(trendIndex.runCount).toBe(5);
     expect(trendIndex.releaseEvidence).toEqual({
       status: 'pass',
       recommendedAction: 'release_ready',
       reasons: [],
-      recentWindowRunCount: 3,
-      recentReadyRunCount: 2,
+      recentWindowRunCount: 5,
+      recentReadyRunCount: 4,
       recentReviewRunCount: 1,
       recentBlockedRunCount: 0,
       latestNewWatchSourceIds: [],
@@ -664,13 +771,63 @@ describe('sourceHealthReport', () => {
       'ready',
       'review',
       'ready',
+      'ready',
+      'ready',
     ]);
-    expect(trendIndex.runs[2]).toMatchObject({
+    expect(trendIndex.runs[4]).toMatchObject({
       globalFeedStageFailure: false,
       latestPublicationAction: 'publish_latest',
       keepSourceIds: ['fox-latest'],
       watchSourceIds: [],
       removeSourceIds: [],
+    });
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('fails release evidence when non-ready runs exceed the recovery threshold', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-nonready-threshold-'));
+    for (const [runId, generatedAt, decision] of [
+      ['run-1', '2026-03-15T00:00:00.000Z', 'keep'],
+      ['run-2', '2026-03-16T00:00:00.000Z', 'watch'],
+      ['run-3', '2026-03-17T00:00:00.000Z', 'watch'],
+      ['run-4', '2026-03-18T00:00:00.000Z', 'keep'],
+    ] as const) {
+      writeHistoricalSourceHealthReport(artifactRoot, runId, {
+        generatedAt,
+        sources: [
+          {
+            sourceId: 'fox-latest',
+            baseDecision: decision,
+            decision,
+          },
+        ],
+      });
+    }
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-5'),
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
+        now: () => Date.parse('2026-03-19T00:00:00.000Z'),
+      },
+    );
+
+    expect(report.releaseEvidence).toEqual({
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['non_ready_runs_exceed_threshold'],
+      recentWindowRunCount: 5,
+      recentReadyRunCount: 3,
+      recentReviewRunCount: 2,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
     });
 
     rmSync(artifactRoot, { recursive: true, force: true });
@@ -1013,13 +1170,29 @@ describe('sourceHealthReport', () => {
         },
       }),
     ]);
+    for (const [runId, generatedAt] of [
+      ['run-3', '2026-03-20T07:00:00.000Z'],
+      ['run-4', '2026-03-20T08:00:00.000Z'],
+      ['run-5', '2026-03-20T09:00:00.000Z'],
+    ] as const) {
+      writeHistoricalSourceHealthReport(artifactRoot, runId, {
+        generatedAt,
+        readinessStatus: 'ready',
+        sources: [
+          {
+            sourceId: 'fox-latest',
+            decision: 'keep',
+          },
+        ],
+      });
+    }
 
     const report = buildSourceHealthReport(
       makeAdmissionReport([
         makeAdmissionSource({ sourceId: 'fox-latest' }),
       ]),
       {
-        artifactDir: path.join(artifactRoot, 'run-3'),
+        artifactDir: path.join(artifactRoot, 'run-6'),
         thresholds: {
           minContributingSourceCount: 0,
         },
@@ -1027,7 +1200,7 @@ describe('sourceHealthReport', () => {
       },
     );
 
-    expect(report.historySummary.priorReportCount).toBe(1);
+    expect(report.historySummary.priorReportCount).toBe(4);
     expect(report.releaseEvidence.status).toBe('pass');
 
     rmSync(artifactRoot, { recursive: true, force: true });
@@ -1068,9 +1241,9 @@ describe('sourceHealthReport', () => {
     expect(report.historySummary.priorReportCount).toBe(0);
     expect(report.sources[0]?.history.priorReportCount).toBe(0);
     expect(report.releaseEvidence).toEqual({
-      status: 'pass',
-      recommendedAction: 'release_ready',
-      reasons: [],
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['insufficient_release_evidence_window'],
       recentWindowRunCount: 1,
       recentReadyRunCount: 1,
       recentReviewRunCount: 0,
@@ -1113,9 +1286,9 @@ describe('sourceHealthReport', () => {
     expect(report.historySummary.priorReportCount).toBe(0);
     expect(report.sources[0]?.history.priorReportCount).toBe(0);
     expect(report.releaseEvidence).toEqual({
-      status: 'pass',
-      recommendedAction: 'release_ready',
-      reasons: [],
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['insufficient_release_evidence_window'],
       recentWindowRunCount: 1,
       recentReadyRunCount: 1,
       recentReviewRunCount: 0,
@@ -1178,9 +1351,9 @@ describe('sourceHealthReport', () => {
 
     expect(failedArtifact.sourceHealthReport.runAssessment.globalFeedStageFailure).toBe(true);
     expect(failedArtifact.sourceHealthTrendIndex.releaseEvidence).toEqual({
-      status: 'pass',
-      recommendedAction: 'release_ready',
-      reasons: [],
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['insufficient_release_evidence_window'],
       recentWindowRunCount: 1,
       recentReadyRunCount: 1,
       recentReviewRunCount: 0,
@@ -1261,19 +1434,20 @@ describe('sourceHealthReport', () => {
 
   it('detects direct execution only when argv[1] matches the module path', () => {
     const originalArgv1 = process.argv[1];
-    const modulePath =
-      '/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceHealthReport.ts';
+    const modulePath = path.join(process.cwd(), 'src/sourceHealthReport.ts');
 
-    process.argv[1] = undefined as unknown as string;
-    expect(sourceHealthReportInternal.isDirectExecution()).toBe(false);
+    try {
+      process.argv[1] = undefined as unknown as string;
+      expect(sourceHealthReportInternal.isDirectExecution()).toBe(false);
 
-    process.argv[1] = '/tmp/not-the-module.js';
-    expect(sourceHealthReportInternal.isDirectExecution()).toBe(false);
+      process.argv[1] = '/tmp/not-the-module.js';
+      expect(sourceHealthReportInternal.isDirectExecution()).toBe(false);
 
-    process.argv[1] = modulePath;
-    expect(sourceHealthReportInternal.isDirectExecution()).toBe(true);
-
-    process.argv[1] = originalArgv1;
+      process.argv[1] = modulePath;
+      expect(sourceHealthReportInternal.isDirectExecution()).toBe(true);
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
   });
 
   it('builds a runtime policy summary directly from source decisions', () => {

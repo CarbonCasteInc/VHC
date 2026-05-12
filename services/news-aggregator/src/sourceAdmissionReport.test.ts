@@ -1406,17 +1406,19 @@ describe('sourceAdmissionReport', () => {
 
   it('detects direct execution only when argv[1] matches the module path', () => {
     const originalArgv1 = process.argv[1];
-    const modulePath = '/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceAdmissionReport.ts';
+    const modulePath = path.join(process.cwd(), 'src/sourceAdmissionReport.ts');
 
-    process.argv[1] = undefined as unknown as string;
-    expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(false);
+    try {
+      process.argv[1] = undefined as unknown as string;
+      expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(false);
 
-    process.argv[1] = '/tmp/not-the-module.js';
-    expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(false);
+      process.argv[1] = '/tmp/not-the-module.js';
+      expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(false);
 
-    process.argv[1] = modulePath;
-    expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(true);
-
-    process.argv[1] = originalArgv1;
+      process.argv[1] = modulePath;
+      expect(sourceAdmissionReportInternal.isDirectExecution()).toBe(true);
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
   });
 });
