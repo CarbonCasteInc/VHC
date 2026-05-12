@@ -45,6 +45,57 @@ ANALYSIS_STUB_PID_FILE="${ANALYSIS_STUB_PID_FILE:-/tmp/vh-local-analysis-stub.pi
 RELAY_DATA_PATH="${RELAY_DATA_PATH:-$ROOT/.tmp/live-local-stack/relay-data}"
 STORYCLUSTER_STATE_DIR="${STORYCLUSTER_STATE_DIR:-$ROOT/.tmp/live-local-stack/storycluster-state}"
 
+load_e2e_system_writer_fixture() {
+  local fixture_output writer_id pin_json private_key
+  fixture_output="$(
+    node - "$ROOT/packages/e2e/src/live/lumaSystemWriterTestFixture.ts" <<'NODE'
+const fs = require('node:fs');
+const source = fs.readFileSync(process.argv[2], 'utf8');
+function readConst(name) {
+  const match = source.match(new RegExp(`export const ${name} =\\n?\\s*'([^']+)';`));
+  if (!match) {
+    throw new Error(`missing ${name}`);
+  }
+  return match[1];
+}
+const writerId = readConst('E2E_SYSTEM_WRITER_ID');
+const publicKey = readConst('E2E_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL');
+const privateKey = readConst('E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL');
+const pin = {
+  pinVersion: 1,
+  schemaEpoch: 'luma-public-v1',
+  maxProtocolVersion: 'luma-public-v1',
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  writers: [
+    {
+      id: writerId,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: publicKey,
+      },
+    },
+  ],
+};
+console.log(writerId);
+console.log(JSON.stringify(pin));
+console.log(privateKey);
+NODE
+  )"
+  writer_id="$(printf '%s\n' "$fixture_output" | sed -n '1p')"
+  pin_json="$(printf '%s\n' "$fixture_output" | sed -n '2p')"
+  private_key="$(printf '%s\n' "$fixture_output" | sed -n '3p')"
+
+  [[ -n "$writer_id" ]] || die "Unable to load e2e system writer id"
+  [[ -n "$pin_json" ]] || die "Unable to load e2e system writer pin"
+  [[ -n "$private_key" ]] || die "Unable to load e2e system writer private key"
+
+  export VH_NEWS_SYSTEM_WRITER_ID="${VH_NEWS_SYSTEM_WRITER_ID:-$writer_id}"
+  export VH_NEWS_SYSTEM_WRITER_PIN_JSON="${VH_NEWS_SYSTEM_WRITER_PIN_JSON:-$pin_json}"
+  export VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL="${VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL:-$private_key}"
+  export VITE_E2E_SYSTEM_WRITER_PIN_JSON="${VITE_E2E_SYSTEM_WRITER_PIN_JSON:-$VH_NEWS_SYSTEM_WRITER_PIN_JSON}"
+}
+
 artifact_root_has_snapshot() {
   local artifact_root="$1"
   [[ -d "$artifact_root" ]] || return 1
@@ -120,6 +171,7 @@ load_profile_env() {
   set -a && source "$ENV_FILE" && set +a
 
   export VITE_E2E_MODE=false
+  export VITE_LUMA_DEV_FALLBACK="${VITE_LUMA_DEV_FALLBACK:-true}"
   export VITE_VH_ANALYSIS_PIPELINE=true
   export VITE_NEWS_RUNTIME_ENABLED=false
   export VITE_NEWS_RUNTIME_ROLE=consumer
@@ -164,6 +216,10 @@ load_profile_env() {
   export VH_STORYCLUSTER_TEXT_MODEL="${VH_STORYCLUSTER_TEXT_MODEL:-gpt-4o-mini}"
   export VH_STORYCLUSTER_OPENAI_TIMEOUT_MS="${VH_STORYCLUSTER_OPENAI_TIMEOUT_MS:-120000}"
   export VH_NEWS_DAEMON_HOLDER_ID="${VH_NEWS_DAEMON_HOLDER_ID:-vh-local-news-daemon}"
+
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    load_e2e_system_writer_fixture
+  fi
 
   if [[ "$STACK_MODE" == 'fixture' ]]; then
     export VH_DAEMON_FEED_USE_FIXTURE_FEED=true
@@ -324,6 +380,9 @@ start_daemon() {
     VH_ANALYSIS_EVAL_ARTIFACTS_ENABLED="${VH_ANALYSIS_EVAL_ARTIFACTS_ENABLED:-}" \
     VH_ANALYSIS_EVAL_ARTIFACT_DIR="${VH_ANALYSIS_EVAL_ARTIFACT_DIR:-}" \
     VH_ARTICLE_TEXT_EXTRA_ALLOWLIST_DOMAINS="${VH_ARTICLE_TEXT_EXTRA_ALLOWLIST_DOMAINS:-}" \
+    VH_NEWS_SYSTEM_WRITER_ID="${VH_NEWS_SYSTEM_WRITER_ID:-}" \
+    VH_NEWS_SYSTEM_WRITER_PIN_JSON="${VH_NEWS_SYSTEM_WRITER_PIN_JSON:-}" \
+    VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL="${VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL:-}" \
     node "$ROOT/tools/scripts/spawn-detached.mjs" \
     "$DAEMON_PID_FILE" \
     "$ROOT" \

@@ -1,6 +1,12 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 const DEFAULT_PEERS = ['http://127.0.0.1:7777/gun'];
 const DEFAULT_READ_TIMEOUT_MS = 6_000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function readPositiveIntEnv(name, fallback) {
   const value = Number.parseInt(process.env[name] ?? '', 10);
@@ -53,6 +59,44 @@ function hasVoteableAcceptedSynthesis(synthesis) {
   );
 }
 
+function readConst(source, name) {
+  const match = source.match(new RegExp(`export const ${name} =\\n?\\s*'([^']+)';`));
+  if (!match) {
+    throw new Error(`missing ${name}`);
+  }
+  return match[1];
+}
+
+function resolveE2eSystemWriterPin() {
+  const explicitPin =
+    process.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
+    || process.env.VH_NEWS_SYSTEM_WRITER_PIN_JSON?.trim();
+  if (explicitPin) {
+    return JSON.parse(explicitPin);
+  }
+
+  const fixturePath = path.join(__dirname, 'lumaSystemWriterTestFixture.ts');
+  const source = fs.readFileSync(fixturePath, 'utf8');
+  const writerId = readConst(source, 'E2E_SYSTEM_WRITER_ID');
+  const publicKey = readConst(source, 'E2E_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL');
+  return {
+    pinVersion: 1,
+    schemaEpoch: 'luma-public-v1',
+    maxProtocolVersion: 'luma-public-v1',
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    writers: [
+      {
+        id: writerId,
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: publicKey,
+        },
+      },
+    ],
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const timeoutMs = readPositiveIntEnv(
@@ -66,7 +110,12 @@ async function main() {
   // and emit only the final JSON payload from this short-lived helper process.
   console.log = () => {};
   const { createClient, readTopicLatestSynthesis } = await import('@vh/gun-client');
-  const client = createClient({ requireSession: false, peers, gunRadisk: false });
+  const client = createClient({
+    requireSession: false,
+    peers,
+    gunRadisk: false,
+    systemWriterPin: resolveE2eSystemWriterPin(),
+  });
   client.markSessionReady();
   await new Promise((resolve) => setTimeout(resolve, 500));
 
