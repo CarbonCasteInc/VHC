@@ -10,6 +10,12 @@ import {
   LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
   validateLumaCoverageReport,
 } from './luma-gated-write-coverage.mjs';
+import {
+  REQUIRED_SAMPLE_FLOOR_BLOCKER_ID,
+  formatSampleFloorIssue,
+  requiredSampleFloorIssuesForReport,
+  requiredSloReadinessFailuresForReport,
+} from './sample-floor-contract.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -265,6 +271,23 @@ function readSourceReportById({ aggregate, sourceDir, id }) {
   }
 }
 
+function readSourceReports({ aggregate, sourceDir }) {
+  return (Array.isArray(aggregate.source_reports) ? aggregate.source_reports : []).flatMap((row) => {
+    const sourcePath = safeResolveSourceReport(sourceDir, row);
+    if (!sourcePath) return [];
+    try {
+      return [
+        {
+          id: row.id || null,
+          report: readJson(sourcePath),
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function normalizePacketRelativePath(value) {
   return String(value || '')
     .replaceAll('\\', '/')
@@ -437,6 +460,42 @@ function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures
   return failures;
 }
 
+function releaseReadyRequiredSloFailures({ aggregate, sourceReports }) {
+  if (aggregate.status !== 'release_ready') {
+    return [];
+  }
+
+  const readinessFailures = [
+    ...requiredSloReadinessFailuresForReport(aggregate, { sourceId: 'aggregate', sourceRunId: aggregate.run_id || null }),
+    ...sourceReports.flatMap(({ id, report }) =>
+      requiredSloReadinessFailuresForReport(report, { sourceId: id, sourceRunId: report?.run_id || null }),
+    ),
+  ];
+  const sampleFloorIssues = [
+    ...requiredSampleFloorIssuesForReport(aggregate, { sourceId: 'aggregate', sourceRunId: aggregate.run_id || null }),
+    ...sourceReports.flatMap(({ id, report }) =>
+      requiredSampleFloorIssuesForReport(report, { sourceId: id, sourceRunId: report?.run_id || null }),
+    ),
+  ];
+  const blockers = Array.isArray(aggregate.release_readiness_blockers) ? aggregate.release_readiness_blockers : [];
+  const hasSampleFloorBlocker = blockers.some((blocker) => blocker?.id === REQUIRED_SAMPLE_FLOOR_BLOCKER_ID);
+  const failures = unique(readinessFailures).map(
+    (failure) => `release_ready requires required write/resource SLO rows to pass or be explicitly out of scope: ${failure}`,
+  );
+
+  if (sampleFloorIssues.length > 0 && !hasSampleFloorBlocker) {
+    failures.push(
+      `release_ready packet has required insufficient_samples rows but release_readiness_blockers omits ${REQUIRED_SAMPLE_FLOOR_BLOCKER_ID}: ${unique(
+        sampleFloorIssues.map(formatSampleFloorIssue),
+      )
+        .sort()
+        .join(', ')}`,
+    );
+  }
+
+  return unique(failures);
+}
+
 function requiredForbiddenClaimFailures({ status, forbiddenText }) {
   const failures = [];
 
@@ -568,7 +627,9 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir, expected
   }
   const sourceFailures = sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir });
   const lumaFailures = lumaCoverageEvidenceFailures({ aggregate: report, sourceDir: resolvedSourceDir });
+  const sourceReports = readSourceReports({ aggregate: report, sourceDir: resolvedSourceDir });
   failures.push(...releaseClaimFailures({ aggregate: report, sourceDir: resolvedSourceDir, sourceFailures, lumaFailures }));
+  failures.push(...releaseReadyRequiredSloFailures({ aggregate: report, sourceReports }));
   failures.push(...sourceFailures);
   failures.push(...lumaFailures);
 

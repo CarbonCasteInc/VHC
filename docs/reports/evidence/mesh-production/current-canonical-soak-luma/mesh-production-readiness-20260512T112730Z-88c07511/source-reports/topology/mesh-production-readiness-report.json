@@ -1,0 +1,391 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-12T11:27:40.674Z",
+  "run_id": "mesh-topology-20260512T112731Z-cf56d1f8",
+  "repo": {
+    "branch": "coord/mesh-release-ready-refresh-after-luma-mvp",
+    "commit": "d72f675055a107213fa00e7c0fa2593b86ef39b5",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "local_production_topology",
+    "started_at": "2026-05-12T11:27:31.092Z",
+    "completed_at": "2026-05-12T11:27:40.674Z",
+    "duration_ms": 9582,
+    "command": "pnpm test:mesh:topology-drills"
+  },
+  "status": "review_required",
+  "status_reason": "Slice 7B local direct restarted-relay catch-up evidence passed; full production readiness remains review_required because later mesh and LUMA-gated sections are skipped.",
+  "schema_epoch": "pre_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "pending",
+    "luma_gated_write_drills": "n/a",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "synthetic mesh drill object": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": false,
+    "relay_urls_redacted": [
+      "http://redacted-host-9aba015f13d5/gun",
+      "http://redacted-host-d42fca5ec55b/gun",
+      "http://redacted-host-08d200bbd514/gun"
+    ],
+    "relay_ids": [
+      "relay-a",
+      "relay-b",
+      "relay-c"
+    ],
+    "relay_peer_lists": [
+      {
+        "relay_id": "relay-a",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-d42fca5ec55b/gun",
+          "http://redacted-host-08d200bbd514/gun"
+        ]
+      },
+      {
+        "relay_id": "relay-b",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-9aba015f13d5/gun",
+          "http://redacted-host-08d200bbd514/gun"
+        ]
+      },
+      {
+        "relay_id": "relay-c",
+        "configured_peer_count": 2,
+        "peers_redacted": [
+          "http://redacted-host-9aba015f13d5/gun",
+          "http://redacted-host-d42fca5ec55b/gun"
+        ]
+      }
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_to_relay_auth_negative_test": "pass",
+    "relay_to_relay_auth_negative_test_reason": "unauthorized loopback peer rejected when private allowlist excludes loopback",
+    "peer_config_id": "local-three-relay-mesh-topology-20260512T112731Z-cf56d1f8",
+    "peer_config_issued_at": "2026-05-12T11:27:33.928Z",
+    "peer_config_expires_at": "2026-05-13T11:27:33.928Z",
+    "restarted_relay_catchup": {
+      "relay_id": "relay-b",
+      "restarted_with_same_relay_id": true,
+      "restarted_with_same_port": true,
+      "restarted_with_same_radata_dir": true,
+      "restarted_with_same_peer_list": true,
+      "restarted_with_same_auth_mode": true,
+      "configured_peer_count_after_restart": 2,
+      "configured_peers_after_restart_redacted": [
+        "http://redacted-host-9aba015f13d5/gun",
+        "http://redacted-host-08d200bbd514/gun"
+      ],
+      "relay_peer_count_after_restart": 2,
+      "relay_peers_configured_after_restart": true,
+      "auth_mode_after_restart": "private_network_allowlist",
+      "health_after_restart": {
+        "healthz_status_code": 200,
+        "healthz_ok": true,
+        "readyz_status_code": 200,
+        "readyz_ok": true,
+        "relay_id": "relay-b",
+        "relay_peer_count": 2,
+        "relay_peers_configured": true,
+        "relay_peer_auth_mode": "private_network_allowlist",
+        "radisk_enabled": true
+      },
+      "missed_write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "status": "pass",
+      "reason": "restarted relay directly read the down-period write within the bounded local harness SLA",
+      "restart_latency_ms": 106,
+      "catchup_latency_ms": 1654,
+      "bounded_timeout_ms": 30000,
+      "peer_settle_ms": 1500,
+      "catchup_read_started_at": "2026-05-12T11:27:39.122Z",
+      "catchup_read_completed_at": "2026-05-12T11:27:39.311Z",
+      "direct_readback_observed": true,
+      "direct_readback_latency_ms": 151,
+      "baseline_readback_observed": true,
+      "error": null,
+      "next_strategy_required": []
+    }
+  },
+  "gates": [
+    {
+      "name": "local-three-relay-peer-kill-write-readback",
+      "status": "pass",
+      "command": "pnpm test:mesh:topology-drills",
+      "duration_ms": 9582,
+      "exit_code": 0,
+      "reason": "all-live and one-peer-down live relay readbacks passed; drill namespace tombstones were acknowledged"
+    },
+    {
+      "name": "local-restarted-relay-catchup",
+      "status": "pass",
+      "result_status": "pass",
+      "command": "pnpm test:mesh:topology-drills",
+      "duration_ms": 3161,
+      "exit_code": 0,
+      "reason": "restarted relay directly read the down-period write within the bounded local harness SLA"
+    },
+    {
+      "name": "mesh-production-readiness-full-gate",
+      "status": "skipped",
+      "command": "pnpm check:mesh:production-readiness",
+      "duration_ms": 0,
+      "exit_code": null,
+      "reason": "full gate is not wired in this slice; deployed WSS, state-resolution, clock-skew, partition, soak, evidence scrub, and post-M0.B LUMA-gated write sections remain pending"
+    }
+  ],
+  "write_class_slos": [
+    {
+      "write_class": "synthetic mesh drill object",
+      "attempts": 2,
+      "successes": 2,
+      "terminal_failures": 0,
+      "duplicate_count": 0,
+      "minimum_successful_samples": 2,
+      "p95_ms": 268,
+      "budget_ms": 10000,
+      "status": "pass"
+    }
+  ],
+  "resource_slos": [
+    {
+      "resource": "relay-a:radata_bytes",
+      "observed": 3605,
+      "budget": 67108864,
+      "unit": "bytes",
+      "status": "pass"
+    },
+    {
+      "resource": "relay-b:radata_bytes",
+      "observed": 3605,
+      "budget": 67108864,
+      "unit": "bytes",
+      "status": "pass"
+    },
+    {
+      "resource": "relay-c:radata_bytes",
+      "observed": 3605,
+      "budget": 67108864,
+      "unit": "bytes",
+      "status": "pass"
+    }
+  ],
+  "per_relay_readback": [
+    {
+      "relay_id": "relay-a",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-all-live",
+      "write_id": "write-all-live-20260512T112733Z-20ec04a9",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 145,
+      "observed_digest": "f4c90c629ffd7534e4a15047b12ed44265a5a18626092009f72b1a2e2231668e"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-all-live",
+      "write_id": "write-all-live-20260512T112733Z-20ec04a9",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "f4c90c629ffd7534e4a15047b12ed44265a5a18626092009f72b1a2e2231668e"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-all-live",
+      "write_id": "write-all-live-20260512T112733Z-20ec04a9",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "all-live",
+      "readback_context": "direct-single-relay",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "f4c90c629ffd7534e4a15047b12ed44265a5a18626092009f72b1a2e2231668e"
+    },
+    {
+      "relay_id": "relay-a",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-one-peer-down",
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "one-peer-down",
+      "readback_context": "direct-single-relay",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 142,
+      "observed_digest": "ff5d0f93e945ee2ab56ad37f207cb673f6f2b2b5b4ec8baf2d8682fef196fe1a"
+    },
+    {
+      "relay_id": "relay-c",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-one-peer-down",
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "one-peer-down",
+      "readback_context": "direct-single-relay",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 143,
+      "observed_digest": "ff5d0f93e945ee2ab56ad37f207cb673f6f2b2b5b4ec8baf2d8682fef196fe1a"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-one-peer-down",
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "one-peer-down",
+      "observed": false,
+      "latency_ms": null,
+      "error": "relay-unavailable-after-peer-kill"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-one-peer-down",
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "restarted-relay-catch-up",
+      "readback_context": "direct-restarted-relay-catch-up",
+      "timeout_ms": 30000,
+      "observed": true,
+      "latency_ms": 151,
+      "observed_digest": "ff5d0f93e945ee2ab56ad37f207cb673f6f2b2b5b4ec8baf2d8682fef196fe1a"
+    },
+    {
+      "relay_id": "relay-b",
+      "write_class": "synthetic mesh drill object",
+      "object_id": "synthetic-object-all-live",
+      "write_id": "write-all-live-20260512T112733Z-20ec04a9",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "phase": "restarted-relay-baseline",
+      "readback_context": "direct-restarted-relay-baseline",
+      "timeout_ms": 20000,
+      "observed": true,
+      "latency_ms": 144,
+      "observed_digest": "f4c90c629ffd7534e4a15047b12ed44265a5a18626092009f72b1a2e2231668e"
+    }
+  ],
+  "peer_failure_drills": [
+    {
+      "name": "one-peer-kill-write-readback",
+      "down_relay_id": "relay-b",
+      "live_relay_ids": [
+        "relay-a",
+        "relay-c"
+      ],
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "status": "pass",
+      "reason": "write/readback passed through remaining two-relay quorum"
+    },
+    {
+      "name": "restarted-relay-catch-up",
+      "down_relay_id": "relay-b",
+      "restarted_relay_id": "relay-b",
+      "live_relay_ids": [
+        "relay-a",
+        "relay-c"
+      ],
+      "write_id": "write-one-peer-down-20260512T112733Z-2d5dc3c3",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "status": "pass",
+      "restart_latency_ms": 106,
+      "catchup_latency_ms": 1654,
+      "bounded_timeout_ms": 30000,
+      "direct_single_relay_readback_observed": true,
+      "reason": "restarted relay directly read the down-period write within the bounded local harness SLA",
+      "next_strategy_required": []
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-skip-pre-luma-m0b",
+      "object_class": "state-resolution matrix",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "Slice 7C state-resolution matrix is out of scope for the Slice 7B restarted-relay catch-up proof."
+    }
+  ],
+  "conflict_fixtures": [
+    {
+      "fixture": "duplicate-write-disconnect-fixtures",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "status": "skipped",
+      "reason": "Slice 8 duplicate-write and disconnect fixtures are not implemented in Slice 7B."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": "skipped: Slice 9 clock-skew drill is out of scope for Slice 7B.",
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-20260512T112731Z-4f2a534c",
+      "status": "skipped",
+      "reason": "schema_epoch is pre_luma_m0b and luma_profile is none; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, or adapter migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "vh/__mesh_drills/mesh-topology-20260512T112731Z-cf56d1f8/*",
+    "ttl_ms": 86400000,
+    "objects_written": 2,
+    "objects_cleaned_or_tombstoned": 2,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 2,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": [
+      "non-blocking-peer-loss"
+    ]
+  },
+  "release_claims": {
+    "allowed": [
+      "The mesh has a local production-shaped three-relay topology harness with a passing one-peer-kill quorum write/readback drill against synthetic mesh drill records under vh/__mesh_drills/*.",
+      "The restarted local relay directly read the missed down-period synthetic drill write within the bounded local harness SLA."
+    ],
+    "forbidden": [
+      "Restarted peers catch up automatically outside the local synthetic drill harness.",
+      "State-resolution rules survive relay restart or partition heal.",
+      "The mesh has production-ready multi-relay failover.",
+      "LUMA-gated write classes have mesh transport readiness under the current LUMA schema epoch."
+    ],
+    "invalidated_by_luma_epoch_change": true
+  },
+  "downstream_canary": {
+    "command": "pnpm check:mesh:production-readiness",
+    "status": "skipped",
+    "reason": "full downstream canary is not wired in Slice 7B"
+  }
+}

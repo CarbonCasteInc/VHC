@@ -1,0 +1,17 @@
+{
+  "payload": {
+    "schemaVersion": "mesh-peer-config-v1",
+    "configId": "rollback-config-a-mesh-peer-config-rollback-1778587531586-61eb2613",
+    "issuedAt": 1778587531591,
+    "expiresAt": 1778591131591,
+    "peers": [
+      "wss://redacted-host-a6988b2f594a/gun",
+      "wss://redacted-host-65a036f392db/gun",
+      "wss://redacted-host-40d9c06bfdc0/gun"
+    ],
+    "minimumPeerCount": 3,
+    "quorumRequired": 2
+  },
+  "signature": "SEA{\"m\":{\"configId\":\"rollback-config-a-mesh-peer-config-rollback-1778587531586-61eb2613\",\"expiresAt\":1778591131591,\"issuedAt\":1778587531591,\"minimumPeerCount\":3,\"peers\":[\"wss://redacted-host-a6988b2f594a/gun\",\"wss://redacted-host-65a036f392db/gun\",\"wss://redacted-host-40d9c06bfdc0/gun\"],\"quorumRequired\":2,\"schemaVersion\":\"mesh-peer-config-v1\"},\"s\":\"DYw3KAnmlTf1mZ7U2DGmNxhTohTV8SBl8Gq1OOClT8CiYusQX2nJhOn7m/GT8lJ7+9JVzAsUBmYMovuLmAkVyQ==\"}",
+  "signerPub": "Y-u4y-qIfuqP5NKnZii-mhTCiF8X3ZgTcp4RL9Dj4EI.qjLxrfnWUK7LwyD65PovwKc0urrPVKkpQegpqBKc5Ic"
+}

@@ -335,6 +335,54 @@ describe('production-app-canary', () => {
     });
   });
 
+  it('accepts an ancestor docs evidence packet when intervening changes include the sample-floor contract helper', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
+    const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
+    writeJson(meshReportPath, meshReport());
+
+    const result = runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: ['--mesh-report', meshReportPath],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git: (args) => {
+        const command = args.join(' ');
+        if (command === 'rev-parse --abbrev-ref HEAD') return 'coord/mesh-release-ready-refresh-after-luma-mvp';
+        if (command === 'rev-parse HEAD') return 'samplefloors456';
+        if (command === 'status --short') return '';
+        if (command === 'rev-list --parents -n 1 samplefloors456') return 'samplefloors456 evidencecommit123';
+        if (command === 'merge-base abc123 samplefloors456') return 'abc123';
+        if (command === 'diff --name-only abc123 samplefloors456') {
+          return [
+            'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-previous/mesh-production-readiness-report.json',
+            `${packetRoot}/mesh-production-readiness-report.json`,
+            `${packetRoot}/source-reports/soak/mesh-production-readiness-report.json`,
+            'packages/e2e/src/live/production-app-canary.mjs',
+            'packages/e2e/src/live/production-app-canary.vitest.mjs',
+            'packages/e2e/src/luma/mvp-production-readiness.mjs',
+            'packages/e2e/src/luma/mvp-production-readiness.vitest.mjs',
+            'packages/e2e/src/mesh/evidence-scrub-check.mjs',
+            'packages/e2e/src/mesh/production-readiness-check.mjs',
+            'packages/e2e/src/mesh/sample-floor-contract.mjs',
+            'docs/specs/spec-mesh-production-readiness.md',
+          ].join('\n');
+        }
+        return '';
+      },
+    });
+
+    expect(result.report.reason).toBe('mesh_not_release_ready');
+    expect(result.report.checks.find((check) => check.id === 'mesh_report_current_commit')).toMatchObject({
+      status: 'pass',
+      observed_commit: 'abc123',
+      expected_commit: 'samplefloors456',
+      accepted_via: 'committed_evidence_packet_from_ancestor',
+    });
+  });
+
   it('does not accept a docs evidence packet from an unrelated commit even when the diff is packet-only', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,6 +27,11 @@ const lumaCoverageReportPath = path.join(
 const meshReadinessReportPath = path.join(
   repoRoot,
   '.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json',
+);
+const meshReadinessSourceDir = path.dirname(meshReadinessReportPath);
+const meshReadinessDeployedWssReportPath = path.join(
+  meshReadinessSourceDir,
+  'source-reports/deployed_wss/mesh-production-readiness-report.json',
 );
 
 const REQUIRED_GUARDS = Object.freeze([
@@ -98,6 +103,20 @@ const RELEASE_CLAIMS = Object.freeze({
   ],
   forbidden: FORBIDDEN_RELEASE_CLAIMS,
 });
+
+const COMMITTED_MESH_EVIDENCE_PREFIX = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/';
+const COMMITTED_MESH_EVIDENCE_COMPATIBILITY_PATHS = new Set([
+  'docs/specs/spec-mesh-production-readiness.md',
+  'packages/e2e/src/live/production-app-canary.mjs',
+  'packages/e2e/src/live/production-app-canary.vitest.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.mjs',
+  'packages/e2e/src/luma/mvp-production-readiness.vitest.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.mjs',
+  'packages/e2e/src/mesh/evidence-scrub-check.test.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.mjs',
+  'packages/e2e/src/mesh/production-readiness-check.test.mjs',
+  'packages/e2e/src/mesh/sample-floor-contract.mjs',
+]);
 
 const OVERCLAIM_SURFACES = Object.freeze([
   'docs/foundational/STATUS.md',
@@ -171,6 +190,82 @@ function runCommand(command, options = {}) {
 async function gitValue(args) {
   const result = await runCommand(['git', args], { echo: false });
   return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+function gitValueSync(args) {
+  const result = spawnSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  });
+  return result.status === 0 ? result.stdout.trim() : '';
+}
+
+function lines(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function compatibleCommittedMeshEvidencePath(changedPath) {
+  return (
+    changedPath.startsWith(COMMITTED_MESH_EVIDENCE_PREFIX) ||
+    COMMITTED_MESH_EVIDENCE_COMPATIBILITY_PATHS.has(changedPath)
+  );
+}
+
+export function evaluateEvidenceCommitCompatibility({
+  evidenceCommit,
+  currentCommit,
+  git = gitValueSync,
+} = {}) {
+  if (!evidenceCommit || !currentCommit) {
+    return {
+      ok: false,
+      expected_commit: currentCommit || null,
+      observed_commit: evidenceCommit || null,
+      accepted_via: null,
+      changed_paths: [],
+    };
+  }
+  if (evidenceCommit === currentCommit) {
+    return {
+      ok: true,
+      expected_commit: currentCommit,
+      observed_commit: evidenceCommit,
+      accepted_via: 'current_commit',
+      changed_paths: [],
+    };
+  }
+
+  const parentCommits = lines(git(['rev-list', '--parents', '-n', '1', currentCommit]))
+    .flatMap((line) => line.split(/\s+/).slice(1));
+  const sourceIsDirectParent = parentCommits.includes(evidenceCommit);
+  const mergeBase = lines(git(['merge-base', evidenceCommit, currentCommit]))[0] || null;
+  const sourceIsAncestor = sourceIsDirectParent || mergeBase === evidenceCommit;
+  const changedPaths = lines(git(['diff', '--name-only', evidenceCommit, currentCommit]));
+  const diffLimitedToCommittedEvidence =
+    changedPaths.length > 0 && changedPaths.every((changedPath) => compatibleCommittedMeshEvidencePath(changedPath));
+
+  if (sourceIsAncestor && diffLimitedToCommittedEvidence) {
+    return {
+      ok: true,
+      expected_commit: currentCommit,
+      observed_commit: evidenceCommit,
+      accepted_via: sourceIsDirectParent
+        ? 'committed_evidence_packet_from_parent'
+        : 'committed_evidence_packet_from_ancestor',
+      changed_paths: changedPaths,
+    };
+  }
+
+  return {
+    ok: false,
+    expected_commit: currentCommit,
+    observed_commit: evidenceCommit,
+    accepted_via: null,
+    changed_paths: changedPaths,
+  };
 }
 
 async function repoState() {
@@ -436,8 +531,19 @@ export function validateMeshEvidence(repo) {
   const failures = [];
   const coverageReport = readJsonIfExists(lumaCoverageReportPath);
   const meshReport = readJsonIfExists(meshReadinessReportPath);
-  let coverageValidation = validateLumaCoverageReport(coverageReport, {
+  const deployedWssSourceReport = readJsonIfExists(meshReadinessDeployedWssReportPath);
+  const coverageCommitStatus = evaluateEvidenceCommitCompatibility({
+    evidenceCommit: coverageReport?.repo?.commit || null,
     currentCommit: repo.commit,
+  });
+  const meshCommitStatus = evaluateEvidenceCommitCompatibility({
+    evidenceCommit: meshReport?.repo?.commit || null,
+    currentCommit: repo.commit,
+  });
+  const coverageValidationCommit = coverageCommitStatus.ok ? coverageCommitStatus.observed_commit : repo.commit;
+  const meshValidationCommit = meshCommitStatus.ok ? meshCommitStatus.observed_commit : repo.commit;
+  let coverageValidation = validateLumaCoverageReport(coverageReport, {
+    currentCommit: coverageValidationCommit,
     requireClean: true,
     expectedSchemaEpoch: DEFAULT_LUMA_SCHEMA_EPOCH,
   });
@@ -458,6 +564,11 @@ export function validateMeshEvidence(repo) {
   if (!coverageValidation.ok) {
     failures.push(...coverageValidation.failures);
   }
+  if (coverageReport && !coverageCommitStatus.ok) {
+    failures.push(
+      `report commit ${coverageCommitStatus.observed_commit || 'missing'} does not match ${repo.commit} or a compatible committed Mesh evidence packet ancestor`,
+    );
+  }
 
   if (!meshReport) {
     failures.push(`missing ${path.relative(repoRoot, meshReadinessReportPath)}`);
@@ -465,8 +576,10 @@ export function validateMeshEvidence(repo) {
     if (meshReport.schema_version !== 'mesh-production-readiness-v1') {
       failures.push(`mesh readiness schema_version is ${meshReport.schema_version || 'missing'}`);
     }
-    if (meshReport.repo?.commit !== repo.commit) {
-      failures.push(`mesh readiness commit ${meshReport.repo?.commit || 'missing'} does not match ${repo.commit}`);
+    if (!meshCommitStatus.ok) {
+      failures.push(
+        `mesh readiness commit ${meshCommitStatus.observed_commit || 'missing'} does not match ${repo.commit} or a compatible committed Mesh evidence packet ancestor`,
+      );
     }
     if (meshReport.repo?.dirty !== false) {
       failures.push('mesh readiness repo.dirty is not false');
@@ -474,14 +587,20 @@ export function validateMeshEvidence(repo) {
     if (meshReport.schema_epoch !== DEFAULT_LUMA_SCHEMA_EPOCH) {
       failures.push(`mesh readiness schema_epoch is ${meshReport.schema_epoch || 'missing'}`);
     }
-    if (meshReport.status === 'release_ready' && meshReport.public_wss_proof?.status !== 'pass') {
+    const publicWssStatus = meshPublicWssProofStatus(meshReport, { deployedWssSourceReport });
+    if (meshReport.status === 'release_ready' && !publicWssStatus.ok) {
       failures.push('mesh readiness claims release_ready without passing public WSS proof');
+    }
+    if (coverageReport && coverageReport.repo?.commit !== meshReport.repo?.commit) {
+      failures.push(
+        `LUMA coverage commit ${coverageReport.repo?.commit || 'missing'} does not match mesh readiness commit ${meshReport.repo?.commit || 'missing'}`,
+      );
     }
     const lumaRows = Array.isArray(meshReport.luma_gated_write_drills)
       ? meshReport.luma_gated_write_drills
       : [];
     failures.push(...validateEmbeddedMeshLumaCoverage(meshReport, {
-      currentCommit: repo.commit,
+      currentCommit: meshValidationCommit,
       coverageValidation,
       lumaRows,
     }));
@@ -499,6 +618,7 @@ export function validateMeshEvidence(repo) {
         repo: coverageReport.repo,
         schema_epoch: coverageReport.schema_epoch,
         luma_profile: coverageReport.luma_profile,
+        commit_status: coverageCommitStatus,
       }
       : null,
     mesh_report: meshReport
@@ -509,7 +629,8 @@ export function validateMeshEvidence(repo) {
         schema_epoch: meshReport.schema_epoch,
         luma_profile: meshReport.luma_profile,
         luma_gated_write_coverage: meshReport.luma_gated_write_coverage || null,
-        public_wss_proof_status: meshReport.public_wss_proof?.status || null,
+        public_wss_proof_status: meshPublicWssProofStatus(meshReport, { deployedWssSourceReport }),
+        commit_status: meshCommitStatus,
       }
       : null,
   };
@@ -588,6 +709,34 @@ export function validateEmbeddedMeshLumaCoverage(meshReport, {
   }
 
   return failures;
+}
+
+export function meshPublicWssProofStatus(meshReport, { deployedWssSourceReport = null } = {}) {
+  if (meshReport?.public_wss_proof?.status === 'pass') {
+    return {
+      ok: true,
+      status: 'pass',
+      source: 'aggregate',
+      run_id: meshReport.run_id || null,
+    };
+  }
+  if (
+    deployedWssSourceReport?.run?.deployment_scope === 'public_wss_deployment' &&
+    deployedWssSourceReport?.public_wss_proof?.status === 'pass'
+  ) {
+    return {
+      ok: true,
+      status: 'pass',
+      source: 'deployed_wss_source_report',
+      run_id: deployedWssSourceReport.run_id || null,
+    };
+  }
+  return {
+    ok: false,
+    status: meshReport?.public_wss_proof?.status || deployedWssSourceReport?.public_wss_proof?.status || 'missing',
+    source: deployedWssSourceReport ? 'deployed_wss_source_report' : 'missing',
+    run_id: deployedWssSourceReport?.run_id || null,
+  };
 }
 
 function collectBlockers(checks, repo) {

@@ -1,0 +1,34 @@
+{
+  "gate": "local-signed-peer-config-browser-boot",
+  "run_id": "mesh-signed-peer-config-1778585261013-f8f21a8b",
+  "trace_id": "trace-1778585261013-56580523",
+  "config_id": "local-three-relay-mesh-signed-peer-config-1778585261013-f8f21a8b",
+  "proof": {
+    "status": "resolved",
+    "resolver": "resolveGunPeerTopology",
+    "topology": {
+      "peers": [
+        "http://redacted-host-83baaa294bc0/gun",
+        "http://redacted-host-ca0fdb39015f/gun",
+        "http://redacted-host-162b667d7045/gun"
+      ],
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "configId": "local-three-relay-mesh-signed-peer-config-1778585261013-f8f21a8b",
+      "minimumPeerCount": 3,
+      "quorumRequired": 2,
+      "allowLocalPeers": true
+    },
+    "clientPeers": [
+      "http://redacted-host-83baaa294bc0/gun",
+      "http://redacted-host-ca0fdb39015f/gun",
+      "http://redacted-host-162b667d7045/gun"
+    ]
+  },
+  "opened_socket_hosts": [
+    "redactedLocalEndpointHash:83baaa294bc0",
+    "redactedLocalEndpointHash:ca0fdb39015f",
+    "redactedLocalEndpointHash:162b667d7045"
+  ]
+}

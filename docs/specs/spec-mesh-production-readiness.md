@@ -1052,8 +1052,12 @@ Minimum release-ready sample floors:
 | encrypted sentiment outbox | 10 |
 | daemon story/synthesis publication | 5 |
 
-`insufficient_samples` blocks `release_ready` unless the write class is
-explicitly out of scope for that run and the gate records a `skipped` reason.
+The sample floors are part of the Mesh `release_ready` contract. Required
+`write_class_slos` and `resource_slos` rows with `status:
+insufficient_samples` block `release_ready`; low sample count is not an implicit
+out-of-scope signal. A row may be excluded from the current release scope only
+when it is recorded as `skipped`, `out_of_scope`, or `not_applicable` with an
+explicit reason that points to the scoped contract exclusion.
 
 These budgets are starting values for local production-shaped topology. Tighten
 or split them after the first real soak packet, but do not remove a budget
@@ -1298,14 +1302,23 @@ interface MeshProductionReadinessReport {
     minimum_successful_samples: number;
     p95_ms: number | null;
     budget_ms: number;
-    status: 'pass' | 'fail' | 'insufficient_samples' | 'review_required';
+    status:
+      | 'pass'
+      | 'fail'
+      | 'insufficient_samples'
+      | 'review_required'
+      | 'skipped'
+      | 'out_of_scope'
+      | 'not_applicable';
+    reason?: string;
   }>;
   resource_slos: Array<{
     resource: string;
     observed: number | null;
     budget: number;
     unit: string;
-    status: 'pass' | 'fail' | 'insufficient_samples';
+    status: 'pass' | 'fail' | 'insufficient_samples' | 'skipped' | 'out_of_scope' | 'not_applicable';
+    reason?: string;
   }>;
   per_relay_readback: Array<{
     relay_id: string;
@@ -1459,7 +1472,14 @@ Release-claim contract v1:
   evidence has `run.deployment_scope: public_wss_deployment`; durable
   in-packet LUMA reader-path coverage passes for forum thread, forum comment,
   vote/aggregate, directory publish, and news report/status under the current
-  commit and schema epoch; and the evidence-scrub source gate passed.
+  commit and schema epoch; required write/resource SLO sample floors are
+  satisfied, or explicitly recorded as `skipped`, `out_of_scope`, or
+  `not_applicable` with a reason where this spec excludes them from current
+  release scope; and the evidence-scrub source gate passed.
+- Canonical soak, public WSS deployment proof, durable LUMA reader-path
+  coverage, and evidence scrub are necessary but not sufficient for
+  `release_ready` while any required write/resource SLO row remains
+  `insufficient_samples`.
 - `release_ready` packets MUST NOT keep a stale forbidden claim that says the
   Mesh is `release_ready` after the bounded Mesh readiness prerequisites have
   been satisfied.
