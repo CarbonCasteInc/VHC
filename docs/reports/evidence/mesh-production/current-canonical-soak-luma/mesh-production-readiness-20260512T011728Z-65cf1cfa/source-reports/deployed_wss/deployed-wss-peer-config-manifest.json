@@ -1,0 +1,45 @@
+{
+  "peer_config_url": "https://redacted-host-63fbf6368d54/mesh-peer-config.json",
+  "app_url": "https://redacted-host-63fbf6368d54",
+  "config_id": "mesh-public-refresh-mp1xwzkh",
+  "expected_peer_count": 3,
+  "expected_peer_hashes": [
+    "dc89c13ad697",
+    "f991af5d60bc",
+    "ba058718d249"
+  ],
+  "expected_csp_connect_src_redacted": [
+    "'self'",
+    "https://redacted-host-63fbf6368d54",
+    "wss://redacted-host-5731368464fa",
+    "wss://redacted-host-9394c7c5d6c4",
+    "wss://redacted-host-a4dbcc8f1aaa"
+  ],
+  "minimum_peer_count": 3,
+  "quorum_required": 2,
+  "health_endpoints": [
+    {
+      "peer": "wss://redacted-host-5731368464fa/gun",
+      "healthz": "https://redacted-host-5731368464fa/healthz",
+      "readyz": "https://redacted-host-5731368464fa/readyz",
+      "metrics": "https://redacted-host-5731368464fa/metrics",
+      "source": "derived_from_wss_peer"
+    },
+    {
+      "peer": "wss://redacted-host-9394c7c5d6c4/gun",
+      "healthz": "https://redacted-host-9394c7c5d6c4/healthz",
+      "readyz": "https://redacted-host-9394c7c5d6c4/readyz",
+      "metrics": "https://redacted-host-9394c7c5d6c4/metrics",
+      "source": "derived_from_wss_peer"
+    },
+    {
+      "peer": "wss://redacted-host-a4dbcc8f1aaa/gun",
+      "healthz": "https://redacted-host-a4dbcc8f1aaa/healthz",
+      "readyz": "https://redacted-host-a4dbcc8f1aaa/readyz",
+      "metrics": "https://redacted-host-a4dbcc8f1aaa/metrics",
+      "source": "derived_from_wss_peer"
+    }
+  ],
+  "rollover": null,
+  "failures": []
+}

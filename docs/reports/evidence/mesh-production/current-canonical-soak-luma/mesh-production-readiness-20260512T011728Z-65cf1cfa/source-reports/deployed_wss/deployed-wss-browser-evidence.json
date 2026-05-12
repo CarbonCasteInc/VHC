@@ -1,0 +1,84 @@
+{
+  "peer_config_issued_at": "2026-05-12T01:16:41.105Z",
+  "peer_config_expires_at": "2026-05-12T02:16:41.105Z",
+  "first_boot": {
+    "config_id": "mesh-public-refresh-mp1xwzkh",
+    "csp_connect_src_redacted": [
+      "'self'",
+      "https://redacted-host-63fbf6368d54",
+      "wss://redacted-host-5731368464fa",
+      "wss://redacted-host-9394c7c5d6c4",
+      "wss://redacted-host-a4dbcc8f1aaa"
+    ],
+    "opened_socket_host_hashes": [
+      "12de4bde78ee",
+      "f1a00c3eb80f",
+      "e058d210c52b"
+    ]
+  },
+  "relay_health": [
+    {
+      "peer": "wss://redacted-host-5731368464fa/gun",
+      "endpoint": "healthz",
+      "url": "https://redacted-host-5731368464fa/healthz",
+      "status": 200,
+      "body_bytes": 239
+    },
+    {
+      "peer": "wss://redacted-host-5731368464fa/gun",
+      "endpoint": "readyz",
+      "url": "https://redacted-host-5731368464fa/readyz",
+      "status": 200,
+      "body_bytes": 299
+    },
+    {
+      "peer": "wss://redacted-host-5731368464fa/gun",
+      "endpoint": "metrics",
+      "url": "https://redacted-host-5731368464fa/metrics",
+      "status": 200,
+      "body_bytes": 598
+    },
+    {
+      "peer": "wss://redacted-host-9394c7c5d6c4/gun",
+      "endpoint": "healthz",
+      "url": "https://redacted-host-9394c7c5d6c4/healthz",
+      "status": 200,
+      "body_bytes": 239
+    },
+    {
+      "peer": "wss://redacted-host-9394c7c5d6c4/gun",
+      "endpoint": "readyz",
+      "url": "https://redacted-host-9394c7c5d6c4/readyz",
+      "status": 200,
+      "body_bytes": 299
+    },
+    {
+      "peer": "wss://redacted-host-9394c7c5d6c4/gun",
+      "endpoint": "metrics",
+      "url": "https://redacted-host-9394c7c5d6c4/metrics",
+      "status": 200,
+      "body_bytes": 598
+    },
+    {
+      "peer": "wss://redacted-host-a4dbcc8f1aaa/gun",
+      "endpoint": "healthz",
+      "url": "https://redacted-host-a4dbcc8f1aaa/healthz",
+      "status": 200,
+      "body_bytes": 239
+    },
+    {
+      "peer": "wss://redacted-host-a4dbcc8f1aaa/gun",
+      "endpoint": "readyz",
+      "url": "https://redacted-host-a4dbcc8f1aaa/readyz",
+      "status": 200,
+      "body_bytes": 299
+    },
+    {
+      "peer": "wss://redacted-host-a4dbcc8f1aaa/gun",
+      "endpoint": "metrics",
+      "url": "https://redacted-host-a4dbcc8f1aaa/metrics",
+      "status": 200,
+      "body_bytes": 598
+    }
+  ]
+}
