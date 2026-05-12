@@ -44,6 +44,8 @@
     "report:storycluster:production-readiness": "pnpm --filter @vh/e2e report:live:daemon-feed:production-readiness",
     "check:storycluster:production-readiness": "pnpm check:storycluster:correctness && pnpm check:news-sources:health && VH_STORYCLUSTER_PRODUCTION_READINESS_ENFORCE=true pnpm report:storycluster:production-readiness",
     "check:mvp-release-gates": "node ./packages/e2e/src/mvp-release-gates.mjs",
+    "report:mvp-closeout": "node ./packages/e2e/src/mvp-closeout.mjs",
+    "check:mvp-closeout": "node ./packages/e2e/src/mvp-closeout.mjs --check",
     "check:launch-content-snapshot": "node ./packages/e2e/src/launch-content-snapshot.mjs",
     "check:public-beta-compliance": "node ./tools/scripts/check-public-beta-compliance.mjs",
     "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",
