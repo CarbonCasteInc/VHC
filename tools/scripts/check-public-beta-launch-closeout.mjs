@@ -17,6 +17,7 @@ const files = {
 
 const requiredScripts = {
   'check:mvp-release-gates': 'node ./packages/e2e/src/mvp-release-gates.mjs',
+  'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
   'check:public-beta-compliance': 'node ./tools/scripts/check-public-beta-compliance.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
@@ -56,10 +57,12 @@ const requiredLaunchSnapshotCoverage = [
 const requiredEvidenceNeedles = [
   'pnpm check:public-beta-launch-closeout',
   'pnpm check:mvp-release-gates',
+  'pnpm check:mvp-closeout',
   'pnpm check:launch-content-snapshot',
   'pnpm check:public-beta-compliance',
   'pnpm docs:check',
   '.tmp/mvp-release-gates/latest/mvp-release-gates-report.json',
+  '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
   '.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json',
   'docs/ops/public-beta-launch-readiness-closeout.md',
   'ship_blocker',

@@ -5,9 +5,9 @@
 > Last Reviewed: 2026-04-28
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
-Version: 0.3
+Version: 0.4
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
-Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice.
+Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
 
 ## 1. Closeout Verdict
@@ -15,6 +15,8 @@ Scope: Web PWA public beta launch-readiness evidence, deterministic gate invento
 Engineering closeout status: Web PWA public beta candidate, constrained to the implemented beta scope.
 
 No repository feature gap is currently classified as a Web PWA public-beta ship blocker when the release owner produces a passing evidence packet on the release commit. The implemented beta scope includes the core news loop, accepted synthesis detail, point stance persistence, deterministic story threads, correction/moderation/report remediation paths, operator trust gate, public policy routes, public support issue intake, private escalation protocol, curated fallback launch content, and LUMA public-beta MVP readiness for the beta-local identity/signed-write layer.
+
+`pnpm check:mvp-closeout` is the consolidated release-truth reader for this scope. It reads the MVP release-gates packet, source-health packet, LUMA MVP readiness packet, Mesh readiness packet, and production app canary packet, then writes `.tmp/mvp-closeout/latest/mvp-closeout-report.json` with bounded allowed/forbidden claims. It does not override any upstream gate.
 
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
@@ -28,6 +30,7 @@ Run these commands on the final public-beta release commit and preserve their ou
 | --- | --- | --- | --- |
 | Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass` |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
+| MVP consolidated closeout | `pnpm check:mvp-closeout` | `.tmp/mvp-closeout/latest/mvp-closeout-report.json` | `status: pass`; bounded MVP claims only; Mesh/app/Silver claims remain forbidden unless separately proven |
 | Curated launch-content fallback | `pnpm check:launch-content-snapshot` | `.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json` | `overallStatus: pass` |
 | Public-beta compliance minimums | `pnpm check:public-beta-compliance` | `tools/scripts/check-public-beta-compliance.mjs` and `docs/ops/public-beta-compliance-minimums.md` | `pass` |
 | LUMA public-beta MVP readiness | `pnpm check:luma:mvp-production-readiness` | `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json` | `status: pass` |
@@ -88,7 +91,7 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 
 | Item | Classification | Closeout decision |
 | --- | --- | --- |
-| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
+| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
 | `external_release_approval_not_recorded` | ship_blocker | This repo does not create legal/commercial approval. If the organization requires legal/operator approval before public distribution, that signoff must be recorded outside the code gates before public launch claims are made. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | Do not market live public headlines as production-grade unless `pnpm check:storycluster:production-readiness` resolves to `release_ready`. The Web PWA beta may still use the constrained beta and validated-snapshot scope. |
 | `full_product_engagement_claim_without_live_lane` | ship_blocker | Do not claim the full multi-user product loop was exercised against release-like service wiring unless `pnpm live:stack:up:analysis-stub` and `pnpm test:live:five-user-engagement` pass on the release candidate or the claim is removed. |
@@ -109,7 +112,10 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 Allowed public-beta claim:
 
 - "Web PWA public beta candidate with deterministic MVP gate coverage, curated fallback launch content, public policy/support surfaces, audited correction/moderation/report remediation paths, and trusted beta operator gates for current remediation writes."
+- "MVP public-beta release gates passed for the implemented MVP scope."
 - "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer."
+- "Source health passed the complete release evidence window."
+- "Mesh is tracked separately and is currently `review_required` unless its own report says `release_ready`."
 
 Disallowed without additional evidence:
 

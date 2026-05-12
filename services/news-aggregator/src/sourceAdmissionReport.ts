@@ -418,14 +418,53 @@ function wrapFetchWithTimeout(
     const signal = init?.signal
       ? AbortSignal.any([init.signal, timeoutController.signal])
       : timeoutController.signal;
+    let timerCleared = false;
+    const clearTimer = () => {
+      if (timerCleared) {
+        return;
+      }
+      timerCleared = true;
+      clearTimeout(timer);
+    };
 
     try {
-      return await fetchFn(input, {
+      const response = await fetchFn(input, {
         ...init,
         signal,
       });
+      const bodyMethods = new Set<PropertyKey>([
+        'arrayBuffer',
+        'blob',
+        'bytes',
+        'formData',
+        'json',
+        'text',
+      ]);
+      return new Proxy(response, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (typeof value !== 'function') {
+            return value;
+          }
+          if (!bodyMethods.has(property)) {
+            return value.bind(target);
+          }
+          return async (...args: unknown[]) => {
+            try {
+              return await value.apply(target, args);
+            } finally {
+              clearTimer();
+            }
+          };
+        },
+      });
+    } catch (error) {
+      clearTimer();
+      throw error;
     } finally {
-      clearTimeout(timer);
+      if (timeoutController.signal.aborted) {
+        clearTimer();
+      }
     }
   };
 }

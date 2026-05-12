@@ -44,6 +44,8 @@
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",
     "report:live:daemon-feed:production-readiness": "node ./src/live/storycluster-production-readiness.mjs",
     "check:mvp-release-gates": "node ./src/mvp-release-gates.mjs",
+    "report:mvp-closeout": "node ./src/mvp-closeout.mjs",
+    "check:mvp-closeout": "node ./src/mvp-closeout.mjs --check",
     "check:launch-content-snapshot": "node ./src/launch-content-snapshot.mjs",
     "codegen": "playwright codegen",
     "typecheck": "tsc --noEmit"

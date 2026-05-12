@@ -405,6 +405,45 @@ describe('sourceAdmissionReport', () => {
     });
   });
 
+  it('aborts hanging admission response bodies with a bounded timeout', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const fetchFn = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      const response = makeResponse(200, '');
+      vi.spyOn(response, 'text').mockImplementation(() =>
+        new Promise<string>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(Object.assign(new Error('body timed out'), { name: 'AbortError' }));
+            },
+            { once: true },
+          );
+        }),
+      );
+      return response;
+    }) as typeof fetch;
+
+    const reportPromise = auditFeedSourceAdmission(source, {
+      fetchFn,
+      fetchTimeoutMs: 5,
+      feedReadAttemptCount: 1,
+      feedReadRetryDelayMs: 0,
+      feedFetchFallback: () => null,
+      sampleSize: 1,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 1,
+    });
+
+    await expect(reportPromise).resolves.toMatchObject({
+      status: 'inconclusive',
+      reasons: ['feed_links_unavailable', 'feed_fetch_timeout'],
+      feedRead: {
+        ok: false,
+        errorCode: 'feed_fetch_timeout',
+      },
+    });
+  });
+
   it('admits a source when readable samples clear the threshold', async () => {
     const source = STARTER_FEED_SOURCES[0];
     const fetchFn = vi.fn(async (input: string | URL) => {
