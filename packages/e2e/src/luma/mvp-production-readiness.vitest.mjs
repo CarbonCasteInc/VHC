@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  evaluateEvidenceCommitCompatibility,
+  meshPublicWssProofStatus,
   validateActionPolicySurface,
   validateEmbeddedMeshLumaCoverage,
   validateReleaseClaimSurface,
@@ -88,5 +90,72 @@ describe('LUMA MVP production-readiness static checks', () => {
       coverageValidation: { ok: true },
       lumaRows: [],
     })).toContain('mesh readiness embedded LUMA coverage missing passing forum_thread');
+  });
+
+  it('accepts parent evidence when the intervening diff is only the committed Mesh evidence packet', () => {
+    const git = (args) => {
+      const command = args.join(' ');
+      if (command === 'rev-list --parents -n 1 evidence456') return 'evidence456 source123';
+      if (command === 'merge-base source123 evidence456') return 'source123';
+      if (command === 'diff --name-only source123 evidence456') {
+        return [
+          'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-20260512T011728Z-65cf1cfa/mesh-production-readiness-report.json',
+          'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-20260512T011728Z-65cf1cfa/supporting-evidence/luma-gated-write-coverage/mesh-luma-gated-write-coverage-report.json',
+        ].join('\n');
+      }
+      return '';
+    };
+
+    expect(evaluateEvidenceCommitCompatibility({
+      evidenceCommit: 'source123',
+      currentCommit: 'evidence456',
+      git,
+    })).toMatchObject({
+      ok: true,
+      accepted_via: 'committed_evidence_packet_from_parent',
+    });
+  });
+
+  it('rejects parent evidence when the intervening diff touches runtime or LUMA surfaces', () => {
+    const git = (args) => {
+      const command = args.join(' ');
+      if (command === 'rev-list --parents -n 1 runtime456') return 'runtime456 source123';
+      if (command === 'merge-base source123 runtime456') return 'source123';
+      if (command === 'diff --name-only source123 runtime456') {
+        return [
+          'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-20260512T011728Z-65cf1cfa/mesh-production-readiness-report.json',
+          'apps/web-pwa/src/store/lumaSession.ts',
+        ].join('\n');
+      }
+      return '';
+    };
+
+    expect(evaluateEvidenceCommitCompatibility({
+      evidenceCommit: 'source123',
+      currentCommit: 'runtime456',
+      git,
+    })).toMatchObject({
+      ok: false,
+      accepted_via: null,
+    });
+  });
+
+  it('accepts public WSS proof from the aggregate deployed_wss source report', () => {
+    expect(meshPublicWssProofStatus({}, {
+      deployedWssSourceReport: {
+        run_id: 'mesh-public-wss-proof-1',
+        run: {
+          deployment_scope: 'public_wss_deployment',
+        },
+        public_wss_proof: {
+          status: 'pass',
+        },
+      },
+    })).toMatchObject({
+      ok: true,
+      status: 'pass',
+      source: 'deployed_wss_source_report',
+      run_id: 'mesh-public-wss-proof-1',
+    });
   });
 });
