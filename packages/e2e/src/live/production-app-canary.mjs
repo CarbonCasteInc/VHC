@@ -99,6 +99,11 @@ function committedEvidencePacketRoot(repoRoot, meshReportPath) {
   return packetRoot.startsWith('docs/reports/evidence/mesh-production/') ? packetRoot : null;
 }
 
+function committedEvidenceFamilyRoot(packetRoot) {
+  const familyRoot = path.posix.dirname(packetRoot);
+  return familyRoot && familyRoot !== '.' ? familyRoot : packetRoot;
+}
+
 function lines(value) {
   return String(value || '')
     .split(/\r?\n/)
@@ -155,12 +160,16 @@ const COMMITTED_EVIDENCE_PACKET_COMPATIBILITY_PATHS = new Set([
   'packages/e2e/src/mesh/evidence-scrub-check.test.mjs',
   'packages/e2e/src/mesh/production-readiness-check.mjs',
   'packages/e2e/src/mesh/production-readiness-check.test.mjs',
+  'packages/e2e/src/mesh/sample-floor-contract.mjs',
 ]);
 
 function compatibleCommittedEvidenceInterveningPath(changedPath, packetRoot) {
+  const familyRoot = committedEvidenceFamilyRoot(packetRoot);
   return (
     changedPath === packetRoot ||
     changedPath.startsWith(`${packetRoot}/`) ||
+    changedPath === familyRoot ||
+    changedPath.startsWith(`${familyRoot}/`) ||
     COMMITTED_EVIDENCE_PACKET_COMPATIBILITY_PATHS.has(changedPath)
   );
 }
