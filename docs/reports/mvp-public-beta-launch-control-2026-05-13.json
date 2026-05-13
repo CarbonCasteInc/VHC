@@ -2,16 +2,22 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "branch": "coord/mvp-public-beta-launch-control-v1",
-  "release_control_commit": "9eb58154a321ee202095cfdb7d02fce67fb4cab3",
-  "release_control_base": "origin/main after PR #627 merge",
+  "updated_at": "2026-05-13T10:42:57Z",
+  "branch": "coord/mvp-public-beta-go-no-go-v1",
+  "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
+  "release_control_base": "origin/main after PR #628 merge",
   "rc_packet_path": "docs/reports/mvp-public-beta-release-candidate-2026-05-12.md",
   "node": "v20.20.0",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
-  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean release-control commit before this docs-only launch-control packet was added. After the packet edit, the docs/diff checks were rerun against the branch diff.",
+  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean PR #628-merged release-control commit before this docs-only go/no-go approval update was added. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
   "final_status": "hold_external_approval_pending",
-  "status_reason": "Engineering evidence passed, but release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership are pending.",
+  "status_reason": "Engineering evidence passed, but release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership were not supplied in the release-owner/operator input for this update and no repo-local approval artifact was found.",
+  "approval_input_result": {
+    "required_approval_text_provided": false,
+    "repo_local_approval_artifact_found": false,
+    "decision_effect": "all required human/operator/legal/support/escalation/rollback fields remain pending"
+  },
   "evidence": {
     "public_beta_launch_closeout": {
       "command": "pnpm check:public-beta-launch-closeout",
@@ -74,6 +80,7 @@
       "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
       "command_exit": 0,
       "status": "review_required",
+      "run_id": "mesh-production-readiness-20260513T094337Z-cdda22f7",
       "schema_epoch": "post_luma_m0b",
       "luma_profile": "none",
       "blockers": [
@@ -104,8 +111,9 @@
       "stack_down_command": "pnpm live:stack:down",
       "stack_up_status": "pass",
       "test_status": "pass",
-      "test_duration": "6.2m",
-      "stack_down_status": "pass"
+      "test_duration": "6.1m",
+      "stack_down_status": "pass",
+      "latest_result": "pass_on_clean_rerun"
     }
   },
   "approvals": {
@@ -115,6 +123,7 @@
       "timestamp": null
     },
     "external_legal_approval": {
+      "requirement_disposition": "pending",
       "approval_status": "pending",
       "approver_reference": "pending",
       "timestamp": null
