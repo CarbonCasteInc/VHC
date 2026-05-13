@@ -18,6 +18,8 @@ No repository feature gap is currently classified as a Web PWA public-beta ship 
 
 `pnpm check:mvp-closeout` is the consolidated release-truth reader for this scope. It reads the MVP release-gates packet, source-health packet, LUMA MVP readiness packet, Mesh readiness packet, and production app canary packet, then writes `.tmp/mvp-closeout/latest/mvp-closeout-report.json` with bounded allowed/forbidden claims. It does not override any upstream gate.
 
+The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
+
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
 This closeout does not claim legal approval, production-grade live headline freshness, production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, public WSS mesh `release_ready`, full production app readiness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
@@ -28,6 +30,7 @@ Run these commands on the final public-beta release commit and preserve their ou
 
 | Evidence | Command | Deterministic report or artifact | Required result |
 | --- | --- | --- | --- |
+| Release-owner launch control | committed launch-control packet | `docs/reports/mvp-public-beta-launch-control-2026-05-13.md` and optional JSON mirror | `go_for_public_beta_launch` only when deterministic evidence passes and required approvals/owners are recorded; otherwise `hold_external_approval_pending` |
 | Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass` |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
 | MVP consolidated closeout | `pnpm check:mvp-closeout` | `.tmp/mvp-closeout/latest/mvp-closeout-report.json` | `status: pass`; bounded MVP claims only; Mesh/app/Silver claims remain forbidden unless separately proven |
