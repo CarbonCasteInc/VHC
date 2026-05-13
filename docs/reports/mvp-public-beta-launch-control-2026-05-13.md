@@ -2,23 +2,32 @@
 
 Date: 2026-05-13
 Created at: 2026-05-13T01:51:53Z
-Branch: `coord/mvp-public-beta-launch-control-v1`
-Release-control commit: `9eb58154a321ee202095cfdb7d02fce67fb4cab3`
-Release-control base: `origin/main` after PR #627 merge
+Go/no-go approval update at: 2026-05-13T10:42:57Z
+Branch: `coord/mvp-public-beta-go-no-go-v1`
+Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
+Release-control base: `origin/main` after PR #628 merge
 RC packet: `docs/reports/mvp-public-beta-release-candidate-2026-05-12.md`
 Node: `v20.20.0`
 pnpm: `9.7.1`
 Repo dirty state during engineering evidence: clean
 
-Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean release-control commit before this docs-only launch-control packet was added. After the packet edit, the docs/diff checks were rerun against the branch diff.
+Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean PR #628-merged release-control commit before this docs-only go/no-go approval update was added. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.
 
 ## Final Status
 
 `hold_external_approval_pending`
 
-Engineering evidence passed on the release-control commit for the implemented Web PWA MVP public-beta scope. Launch is held because release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership have not been supplied in this repo packet. Do not infer signoff from green engineering evidence.
+Engineering evidence passed on the release-control commit for the implemented Web PWA MVP public-beta scope. Launch is held because release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership were not supplied in the release-owner/operator input for this update and no repo-local approval artifact was found. Do not infer signoff from green engineering evidence.
 
 Status may move to `go_for_public_beta_launch` only when every required approval/owner field below is approved, assigned, or explicitly marked `not_required` by the release owner.
+
+## Approval Input Result
+
+Required approval text provided in this go/no-go update: none.
+
+Repo-local approval artifact found: none.
+
+Decision effect: all required human/operator/legal/support/escalation/rollback fields remain pending, so the final launch-control status remains `hold_external_approval_pending`.
 
 ## Evidence Summary
 
@@ -36,9 +45,9 @@ Status may move to `go_for_public_beta_launch` only when every required approval
 | Diff coverage guard | `node tools/scripts/check-diff-coverage.mjs` | PASS, no coverage-eligible source files changed | local command output |
 | Public namespace leaks | `pnpm check:public-namespace-leaks` | PASS | local command output |
 | LUMA mesh reader-path coverage | `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e` | PASS | `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json` |
-| Mesh aggregate boundary | `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness` | Command exited 0; report remains `review_required` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
+| Mesh aggregate boundary | `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness` | Command exited 0; report remains `review_required`; run `mesh-production-readiness-20260513T094337Z-cdda22f7` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | Production app canary boundary | `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` | EXPECTED BLOCKED, exit 1, `mesh_not_release_ready` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
-| Local product-loop rehearsal | `pnpm live:stack:up:analysis-stub`; `pnpm test:live:five-user-engagement`; `pnpm live:stack:down` | PASS; stack down PASS; five-user test 6.2m | local command output |
+| Local product-loop rehearsal | `pnpm live:stack:up:analysis-stub`; `pnpm test:live:five-user-engagement`; `pnpm live:stack:down` | PASS on clean rerun; stack down PASS; five-user test 6.1m | local command output |
 
 ## Engineering Evidence Details
 
@@ -49,10 +58,10 @@ Status may move to `go_for_public_beta_launch` only when every required approval
 | Source health | `readinessStatus: ready`; `releaseEvidence.status: pass`; `recentWindowRunCount: 5`; `recentReadyRunCount: 5`; `recentReviewRunCount: 0`; `recentBlockedRunCount: 0`; `keepSourceCount: 28`; `watchSourceCount: 0`; `removeSourceCount: 0`; `reasonCounts: {}` |
 | LUMA public-beta MVP | `status: pass`; `profile: public-beta`; blockers `[]` |
 | Mesh LUMA coverage | `status: pass`; `schema_epoch: post_luma_m0b`; `luma_profile: e2e`; failures `[]` |
-| Mesh readiness | `status: review_required`; `schema_epoch: post_luma_m0b`; `luma_profile: none`; blockers `public-wss-deployment-proof`, `required-write-class-sample-floors` |
+| Mesh readiness | `status: review_required`; `schema_epoch: post_luma_m0b`; `luma_profile: none`; run `mesh-production-readiness-20260513T094337Z-cdda22f7`; blockers `public-wss-deployment-proof`, `required-write-class-sample-floors` |
 | Canonical Mesh soak | 30-minute duration satisfied; `soak_gate: pass`; `terminal_failures: 0`; `duplicate_canonical_writes: 0`; `repair_events: 0`; Mesh still remains `review_required` because sample floors are not satisfied |
 | Production app canary | `status: blocked`; `reason: mesh_not_release_ready`; downstream observation `not_run`; downstream reason `prerequisites_blocked` |
-| Launch rehearsal | PASS against local `analysis-stub` stack; five beta-local users exercised feed/detail/stance/thread activity and aggregate readback |
+| Launch rehearsal | PASS on clean rerun against local `analysis-stub` stack; five beta-local users exercised feed/detail/stance/thread activity and aggregate readback |
 
 ## Release Copy
 
@@ -85,7 +94,7 @@ Forbidden launch copy:
 | Approval or owner | Name, team, or reference | Approval status | Timestamp | Notes |
 | --- | --- | --- | --- | --- |
 | Release owner | Pending | `pending` | Pending | Required before public launch. |
-| External/legal approval | Pending | `pending` | Pending | This packet records no legal, commercial, or external distribution approval. |
+| External/legal approval | Requirement disposition pending; approver pending | `pending` | Pending | This update records no legal, commercial, or external distribution approval, and does not state whether approval is required or not required. |
 | Launch copy approval | Pending | `pending` | Pending | Only the bounded copy above is allowed until approved by the release owner. |
 | Support intake owner | Pending | `pending` | Pending | Public issue intake path exists through the Web PWA `/support` surface and VHC public beta GitHub Issue Form; owner assignment is pending. |
 | Private escalation owner | Pending | `pending` | Pending | Private escalation channel/reference remains outside repo automation and must be supplied before launch. |
