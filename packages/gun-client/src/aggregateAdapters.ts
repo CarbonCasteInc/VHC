@@ -100,6 +100,79 @@ function parseAggregateVoterNodeForPath(
   return aggregateVoterNodeMatchesPath(parsed.data, context, voterId) ? parsed.data : null;
 }
 
+function isGunRelation(value: unknown): boolean {
+  return isRecord(value) && typeof value['#'] === 'string';
+}
+
+async function readResolvedRecord<T>(
+  chain: ChainWithGet<T>,
+  timeoutMs?: number,
+): Promise<Record<string, unknown> | null> {
+  const raw = await readOnce(chain, timeoutMs);
+  const stripped = stripGunMetadata(raw);
+  return isRecord(stripped) ? stripped : null;
+}
+
+async function readAggregateVoterNodeForPath(
+  chain: ChainWithGet<unknown>,
+  context: AggregateVoterPathContext,
+  voterId: string,
+  options?: { readonly readTimeoutMs?: number },
+): Promise<AggregateVoterNode | null> {
+  const raw = await readOnce(chain, options?.readTimeoutMs);
+  const parsed = parseAggregateVoterNodeForPath(raw, context, voterId);
+  if (parsed) {
+    return parsed;
+  }
+
+  const record = stripGunMetadata(raw);
+  if (!isRecord(record)) {
+    return null;
+  }
+
+  const envelopeCandidate = stripGunMetadata(record.signedWriteEnvelope);
+  const needsEnvelopeHydration =
+    !isRecord(envelopeCandidate)
+    || isGunRelation(envelopeCandidate)
+    || !isRecord(stripGunMetadata(envelopeCandidate.payload))
+    || isGunRelation(stripGunMetadata(envelopeCandidate.payload))
+    || !isRecord(stripGunMetadata(envelopeCandidate.sessionRef))
+    || isGunRelation(stripGunMetadata(envelopeCandidate.sessionRef));
+
+  if (!needsEnvelopeHydration) {
+    return null;
+  }
+
+  const envelopeChain = chain.get('signedWriteEnvelope') as unknown as ChainWithGet<unknown>;
+  const envelopeRecord = await readResolvedRecord(envelopeChain, options?.readTimeoutMs);
+  if (!envelopeRecord) {
+    return null;
+  }
+
+  const envelopePayload = await readResolvedRecord(
+    envelopeChain.get('payload') as unknown as ChainWithGet<unknown>,
+    options?.readTimeoutMs,
+  );
+  const envelopeSessionRef = await readResolvedRecord(
+    envelopeChain.get('sessionRef') as unknown as ChainWithGet<unknown>,
+    options?.readTimeoutMs,
+  );
+  const hydratedEnvelope = {
+    ...envelopeRecord,
+    ...(envelopePayload ? { payload: envelopePayload } : {}),
+    ...(envelopeSessionRef ? { sessionRef: envelopeSessionRef } : {}),
+  };
+
+  return parseAggregateVoterNodeForPath(
+    {
+      ...record,
+      signedWriteEnvelope: hydratedEnvelope,
+    },
+    context,
+    voterId,
+  );
+}
+
 function assertAggregateVoterNodeMatchesPath(
   node: AggregateVoterNode,
   context: AggregateVoterPathContext,
@@ -706,8 +779,11 @@ async function readVoterPointRow(
   context: AggregateVoterPathContext,
 ): Promise<AggregateVoterPointRow | null> {
   const normalizedVoterId = voterId.trim();
-  const raw = await readOnce(votersChain.get(normalizedVoterId).get(context.pointId));
-  const parsed = parseAggregateVoterNodeForPath(raw, context, normalizedVoterId);
+  const parsed = await readAggregateVoterNodeForPath(
+    votersChain.get(normalizedVoterId).get(context.pointId) as unknown as ChainWithGet<unknown>,
+    context,
+    normalizedVoterId,
+  );
   if (!parsed) {
     return null;
   }
@@ -1083,8 +1159,7 @@ export async function readAggregateVoterNode(
     .get(normalizedVoterId)
     .get(normalizedPointId) as unknown as ChainWithGet<unknown>;
 
-  const raw = await readOnce(chain, options?.readTimeoutMs);
-  return parseAggregateVoterNodeForPath(raw, context, normalizedVoterId);
+  return readAggregateVoterNodeForPath(chain, context, normalizedVoterId, options);
 }
 
 async function confirmAggregateVoterNodeReadback(

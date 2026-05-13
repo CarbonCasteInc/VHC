@@ -1318,6 +1318,85 @@ describe('aggregateAdapters', () => {
     ]);
   });
 
+  it('readAggregateVoterRows hydrates nested LUMA signed-write envelopes from relation pointers', async () => {
+    const mesh = createFakeMesh();
+    const node = await createLumaAggregateVoterNode({ point_id: 'point-1' });
+    const { signedWriteEnvelope, ...publicPayload } = node;
+    const voterPath =
+      `aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`;
+
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      [LUMA_VOTER_ID]: { '#': `vh/${voterPath.replace('/point-1', '')}` },
+    });
+    mesh.setRead(voterPath, {
+      ...publicPayload,
+      signedWriteEnvelope: { '#': `vh/${voterPath}/signedWriteEnvelope` },
+    });
+    mesh.setRead(`${voterPath}/signedWriteEnvelope`, {
+      ...signedWriteEnvelope,
+      payload: { '#': `vh/${voterPath}/signedWriteEnvelope/payload` },
+      sessionRef: { '#': `vh/${voterPath}/signedWriteEnvelope/sessionRef` },
+    });
+    mesh.setRead(`${voterPath}/signedWriteEnvelope/payload`, signedWriteEnvelope.payload);
+    mesh.setRead(`${voterPath}/signedWriteEnvelope/sessionRef`, signedWriteEnvelope.sessionRef);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregateVoterRows(client, 'topic-1', 'synth-1', 4, 'point-1')).resolves.toEqual([
+      {
+        voter_id: LUMA_VOTER_ID,
+        node,
+        updated_at_ms: Date.parse('2026-02-18T22:20:00.000Z'),
+      },
+    ]);
+  });
+
+  it('readAggregateVoterNode hydrates a linked LUMA envelope with embedded child records', async () => {
+    const mesh = createFakeMesh();
+    const node = await createLumaAggregateVoterNode({ point_id: 'point-1' });
+    const { signedWriteEnvelope, ...publicPayload } = node;
+    const voterPath =
+      `aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`;
+
+    mesh.setRead(voterPath, {
+      ...publicPayload,
+      signedWriteEnvelope: { '#': `vh/${voterPath}/signedWriteEnvelope` },
+    });
+    mesh.setRead(`${voterPath}/signedWriteEnvelope`, signedWriteEnvelope);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, 'point-1', {
+        readTimeoutMs: 25,
+      }),
+    ).resolves.toEqual(node);
+  });
+
+  it('readAggregateVoterNode returns null when a linked LUMA envelope cannot be resolved', async () => {
+    const mesh = createFakeMesh();
+    const node = await createLumaAggregateVoterNode({ point_id: 'point-1' });
+    const { signedWriteEnvelope: _signedWriteEnvelope, ...publicPayload } = node;
+    const voterPath =
+      `aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`;
+
+    mesh.setRead(voterPath, {
+      ...publicPayload,
+      signedWriteEnvelope: { '#': `vh/${voterPath}/signedWriteEnvelope` },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, 'point-1', {
+        readTimeoutMs: 25,
+      }),
+    ).resolves.toBeNull();
+  });
+
   it('readAggregateVoterRows recovers leaf rows from map voter IDs when root once returns null', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);

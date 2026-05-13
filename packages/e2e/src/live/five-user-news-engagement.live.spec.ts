@@ -207,7 +207,7 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
     () => Boolean((window as Window & { __vh_identity_published?: unknown }).__vh_identity_published),
     undefined,
     { timeout: 30_000 },
-  ).catch(() => undefined);
+  );
   await gotoFeed(page);
 }
 
