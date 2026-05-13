@@ -1,0 +1,197 @@
+{
+  "schema_version": "mvp-public-beta-launch-control-v1",
+  "date": "2026-05-13",
+  "created_at": "2026-05-13T01:51:53Z",
+  "branch": "coord/mvp-public-beta-launch-control-v1",
+  "release_control_commit": "9eb58154a321ee202095cfdb7d02fce67fb4cab3",
+  "release_control_base": "origin/main after PR #627 merge",
+  "rc_packet_path": "docs/reports/mvp-public-beta-release-candidate-2026-05-12.md",
+  "node": "v20.20.0",
+  "pnpm": "9.7.1",
+  "repo_dirty_during_engineering_evidence": false,
+  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean release-control commit before this docs-only launch-control packet was added. After the packet edit, the docs/diff checks were rerun against the branch diff.",
+  "final_status": "hold_external_approval_pending",
+  "status_reason": "Engineering evidence passed, but release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership are pending.",
+  "evidence": {
+    "public_beta_launch_closeout": {
+      "command": "pnpm check:public-beta-launch-closeout",
+      "status": "pass",
+      "path": "docs/ops/public-beta-launch-readiness-closeout.md"
+    },
+    "mvp_release_gates": {
+      "command": "pnpm check:mvp-release-gates",
+      "status": "pass",
+      "gate_count": 14,
+      "pass_count": 14,
+      "failing_gates": [],
+      "path": ".tmp/mvp-release-gates/latest/mvp-release-gates-report.json"
+    },
+    "mvp_closeout": {
+      "command": "pnpm check:mvp-closeout",
+      "status": "pass",
+      "blockers": [],
+      "path": ".tmp/mvp-closeout/latest/mvp-closeout-report.json"
+    },
+    "launch_content_snapshot": {
+      "command": "pnpm check:launch-content-snapshot",
+      "status": "pass",
+      "path": ".tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json"
+    },
+    "public_beta_compliance": {
+      "command": "pnpm check:public-beta-compliance",
+      "status": "pass"
+    },
+    "luma_mvp_readiness": {
+      "command": "pnpm check:luma:mvp-production-readiness",
+      "status": "pass",
+      "profile": "public-beta",
+      "blockers": [],
+      "path": ".tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json"
+    },
+    "source_health": {
+      "command": "pnpm check:news-sources:health",
+      "readiness_status": "ready",
+      "release_evidence_status": "pass",
+      "recent_window_run_count": 5,
+      "recent_ready_run_count": 5,
+      "recent_review_run_count": 0,
+      "recent_blocked_run_count": 0,
+      "keep_source_count": 28,
+      "watch_source_count": 0,
+      "remove_source_count": 0,
+      "reason_counts": {},
+      "path": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json"
+    },
+    "mesh_luma_gated_write_coverage": {
+      "command": "pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e",
+      "status": "pass",
+      "schema_epoch": "post_luma_m0b",
+      "luma_profile": "e2e",
+      "failures": [],
+      "path": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json"
+    },
+    "mesh_production_readiness": {
+      "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
+      "command_exit": 0,
+      "status": "review_required",
+      "schema_epoch": "post_luma_m0b",
+      "luma_profile": "none",
+      "blockers": [
+        "public-wss-deployment-proof",
+        "required-write-class-sample-floors"
+      ],
+      "canonical_soak": {
+        "full_duration_satisfied": true,
+        "soak_gate": "pass",
+        "terminal_failures": 0,
+        "duplicate_canonical_writes": 0,
+        "repair_events": 0
+      },
+      "path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json"
+    },
+    "production_app_canary": {
+      "command": "pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+      "expected_exit": 1,
+      "status": "blocked",
+      "reason": "mesh_not_release_ready",
+      "downstream_observation_status": "not_run",
+      "downstream_observation_reason": "prerequisites_blocked",
+      "path": ".tmp/production-app-canary/latest/production-app-canary-report.json"
+    },
+    "launch_rehearsal": {
+      "stack_up_command": "pnpm live:stack:up:analysis-stub",
+      "test_command": "pnpm test:live:five-user-engagement",
+      "stack_down_command": "pnpm live:stack:down",
+      "stack_up_status": "pass",
+      "test_status": "pass",
+      "test_duration": "6.2m",
+      "stack_down_status": "pass"
+    }
+  },
+  "approvals": {
+    "release_owner": {
+      "name": "pending",
+      "approval_status": "pending",
+      "timestamp": null
+    },
+    "external_legal_approval": {
+      "approval_status": "pending",
+      "approver_reference": "pending",
+      "timestamp": null
+    },
+    "launch_copy_approval": {
+      "approval_status": "pending",
+      "approved_copy_path_or_text": "pending",
+      "timestamp": null
+    },
+    "support_intake_owner": {
+      "name_or_team": "pending",
+      "approval_status": "pending",
+      "public_issue_intake_path": "Web PWA /support surface linked to the VHC public beta GitHub Issue Form"
+    },
+    "private_escalation_owner": {
+      "name_or_team": "pending",
+      "approval_status": "pending",
+      "escalation_channel_reference": "pending"
+    },
+    "rollback_owner": {
+      "name_or_team": "pending",
+      "approval_status": "pending",
+      "rollback_trigger_and_path": "Hold or withdraw public launch copy, keep the Web PWA at the last approved public-beta candidate state, and revert or supersede this launch-control packet if it records an incorrect approval or claim boundary."
+    }
+  },
+  "allowed_launch_copy": [
+    "Web PWA MVP public beta candidate for the implemented scope.",
+    "MVP release gates passed.",
+    "Source health passed the complete release evidence window.",
+    "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
+    "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed.",
+    "Mesh production readiness remains separate and is currently review_required."
+  ],
+  "forbidden_launch_copy": [
+    "Mesh release_ready.",
+    "Production app canary pass.",
+    "Downstream production app surfaces observed end to end.",
+    "Full production app readiness.",
+    "Test-group readiness.",
+    "Legal or commercial approval unless explicitly recorded.",
+    "Production-grade live headline freshness unless StoryCluster production readiness separately says release_ready.",
+    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, or production attestation.",
+    "Public WSS proof satisfied unless the Mesh report says so.",
+    "Mesh sample floors satisfied unless the Mesh report says so.",
+    "Native App Store or TestFlight readiness.",
+    "Private support desk or SLA unless externally provisioned."
+  ],
+  "protected_surfaces": {
+    "branch_runtime_changes": "none",
+    "inherited_rc_runtime_fix": "PR #627 includes one tested aggregate readback fix in packages/gun-client/src/aggregateAdapters.ts for nested LUMA signed-write envelope relation pointers.",
+    "unchanged_in_this_branch": [
+      "app runtime",
+      "relay runtime",
+      "Mesh readiness implementation",
+      "production app canary implementation",
+      "LUMA runtime/schema/custody/envelope/signed-write/provider/identifier/identity-vault",
+      "source-health thresholds",
+      "source registry",
+      "aggregate adapter runtime"
+    ]
+  },
+  "go_no_go_logic": {
+    "go_for_public_beta_launch": [
+      "deterministic evidence matrix passes",
+      "mvp closeout status is pass",
+      "source health is ready with release evidence pass",
+      "LUMA MVP readiness is pass",
+      "public-beta launch closeout is pass",
+      "launch copy has no forbidden claims",
+      "required human/operator/legal approvals are approved or explicitly not_required",
+      "support intake, private escalation, and rollback owners are assigned"
+    ],
+    "hold_external_approval_pending": [
+      "engineering evidence passes but any required approval, owner, or launch-copy field is pending"
+    ],
+    "blocked_engineering_evidence": [
+      "any deterministic release gate fails"
+    ]
+  }
+}
