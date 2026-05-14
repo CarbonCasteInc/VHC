@@ -87,7 +87,7 @@ Artifact paths:
 | Artifact | Path |
 | --- | --- |
 | Source-health report | `services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json` |
-| Headline-soak promotion decision | `.tmp/daemon-feed-semantic-soak/1778722068972/promotion-decision.json` |
+| Headline-soak promotion decision | `.tmp/daemon-feed-semantic-soak/1778751458367/promotion-decision.json` |
 | Headline-soak trend index | `.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json` |
 | StoryCluster production-readiness report | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 
@@ -96,8 +96,8 @@ Evidence:
 | Gate | Status | Details |
 | --- | --- | --- |
 | StoryCluster correctness | pass | Deterministic corpus plus daemon-first semantic gate passed. |
-| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T08:45:33.401Z`. |
-| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 24 sampled stories; 24 bundled stories; 24 corroborated bundles; 0 audited pairs. Trend has 2 recent executions, 0 promotable, 2 not-ready. |
+| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T09:53:00.790Z`. |
+| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 21 sampled stories; 21 bundled stories; 21 corroborated bundles; 0 audited pairs. Trend has 3 recent executions, 0 promotable, 3 not-ready. |
 | Production readiness | blocked | `headline_soak_release_evidence_failed`. |
 
 Headline-soak blockers:
@@ -106,7 +106,6 @@ Headline-soak blockers:
 - `promotable_execution_count_below_threshold`
 - `non_promotable_execution_count_exceeds_threshold`
 - `latest_headline_soak_execution_not_promotable`
-- `headline_source_diversity_below_threshold`
 
 Latest execution blockers:
 
@@ -136,7 +135,7 @@ Artifact paths:
 | Mesh production-readiness evidence manifest | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-evidence.md` |
 | Production app canary report | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 
-Current clean current-commit evidence: the aggregate run `mesh-production-readiness-20260514T024637Z-74a7a1e7` was generated on branch `coord/mvp-production-grade-distribution-ready-v1` at commit `2878c1a80ab022ff0558e2d7b4257852538217c8` with `repo.dirty: false`. It remains `review_required`, not `release_ready`.
+Current clean current-commit evidence: the aggregate run `mesh-production-readiness-20260514T085031Z-8364162c` was generated on branch `coord/mvp-production-grade-distribution-ready-v1` at commit `0f4b050681fc72792920c17ffae1a78d88dfeb3e` with `repo.dirty: false`. It remains `review_required`, not `release_ready`.
 
 Clean-run observations:
 

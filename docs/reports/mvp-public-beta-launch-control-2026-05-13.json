@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-14T08:28:50Z",
+  "updated_at": "2026-05-14T09:55:01Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
@@ -94,7 +94,7 @@
       "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
       "command_exit": 0,
       "status": "review_required",
-      "run_id": "mesh-production-readiness-20260514T024637Z-74a7a1e7",
+      "run_id": "mesh-production-readiness-20260514T085031Z-8364162c",
       "schema_epoch": "post_luma_m0b",
       "luma_profile": "none",
       "blockers": [

@@ -98,22 +98,22 @@
       "keep_source_count": 28,
       "watch_source_count": 0,
       "remove_source_count": 0,
-      "latest_generated_at": "2026-05-14T08:45:33.401Z"
+      "latest_generated_at": "2026-05-14T09:53:00.790Z"
     },
     "headline_soak": {
       "observed_status": "fail",
       "latest_execution_readiness_status": "not_ready",
-      "execution_count": 2,
+      "execution_count": 3,
       "promotable_execution_count": 0,
-      "not_ready_execution_count": 2,
+      "not_ready_execution_count": 3,
       "run_count": 3,
       "pass_count": 0,
       "fail_count": 3,
-      "total_sampled_stories": 24,
+      "total_sampled_stories": 21,
       "total_audited_pairs": 0,
-      "total_bundled_stories": 24,
-      "total_corroborated_bundles": 24,
-      "average_sample_fill_rate": 1,
+      "total_bundled_stories": 21,
+      "total_corroborated_bundles": 21,
+      "average_sample_fill_rate": 0.875,
       "average_audited_pairs_per_sampled_story": 0,
       "average_corroborated_bundle_rate": 1,
       "average_unique_source_count": 3,
@@ -121,8 +121,7 @@
         "insufficient_headline_soak_execution_count",
         "promotable_execution_count_below_threshold",
         "non_promotable_execution_count_exceeds_threshold",
-        "latest_headline_soak_execution_not_promotable",
-        "headline_source_diversity_below_threshold"
+        "latest_headline_soak_execution_not_promotable"
       ],
       "latest_execution_blockers": [
         "supply_failures_present",
@@ -131,7 +130,7 @@
     },
     "artifacts": {
       "source_health_report": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json",
-      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778722068972/promotion-decision.json",
+      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778751458367/promotion-decision.json",
       "headline_soak_trend_index": ".tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json",
       "production_readiness_report": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
     }
@@ -142,11 +141,11 @@
     "luma_gated_write_coverage_artifact": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json",
     "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
     "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
-    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260514T024637Z-74a7a1e7",
+    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260514T085031Z-8364162c",
     "current_clean_mesh_aggregate_status": "review_required",
     "current_clean_mesh_repo": {
       "branch": "coord/mvp-production-grade-distribution-ready-v1",
-      "commit": "2878c1a80ab022ff0558e2d7b4257852538217c8",
+      "commit": "0f4b050681fc72792920c17ffae1a78d88dfeb3e",
       "base_ref": "origin/main",
       "dirty": false
     },
