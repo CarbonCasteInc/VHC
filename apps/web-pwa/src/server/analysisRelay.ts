@@ -62,6 +62,7 @@ export interface AnalysisRelayResult {
   status: number;
   payload: {
     error?: string;
+    error_class?: string;
     details?: string;
     content?: string;
     analysis?: AnalysisResult;
@@ -69,6 +70,8 @@ export interface AnalysisRelayResult {
     budget?: { analyses: number; analyses_per_topic: number };
   };
 }
+
+const API_KEY_TOKEN_PATTERN = /sk-[A-Za-z0-9_*=\\-]{8,}/g;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
@@ -78,6 +81,23 @@ function asNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function redactSensitiveText(input: string): string {
+  return input.replace(API_KEY_TOKEN_PATTERN, 'sk-[REDACTED]');
+}
+
+function classifyUpstreamError(status: number, message?: string): string {
+  if (status === 401) {
+    if (!message || /api key|unauthori[sz]ed|auth|credential/i.test(message)) {
+      return 'upstream_401_invalid_api_key';
+    }
+    return 'upstream_401_unauthorized';
+  }
+  if (status === 403) return 'upstream_403_forbidden';
+  if (status === 429) return 'upstream_429_rate_limited';
+  if (status >= 500) return 'upstream_5xx';
+  return `upstream_${status}`;
 }
 
 function asPositiveInt(value: unknown): number | undefined {
@@ -454,13 +474,23 @@ export async function relayAnalysis(
 
       if (!upstream.ok) {
         let errorDetail = `Upstream returned ${upstream.status}`;
+        let upstreamMessage: string | undefined;
         try {
           const errBody = await upstream.json();
           const errField = isObject(errBody) ? errBody.error : undefined;
           const msg = asNonEmptyString(isObject(errField) ? errField.message : errField);
-          if (msg) errorDetail = `Upstream ${upstream.status}: ${msg}`;
+          if (msg) {
+            upstreamMessage = msg;
+            errorDetail = `Upstream ${upstream.status}: ${redactSensitiveText(msg)}`;
+          }
         } catch { /* ignore unparseable error body */ }
-        return { status: 502, payload: { error: errorDetail } };
+        return {
+          status: 502,
+          payload: {
+            error: errorDetail,
+            error_class: classifyUpstreamError(upstream.status, upstreamMessage),
+          },
+        };
       }
 
       lastUpstreamBody = await upstream.json();
@@ -514,7 +544,7 @@ export async function relayAnalysis(
       payload: {
         error: isTimeout
           ? `Upstream request timed out after ${upstreamFetchTimeoutMs}ms`
-          : error instanceof Error ? error.message : 'Relay request failed',
+          : error instanceof Error ? redactSensitiveText(error.message) : 'Relay request failed',
       },
     };
   }

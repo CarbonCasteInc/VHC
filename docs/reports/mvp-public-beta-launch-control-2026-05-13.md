@@ -4,6 +4,7 @@ Date: 2026-05-13
 Created at: 2026-05-13T01:51:53Z
 Go/no-go approval update at: 2026-05-13T10:42:57Z
 Production-grade supersession update at: 2026-05-14T01:58:18Z
+Current evidence normalization update at: 2026-05-14T08:28:50Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Release-control base: `origin/main` after PR #628 merge
@@ -13,7 +14,7 @@ Node: `v20.20.0`
 pnpm: `9.7.1`
 Repo dirty state during engineering evidence: clean
 
-Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean PR #628-merged release-control commit before this docs-only go/no-go approval update was added. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.
+Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean current PR #630 commit. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.
 
 ## Final Status
 
@@ -33,7 +34,7 @@ Decision effect: required human/operator/legal/support/escalation/rollback field
 
 ## Evidence Summary
 
-The table below records the constrained public-beta candidate evidence inherited from PR #629. It does not override the production-grade distribution-readiness packet linked above.
+The table below records the constrained public-beta candidate evidence and the current clean Mesh/canary boundary from PR #630. It does not override the production-grade distribution-readiness packet linked above.
 
 | Evidence | Command | Result | Report or note |
 | --- | --- | --- | --- |
@@ -49,7 +50,7 @@ The table below records the constrained public-beta candidate evidence inherited
 | Diff coverage guard | `node tools/scripts/check-diff-coverage.mjs` | PASS, no coverage-eligible source files changed | local command output |
 | Public namespace leaks | `pnpm check:public-namespace-leaks` | PASS | local command output |
 | LUMA mesh reader-path coverage | `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e` | PASS | `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json` |
-| Mesh aggregate boundary | `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness` | Command exited 0; report remains `review_required`; run `mesh-production-readiness-20260513T094337Z-cdda22f7` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
+| Mesh aggregate boundary | `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness` | Command exited 0; clean current-commit report remains `review_required`; run `mesh-production-readiness-20260514T024637Z-74a7a1e7`; evidence scrub pass | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | Production app canary boundary | `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` | EXPECTED BLOCKED, exit 1, `mesh_not_release_ready` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 | Local product-loop rehearsal | `pnpm live:stack:up:analysis-stub`; `pnpm test:live:five-user-engagement`; `pnpm live:stack:down` | PASS on clean rerun; stack down PASS; five-user test 6.1m | local command output |
 
@@ -62,7 +63,7 @@ The table below records the constrained public-beta candidate evidence inherited
 | Source health | `readinessStatus: ready`; `releaseEvidence.status: pass`; `recentWindowRunCount: 5`; `recentReadyRunCount: 5`; `recentReviewRunCount: 0`; `recentBlockedRunCount: 0`; `keepSourceCount: 28`; `watchSourceCount: 0`; `removeSourceCount: 0`; `reasonCounts: {}` |
 | LUMA public-beta MVP | `status: pass`; `profile: public-beta`; blockers `[]` |
 | Mesh LUMA coverage | `status: pass`; `schema_epoch: post_luma_m0b`; `luma_profile: e2e`; failures `[]` |
-| Mesh readiness | `status: review_required`; `schema_epoch: post_luma_m0b`; `luma_profile: none`; run `mesh-production-readiness-20260513T094337Z-cdda22f7`; blockers `public-wss-deployment-proof`, `required-write-class-sample-floors` |
+| Mesh readiness | `status: review_required`; `schema_epoch: post_luma_m0b`; `luma_profile: none`; run `mesh-production-readiness-20260514T024637Z-74a7a1e7`; repo commit `2878c1a80ab022ff0558e2d7b4257852538217c8`; `repo.dirty: false`; blockers `public-wss-deployment-proof`, `required-write-class-sample-floors` |
 | Canonical Mesh soak | 30-minute duration satisfied; `soak_gate: pass`; `terminal_failures: 0`; `duplicate_canonical_writes: 0`; `repair_events: 0`; Mesh still remains `review_required` because sample floors are not satisfied |
 | Production app canary | `status: blocked`; `reason: mesh_not_release_ready`; downstream observation `not_run`; downstream reason `prerequisites_blocked` |
 | Launch rehearsal | PASS on clean rerun against local `analysis-stub` stack; five beta-local users exercised feed/detail/stance/thread activity and aggregate readback |
@@ -137,14 +138,16 @@ Engineering rollback path:
 
 ## Runtime And Scope Boundaries
 
-This launch-control branch adds no runtime changes.
+This launch-control branch now carries only narrow runtime hardening needed by the production-grade distribution-readiness attempt:
+
+- news-aggregator dependency build order for public/remote daemon startup;
+- analysis relay GPT-5 missing-content retry compatibility;
+- upstream auth-error redaction/classification for relay health and StoryCluster OpenAI failures.
 
 The merged RC history includes one narrow tested runtime readback fix in `packages/gun-client/src/aggregateAdapters.ts` for nested LUMA signed-write envelope relation pointers. That fix belongs to PR #627 and is part of the release-control base.
 
 This packet makes no changes to:
 
-- app runtime;
-- relay runtime;
 - Mesh readiness implementation;
 - production app canary implementation;
 - LUMA runtime, schema, custody, envelope, signed-write, provider, identifier, or identity-vault surfaces;

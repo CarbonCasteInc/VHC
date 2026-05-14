@@ -22,6 +22,7 @@ Do not claim `go_for_public_beta_launch`, production-grade live headline freshne
 | --- | --- | --- |
 | News daemon stack startup | `services/news-aggregator` now builds `@vh/luma-sdk` before `@vh/gun-client`, matching `@vh/gun-client` runtime imports. | `pnpm --filter @vh/news-aggregator build:source-health-deps`; `pnpm --filter @vh/news-aggregator exec vitest run --config ./vitest.config.ts src/packageScripts.test.ts`; public stack reaches ready state. |
 | Analysis relay GPT-5 empty-content compatibility | Relay retries now expand `max_completion_tokens` / `max_tokens` after missing-content responses, preserve finish-reason diagnostics, and read text-array choice content. | `pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts`; `node tools/scripts/check-diff-coverage.mjs` |
+| Upstream auth-error redaction | Relay health and StoryCluster OpenAI errors now redact API-key-shaped upstream error text; relay health returns `error_class: upstream_401_invalid_api_key` for the current auth blocker. | `pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts`; `pnpm --filter @vh/storycluster-engine exec vitest run src/openaiClient.test.ts` |
 
 ## Release-Shaped Stack Result
 
@@ -48,7 +49,7 @@ Required probes:
 | --- | --- |
 | `pnpm live:stack:status` | `mode=public`, `analysis=remote`, services start; daemon can later degrade after upstream auth failure. |
 | `curl -i http://127.0.0.1:2048/api/analyze/config` | `200 OK`; configured `true`; model `gpt-5-nano`; provider `remote-analysis-relay`; upstream URL configured. |
-| `curl -i http://127.0.0.1:2048/api/analyze/health` | `502 Bad Gateway`; upstream `401 Incorrect API key provided`. |
+| `curl -i http://127.0.0.1:2048/api/analyze/health` | `502 Bad Gateway`; upstream auth failure classified as `upstream_401_invalid_api_key`; `release_ready: false`; API-key-shaped upstream text redacted. |
 | `tail -n 200 /tmp/vh-local-news-daemon.log` | Runtime tick fails during StoryCluster remote request with OpenAI chat request `HTTP 401`. |
 
 Root cause status: the prior missing-content/output-limit relay weakness is patched and unit-tested, but the current local release env key is rejected upstream. Real public/remote analysis cannot be considered healthy until a valid release env key is supplied and `/api/analyze/health` returns `200`.
@@ -64,7 +65,9 @@ Playwright CLI browser check against `http://127.0.0.1:2048/`:
 | Feed counts | `0 live`, `0 news`, `0 topics`. |
 | Feed content | `No items to show.` |
 | Health widget | `Health: Disconnected`. |
-| Screenshot | `.tmp/release-evidence/public-remote-feed-blocked-2026-05-14.png` local artifact. |
+| Screenshot | `.tmp/release-evidence/public-remote-feed-blocked-2026-05-14-current.png` local artifact. |
+| Snapshot | `.playwright-cli/page-2026-05-14T08-31-46-954Z.yml` |
+| Console log | `.playwright-cli/console-2026-05-14T08-31-46-691Z.log`; 0 errors, 2 warnings. |
 
 This does not prove real public headlines visible in the Web PWA. Story detail, accepted analysis/synthesis, source labels, timestamps, refresh, scroll, identity, stance, comments, reload, and second-browser visibility were not release-proven because the real public/remote pipeline failed to materialize current public stories.
 
@@ -93,22 +96,21 @@ Evidence:
 | Gate | Status | Details |
 | --- | --- | --- |
 | StoryCluster correctness | pass | Deterministic corpus plus daemon-first semantic gate passed. |
-| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T02:22:47.389Z`. |
-| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 0 sampled stories; 0 audited pairs. |
+| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T08:45:33.401Z`. |
+| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 24 sampled stories; 24 bundled stories; 24 corroborated bundles; 0 audited pairs. Trend has 2 recent executions, 0 promotable, 2 not-ready. |
 | Production readiness | blocked | `headline_soak_release_evidence_failed`. |
 
 Headline-soak blockers:
 
 - `insufficient_headline_soak_execution_count`
 - `promotable_execution_count_below_threshold`
+- `non_promotable_execution_count_exceeds_threshold`
 - `latest_headline_soak_execution_not_promotable`
-- `corroborated_bundle_rate_below_threshold`
 - `headline_source_diversity_below_threshold`
 
 Latest execution blockers:
 
 - `supply_failures_present`
-- `insufficient_sample_fill_rate`
 - `insufficient_audited_pair_density`
 
 Do not claim production-grade live headline freshness or StoryCluster `release_ready`.
@@ -134,23 +136,24 @@ Artifact paths:
 | Mesh production-readiness evidence manifest | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-evidence.md` |
 | Production app canary report | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 
-Observed dirty-run behavior before packet commit: the 30-minute soak satisfied duration and passed its soak gate, but the aggregate run `mesh-production-readiness-20260514T020311Z-e6f8f715` was correctly `blocked` because the worktree had uncommitted relay coverage changes. Dirty source reports are invalid release evidence.
+Current clean current-commit evidence: the aggregate run `mesh-production-readiness-20260514T024637Z-74a7a1e7` was generated on branch `coord/mvp-production-grade-distribution-ready-v1` at commit `2878c1a80ab022ff0558e2d7b4257852538217c8` with `repo.dirty: false`. It remains `review_required`, not `release_ready`.
 
-Additional dirty-run blockers included required write/resource SLO sample floors and evidence-scrub promotion:
+Clean-run observations:
+
+- 30-minute soak duration satisfied
+- `soak_gate: pass`
+- `terminal_failures: 0`
+- `duplicate_canonical_writes: 0`
+- `repair_events: 0`
+- evidence scrub promotion passed
+- required write/resource SLO sample floors remain insufficient
+
+Remaining clean-run Mesh blockers:
 
 - `public-wss-deployment-proof`
-- `evidence-scrub-promotion`
 - `required-write-class-sample-floors`
 
-A clean current-commit rerun of the same commands is required before any Mesh/app readiness claim. Until that report is clean and `release_ready`, the branch does not claim Mesh `release_ready` or production app canary pass.
-
-The known upstream Mesh blockers from the superseded launch-control packet also remain active until a clean current-commit rerun proves otherwise:
-
-- `public-wss-deployment-proof`
-- `evidence-scrub-promotion`
-- `required-write-class-sample-floors`
-
-Production app canary remains not release-proven. Do not claim downstream production app observation or full production app readiness.
+Production app canary remains `blocked` with reason `mesh_not_release_ready`; downstream observation is `not_run` with reason `prerequisites_blocked`. Do not claim downstream production app observation or full production app readiness.
 
 ## Approval And Ownership Table
 

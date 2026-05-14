@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-14T01:58:18Z",
+  "updated_at": "2026-05-14T08:28:50Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
@@ -10,7 +10,7 @@
   "node": "v20.20.0",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
-  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean PR #628-merged release-control commit before this docs-only go/no-go approval update was added. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
+  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean current PR #630 commit. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
   "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
   "final_status": "blocked_engineering_evidence",
   "status_reason": "This branch supersedes draft PR #629. The real public/remote lane is not green: /api/analyze/health returns upstream OpenAI 401, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.",
@@ -94,7 +94,7 @@
       "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
       "command_exit": 0,
       "status": "review_required",
-      "run_id": "mesh-production-readiness-20260513T094337Z-cdda22f7",
+      "run_id": "mesh-production-readiness-20260514T024637Z-74a7a1e7",
       "schema_epoch": "post_luma_m0b",
       "luma_profile": "none",
       "blockers": [
@@ -186,11 +186,9 @@
     "Private support desk or SLA unless externally provisioned."
   ],
   "protected_surfaces": {
-    "branch_runtime_changes": "none",
+    "branch_runtime_changes": "narrow runtime hardening only: news-aggregator dependency build order, analysis relay GPT-5 missing-content retry compatibility, and upstream auth-error redaction/classification",
     "inherited_rc_runtime_fix": "PR #627 includes one tested aggregate readback fix in packages/gun-client/src/aggregateAdapters.ts for nested LUMA signed-write envelope relation pointers.",
     "unchanged_in_this_branch": [
-      "app runtime",
-      "relay runtime",
       "Mesh readiness implementation",
       "production app canary implementation",
       "LUMA runtime/schema/custody/envelope/signed-write/provider/identifier/identity-vault",

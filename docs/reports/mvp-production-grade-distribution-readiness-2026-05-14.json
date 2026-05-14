@@ -32,6 +32,20 @@
         "pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts",
         "node tools/scripts/check-diff-coverage.mjs"
       ]
+    },
+    "upstream_auth_error_redaction": {
+      "files": [
+        "apps/web-pwa/src/server/analysisRelay.ts",
+        "apps/web-pwa/src/server/analysisRelay.budgetAndErrors.test.ts",
+        "apps/web-pwa/vite.config.ts",
+        "services/storycluster-engine/src/openaiClient.ts",
+        "services/storycluster-engine/src/openaiClient.test.ts"
+      ],
+      "summary": "Redact API-key-shaped upstream error text and expose machine-readable auth failure classification on the analysis health path.",
+      "verification": [
+        "pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts",
+        "pnpm --filter @vh/storycluster-engine exec vitest run src/openaiClient.test.ts"
+      ]
     }
   },
   "release_shaped_stack": {
@@ -65,7 +79,9 @@
     },
     "visible_feed_state": "No items to show.",
     "health_widget": "Health: Disconnected",
-    "screenshot": ".tmp/release-evidence/public-remote-feed-blocked-2026-05-14.png",
+    "screenshot": ".tmp/release-evidence/public-remote-feed-blocked-2026-05-14-current.png",
+    "snapshot": ".playwright-cli/page-2026-05-14T08-31-46-954Z.yml",
+    "console_log": ".playwright-cli/console-2026-05-14T08-31-46-691Z.log",
     "release_proven": false
   },
   "storycluster_production_readiness": {
@@ -82,28 +98,34 @@
       "keep_source_count": 28,
       "watch_source_count": 0,
       "remove_source_count": 0,
-      "latest_generated_at": "2026-05-14T02:22:47.389Z"
+      "latest_generated_at": "2026-05-14T08:45:33.401Z"
     },
     "headline_soak": {
       "observed_status": "fail",
       "latest_execution_readiness_status": "not_ready",
-      "execution_count": 1,
+      "execution_count": 2,
       "promotable_execution_count": 0,
+      "not_ready_execution_count": 2,
       "run_count": 3,
       "pass_count": 0,
       "fail_count": 3,
-      "total_sampled_stories": 0,
+      "total_sampled_stories": 24,
       "total_audited_pairs": 0,
+      "total_bundled_stories": 24,
+      "total_corroborated_bundles": 24,
+      "average_sample_fill_rate": 1,
+      "average_audited_pairs_per_sampled_story": 0,
+      "average_corroborated_bundle_rate": 1,
+      "average_unique_source_count": 3,
       "release_reasons": [
         "insufficient_headline_soak_execution_count",
         "promotable_execution_count_below_threshold",
+        "non_promotable_execution_count_exceeds_threshold",
         "latest_headline_soak_execution_not_promotable",
-        "corroborated_bundle_rate_below_threshold",
         "headline_source_diversity_below_threshold"
       ],
       "latest_execution_blockers": [
         "supply_failures_present",
-        "insufficient_sample_fill_rate",
         "insufficient_audited_pair_density"
       ]
     },
@@ -120,27 +142,31 @@
     "luma_gated_write_coverage_artifact": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json",
     "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
     "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
-    "dirty_mesh_aggregate_run_id": "mesh-production-readiness-20260514T020311Z-e6f8f715",
-    "dirty_mesh_aggregate_status": "blocked",
-    "dirty_mesh_aggregate_invalid_reason": "source reports were generated while repo.dirty was true after uncommitted relay coverage changes",
-    "dirty_mesh_aggregate_observations": [
+    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260514T024637Z-74a7a1e7",
+    "current_clean_mesh_aggregate_status": "review_required",
+    "current_clean_mesh_repo": {
+      "branch": "coord/mvp-production-grade-distribution-ready-v1",
+      "commit": "2878c1a80ab022ff0558e2d7b4257852538217c8",
+      "base_ref": "origin/main",
+      "dirty": false
+    },
+    "current_clean_mesh_observations": [
       "30-minute soak duration satisfied",
       "soak gate pass",
       "terminal failures 0",
       "duplicate canonical writes 0",
+      "repair events 0",
+      "evidence scrub promotion pass",
       "required write/resource SLO sample floors still insufficient"
     ],
-    "required_clean_current_commit_rerun": [
-      "pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e",
-      "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
-      "pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json"
-    ],
-    "known_mesh_blockers": [
+    "current_mesh_blockers": [
       "public-wss-deployment-proof",
-      "evidence-scrub-promotion",
       "required-write-class-sample-floors"
     ],
-    "production_app_canary_status": "not_release_proven"
+    "production_app_canary_status": "blocked",
+    "production_app_canary_reason": "mesh_not_release_ready",
+    "production_app_canary_downstream_observation_status": "not_run",
+    "production_app_canary_downstream_observation_reason": "prerequisites_blocked"
   },
   "approvals": {
     "release_owner": "pending",

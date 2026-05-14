@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
+import { redactSensitiveText, relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
 import { applyNewsSourceHealthEnv } from './src/server/newsSourceHealthEnv';
 import { buildCspContent } from './src/cspPolicy';
 
@@ -240,10 +240,21 @@ function createAnalysisRelayPlugin(): Plugin {
           if (result.status === 200) {
             sendJson(res, 200, { ok: true, model: c.modelOverride ?? 'default', upstream: 'reachable' });
           } else {
-            sendJson(res, 502, { ok: false, error: result.payload.error ?? `Upstream status ${result.status}`, status: result.status });
+            sendJson(res, 502, {
+              ok: false,
+              error: result.payload.error ?? `Upstream status ${result.status}`,
+              error_class: result.payload.error_class ?? 'upstream_health_check_failed',
+              release_ready: false,
+              status: result.status,
+            });
           }
         } catch (error) {
-          sendJson(res, 502, { ok: false, error: error instanceof Error ? error.message : 'Health check failed' });
+          sendJson(res, 502, {
+            ok: false,
+            error: error instanceof Error ? redactSensitiveText(error.message) : 'Health check failed',
+            error_class: 'upstream_health_check_failed',
+            release_ready: false,
+          });
         }
       });
       server.middlewares.use('/api/analyze/config', (req, res) => {
