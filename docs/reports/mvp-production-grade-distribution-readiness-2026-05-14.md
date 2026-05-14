@@ -12,7 +12,7 @@ pnpm: `9.7.1`
 
 `blocked_engineering_evidence`
 
-The constrained Web PWA MVP public-beta candidate is still not production-grade distribution-ready. This branch fixed one real local-stack startup blocker and one analysis-relay compatibility weakness, but the real public/remote release lane remains blocked by upstream OpenAI API authentication and by failing public headline-soak release evidence.
+The constrained Web PWA MVP public-beta candidate is still not production-grade distribution-ready. This branch fixed one real local-stack startup blocker and one analysis-relay compatibility weakness. A stale local env profile first produced an upstream OpenAI `401`, but the May 13 release env profile proves `/api/analyze/health` is now reachable. The remaining real public/remote release lane blockers are failed public headline-soak release evidence, an empty/disconnected Web PWA feed, Mesh/app readiness not being release-proven, and pending approvals/owners.
 
 Do not claim `go_for_public_beta_launch`, production-grade live headline freshness, StoryCluster `release_ready`, Mesh `release_ready`, production app canary pass, legal approval, commercial approval, LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, native App Store/TestFlight readiness, or full production app readiness from this packet.
 
@@ -22,14 +22,14 @@ Do not claim `go_for_public_beta_launch`, production-grade live headline freshne
 | --- | --- | --- |
 | News daemon stack startup | `services/news-aggregator` now builds `@vh/luma-sdk` before `@vh/gun-client`, matching `@vh/gun-client` runtime imports. | `pnpm --filter @vh/news-aggregator build:source-health-deps`; `pnpm --filter @vh/news-aggregator exec vitest run --config ./vitest.config.ts src/packageScripts.test.ts`; public stack reaches ready state. |
 | Analysis relay GPT-5 empty-content compatibility | Relay retries now expand `max_completion_tokens` / `max_tokens` after missing-content responses, preserve finish-reason diagnostics, and read text-array choice content. | `pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts`; `node tools/scripts/check-diff-coverage.mjs` |
-| Upstream auth-error redaction | Relay health and StoryCluster OpenAI errors now redact API-key-shaped upstream error text; relay health returns `error_class: upstream_401_invalid_api_key` for the current auth blocker. | `pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts`; `pnpm --filter @vh/storycluster-engine exec vitest run src/openaiClient.test.ts` |
+| Upstream auth-error redaction | Relay health and StoryCluster OpenAI errors now redact API-key-shaped upstream error text and expose machine-readable upstream auth classification when a stale or invalid key is actually used. | `pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts`; `pnpm --filter @vh/storycluster-engine exec vitest run src/openaiClient.test.ts` |
 
 ## Release-Shaped Stack Result
 
 Command:
 
 ```bash
-ENV_FILE=/Users/bldt/Desktop/VHC/VHC/.env VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public
+ENV_FILE=/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public
 ```
 
 Result: stack startup passed in `mode=public`, `analysis=remote`.
@@ -40,19 +40,19 @@ Observed services:
 | --- | --- |
 | web-pwa | running on `127.0.0.1:2048` |
 | relay | running on `127.0.0.1:7777/gun` |
-| news-daemon | starts, acquires lease, then runtime tick fails on upstream auth |
+| news-daemon | starts and acquires lease with the corrected env profile |
 | StoryCluster | running on `127.0.0.1:4310` |
 
 Required probes:
 
 | Probe | Result |
 | --- | --- |
-| `pnpm live:stack:status` | `mode=public`, `analysis=remote`, services start; daemon can later degrade after upstream auth failure. |
+| `pnpm live:stack:status` | `mode=public`, `analysis=remote`, services running. |
 | `curl -i http://127.0.0.1:2048/api/analyze/config` | `200 OK`; configured `true`; model `gpt-5-nano`; provider `remote-analysis-relay`; upstream URL configured. |
-| `curl -i http://127.0.0.1:2048/api/analyze/health` | `502 Bad Gateway`; upstream auth failure classified as `upstream_401_invalid_api_key`; `release_ready: false`; API-key-shaped upstream text redacted. |
-| `tail -n 200 /tmp/vh-local-news-daemon.log` | Runtime tick fails during StoryCluster remote request with OpenAI chat request `HTTP 401`. |
+| `curl -i http://127.0.0.1:2048/api/analyze/health` | `200 OK`; `{"ok":true,"model":"gpt-5-nano","upstream":"reachable"}`. |
+| `tail -n 80 /tmp/vh-local-news-daemon.log` | Daemon starts, acquires lease, and starts runtime without the stale-env auth failure. |
 
-Root cause status: the prior missing-content/output-limit relay weakness is patched and unit-tested, but the current local release env key is rejected upstream. Real public/remote analysis cannot be considered healthy until a valid release env key is supplied and `/api/analyze/health` returns `200`.
+Env-profile diagnosis: `/Users/bldt/Desktop/VHC/VHC/.env` has filesystem mtime `2026-05-01 16:52:52 America/Toronto` and direct OpenAI `/v1/models` probing returns `401 invalid_api_key`. The May 13 release env profile at `/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local` has filesystem mtime `2026-05-13 10:29:46 America/Toronto`, defines matching `OPENAI_API_KEY` and `ANALYSIS_RELAY_API_KEY`, direct OpenAI `/v1/models` probing returns `200`, and the Web PWA `/api/analyze/health` probe returns `200`.
 
 ## Public Feed UX Result
 
@@ -65,11 +65,11 @@ Playwright CLI browser check against `http://127.0.0.1:2048/`:
 | Feed counts | `0 live`, `0 news`, `0 topics`. |
 | Feed content | `No items to show.` |
 | Health widget | `Health: Disconnected`. |
-| Screenshot | `.tmp/release-evidence/public-remote-feed-blocked-2026-05-14-current.png` local artifact. |
-| Snapshot | `.playwright-cli/page-2026-05-14T08-31-46-954Z.yml` |
-| Console log | `.playwright-cli/console-2026-05-14T08-31-46-691Z.log`; 0 errors, 2 warnings. |
+| Screenshot | `.tmp/release-evidence/public-remote-feed-correct-env-blocked-2026-05-14.png` local artifact. |
+| Snapshot | `.playwright-cli/page-2026-05-14T10-35-29-682Z.yml` |
+| Console log | `.playwright-cli/console-2026-05-14T10-35-29-472Z.log`; 0 errors, 3 warnings. |
 
-This does not prove real public headlines visible in the Web PWA. Story detail, accepted analysis/synthesis, source labels, timestamps, refresh, scroll, identity, stance, comments, reload, and second-browser visibility were not release-proven because the real public/remote pipeline failed to materialize current public stories.
+This does not prove real public headlines visible in the Web PWA. Story detail, accepted analysis/synthesis, source labels, timestamps, refresh, scroll, identity, stance, comments, reload, and second-browser visibility were not release-proven because the corrected-env public/remote run still rendered an empty feed.
 
 ## StoryCluster Production Readiness
 
@@ -96,13 +96,12 @@ Evidence:
 | Gate | Status | Details |
 | --- | --- | --- |
 | StoryCluster correctness | pass | Deterministic corpus plus daemon-first semantic gate passed. |
-| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T09:53:00.790Z`. |
-| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 21 sampled stories; 21 bundled stories; 21 corroborated bundles; 0 audited pairs. Trend has 3 recent executions, 0 promotable, 3 not-ready. |
+| Source health | pass | `readinessStatus: ready`; `releaseEvidence.status: pass`; 5/5 ready window; 28 keep, 0 watch, 0 remove; latest observed report generated `2026-05-14T10:38:29.232Z`. |
+| Public headline soak | fail | Latest execution `readinessStatus: not_ready`; 3/3 soak runs failed; 24 sampled stories; 24 bundled stories; 24 corroborated bundles; 0 audited pairs. Trend has 4 recent executions, 0 promotable, 4 not-ready. |
 | Production readiness | blocked | `headline_soak_release_evidence_failed`. |
 
 Headline-soak blockers:
 
-- `insufficient_headline_soak_execution_count`
 - `promotable_execution_count_below_threshold`
 - `non_promotable_execution_count_exceeds_threshold`
 - `latest_headline_soak_execution_not_promotable`
@@ -170,7 +169,7 @@ No release-owner/operator approval inputs were supplied in this work. No legal/c
 ## Allowed Launch Copy
 
 - "The Web PWA MVP remains a constrained public-beta release candidate."
-- "The public/remote stack starts in public mode, but remote analysis health is blocked by upstream API authentication."
+- "The public/remote stack starts in public mode and remote analysis health passes when the May 13 release env profile is used."
 - "Source health is ready with release evidence pass."
 - "StoryCluster correctness passes, but StoryCluster production readiness is blocked by headline-soak release evidence."
 - "Mesh and production app readiness remain separate and are not release-ready in this packet."
@@ -208,7 +207,6 @@ This packet does not claim:
 
 | Blocker | Blocking status | Required next proof |
 | --- | --- | --- |
-| `analysis_remote_upstream_auth` | Blocks remote analysis relay health and StoryCluster live materialization. | Supply a valid release env key, rerun `pnpm live:stack:up:public`, and require `/api/analyze/health` `200 OK`. |
 | `public_headline_soak_release_evidence_failed` | Blocks StoryCluster production `release_ready` and production-grade live headline claims. | Rerun `pnpm collect:storycluster:headline-soak` until the headline-soak trend release evidence passes, then rerun `pnpm check:storycluster:production-readiness`. |
 | `real_public_feed_ux_not_proven` | Blocks distribution-ready Web PWA claim. | With public/remote stack healthy, browser-verify current public headlines, story detail, accepted synthesis, source labels, timestamps, refresh, scroll, identity, stance, comments, reload, and second-browser visibility. |
 | `mesh_release_ready_not_proven` | Blocks Mesh/app readiness claims. | Clean current-commit rerun of LUMA/Mesh matrix, public WSS proof, evidence-scrub promotion, required write/resource sample floors, and `pnpm check:mesh:production-readiness` resolving `release_ready`. |

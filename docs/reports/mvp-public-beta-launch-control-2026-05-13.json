@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-14T09:55:01Z",
+  "updated_at": "2026-05-14T10:39:03Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
@@ -13,7 +13,7 @@
   "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean current PR #630 commit. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
   "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "This branch supersedes draft PR #629. The real public/remote lane is not green: /api/analyze/health returns upstream OpenAI 401, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.",
+  "status_reason": "This branch supersedes draft PR #629. The real public/remote lane is still not production-grade green: /api/analyze/health passes when the May 13 release env profile is used, but current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.",
   "approval_input_result": {
     "required_approval_text_provided": false,
     "repo_local_approval_artifact_found": false,
@@ -21,11 +21,10 @@
   },
   "evidence": {
     "production_grade_distribution_readiness": {
-      "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC/.env VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public; curl -i http://127.0.0.1:2048/api/analyze/health; pnpm collect:storycluster:headline-soak; pnpm check:storycluster:production-readiness",
+      "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public; curl -i http://127.0.0.1:2048/api/analyze/health; pnpm collect:storycluster:headline-soak; pnpm check:storycluster:production-readiness",
       "status": "blocked_engineering_evidence",
       "path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
       "blockers": [
-        "analysis_remote_upstream_auth",
         "public_headline_soak_release_evidence_failed",
         "real_public_feed_ux_not_proven",
         "mesh_release_ready_not_proven",
@@ -168,6 +167,7 @@
     "MVP release gates passed.",
     "Source health passed the complete release evidence window.",
     "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
+    "Release-shaped public/remote analysis health passed when the May 13 release env profile was used.",
     "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed.",
     "Mesh production readiness remains separate and is currently review_required."
   ],

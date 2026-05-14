@@ -9,7 +9,7 @@
   "node": "v20.20.0",
   "pnpm": "9.7.1",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "The real public/remote lane starts but remote analysis health fails on upstream OpenAI API authentication, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approvals/owners remain pending.",
+  "status_reason": "The real public/remote lane starts and /api/analyze/health passes when the May 13 release env profile is used, but current public headlines are still not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approvals/owners remain pending.",
   "fixes": {
     "news_daemon_stack_startup": {
       "files": [
@@ -49,7 +49,7 @@
     }
   },
   "release_shaped_stack": {
-    "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC/.env VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public",
+    "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public",
     "mode": "public",
     "analysis": "remote",
     "startup_status": "pass",
@@ -60,13 +60,27 @@
       "provider_id": "remote-analysis-relay"
     },
     "analysis_health": {
-      "status": 502,
-      "error_class": "upstream_401_invalid_api_key",
-      "release_ready": false
+      "status": 200,
+      "ok": true,
+      "model": "gpt-5-nano",
+      "upstream": "reachable"
     },
     "news_daemon": {
       "runtime_started": true,
-      "blocking_error": "StoryCluster remote request fails with OpenAI chat request HTTP 401"
+      "blocking_error": null
+    },
+    "env_profile_diagnosis": {
+      "stale_env_profile": "/Users/bldt/Desktop/VHC/VHC/.env",
+      "stale_env_profile_mtime": "2026-05-01 16:52:52 America/Toronto",
+      "stale_env_direct_openai_models_probe": {
+        "status": 401,
+        "error_code": "invalid_api_key"
+      },
+      "corrected_release_env_profile": "/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local",
+      "corrected_release_env_profile_mtime": "2026-05-13 10:29:46 America/Toronto",
+      "corrected_release_env_direct_openai_models_probe": {
+        "status": 200
+      }
     }
   },
   "public_feed_ux": {
@@ -79,9 +93,9 @@
     },
     "visible_feed_state": "No items to show.",
     "health_widget": "Health: Disconnected",
-    "screenshot": ".tmp/release-evidence/public-remote-feed-blocked-2026-05-14-current.png",
-    "snapshot": ".playwright-cli/page-2026-05-14T08-31-46-954Z.yml",
-    "console_log": ".playwright-cli/console-2026-05-14T08-31-46-691Z.log",
+    "screenshot": ".tmp/release-evidence/public-remote-feed-correct-env-blocked-2026-05-14.png",
+    "snapshot": ".playwright-cli/page-2026-05-14T10-35-29-682Z.yml",
+    "console_log": ".playwright-cli/console-2026-05-14T10-35-29-472Z.log",
     "release_proven": false
   },
   "storycluster_production_readiness": {
@@ -98,27 +112,27 @@
       "keep_source_count": 28,
       "watch_source_count": 0,
       "remove_source_count": 0,
-      "latest_generated_at": "2026-05-14T09:53:00.790Z"
+      "latest_generated_at": "2026-05-14T10:38:29.232Z"
     },
     "headline_soak": {
       "observed_status": "fail",
       "latest_execution_readiness_status": "not_ready",
-      "execution_count": 3,
+      "execution_count": 4,
       "promotable_execution_count": 0,
-      "not_ready_execution_count": 3,
+      "not_ready_execution_count": 4,
+      "strict_soak_fail_count": 4,
       "run_count": 3,
       "pass_count": 0,
       "fail_count": 3,
-      "total_sampled_stories": 21,
+      "total_sampled_stories": 24,
       "total_audited_pairs": 0,
-      "total_bundled_stories": 21,
-      "total_corroborated_bundles": 21,
-      "average_sample_fill_rate": 0.875,
+      "total_bundled_stories": 24,
+      "total_corroborated_bundles": 24,
+      "average_sample_fill_rate": 1,
       "average_audited_pairs_per_sampled_story": 0,
       "average_corroborated_bundle_rate": 1,
       "average_unique_source_count": 3,
       "release_reasons": [
-        "insufficient_headline_soak_execution_count",
         "promotable_execution_count_below_threshold",
         "non_promotable_execution_count_exceeds_threshold",
         "latest_headline_soak_execution_not_promotable"
@@ -130,7 +144,7 @@
     },
     "artifacts": {
       "source_health_report": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json",
-      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778751458367/promotion-decision.json",
+      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778754644391/promotion-decision.json",
       "headline_soak_trend_index": ".tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json",
       "production_readiness_report": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
     }
@@ -177,7 +191,7 @@
   },
   "allowed_launch_copy": [
     "The Web PWA MVP remains a constrained public-beta release candidate.",
-    "The public/remote stack starts in public mode, but remote analysis health is blocked by upstream API authentication.",
+    "The public/remote stack starts in public mode and remote analysis health passes when the May 13 release env profile is used.",
     "Source health is ready with release evidence pass.",
     "StoryCluster correctness passes, but StoryCluster production readiness is blocked by headline-soak release evidence.",
     "Mesh and production app readiness remain separate and are not release-ready in this packet."
@@ -203,7 +217,6 @@
     "private support desk or SLA"
   ],
   "remaining_blockers": [
-    "analysis_remote_upstream_auth",
     "public_headline_soak_release_evidence_failed",
     "real_public_feed_ux_not_proven",
     "mesh_release_ready_not_proven",

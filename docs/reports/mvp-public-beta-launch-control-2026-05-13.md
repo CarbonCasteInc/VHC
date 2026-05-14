@@ -5,6 +5,7 @@ Created at: 2026-05-13T01:51:53Z
 Go/no-go approval update at: 2026-05-13T10:42:57Z
 Production-grade supersession update at: 2026-05-14T01:58:18Z
 Current evidence normalization update at: 2026-05-14T08:28:50Z
+Corrected release-env update at: 2026-05-14T10:39:03Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Release-control base: `origin/main` after PR #628 merge
@@ -20,7 +21,7 @@ Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun o
 
 `blocked_engineering_evidence`
 
-This branch explicitly supersedes draft PR #629 for the production-grade distribution-readiness attempt. The constrained public-beta evidence below remains historical context, but the current production-grade packet blocks launch because the real public/remote lane is not green: `/api/analyze/health` returns upstream OpenAI `401`, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.
+This branch explicitly supersedes draft PR #629 for the production-grade distribution-readiness attempt. The constrained public-beta evidence below remains historical context, but the current production-grade packet blocks launch because the real public/remote lane is not production-grade green: `/api/analyze/health` passes when the May 13 release env profile is used, but current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.
 
 Status may move to `go_for_public_beta_launch` only when the blockers in `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md` are cleared and every required approval/owner field below is approved, assigned, or explicitly marked `not_required` by the release owner.
 
@@ -76,6 +77,7 @@ Allowed launch copy:
 - "MVP release gates passed."
 - "Source health passed the complete release evidence window."
 - "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer."
+- "Release-shaped public/remote analysis health passed when the May 13 release env profile was used."
 - "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed."
 - "Mesh production readiness remains separate and is currently review_required."
 
