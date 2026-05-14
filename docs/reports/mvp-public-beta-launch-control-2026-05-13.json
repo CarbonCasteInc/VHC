@@ -2,8 +2,8 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-13T10:42:57Z",
-  "branch": "coord/mvp-public-beta-go-no-go-v1",
+  "updated_at": "2026-05-14T01:58:18Z",
+  "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
   "rc_packet_path": "docs/reports/mvp-public-beta-release-candidate-2026-05-12.md",
@@ -11,14 +11,28 @@
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
   "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean PR #628-merged release-control commit before this docs-only go/no-go approval update was added. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
-  "final_status": "hold_external_approval_pending",
-  "status_reason": "Engineering evidence passed, but release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership were not supplied in the release-owner/operator input for this update and no repo-local approval artifact was found.",
+  "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
+  "final_status": "blocked_engineering_evidence",
+  "status_reason": "This branch supersedes draft PR #629. The real public/remote lane is not green: /api/analyze/health returns upstream OpenAI 401, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.",
   "approval_input_result": {
     "required_approval_text_provided": false,
     "repo_local_approval_artifact_found": false,
-    "decision_effect": "all required human/operator/legal/support/escalation/rollback fields remain pending"
+    "decision_effect": "required human/operator/legal/support/escalation/rollback fields remain pending and current engineering evidence is blocked"
   },
   "evidence": {
+    "production_grade_distribution_readiness": {
+      "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC/.env VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public; curl -i http://127.0.0.1:2048/api/analyze/health; pnpm collect:storycluster:headline-soak; pnpm check:storycluster:production-readiness",
+      "status": "blocked_engineering_evidence",
+      "path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
+      "blockers": [
+        "analysis_remote_upstream_auth",
+        "public_headline_soak_release_evidence_failed",
+        "real_public_feed_ux_not_proven",
+        "mesh_release_ready_not_proven",
+        "production_app_canary_not_proven",
+        "approvals_and_owners_pending"
+      ]
+    },
     "public_beta_launch_closeout": {
       "command": "pnpm check:public-beta-launch-closeout",
       "status": "pass",

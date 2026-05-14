@@ -3,10 +3,12 @@
 Date: 2026-05-13
 Created at: 2026-05-13T01:51:53Z
 Go/no-go approval update at: 2026-05-13T10:42:57Z
-Branch: `coord/mvp-public-beta-go-no-go-v1`
+Production-grade supersession update at: 2026-05-14T01:58:18Z
+Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Release-control base: `origin/main` after PR #628 merge
 RC packet: `docs/reports/mvp-public-beta-release-candidate-2026-05-12.md`
+Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
 Node: `v20.20.0`
 pnpm: `9.7.1`
 Repo dirty state during engineering evidence: clean
@@ -15,11 +17,11 @@ Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun o
 
 ## Final Status
 
-`hold_external_approval_pending`
+`blocked_engineering_evidence`
 
-Engineering evidence passed on the release-control commit for the implemented Web PWA MVP public-beta scope. Launch is held because release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership were not supplied in the release-owner/operator input for this update and no repo-local approval artifact was found. Do not infer signoff from green engineering evidence.
+This branch explicitly supersedes draft PR #629 for the production-grade distribution-readiness attempt. The constrained public-beta evidence below remains historical context, but the current production-grade packet blocks launch because the real public/remote lane is not green: `/api/analyze/health` returns upstream OpenAI `401`, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.
 
-Status may move to `go_for_public_beta_launch` only when every required approval/owner field below is approved, assigned, or explicitly marked `not_required` by the release owner.
+Status may move to `go_for_public_beta_launch` only when the blockers in `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md` are cleared and every required approval/owner field below is approved, assigned, or explicitly marked `not_required` by the release owner.
 
 ## Approval Input Result
 
@@ -27,9 +29,11 @@ Required approval text provided in this go/no-go update: none.
 
 Repo-local approval artifact found: none.
 
-Decision effect: all required human/operator/legal/support/escalation/rollback fields remain pending, so the final launch-control status remains `hold_external_approval_pending`.
+Decision effect: required human/operator/legal/support/escalation/rollback fields remain pending, and current engineering evidence is blocked, so the final launch-control status is `blocked_engineering_evidence`.
 
 ## Evidence Summary
+
+The table below records the constrained public-beta candidate evidence inherited from PR #629. It does not override the production-grade distribution-readiness packet linked above.
 
 | Evidence | Command | Result | Report or note |
 | --- | --- | --- | --- |
@@ -164,4 +168,4 @@ This packet makes no changes to:
 
 `blocked_engineering_evidence` applies if any deterministic release gate fails.
 
-Current decision: `hold_external_approval_pending`.
+Current decision: `blocked_engineering_evidence`.

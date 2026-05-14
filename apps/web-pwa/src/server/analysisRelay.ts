@@ -17,6 +17,15 @@ type AnalysisProvider = {
   kind: 'remote';
 };
 
+type ChatCompletionsPayload = {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+};
+
 interface RelayArticleRequest {
   articleText: string;
   model?: string;
@@ -243,14 +252,7 @@ function toChatCompletionsPayload(request: {
   max_tokens: number;
   temperature: number;
   reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
-}): {
-  model: string;
-  messages: Array<{ role: string; content: string }>;
-  max_tokens?: number;
-  max_completion_tokens?: number;
-  temperature?: number;
-  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
-} {
+}): ChatCompletionsPayload {
   const tokenParam = resolveTokenParam(request.model);
   const reasoningEffort = request.reasoningEffort ?? 'low';
   return {
@@ -260,6 +262,26 @@ function toChatCompletionsPayload(request: {
     ...(shouldSendTemperature(request.model) ? { temperature: request.temperature } : {}),
     ...(shouldSendReasoningEffort(request.model) ? { reasoning_effort: reasoningEffort } : {}),
   };
+}
+
+function readContentPart(value: unknown): string | undefined {
+  if (typeof value === 'string') return asNonEmptyString(value);
+  if (!isObject(value)) return undefined;
+  const text = asNonEmptyString(value.text);
+  if (text) return text;
+  return asNonEmptyString(value.content);
+}
+
+function readMessageContent(value: unknown): string | undefined {
+  const fromString = asNonEmptyString(value);
+  if (fromString) return fromString;
+  if (!Array.isArray(value)) return undefined;
+
+  const combined = value
+    .map(readContentPart)
+    .filter((part): part is string => !!part)
+    .join('');
+  return asNonEmptyString(combined);
 }
 
 function readContentFromUpstream(body: unknown): string | null {
@@ -273,11 +295,44 @@ function readContentFromUpstream(body: unknown): string | null {
   }
 
   if (Array.isArray(body.choices) && isObject(body.choices[0]) && isObject(body.choices[0].message)) {
-    const fromChoices = asNonEmptyString(body.choices[0].message.content);
+    const fromChoices = readMessageContent(body.choices[0].message.content);
     if (fromChoices) return fromChoices;
   }
 
   return null;
+}
+
+function readMissingContentDetails(body: unknown): string | undefined {
+  if (!isObject(body)) return undefined;
+
+  const details: string[] = [];
+  if (Array.isArray(body.choices) && isObject(body.choices[0])) {
+    const finishReason = asNonEmptyString(body.choices[0].finish_reason);
+    if (finishReason) details.push(`finish_reason=${finishReason}`);
+  }
+
+  const status = asNonEmptyString(body.status);
+  if (status) details.push(`status=${status}`);
+
+  if (isObject(body.incomplete_details)) {
+    const reason = asNonEmptyString(body.incomplete_details.reason);
+    if (reason) details.push(`incomplete_reason=${reason}`);
+  }
+
+  return details.length > 0 ? details.join(', ') : undefined;
+}
+
+function withExpandedCompletionBudget(
+  payload: ChatCompletionsPayload,
+  attempt: number,
+): ChatCompletionsPayload {
+  if (attempt === 0) return payload;
+
+  const tokenParam = payload.max_completion_tokens === undefined ? 'max_tokens' : 'max_completion_tokens';
+  const current = payload[tokenParam] as number;
+  const next = Math.min(Math.max(current * (4 ** attempt), 128), 8192);
+  if (next === current) return payload;
+  return { ...payload, [tokenParam]: next };
 }
 
 function readModelFromUpstream(body: Record<string, unknown>, fallback: string): string {
@@ -375,10 +430,12 @@ export async function relayAnalysis(
     const upstreamFetchTimeoutMs = resolveUpstreamFetchTimeoutMs(upstreamRequest.model, env);
     const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
     let lastUpstreamBody: unknown = null;
+    let lastMissingContentDetails: string | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), upstreamFetchTimeoutMs);
+      const attemptPayload = withExpandedCompletionBudget(chatPayload, attempt);
 
       let upstream: Response;
       try {
@@ -388,7 +445,7 @@ export async function relayAnalysis(
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify(chatPayload),
+          body: JSON.stringify(attemptPayload),
           signal: controller.signal,
         });
       } finally {
@@ -408,6 +465,7 @@ export async function relayAnalysis(
 
       lastUpstreamBody = await upstream.json();
       const content = readContentFromUpstream(lastUpstreamBody);
+      lastMissingContentDetails = undefined;
       if (content) {
         const provider: AnalysisProvider = {
           provider_id: config.providerId,
@@ -437,10 +495,17 @@ export async function relayAnalysis(
         };
       }
 
-      // Content was empty/null — retry if attempts remain
+      lastMissingContentDetails = readMissingContentDetails(lastUpstreamBody);
+      // Content was empty/null; retry with a larger completion budget when possible.
     }
 
-    return { status: 502, payload: { error: 'Upstream response missing content' } };
+    return {
+      status: 502,
+      payload: {
+        error: 'Upstream response missing content',
+        ...(lastMissingContentDetails ? { details: lastMissingContentDetails } : {}),
+      },
+    };
   } catch (error) {
     const isTimeout = error instanceof DOMException && error.name === 'AbortError';
     const upstreamFetchTimeoutMs = resolveUpstreamFetchTimeoutMs(upstreamRequest.model, env);

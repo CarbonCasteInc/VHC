@@ -1,0 +1,188 @@
+{
+  "schema_version": "mvp-production-grade-distribution-readiness-v1",
+  "date": "2026-05-14",
+  "branch": "coord/mvp-production-grade-distribution-ready-v1",
+  "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
+  "supersedes_pr": 629,
+  "supersedes_branch": "coord/mvp-public-beta-go-no-go-v1",
+  "included_superseded_commit": "de1c1eb4457a77d1a1e664c1b24d162c6f520478",
+  "node": "v20.20.0",
+  "pnpm": "9.7.1",
+  "final_status": "blocked_engineering_evidence",
+  "status_reason": "The real public/remote lane starts but remote analysis health fails on upstream OpenAI API authentication, current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approvals/owners remain pending.",
+  "fixes": {
+    "news_daemon_stack_startup": {
+      "files": [
+        "services/news-aggregator/package.json",
+        "services/news-aggregator/src/packageScripts.test.ts"
+      ],
+      "summary": "Build @vh/luma-sdk before @vh/gun-client for news daemon runtime imports.",
+      "verification": [
+        "pnpm --filter @vh/news-aggregator build:source-health-deps",
+        "pnpm --filter @vh/news-aggregator exec vitest run --config ./vitest.config.ts src/packageScripts.test.ts"
+      ]
+    },
+    "analysis_relay_gpt5_empty_content_compatibility": {
+      "files": [
+        "apps/web-pwa/src/server/analysisRelay.ts",
+        "apps/web-pwa/src/server/analysisRelay.test.ts"
+      ],
+      "summary": "Expand completion-token budget across missing-content retries, preserve finish-reason diagnostics, and read text-array choice content.",
+      "verification": [
+        "pnpm --filter @vh/web-pwa exec vitest run src/server/analysisRelay.test.ts src/server/analysisRelay.budgetAndErrors.test.ts",
+        "node tools/scripts/check-diff-coverage.mjs"
+      ]
+    }
+  },
+  "release_shaped_stack": {
+    "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC/.env VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public",
+    "mode": "public",
+    "analysis": "remote",
+    "startup_status": "pass",
+    "analysis_config": {
+      "status": 200,
+      "configured": true,
+      "model": "gpt-5-nano",
+      "provider_id": "remote-analysis-relay"
+    },
+    "analysis_health": {
+      "status": 502,
+      "error_class": "upstream_401_invalid_api_key",
+      "release_ready": false
+    },
+    "news_daemon": {
+      "runtime_started": true,
+      "blocking_error": "StoryCluster remote request fails with OpenAI chat request HTTP 401"
+    }
+  },
+  "public_feed_ux": {
+    "browser_url": "http://127.0.0.1:2048/",
+    "page_title": "TRINITY Web PWA",
+    "feed_counts": {
+      "live": 0,
+      "news": 0,
+      "topics": 0
+    },
+    "visible_feed_state": "No items to show.",
+    "health_widget": "Health: Disconnected",
+    "screenshot": ".tmp/release-evidence/public-remote-feed-blocked-2026-05-14.png",
+    "release_proven": false
+  },
+  "storycluster_production_readiness": {
+    "collect_command": "pnpm collect:storycluster:headline-soak",
+    "check_command": "pnpm check:storycluster:production-readiness",
+    "status": "blocked",
+    "reason": "headline_soak_release_evidence_failed",
+    "correctness_gate": "pass",
+    "source_health": {
+      "readiness_status": "ready",
+      "release_evidence_status": "pass",
+      "recent_window_run_count": 5,
+      "recent_ready_run_count": 5,
+      "keep_source_count": 28,
+      "watch_source_count": 0,
+      "remove_source_count": 0,
+      "latest_generated_at": "2026-05-14T02:22:47.389Z"
+    },
+    "headline_soak": {
+      "observed_status": "fail",
+      "latest_execution_readiness_status": "not_ready",
+      "execution_count": 1,
+      "promotable_execution_count": 0,
+      "run_count": 3,
+      "pass_count": 0,
+      "fail_count": 3,
+      "total_sampled_stories": 0,
+      "total_audited_pairs": 0,
+      "release_reasons": [
+        "insufficient_headline_soak_execution_count",
+        "promotable_execution_count_below_threshold",
+        "latest_headline_soak_execution_not_promotable",
+        "corroborated_bundle_rate_below_threshold",
+        "headline_source_diversity_below_threshold"
+      ],
+      "latest_execution_blockers": [
+        "supply_failures_present",
+        "insufficient_sample_fill_rate",
+        "insufficient_audited_pair_density"
+      ]
+    },
+    "artifacts": {
+      "source_health_report": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json",
+      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778722068972/promotion-decision.json",
+      "headline_soak_trend_index": ".tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json",
+      "production_readiness_report": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
+    }
+  },
+  "mesh_and_app_canary": {
+    "mesh_claimed_release_ready": false,
+    "production_app_canary_claimed_pass": false,
+    "luma_gated_write_coverage_artifact": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json",
+    "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+    "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
+    "dirty_mesh_aggregate_run_id": "mesh-production-readiness-20260514T020311Z-e6f8f715",
+    "dirty_mesh_aggregate_status": "blocked",
+    "dirty_mesh_aggregate_invalid_reason": "source reports were generated while repo.dirty was true after uncommitted relay coverage changes",
+    "dirty_mesh_aggregate_observations": [
+      "30-minute soak duration satisfied",
+      "soak gate pass",
+      "terminal failures 0",
+      "duplicate canonical writes 0",
+      "required write/resource SLO sample floors still insufficient"
+    ],
+    "required_clean_current_commit_rerun": [
+      "pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e",
+      "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
+      "pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json"
+    ],
+    "known_mesh_blockers": [
+      "public-wss-deployment-proof",
+      "evidence-scrub-promotion",
+      "required-write-class-sample-floors"
+    ],
+    "production_app_canary_status": "not_release_proven"
+  },
+  "approvals": {
+    "release_owner": "pending",
+    "external_legal_disposition": "pending",
+    "launch_copy_approval": "pending",
+    "support_intake_owner": "pending",
+    "private_escalation_owner_channel": "pending",
+    "rollback_owner_path": "pending"
+  },
+  "allowed_launch_copy": [
+    "The Web PWA MVP remains a constrained public-beta release candidate.",
+    "The public/remote stack starts in public mode, but remote analysis health is blocked by upstream API authentication.",
+    "Source health is ready with release evidence pass.",
+    "StoryCluster correctness passes, but StoryCluster production readiness is blocked by headline-soak release evidence.",
+    "Mesh and production app readiness remain separate and are not release-ready in this packet."
+  ],
+  "forbidden_claims": [
+    "go_for_public_beta_launch",
+    "production-grade live headline freshness",
+    "StoryCluster release_ready",
+    "Mesh release_ready",
+    "production app canary pass",
+    "downstream production app surfaces observed end to end",
+    "legal approval",
+    "commercial approval",
+    "support approval",
+    "escalation approval",
+    "rollback approval",
+    "LUMA Silver",
+    "verified-human identity",
+    "one-human-one-vote",
+    "Sybil resistance",
+    "production attestation",
+    "native App Store or TestFlight readiness",
+    "private support desk or SLA"
+  ],
+  "remaining_blockers": [
+    "analysis_remote_upstream_auth",
+    "public_headline_soak_release_evidence_failed",
+    "real_public_feed_ux_not_proven",
+    "mesh_release_ready_not_proven",
+    "production_app_canary_not_proven",
+    "approvals_and_owners_pending"
+  ]
+}
