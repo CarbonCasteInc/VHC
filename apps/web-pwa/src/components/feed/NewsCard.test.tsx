@@ -10,7 +10,7 @@ import { useForumStore } from '../../store/hermesForum';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCard } from './NewsCard';
-import { resetExpandedCardStore } from './expandedCardStore';
+import { resetExpandedCardStore, useExpandedCardStore } from './expandedCardStore';
 import {
   getCachedSynthesisForStory,
   synthesizeStoryFromAnalysisPipeline,
@@ -218,6 +218,22 @@ describe('NewsCard', () => {
 
     await waitFor(() => expect(loadThreadsSpy).toHaveBeenCalledWith('new'));
     loadThreadsSpy.mockRestore();
+  });
+
+  it('starts synthesis hydration when story detail is restored from route state', async () => {
+    const startHydrationSpy = vi.spyOn(useSynthesisStore.getState(), 'startHydration');
+    const refreshSpy = vi.spyOn(useSynthesisStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+
+    act(() => {
+      useExpandedCardStore.getState().expand('news:story-news-1');
+    });
+    render(<NewsCard item={makeNewsItem()} />);
+
+    await waitFor(() => expect(startHydrationSpy).toHaveBeenCalledWith('news-1'));
+    await waitFor(() => expect(refreshSpy).toHaveBeenCalledWith('news-1'));
+    refreshSpy.mockRestore();
+    startHydrationSpy.mockRestore();
   });
 
   it('retries pending synthesis refresh while story detail remains open', async () => {

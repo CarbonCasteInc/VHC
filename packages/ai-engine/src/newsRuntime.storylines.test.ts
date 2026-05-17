@@ -102,7 +102,7 @@ describe('newsRuntime storylines', () => {
     vi.restoreAllMocks();
   });
 
-  it('publishes storylines before bundles when adapters are provided', async () => {
+  it('publishes bundles before storylines when adapters are provided', async () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));
 
     const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
@@ -120,9 +120,36 @@ describe('newsRuntime storylines', () => {
 
     expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY);
-    expect(writeStorylineGroup.mock.invocationCallOrder[0]).toBeLessThan(
-      writeStoryBundle.mock.invocationCallOrder[0],
+    expect(writeStoryBundle.mock.invocationCallOrder[0]).toBeLessThan(
+      writeStorylineGroup.mock.invocationCallOrder[0],
     );
+
+    handle.stop();
+  });
+
+  it('does not let storyline write failures block bundle publication', async () => {
+    const storylineError = new Error('storyline write failed');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));
+
+    const onError = vi.fn();
+    const writeStorylineGroup = vi.fn().mockRejectedValue(storylineError);
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      runOnStart: true,
+      pollIntervalMs: 10,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY);
+    expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
+    expect(onError).toHaveBeenCalledWith(storylineError);
+    expect(handle.lastRun()).toBeInstanceOf(Date);
 
     handle.stop();
   });

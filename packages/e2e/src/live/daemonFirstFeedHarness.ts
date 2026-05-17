@@ -31,6 +31,7 @@ export const LIVE_BASE_URL = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2
 export const STORYCLUSTER_PORT = Number(process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ?? '4310');
 export const STORYCLUSTER_TOKEN = process.env.VH_DAEMON_FEED_STORYCLUSTER_TOKEN ?? 'vh-daemon-feed-token';
 export const RUN_ID = process.env.VH_DAEMON_FEED_RUN_ID ?? `manual-${process.pid}`;
+const DEFAULT_NEWS_DAEMON_HOLDER_ID = `vh-e2e-news-daemon:${RUN_ID}`;
 export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333';
 const configuredSharedRelayUrl = process.env.VH_DAEMON_FEED_SHARED_RELAY_URL?.trim();
 export const GUN_PEER_URL = configuredSharedRelayUrl
@@ -264,7 +265,8 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: storyclusterRemote.authToken,
     VH_STORYCLUSTER_REMOTE_AUTH_HEADER: storyclusterRemote.authHeader,
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: storyclusterRemote.authScheme,
-    VH_NEWS_DAEMON_HOLDER_ID: 'vh-e2e-news-daemon',
+    VH_NEWS_DAEMON_HOLDER_ID:
+      process.env.VH_NEWS_DAEMON_HOLDER_ID?.trim() || DEFAULT_NEWS_DAEMON_HOLDER_ID,
     VH_NEWS_SYSTEM_WRITER_ID: E2E_SYSTEM_WRITER_ID,
     VH_NEWS_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
     VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL: E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL,

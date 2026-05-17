@@ -1,176 +1,89 @@
 # MVP Public Beta Launch Control Packet
 
 Date: 2026-05-13
-Created at: 2026-05-13T01:51:53Z
-Go/no-go approval update at: 2026-05-13T10:42:57Z
-Production-grade supersession update at: 2026-05-14T01:58:18Z
-Current evidence normalization update at: 2026-05-14T08:28:50Z
-Corrected release-env update at: 2026-05-14T10:39:03Z
+Updated at: 2026-05-17T05:45:00Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
-Release-control base: `origin/main` after PR #628 merge
-RC packet: `docs/reports/mvp-public-beta-release-candidate-2026-05-12.md`
 Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
-Node: `v20.20.0`
+Node: `v20.20.2`
 pnpm: `9.7.1`
-Repo dirty state during engineering evidence: clean
-
-Verification timing: the deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean current PR #630 commit. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.
 
 ## Final Status
 
 `blocked_engineering_evidence`
 
-This branch explicitly supersedes draft PR #629 for the production-grade distribution-readiness attempt. The constrained public-beta evidence below remains historical context, but the current production-grade packet blocks launch because the real public/remote lane is not production-grade green: `/api/analyze/health` passes when the May 13 release env profile is used, but current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.
+StoryCluster is now `release_ready`, the local public/remote Web PWA feed smoke passed, and the operator-provided approval/owner fields are recorded. This packet still cannot move to `go_for_public_beta_launch` because the required public self-hosted deployment cannot be truthfully built or proven from this agent: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. Therefore Mesh `release_ready`, production app canary pass, and `https://venn.carboncaste.io` public deployment are not claimed.
 
-Status may move to `go_for_public_beta_launch` only when the blockers in `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md` are cleared and every required approval/owner field below is approved, assigned, or explicitly marked `not_required` by the release owner.
+## Release Env
 
-## Approval Input Result
+Release env path used without printing secrets:
 
-Required approval text provided in this go/no-go update: none.
+`/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local`
 
-Repo-local approval artifact found: none.
-
-Decision effect: required human/operator/legal/support/escalation/rollback fields remain pending, and current engineering evidence is blocked, so the final launch-control status is `blocked_engineering_evidence`.
+Presence-only verification found `OPENAI_API_KEY` and `ANALYSIS_RELAY_API_KEY`. `/api/analyze/config` returned configured `true`, model `gpt-5-nano`, provider `remote-analysis-relay`. `/api/analyze/health` returned `200 OK` with `{"ok":true,"model":"gpt-5-nano","upstream":"reachable"}`.
 
 ## Evidence Summary
 
-The table below records the constrained public-beta candidate evidence and the current clean Mesh/canary boundary from PR #630. It does not override the production-grade distribution-readiness packet linked above.
+| Evidence | Result | Artifact |
+| --- | --- | --- |
+| StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
+| Public/remote Web PWA feed smoke | `pass` | `.tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json` |
+| Public feed screenshots | saved | `.tmp/release-evidence/public-feed-browser-smoke/1778996451746/` |
+| Analysis relay health | `200 OK` | local curl output |
+| Public WSS Mesh | blocked | external infrastructure access unavailable |
+| Production app canary | blocked | Mesh/public deployment prerequisite unavailable |
 
-| Evidence | Command | Result | Report or note |
-| --- | --- | --- | --- |
-| Public beta launch closeout | `pnpm check:public-beta-launch-closeout` | PASS | `docs/ops/public-beta-launch-readiness-closeout.md` |
-| MVP release gates | `pnpm check:mvp-release-gates` | PASS, 14/14 gates | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` |
-| MVP consolidated closeout | `pnpm check:mvp-closeout` | PASS | `.tmp/mvp-closeout/latest/mvp-closeout-report.json` |
-| Launch content snapshot | `pnpm check:launch-content-snapshot` | PASS | `.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json` |
-| Public beta compliance | `pnpm check:public-beta-compliance` | PASS | `tools/scripts/check-public-beta-compliance.mjs` |
-| LUMA public-beta MVP readiness | `pnpm check:luma:mvp-production-readiness` | PASS | `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json` |
-| Source health | `pnpm check:news-sources:health` | READY; release evidence PASS; 5/5 ready window; 28 keep, 0 watch, 0 remove | `services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json` |
-| Documentation governance | `pnpm docs:check` | PASS | local command output |
-| Whitespace diff check | `git diff --check origin/main...HEAD` | PASS before and after packet edit | local command output |
-| Diff coverage guard | `node tools/scripts/check-diff-coverage.mjs` | PASS, no coverage-eligible source files changed | local command output |
-| Public namespace leaks | `pnpm check:public-namespace-leaks` | PASS | local command output |
-| LUMA mesh reader-path coverage | `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e` | PASS | `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json` |
-| Mesh aggregate boundary | `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness` | Command exited 0; clean current-commit report remains `review_required`; run `mesh-production-readiness-20260514T085031Z-8364162c`; evidence scrub pass | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
-| Production app canary boundary | `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` | EXPECTED BLOCKED, exit 1, `mesh_not_release_ready` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
-| Local product-loop rehearsal | `pnpm live:stack:up:analysis-stub`; `pnpm test:live:five-user-engagement`; `pnpm live:stack:down` | PASS on clean rerun; stack down PASS; five-user test 6.1m | local command output |
-
-## Engineering Evidence Details
-
-| Area | Status |
-| --- | --- |
-| MVP release gates | `overallStatus: pass`; 14 gates, 14 pass, failing gates `[]` |
-| MVP closeout | `status: pass`; blockers `[]` |
-| Source health | `readinessStatus: ready`; `releaseEvidence.status: pass`; `recentWindowRunCount: 5`; `recentReadyRunCount: 5`; `recentReviewRunCount: 0`; `recentBlockedRunCount: 0`; `keepSourceCount: 28`; `watchSourceCount: 0`; `removeSourceCount: 0`; `reasonCounts: {}` |
-| LUMA public-beta MVP | `status: pass`; `profile: public-beta`; blockers `[]` |
-| Mesh LUMA coverage | `status: pass`; `schema_epoch: post_luma_m0b`; `luma_profile: e2e`; failures `[]` |
-| Mesh readiness | `status: review_required`; `schema_epoch: post_luma_m0b`; `luma_profile: none`; run `mesh-production-readiness-20260514T085031Z-8364162c`; repo commit `0f4b050681fc72792920c17ffae1a78d88dfeb3e`; `repo.dirty: false`; blockers `public-wss-deployment-proof`, `required-write-class-sample-floors` |
-| Canonical Mesh soak | 30-minute duration satisfied; `soak_gate: pass`; `terminal_failures: 0`; `duplicate_canonical_writes: 0`; `repair_events: 0`; Mesh still remains `review_required` because sample floors are not satisfied |
-| Production app canary | `status: blocked`; `reason: mesh_not_release_ready`; downstream observation `not_run`; downstream reason `prerequisites_blocked` |
-| Launch rehearsal | PASS on clean rerun against local `analysis-stub` stack; five beta-local users exercised feed/detail/stance/thread activity and aggregate readback |
-
-## Release Copy
-
-Allowed launch copy:
-
-- "Web PWA MVP public beta candidate for the implemented scope."
-- "MVP release gates passed."
-- "Source health passed the complete release evidence window."
-- "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer."
-- "Release-shaped public/remote analysis health passed when the May 13 release env profile was used."
-- "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed."
-- "Mesh production readiness remains separate and is currently review_required."
-
-Forbidden launch copy:
-
-- Mesh `release_ready`.
-- Production app canary pass.
-- Downstream production app surfaces observed end to end.
-- Full production app readiness.
-- Test-group readiness.
-- Legal or commercial approval unless explicitly recorded.
-- Production-grade live headline freshness unless StoryCluster production readiness separately says `release_ready`.
-- LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, or production attestation.
-- Public WSS proof satisfied unless the Mesh report says so.
-- Mesh sample floors satisfied unless the Mesh report says so.
-- Native App Store or TestFlight readiness.
-- Private support desk or SLA unless externally provisioned.
+Public-feed proof covered daemon/Gun latest-index readback, current public headlines, source labels, timestamps, refresh, scroll, story detail, accepted synthesis, identity creation, point stance write/readback, story comments, reload persistence, and second-browser visibility.
 
 ## Approval Table
 
-| Approval or owner | Name, team, or reference | Approval status | Timestamp | Notes |
-| --- | --- | --- | --- | --- |
-| Release owner | Pending | `pending` | Pending | Required before public launch. |
-| External/legal approval | Requirement disposition pending; approver pending | `pending` | Pending | This update records no legal, commercial, or external distribution approval, and does not state whether approval is required or not required. |
-| Launch copy approval | Pending | `pending` | Pending | Only the bounded copy above is allowed until approved by the release owner. |
-| Support intake owner | Pending | `pending` | Pending | Public issue intake path exists through the Web PWA `/support` surface and VHC public beta GitHub Issue Form; owner assignment is pending. |
-| Private escalation owner | Pending | `pending` | Pending | Private escalation channel/reference remains outside repo automation and must be supplied before launch. |
-| Rollback owner | Pending | `pending` | Pending | Owner assignment is pending. Engineering rollback path is documented below but is not an owner signoff. |
+| Field | Recorded value |
+| --- | --- |
+| Release owner | Carbon Caste Inc |
+| Legal/external disposition | `not_required` |
+| Legal/external rationale | public beta copy makes no regulated/commercial/legal claims |
+| Launch copy approval | `approved` |
+| Approved launch copy path | `docs/launch/public-beta-copy.md` |
+| Support intake owner | Venn Support |
+| Public support/intake path | GitHub issue form in `CarbonCasteInc/VHC` |
+| Private escalation owner/team | Venn Core |
+| Private escalation channel | none; single-developer project |
+| Rollback disposition | `not_required` |
+| Rollback rationale | fresh launch, no release version, no userbase, no migration |
 
-## Support And Escalation
+## Infrastructure Blockers
 
-Public intake path: Web PWA `/support` surface linked to the VHC public beta GitHub Issue Form.
+| Blocker | Observed fact | Required human action |
+| --- | --- | --- |
+| `dns_registrar_access_required` | `carboncaste.io` uses Namecheap nameservers; `venn.carboncaste.io` and `gun-a/b/c.venn.carboncaste.io` have no A records; no DNS API credentials are available in the environment. | Provide registrar/DNS access or create the required records. |
+| `public_inbound_router_firewall_required` | Mac mini and `humble` both report public IPv4 `129.222.193.128`; inbound TCP 80/443 to that IP timed out. | Provide router/firewall/NAT control or another public ingress for 80/443/WSS. |
+| `host_admin_rights_required` | `sudo -n true` requires a password on both hosts. | Provide noninteractive sudo/admin rights or preconfigure services/firewall/privileged ports. |
+| `tls_issuance_blocked_by_dns_and_inbound` | No Caddy/certbot/nginx binary is installed on either host; DNS and inbound 80/443 are unavailable for ACME. | Provide TLS tooling plus DNS challenge credentials, or open HTTP-01/443 and authorize installation. |
+| `public_wss_deployment_proof_missing` | Required public peers cannot be deployed or probed without the above. | Deploy and prove the three public WSS peers after access is available. |
 
-Private escalation path: pending release-owner/operator confirmation. Do not claim a private support desk, SLA, legal intake, or staffed escalation channel until the release owner records the external reference.
+## Allowed Launch Copy
 
-Minimum expected escalation classes before launch:
+The approved bounded copy is in `docs/launch/public-beta-copy.md`. It allows only the local public/remote and StoryCluster evidence recorded here. It explicitly does not activate a public launch while infrastructure blockers remain.
 
-- deletion, correction, copyright, attribution, abuse, safety, account, and access issues that cannot safely remain in a public GitHub issue;
-- engineering incidents that invalidate any deterministic gate in this packet;
-- launch-copy or public-claim issues that imply a forbidden claim.
+## Forbidden Claims
 
-## Rollback Path
+- `go_for_public_beta_launch`
+- Mesh `release_ready`
+- production app canary pass
+- public WSS proof satisfied
+- `https://venn.carboncaste.io` deployed or publicly reachable
+- downstream production app surfaces observed end to end
+- legal approval or commercial approval
+- LUMA Silver
+- verified-human identity
+- one-human-one-vote
+- Sybil resistance
+- production attestation
+- native App Store or TestFlight readiness
+- private support desk or SLA
 
-Rollback owner: pending.
+## Decision Rule
 
-Rollback triggers:
-
-- any deterministic evidence rerun fails before launch;
-- launch copy includes a forbidden claim;
-- required approval is rejected or remains pending for the intended distribution path;
-- support/escalation or rollback ownership remains unassigned;
-- a public-beta incident requires halting distribution or correcting public claims.
-
-Engineering rollback path:
-
-- hold or withdraw public launch copy;
-- keep the Web PWA at the last approved public-beta candidate state;
-- revert or supersede this launch-control packet if it records an incorrect approval or claim boundary;
-- keep Mesh production readiness, production app canary, full-app readiness, test-group readiness, native readiness, and legal/commercial approval as separate gates.
-
-## Runtime And Scope Boundaries
-
-This launch-control branch now carries only narrow runtime hardening needed by the production-grade distribution-readiness attempt:
-
-- news-aggregator dependency build order for public/remote daemon startup;
-- analysis relay GPT-5 missing-content retry compatibility;
-- upstream auth-error redaction/classification for relay health and StoryCluster OpenAI failures.
-
-The merged RC history includes one narrow tested runtime readback fix in `packages/gun-client/src/aggregateAdapters.ts` for nested LUMA signed-write envelope relation pointers. That fix belongs to PR #627 and is part of the release-control base.
-
-This packet makes no changes to:
-
-- Mesh readiness implementation;
-- production app canary implementation;
-- LUMA runtime, schema, custody, envelope, signed-write, provider, identifier, or identity-vault surfaces;
-- source-health thresholds or source registry;
-- aggregate adapter runtime.
-
-## Go/No-Go Rule
-
-`go_for_public_beta_launch` requires all of the following:
-
-- deterministic evidence matrix passes;
-- MVP closeout status is `pass`;
-- source health is `ready` with release evidence `pass`;
-- LUMA MVP readiness is `pass`;
-- public-beta launch closeout is `pass`;
-- launch copy has no forbidden claims;
-- required human/operator/legal approvals are approved or explicitly `not_required`;
-- support intake, private escalation, and rollback owners are assigned.
-
-`hold_external_approval_pending` applies when engineering evidence passes but any required approval, owner, or launch-copy field remains pending.
-
-`blocked_engineering_evidence` applies if any deterministic release gate fails.
+`go_for_public_beta_launch` requires the public WSS bootstrap mesh, Mesh `release_ready`, production app canary pass, public `https://venn.carboncaste.io` proof, and all approval/owner fields to be green and recorded.
 
 Current decision: `blocked_engineering_evidence`.

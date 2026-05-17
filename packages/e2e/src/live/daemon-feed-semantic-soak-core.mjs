@@ -75,8 +75,12 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'fox-latest',
   'nypost-politics',
 ].join(',');
-const PUBLIC_SMOKE_SOURCE_LIMIT = 12;
-const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '3';
+const PUBLIC_SMOKE_SOURCE_LIMIT = 16;
+const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '8';
+const PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST = '40';
+const PUBLIC_SMOKE_MAX_PUBLISHED_BUNDLES = '32';
+const PUBLIC_SMOKE_MIN_READY_TIMEOUT_MS = 900_000;
+const PUBLIC_SMOKE_SAMPLE_TIMEOUT_MS = 900_000;
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',
@@ -256,7 +260,7 @@ export function resolvePublicSemanticSoakSourceIds(
     now = Date.now,
   } = {},
 ) {
-  const explicitSourceIds = normalizeSourceIds(env.VH_LIVE_DEV_FEED_SOURCE_IDS);
+  const explicitSourceIds = normalizeSourceIds(env.VH_DAEMON_FEED_PUBLIC_SMOKE_SOURCE_IDS);
   if (explicitSourceIds.length > 0) {
     return explicitSourceIds;
   }
@@ -1259,6 +1263,18 @@ export function resolvePublicSemanticSoakSpawnEnv(
     env,
     sourceIds,
   );
+  nextEnv.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST =
+    env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST?.trim()
+    || env.STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST?.trim()
+    || PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST;
+  nextEnv.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES =
+    env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES?.trim()
+    || env.VITE_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES?.trim()
+    || PUBLIC_SMOKE_MAX_PUBLISHED_BUNDLES;
+  nextEnv.VH_DAEMON_FEED_READY_TIMEOUT_MS =
+    env.VH_DAEMON_FEED_READY_TIMEOUT_MS?.trim()
+    || env.VH_LIVE_FEED_READY_TIMEOUT_MS?.trim()
+    || String(Math.max(sampleTimeoutMs, PUBLIC_SMOKE_MIN_READY_TIMEOUT_MS));
   nextEnv.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES = env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES?.trim()
     || '0';
 
@@ -1288,7 +1304,11 @@ export async function runDaemonFeedSemanticSoak({
   const runCount = readPositiveInt('VH_DAEMON_FEED_SOAK_RUNS', 3, env);
   const pauseMs = readNonNegativeInt('VH_DAEMON_FEED_SOAK_PAUSE_MS', 30_000, env);
   const sampleCount = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_COUNT', 8, env);
-  const sampleTimeoutMs = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS', 180_000, env);
+  const sampleTimeoutMs = readPositiveInt(
+    'VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS',
+    PUBLIC_SMOKE_SAMPLE_TIMEOUT_MS,
+    env,
+  );
   const playwrightTimeoutMs = resolvePlaywrightTimeoutMs(sampleTimeoutMs, env);
   const artifactDir = artifactRootFromEnv(env, repoRoot);
   const summaryPath = env.VH_DAEMON_FEED_SOAK_SUMMARY_PATH?.trim()

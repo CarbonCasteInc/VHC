@@ -6,10 +6,10 @@
   "supersedes_pr": 629,
   "supersedes_branch": "coord/mvp-public-beta-go-no-go-v1",
   "included_superseded_commit": "de1c1eb4457a77d1a1e664c1b24d162c6f520478",
-  "node": "v20.20.0",
+  "node": "v20.20.2",
   "pnpm": "9.7.1",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "The real public/remote lane starts and /api/analyze/health passes when the May 13 release env profile is used, but current public headlines are still not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approvals/owners remain pending.",
+  "status_reason": "StoryCluster production readiness is release_ready, the local public/remote Web PWA feed browser smoke passed, and approvals/owners were recorded from operator-provided inputs. The packet remains blocked because public self-hosted deployment cannot proceed truthfully without DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions; therefore public WSS Mesh release_ready and production app canary pass are not proven.",
   "fixes": {
     "news_daemon_stack_startup": {
       "files": [
@@ -49,7 +49,7 @@
     }
   },
   "release_shaped_stack": {
-    "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public",
+    "command": "ENV_FILE=/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public",
     "mode": "public",
     "analysis": "remote",
     "startup_status": "pass",
@@ -70,84 +70,52 @@
       "blocking_error": null
     },
     "env_profile_diagnosis": {
-      "stale_env_profile": "/Users/bldt/Desktop/VHC/VHC/.env",
-      "stale_env_profile_mtime": "2026-05-01 16:52:52 America/Toronto",
-      "stale_env_direct_openai_models_probe": {
-        "status": 401,
-        "error_code": "invalid_api_key"
-      },
-      "corrected_release_env_profile": "/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local",
-      "corrected_release_env_profile_mtime": "2026-05-13 10:29:46 America/Toronto",
-      "corrected_release_env_direct_openai_models_probe": {
-        "status": 200
-      }
+      "release_env_profile": "/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local",
+      "secret_printing": "not printed; OPENAI_API_KEY and ANALYSIS_RELAY_API_KEY presence verified only",
+      "analysis_health_status": 200
     }
   },
   "public_feed_ux": {
-    "browser_url": "http://127.0.0.1:2048/",
-    "page_title": "TRINITY Web PWA",
-    "feed_counts": {
-      "live": 0,
-      "news": 0,
-      "topics": 0
-    },
-    "visible_feed_state": "No items to show.",
-    "health_widget": "Health: Disconnected",
-    "screenshot": ".tmp/release-evidence/public-remote-feed-correct-env-blocked-2026-05-14.png",
-    "snapshot": ".playwright-cli/page-2026-05-14T10-35-29-682Z.yml",
-    "console_log": ".playwright-cli/console-2026-05-14T10-35-29-472Z.log",
-    "release_proven": false
+    "command": "VH_PUBLIC_FEED_APP_URL=http://127.0.0.1:2048/ VH_PUBLIC_FEED_GUN_PEER_URL=http://127.0.0.1:7777/gun VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS=600000 VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS=240000 pnpm test:public-feed:browser-smoke",
+    "status": "pass",
+    "artifact_dir": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746",
+    "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json",
+    "latest_index_count": 32,
+    "story_readback_count": 16,
+    "visible_headline_count": 15,
+    "source_label_count": 15,
+    "timestamp_count": 15,
+    "scroll_count": 30,
+    "detail_story_id": "story-2c5f7d5a0a5e",
+    "detail_topic_id": "b67201d90082769439d27be511cc6404dc491a11f3ec008c88cc18326d7564cd",
+    "accepted_synthesis_basis": "Topic synthesis v2",
+    "point_stance_after_agree": 1,
+    "comment_visible_after_reload": true,
+    "second_browser_vote_count": 1,
+    "screenshot_paths": {
+      "initialFeed": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/01-feed-initial.png",
+      "afterRefresh": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/02-feed-after-refresh.png",
+      "afterScroll": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/03-feed-after-scroll.png",
+      "storyDetail": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/04-story-detail-synthesis.png",
+      "afterComment": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/05-story-comment.png",
+      "reloadPersistence": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/06-reload-persistence.png"
+    }
   },
   "storycluster_production_readiness": {
     "collect_command": "pnpm collect:storycluster:headline-soak",
     "check_command": "pnpm check:storycluster:production-readiness",
-    "status": "blocked",
-    "reason": "headline_soak_release_evidence_failed",
+    "status": "release_ready",
+    "recommended_action": "release_ready",
     "correctness_gate": "pass",
-    "source_health": {
-      "readiness_status": "ready",
-      "release_evidence_status": "pass",
-      "recent_window_run_count": 5,
-      "recent_ready_run_count": 5,
-      "keep_source_count": 28,
-      "watch_source_count": 0,
-      "remove_source_count": 0,
-      "latest_generated_at": "2026-05-14T10:38:29.232Z"
-    },
-    "headline_soak": {
-      "observed_status": "fail",
-      "latest_execution_readiness_status": "not_ready",
-      "execution_count": 4,
-      "promotable_execution_count": 0,
-      "not_ready_execution_count": 4,
-      "strict_soak_fail_count": 4,
-      "run_count": 3,
-      "pass_count": 0,
-      "fail_count": 3,
-      "total_sampled_stories": 24,
-      "total_audited_pairs": 0,
-      "total_bundled_stories": 24,
-      "total_corroborated_bundles": 24,
-      "average_sample_fill_rate": 1,
-      "average_audited_pairs_per_sampled_story": 0,
-      "average_corroborated_bundle_rate": 1,
-      "average_unique_source_count": 3,
-      "release_reasons": [
-        "promotable_execution_count_below_threshold",
-        "non_promotable_execution_count_exceeds_threshold",
-        "latest_headline_soak_execution_not_promotable"
-      ],
-      "latest_execution_blockers": [
-        "supply_failures_present",
-        "insufficient_audited_pair_density"
-      ]
-    },
-    "artifacts": {
-      "source_health_report": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json",
-      "headline_soak_promotion_decision": ".tmp/daemon-feed-semantic-soak/1778754644391/promotion-decision.json",
-      "headline_soak_trend_index": ".tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json",
-      "production_readiness_report": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
-    }
+    "source_health_release_evidence_status": "pass",
+    "headline_soak_release_evidence_status": "pass",
+    "execution_count": 4,
+    "promotable_execution_count": 4,
+    "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1778986350680",
+    "average_corroborated_bundle_rate": 1,
+    "average_unique_source_count": 10,
+    "total_audited_pairs": 30,
+    "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
   },
   "mesh_and_app_canary": {
     "mesh_claimed_release_ready": false,
@@ -156,7 +124,7 @@
     "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
     "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
     "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260514T085031Z-8364162c",
-    "current_clean_mesh_aggregate_status": "review_required",
+    "current_clean_mesh_aggregate_status": "blocked_external_infrastructure",
     "current_clean_mesh_repo": {
       "branch": "coord/mvp-production-grade-distribution-ready-v1",
       "commit": "0f4b050681fc72792920c17ffae1a78d88dfeb3e",
@@ -164,50 +132,50 @@
       "dirty": false
     },
     "current_clean_mesh_observations": [
-      "30-minute soak duration satisfied",
-      "soak gate pass",
-      "terminal failures 0",
-      "duplicate canonical writes 0",
-      "repair events 0",
-      "evidence scrub promotion pass",
-      "required write/resource SLO sample floors still insufficient"
+      "public WSS deployment was not attempted because external infrastructure gates failed before changes",
+      "required public peer endpoints and signed peer config are not deployed",
+      "Mesh release_ready is not claimed"
     ],
     "current_mesh_blockers": [
-      "public-wss-deployment-proof",
-      "required-write-class-sample-floors"
+      "public_bootstrap_infrastructure_blocked",
+      "public-wss-deployment-proof"
     ],
     "production_app_canary_status": "blocked",
-    "production_app_canary_reason": "mesh_not_release_ready",
+    "production_app_canary_reason": "mesh_not_release_ready_public_infrastructure_blocked",
     "production_app_canary_downstream_observation_status": "not_run",
-    "production_app_canary_downstream_observation_reason": "prerequisites_blocked"
+    "production_app_canary_downstream_observation_reason": "public deployment and Mesh release_ready prerequisites blocked"
   },
   "approvals": {
-    "release_owner": "pending",
-    "external_legal_disposition": "pending",
-    "launch_copy_approval": "pending",
-    "support_intake_owner": "pending",
-    "private_escalation_owner_channel": "pending",
-    "rollback_owner_path": "pending"
+    "release_owner": "Carbon Caste Inc",
+    "external_legal_disposition": "not_required",
+    "external_legal_rationale": "public beta copy makes no regulated/commercial/legal claims",
+    "launch_copy_approval": "approved",
+    "approved_launch_copy_path": "docs/launch/public-beta-copy.md",
+    "support_intake_owner": "Venn Support",
+    "public_support_intake_path": "GitHub issue form in CarbonCasteInc/VHC",
+    "private_escalation_owner_channel": "Venn Core; none; single-developer project",
+    "rollback_disposition": "not_required",
+    "rollback_rationale": "fresh launch, no release version, no userbase, no migration"
   },
   "allowed_launch_copy": [
-    "The Web PWA MVP remains a constrained public-beta release candidate.",
-    "The public/remote stack starts in public mode and remote analysis health passes when the May 13 release env profile is used.",
-    "Source health is ready with release evidence pass.",
-    "StoryCluster correctness passes, but StoryCluster production readiness is blocked by headline-soak release evidence.",
-    "Mesh and production app readiness remain separate and are not release-ready in this packet."
+    "Web PWA MVP public beta candidate for the implemented scope.",
+    "MVP release gates passed.",
+    "Source health passed the complete release evidence window.",
+    "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
+    "Release-shaped public/remote analysis health passed using the Mac-mini-local release env path recorded in this packet.",
+    "StoryCluster production readiness is release_ready as of the recorded production-readiness report.",
+    "Local public/remote Web PWA feed smoke passed with current headlines, source labels, timestamps, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility.",
+    "Public self-hosted WSS Mesh, production app canary, and public https://venn.carboncaste.io deployment remain blocked on external infrastructure access and are not release-ready in this packet."
   ],
   "forbidden_claims": [
     "go_for_public_beta_launch",
-    "production-grade live headline freshness",
-    "StoryCluster release_ready",
     "Mesh release_ready",
     "production app canary pass",
+    "public WSS proof satisfied",
+    "https://venn.carboncaste.io deployed or publicly reachable",
     "downstream production app surfaces observed end to end",
     "legal approval",
     "commercial approval",
-    "support approval",
-    "escalation approval",
-    "rollback approval",
     "LUMA Silver",
     "verified-human identity",
     "one-human-one-vote",
@@ -217,10 +185,86 @@
     "private support desk or SLA"
   ],
   "remaining_blockers": [
-    "public_headline_soak_release_evidence_failed",
-    "real_public_feed_ux_not_proven",
+    "public_bootstrap_infrastructure_blocked",
     "mesh_release_ready_not_proven",
-    "production_app_canary_not_proven",
-    "approvals_and_owners_pending"
+    "production_app_canary_not_proven"
+  ],
+  "updated_at": "2026-05-17T05:47:51Z",
+  "infrastructure_access": {
+    "checked_at": "2026-05-17T05:47:51Z",
+    "local_host": {
+      "hostname": "Benjamins-Mac-mini.local",
+      "os": "macOS 26.3 build 25D125",
+      "root_disk": "926Gi size, 792Gi available",
+      "public_ipv4": "129.222.193.128",
+      "passwordless_sudo": false,
+      "service_manager": "launchctl user context available; system/privileged service changes still require admin authentication"
+    },
+    "ubuntu_host": {
+      "ssh_alias": "humble",
+      "hostname": "ccibootstrap",
+      "os": "Ubuntu 24.04 kernel 6.17.0-22-generic",
+      "root_disk": "1.9T size, 1.7T available",
+      "memory": "58Gi total, 56Gi available",
+      "public_ipv4": "129.222.193.128",
+      "passwordless_sudo": false,
+      "systemd_user_linger": "yes"
+    },
+    "dns": {
+      "domain": "carboncaste.io",
+      "nameservers": [
+        "dns1.registrar-servers.com",
+        "dns2.registrar-servers.com"
+      ],
+      "current_root_a_records": [
+        "38.45.14.38"
+      ],
+      "required_records_missing": [
+        "venn.carboncaste.io",
+        "gun-a.venn.carboncaste.io",
+        "gun-b.venn.carboncaste.io",
+        "gun-c.venn.carboncaste.io"
+      ]
+    },
+    "blockers": [
+      {
+        "id": "dns_registrar_access_required",
+        "status": "blocked_external_action_required",
+        "observed": "carboncaste.io uses Namecheap nameservers dns1.registrar-servers.com and dns2.registrar-servers.com; venn.carboncaste.io and gun-a/gun-b/gun-c.venn.carboncaste.io have no A records; no NAMECHEAP/CLOUDFLARE/AWS/ROUTE53 DNS API credentials are present in the process environment.",
+        "required_human_action": "Provide registrar/DNS API access or create A/AAAA records for venn.carboncaste.io, gun-a.venn.carboncaste.io, gun-b.venn.carboncaste.io, and gun-c.venn.carboncaste.io pointing at the intended public ingress."
+      },
+      {
+        "id": "public_inbound_router_firewall_required",
+        "status": "blocked_external_action_required",
+        "observed": "The Mac mini and ssh humble both report public IPv4 129.222.193.128; inbound TCP 80 and 443 to 129.222.193.128 timed out, including from the humble host. carboncaste.io currently resolves to 38.45.14.38 and https://carboncaste.io also timed out.",
+        "required_human_action": "Provide router/firewall/NAT control or an alternate public ingress so inbound 80/443 and WSS traffic can reach the selected bootstrap hosts."
+      },
+      {
+        "id": "host_admin_rights_required",
+        "status": "blocked_external_action_required",
+        "observed": "sudo -n true requires a password on both the Mac mini and humble. The Mac user is in admin, and humble is in sudo, but noninteractive service/firewall/privileged-port administration is not available to this agent.",
+        "required_human_action": "Provide noninteractive sudo/admin rights or preinstall the service, firewall, and privileged-port configuration required for 443/TLS/WSS."
+      },
+      {
+        "id": "tls_issuance_blocked_by_dns_and_inbound",
+        "status": "blocked_external_action_required",
+        "observed": "No caddy/certbot/nginx binary is installed on either host, and DNS plus inbound 80/443 are not available for ACME DNS-01 or HTTP-01 validation.",
+        "required_human_action": "Provide TLS tooling plus DNS challenge credentials, or open inbound 80/443 and authorize installation/configuration of an ACME-capable reverse proxy."
+      },
+      {
+        "id": "public_wss_deployment_proof_missing",
+        "status": "blocked_external_action_required",
+        "observed": "The required public WSS peers wss://gun-a.venn.carboncaste.io/gun, wss://gun-b.venn.carboncaste.io/gun, and wss://gun-c.venn.carboncaste.io/gun cannot be truthfully deployed or probed until DNS, inbound reachability, TLS, and service permissions are available.",
+        "required_human_action": "After the above access is provided, deploy the three public WSS peers without lowering Mesh thresholds and run the public WSS proof."
+      }
+    ]
+  },
+  "explicit_non_claims": [
+    "public WSS bootstrap mesh is deployed",
+    "https://venn.carboncaste.io loads publicly",
+    "Mesh release_ready",
+    "production app canary pass",
+    "legal approval or commercial approval",
+    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, production attestation, or native App Store/TestFlight readiness"
   ]
 }

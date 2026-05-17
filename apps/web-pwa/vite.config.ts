@@ -11,6 +11,9 @@ import { buildCspContent } from './src/cspPolicy';
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const ARTICLE_TEXT_MAX_CHARS = 24_000;
 const ARTICLE_FETCH_TIMEOUT_MS = 12_000;
+const ARTICLE_FETCH_USER_AGENT =
+  process.env.ARTICLE_FETCH_USER_AGENT
+  || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 const articleTextCache = new Map<
   string,
   {
@@ -135,8 +138,9 @@ function createArticleTextProxyPlugin(): Plugin {
 
         try {
           const { stdout } = await execFileAsync(
-            'curl',
-            [
+              'curl',
+              [
+              '--http1.1',
               '--location',
               '--max-time',
               String(Math.ceil(ARTICLE_FETCH_TIMEOUT_MS / 1000)),
@@ -145,7 +149,7 @@ function createArticleTextProxyPlugin(): Plugin {
               '--header',
               'Accept: text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
               '--user-agent',
-              'Mozilla/5.0 (compatible; VHC-NewsCard/1.0; +https://ccibootstrap.tail6cc9b5.ts.net)',
+              ARTICLE_FETCH_USER_AGENT,
               cacheKey,
             ],
             {

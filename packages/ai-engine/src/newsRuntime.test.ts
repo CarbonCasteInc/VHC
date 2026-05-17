@@ -95,6 +95,46 @@ function batch(bundles: StoryBundle[] = [], storylines: StorylineGroup[] = []) {
   return { bundles, storylines };
 }
 
+function storyBundle(
+  storyId: string,
+  {
+    sourceCount = 1,
+    clusterWindowEnd = 1_700_000_100_000,
+    createdAt = 1_700_000_200_000,
+    confidenceScore = 0.9,
+    titles,
+  }: {
+    sourceCount?: number;
+    clusterWindowEnd?: number;
+    createdAt?: number;
+    confidenceScore?: number;
+    titles?: string[];
+  } = {},
+): StoryBundle {
+  const sources = Array.from({ length: sourceCount }, (_, index) => ({
+    source_id: `src-${storyId}-${index + 1}`,
+    publisher: `Publisher ${index + 1}`,
+    url: `https://example.com/${storyId}/${index + 1}`,
+    url_hash: `${storyId}-${index + 1}`,
+    published_at: clusterWindowEnd,
+    title: titles?.[index] ?? `${storyId} title ${index + 1}`,
+  }));
+  return {
+    ...STORY_BUNDLE,
+    story_id: storyId,
+    headline: `${storyId} headline`,
+    cluster_window_end: clusterWindowEnd,
+    sources,
+    primary_sources: sources,
+    cluster_features: {
+      ...STORY_BUNDLE.cluster_features,
+      confidence_score: confidenceScore,
+    },
+    provenance_hash: `${storyId}-provhash`,
+    created_at: createdAt,
+  };
+}
+
 describe('newsRuntime', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -209,6 +249,143 @@ describe('newsRuntime', () => {
 
     handle.stop();
     expect(handle.isRunning()).toBe(false);
+  });
+
+  it('caps published bundles by corroboration and recency when configured', async () => {
+    const staleSingleton = storyBundle('stale-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 100,
+    });
+    const recentSingleton = storyBundle('recent-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 300,
+    });
+    const corroborated = storyBundle('corroborated', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+    });
+
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([
+      staleSingleton,
+      recentSingleton,
+      corroborated,
+    ]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      maxPublishedBundles: 2,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'corroborated',
+      'recent-singleton',
+    ]);
+
+    handle.stop();
+  });
+
+  it('filters weak two-source canonical bundles before publication', () => {
+    const weakTopicOnly = storyBundle('weak-topic-only', {
+      sourceCount: 2,
+      confidenceScore: 0.57,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+    const strongTwoSource = storyBundle('strong-two-source', {
+      sourceCount: 2,
+      confidenceScore: 0.82,
+      titles: [
+        'Smalley leads as McIlroy and Rahm impress at the US PGA',
+        'Smalley takes two-shot lead into final round of US PGA Championship',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakTopicOnly)).toBe(false);
+    expect(__internal.isPublicationEligibleBundle(strongTwoSource)).toBe(true);
+    expect(__internal.selectBundlesForPublication([weakTopicOnly, strongTwoSource], null)).toEqual([
+      strongTwoSource,
+    ]);
+  });
+
+  it('keeps two-source bundles with explicit same-action title support below the strong-confidence line', () => {
+    const legalSameEvent = storyBundle('legal-same-event', {
+      sourceCount: 2,
+      confidenceScore: 0.79,
+      titles: [
+        'California man facing federal charges in international turtle trafficking plot',
+        'California man arrested for attempting to traffic wild turtles',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(legalSameEvent)).toBe(true);
+  });
+
+  it('keeps recent two-source bundles with shared normalized title anchors', () => {
+    const diplomacyEpisode = storyBundle('diplomacy-episode', {
+      sourceCount: 2,
+      confidenceScore: 0.79,
+      titles: [
+        "Days after Trump's summit in Beijing, Putin will meet with China's Xi",
+        "Putin to meet Chinese leader Xi Jinping following Trump's visit",
+      ],
+    });
+    const taiwanEpisode = storyBundle('taiwan-episode', {
+      sourceCount: 2,
+      confidenceScore: 0.68,
+      titles: [
+        "Trump warns Taiwan against declaring independence, hours after summit with China's Xi",
+        "Trump's comment about negotiations on Taiwan heightens concerns over China",
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(diplomacyEpisode)).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(taiwanEpisode)).toBe(true);
+  });
+
+  it('keeps three-source corroborated bundles on source diversity even with varied headlines', () => {
+    const multiSource = storyBundle('multi-source', {
+      sourceCount: 3,
+      confidenceScore: 0.71,
+      titles: [
+        'Trump blasts disloyal Sen. Cassidy while pushing challenger in Louisiana primary',
+        'Republican senator who voted to convict Trump battles for re-election',
+        'GOP Sen. Cassidy fights to hold onto seat in Louisiana primary',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(multiSource)).toBe(true);
+  });
+
+  it('demotes unsupported outlier sources from multi-source canonical bundles before publication', () => {
+    const mixedSupremeCourtBundle = storyBundle('mixed-supreme-court', {
+      sourceCount: 4,
+      confidenceScore: 0.79,
+      titles: [
+        'Supreme Court rejects Virginia Democrats bid to revive new congressional map',
+        'Supreme Court rejects Virginia Democrats attempt to revive new congressional map',
+        'Supreme Court rejects bid to restore Virginia congressional map favoring Democrats',
+        'Supreme Court allows access to abortion pill by mail for now',
+      ],
+    });
+
+    const [selected] = __internal.selectBundlesForPublication([mixedSupremeCourtBundle], null);
+
+    expect(selected?.primary_sources?.map((source) => source.title)).toEqual([
+      'Supreme Court rejects Virginia Democrats bid to revive new congressional map',
+      'Supreme Court rejects Virginia Democrats attempt to revive new congressional map',
+      'Supreme Court rejects bid to restore Virginia congressional map favoring Democrats',
+    ]);
+    expect(selected?.related_links?.map((source) => source.title)).toEqual([
+      'Supreme Court allows access to abortion pill by mail for now',
+    ]);
   });
 
   it('prunes stale published stories after a non-empty refresh shrinks the bundle set', async () => {

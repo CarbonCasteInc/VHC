@@ -52,6 +52,7 @@ const DEFAULT_AUDIT_MODEL = 'gpt-4o-mini';
 const MAX_TEXT_CHARS = 6_000;
 const MAX_PAIRS_PER_REQUEST = 4;
 const CLASSIFIER_BATCH_CONCURRENCY = 3;
+const MISSING_PAIR_LABEL_RETRY_LIMIT = 2;
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const output: T[][] = [];
@@ -172,7 +173,10 @@ export function buildCanonicalSourcePairs(
 function parsePairResults(
   payload: unknown,
   pendingPairs: readonly LiveSemanticAuditPair[],
-): LiveSemanticAuditPairResult[] {
+): {
+  results: LiveSemanticAuditPairResult[];
+  missingPairs: LiveSemanticAuditPair[];
+} {
   const raw = (payload as { pair_labels?: unknown }).pair_labels;
   if (!Array.isArray(raw)) {
     throw new Error('pair label response must include pair_labels');
@@ -196,13 +200,21 @@ function parsePairResults(
     });
   }
 
-  return pendingPairs.map((pair) => {
+  const results: LiveSemanticAuditPairResult[] = [];
+  const missingPairs: LiveSemanticAuditPair[] = [];
+  for (const pair of pendingPairs) {
     const result = byId.get(pair.pair_id);
     if (!result) {
-      throw new Error(`pair label response missing ${pair.pair_id}`);
+      missingPairs.push(pair);
+      continue;
     }
-    return result;
-  });
+    results.push(result);
+  }
+
+  return {
+    results,
+    missingPairs,
+  };
 }
 
 function requestPayload(pair: LiveSemanticAuditPair) {
@@ -231,16 +243,62 @@ function buildSemanticAuditSystemPrompt(): string {
   return [
     'You audit whether two publisher reports belong in the same canonical news event bundle.',
     `Use only these labels: ${LIVE_SEMANTIC_AUDIT_LABELS.join(', ')}.`,
+    'Return exactly one pair_labels entry for every supplied pair_id. Do not omit, rename, or invent pair IDs.',
     'duplicate = same facts or same asset republished with minimal new reporting.',
     'same_incident = the same discrete incident covered by different publishers.',
     'same_developing_episode = direct follow-up within the same bounded event sequence.',
     'Use same_developing_episode when both reports describe the same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger, even if the framing or perspective differs.',
+    'Timing context is not a separate event by itself: if one report mentions a prior summit, visit, or meeting only to situate the same core upcoming meeting, negotiation, or response, keep the pair in the same_developing_episode family.',
     'Different national, political, or institutional perspectives alone are not enough to downgrade a pair to related_topic_only when both reports still describe the same episode.',
     'related_topic_only = same broader topic, conflict, politician, or narrative, but not the same discrete event/episode.',
     'Broad roundups, explainers, opinion, and commentary paired with a specific incident report are usually related_topic_only.',
     'Be conservative: when uncertain, choose related_topic_only.',
     'Return strict JSON: {"pair_labels":[{"pair_id":"...","label":"duplicate|same_incident|same_developing_episode|related_topic_only","confidence":0.0,"rationale":"..."}]}.',
   ].join(' ');
+}
+
+function buildPairLabelRequest(pairs: readonly LiveSemanticAuditPair[]) {
+  return JSON.stringify({
+    required_pair_ids: pairs.map((pair) => pair.pair_id),
+    pair_labels: pairs.map(requestPayload),
+  });
+}
+
+async function classifyPairBatch(
+  client: OpenAIClient,
+  model: string,
+  batch: readonly LiveSemanticAuditPair[],
+): Promise<LiveSemanticAuditPairResult[]> {
+  const resultsByPairId = new Map<string, LiveSemanticAuditPairResult>();
+  let pendingPairs = [...batch];
+
+  for (let attempt = 0; attempt <= MISSING_PAIR_LABEL_RETRY_LIMIT && pendingPairs.length > 0; attempt += 1) {
+    const payload = await client.chatJson<{
+    pair_labels?: Array<{
+      pair_id?: string;
+      label?: string;
+      confidence?: number;
+      rationale?: string;
+    }>;
+    }>({
+      model,
+      system: buildSemanticAuditSystemPrompt(),
+      user: buildPairLabelRequest(pendingPairs),
+      temperature: 0,
+      maxTokens: 4_000,
+    });
+    const parsed = parsePairResults(payload, pendingPairs);
+    for (const result of parsed.results) {
+      resultsByPairId.set(result.pair_id, result);
+    }
+    pendingPairs = parsed.missingPairs;
+  }
+
+  if (pendingPairs.length > 0) {
+    throw new Error(`pair label response missing ${pendingPairs.map((pair) => pair.pair_id).join(', ')}`);
+  }
+
+  return batch.map((pair) => resultsByPairId.get(pair.pair_id)!);
 }
 
 export async function classifyCanonicalSourcePairs(
@@ -257,23 +315,7 @@ export async function classifyCanonicalSourcePairs(
   const batchResults = await mapWithConcurrency(
     batches,
     CLASSIFIER_BATCH_CONCURRENCY,
-    async (batch) => {
-      const payload = await client.chatJson<{
-      pair_labels?: Array<{
-        pair_id?: string;
-        label?: string;
-        confidence?: number;
-        rationale?: string;
-      }>;
-      }>({
-        model,
-        system: buildSemanticAuditSystemPrompt(),
-        user: JSON.stringify({ pair_labels: batch.map(requestPayload) }),
-        temperature: 0,
-        maxTokens: 4_000,
-      });
-      return parsePairResults(payload, batch);
-    },
+    async (batch) => classifyPairBatch(client, model, batch),
   );
 
   return batchResults.flat();
@@ -284,5 +326,6 @@ export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairR
 }
 
 export const liveSemanticAuditInternal = {
+  buildPairLabelRequest,
   buildSemanticAuditSystemPrompt,
 };

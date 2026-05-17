@@ -2,34 +2,32 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-14T10:39:03Z",
+  "updated_at": "2026-05-17T05:47:51Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
   "rc_packet_path": "docs/reports/mvp-public-beta-release-candidate-2026-05-12.md",
-  "node": "v20.20.0",
+  "node": "v20.20.2",
   "pnpm": "9.7.1",
-  "repo_dirty_during_engineering_evidence": false,
-  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean current PR #630 commit. After the packet edit, the docs/diff/launch-control checks are rerun against the branch diff.",
+  "repo_dirty_during_engineering_evidence": true,
+  "verification_timing": "StoryCluster and local public/remote Web PWA feed evidence were refreshed on the PR #630 branch. Public self-hosted deployment stopped before infra changes because DNS, inbound reachability, TLS, and noninteractive admin/service-manager access are unavailable.",
   "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "This branch supersedes draft PR #629. The real public/remote lane is still not production-grade green: /api/analyze/health passes when the May 13 release env profile is used, but current public headlines are not visible in the Web PWA, StoryCluster production readiness is blocked by failed headline-soak release evidence, Mesh/app readiness is not release-proven, and approval/owner inputs remain pending.",
+  "status_reason": "StoryCluster is release_ready and the local public/remote Web PWA feed smoke passed with current headlines and downstream UX proof, and operator-provided approval/owner fields are recorded. Launch remains blocked because the required public self-hosted infrastructure cannot be truthfully deployed or proven: DNS registrar access, inbound router/firewall reachability, TLS issuance path, and noninteractive host admin/service-manager permissions are unavailable; therefore Mesh release_ready and production app canary pass are not proven.",
   "approval_input_result": {
-    "required_approval_text_provided": false,
-    "repo_local_approval_artifact_found": false,
-    "decision_effect": "required human/operator/legal/support/escalation/rollback fields remain pending and current engineering evidence is blocked"
+    "required_approval_text_provided": true,
+    "repo_local_approval_artifact_found": true,
+    "decision_effect": "approval/owner fields are no longer pending, but engineering launch remains blocked on external infrastructure required for public WSS Mesh and production app canary proof"
   },
   "evidence": {
     "production_grade_distribution_readiness": {
-      "command": "ENV_FILE=/Users/bldt/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote pnpm live:stack:up:public; curl -i http://127.0.0.1:2048/api/analyze/health; pnpm collect:storycluster:headline-soak; pnpm check:storycluster:production-readiness",
+      "command": "release env public/remote stack, StoryCluster production readiness, public-feed browser smoke, and infrastructure access verification",
       "status": "blocked_engineering_evidence",
       "path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
       "blockers": [
-        "public_headline_soak_release_evidence_failed",
-        "real_public_feed_ux_not_proven",
+        "public_bootstrap_infrastructure_blocked",
         "mesh_release_ready_not_proven",
-        "production_app_canary_not_proven",
-        "approvals_and_owners_pending"
+        "production_app_canary_not_proven"
       ]
     },
     "public_beta_launch_closeout": {
@@ -92,13 +90,13 @@
     "mesh_production_readiness": {
       "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
       "command_exit": 0,
-      "status": "review_required",
+      "status": "blocked_external_infrastructure",
       "run_id": "mesh-production-readiness-20260514T085031Z-8364162c",
       "schema_epoch": "post_luma_m0b",
       "luma_profile": "none",
       "blockers": [
-        "public-wss-deployment-proof",
-        "required-write-class-sample-floors"
+        "public_bootstrap_infrastructure_blocked",
+        "public-wss-deployment-proof"
       ],
       "canonical_soak": {
         "full_duration_satisfied": true,
@@ -113,9 +111,9 @@
       "command": "pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
       "expected_exit": 1,
       "status": "blocked",
-      "reason": "mesh_not_release_ready",
+      "reason": "mesh_not_release_ready_public_infrastructure_blocked",
       "downstream_observation_status": "not_run",
-      "downstream_observation_reason": "prerequisites_blocked",
+      "downstream_observation_reason": "public deployment and Mesh release_ready prerequisites blocked",
       "path": ".tmp/production-app-canary/latest/production-app-canary-report.json"
     },
     "launch_rehearsal": {
@@ -127,39 +125,162 @@
       "test_duration": "6.1m",
       "stack_down_status": "pass",
       "latest_result": "pass_on_clean_rerun"
+    },
+    "storycluster_production_readiness": {
+      "collect_command": "pnpm collect:storycluster:headline-soak",
+      "check_command": "pnpm check:storycluster:production-readiness",
+      "status": "release_ready",
+      "recommended_action": "release_ready",
+      "correctness_gate": "pass",
+      "source_health_release_evidence_status": "pass",
+      "headline_soak_release_evidence_status": "pass",
+      "execution_count": 4,
+      "promotable_execution_count": 4,
+      "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1778986350680",
+      "average_corroborated_bundle_rate": 1,
+      "average_unique_source_count": 10,
+      "total_audited_pairs": 30,
+      "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
+    },
+    "public_feed_browser_smoke": {
+      "command": "VH_PUBLIC_FEED_APP_URL=http://127.0.0.1:2048/ VH_PUBLIC_FEED_GUN_PEER_URL=http://127.0.0.1:7777/gun VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS=600000 VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS=240000 pnpm test:public-feed:browser-smoke",
+      "status": "pass",
+      "artifact_dir": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746",
+      "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json",
+      "latest_index_count": 32,
+      "story_readback_count": 16,
+      "visible_headline_count": 15,
+      "source_label_count": 15,
+      "timestamp_count": 15,
+      "scroll_count": 30,
+      "detail_story_id": "story-2c5f7d5a0a5e",
+      "detail_topic_id": "b67201d90082769439d27be511cc6404dc491a11f3ec008c88cc18326d7564cd",
+      "accepted_synthesis_basis": "Topic synthesis v2",
+      "point_stance_after_agree": 1,
+      "comment_visible_after_reload": true,
+      "second_browser_vote_count": 1,
+      "screenshot_paths": {
+        "initialFeed": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/01-feed-initial.png",
+        "afterRefresh": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/02-feed-after-refresh.png",
+        "afterScroll": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/03-feed-after-scroll.png",
+        "storyDetail": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/04-story-detail-synthesis.png",
+        "afterComment": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/05-story-comment.png",
+        "reloadPersistence": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/06-reload-persistence.png"
+      }
+    },
+    "analysis_relay_health": {
+      "command": "ENV_FILE=/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local VH_LOCAL_STACK_ANALYSIS_MODE=remote curl -i http://127.0.0.1:2048/api/analyze/health",
+      "status": 200,
+      "ok": true,
+      "model": "gpt-5-nano",
+      "upstream": "reachable"
+    },
+    "infrastructure_access": {
+      "checked_at": "2026-05-17T05:47:51Z",
+      "local_host": {
+        "hostname": "Benjamins-Mac-mini.local",
+        "os": "macOS 26.3 build 25D125",
+        "root_disk": "926Gi size, 792Gi available",
+        "public_ipv4": "129.222.193.128",
+        "passwordless_sudo": false,
+        "service_manager": "launchctl user context available; system/privileged service changes still require admin authentication"
+      },
+      "ubuntu_host": {
+        "ssh_alias": "humble",
+        "hostname": "ccibootstrap",
+        "os": "Ubuntu 24.04 kernel 6.17.0-22-generic",
+        "root_disk": "1.9T size, 1.7T available",
+        "memory": "58Gi total, 56Gi available",
+        "public_ipv4": "129.222.193.128",
+        "passwordless_sudo": false,
+        "systemd_user_linger": "yes"
+      },
+      "dns": {
+        "domain": "carboncaste.io",
+        "nameservers": [
+          "dns1.registrar-servers.com",
+          "dns2.registrar-servers.com"
+        ],
+        "current_root_a_records": [
+          "38.45.14.38"
+        ],
+        "required_records_missing": [
+          "venn.carboncaste.io",
+          "gun-a.venn.carboncaste.io",
+          "gun-b.venn.carboncaste.io",
+          "gun-c.venn.carboncaste.io"
+        ]
+      },
+      "blockers": [
+        {
+          "id": "dns_registrar_access_required",
+          "status": "blocked_external_action_required",
+          "observed": "carboncaste.io uses Namecheap nameservers dns1.registrar-servers.com and dns2.registrar-servers.com; venn.carboncaste.io and gun-a/gun-b/gun-c.venn.carboncaste.io have no A records; no NAMECHEAP/CLOUDFLARE/AWS/ROUTE53 DNS API credentials are present in the process environment.",
+          "required_human_action": "Provide registrar/DNS API access or create A/AAAA records for venn.carboncaste.io, gun-a.venn.carboncaste.io, gun-b.venn.carboncaste.io, and gun-c.venn.carboncaste.io pointing at the intended public ingress."
+        },
+        {
+          "id": "public_inbound_router_firewall_required",
+          "status": "blocked_external_action_required",
+          "observed": "The Mac mini and ssh humble both report public IPv4 129.222.193.128; inbound TCP 80 and 443 to 129.222.193.128 timed out, including from the humble host. carboncaste.io currently resolves to 38.45.14.38 and https://carboncaste.io also timed out.",
+          "required_human_action": "Provide router/firewall/NAT control or an alternate public ingress so inbound 80/443 and WSS traffic can reach the selected bootstrap hosts."
+        },
+        {
+          "id": "host_admin_rights_required",
+          "status": "blocked_external_action_required",
+          "observed": "sudo -n true requires a password on both the Mac mini and humble. The Mac user is in admin, and humble is in sudo, but noninteractive service/firewall/privileged-port administration is not available to this agent.",
+          "required_human_action": "Provide noninteractive sudo/admin rights or preinstall the service, firewall, and privileged-port configuration required for 443/TLS/WSS."
+        },
+        {
+          "id": "tls_issuance_blocked_by_dns_and_inbound",
+          "status": "blocked_external_action_required",
+          "observed": "No caddy/certbot/nginx binary is installed on either host, and DNS plus inbound 80/443 are not available for ACME DNS-01 or HTTP-01 validation.",
+          "required_human_action": "Provide TLS tooling plus DNS challenge credentials, or open inbound 80/443 and authorize installation/configuration of an ACME-capable reverse proxy."
+        },
+        {
+          "id": "public_wss_deployment_proof_missing",
+          "status": "blocked_external_action_required",
+          "observed": "The required public WSS peers wss://gun-a.venn.carboncaste.io/gun, wss://gun-b.venn.carboncaste.io/gun, and wss://gun-c.venn.carboncaste.io/gun cannot be truthfully deployed or probed until DNS, inbound reachability, TLS, and service permissions are available.",
+          "required_human_action": "After the above access is provided, deploy the three public WSS peers without lowering Mesh thresholds and run the public WSS proof."
+        }
+      ]
     }
   },
   "approvals": {
     "release_owner": {
-      "name": "pending",
-      "approval_status": "pending",
-      "timestamp": null
+      "name": "Carbon Caste Inc",
+      "approval_status": "recorded",
+      "timestamp": "2026-05-17T05:47:51Z"
     },
     "external_legal_approval": {
-      "requirement_disposition": "pending",
-      "approval_status": "pending",
-      "approver_reference": "pending",
-      "timestamp": null
+      "requirement_disposition": "not_required",
+      "approval_status": "not_required",
+      "approver_reference": "operator-provided launch-control input",
+      "rationale": "public beta copy makes no regulated/commercial/legal claims",
+      "timestamp": "2026-05-17T05:47:51Z"
     },
     "launch_copy_approval": {
-      "approval_status": "pending",
-      "approved_copy_path_or_text": "pending",
-      "timestamp": null
+      "approval_status": "approved",
+      "approved_copy_path_or_text": "docs/launch/public-beta-copy.md",
+      "timestamp": "2026-05-17T05:47:51Z"
     },
     "support_intake_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "public_issue_intake_path": "Web PWA /support surface linked to the VHC public beta GitHub Issue Form"
+      "name_or_team": "Venn Support",
+      "approval_status": "assigned",
+      "public_issue_intake_path": "GitHub issue form in CarbonCasteInc/VHC",
+      "timestamp": "2026-05-17T05:47:51Z"
     },
     "private_escalation_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "escalation_channel_reference": "pending"
+      "name_or_team": "Venn Core",
+      "approval_status": "assigned",
+      "escalation_channel_reference": "none; single-developer project",
+      "timestamp": "2026-05-17T05:47:51Z"
     },
     "rollback_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "rollback_trigger_and_path": "Hold or withdraw public launch copy, keep the Web PWA at the last approved public-beta candidate state, and revert or supersede this launch-control packet if it records an incorrect approval or claim boundary."
+      "name_or_team": "not_required",
+      "approval_status": "not_required",
+      "rollback_trigger_and_path": "not_required",
+      "rationale": "fresh launch, no release version, no userbase, no migration",
+      "timestamp": "2026-05-17T05:47:51Z"
     }
   },
   "allowed_launch_copy": [
@@ -167,26 +288,30 @@
     "MVP release gates passed.",
     "Source health passed the complete release evidence window.",
     "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
-    "Release-shaped public/remote analysis health passed when the May 13 release env profile was used.",
-    "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed.",
-    "Mesh production readiness remains separate and is currently review_required."
+    "Release-shaped public/remote analysis health passed using the Mac-mini-local release env path recorded in this packet.",
+    "StoryCluster production readiness is release_ready as of the recorded production-readiness report.",
+    "Local public/remote Web PWA feed smoke passed with current headlines, source labels, timestamps, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility.",
+    "Public self-hosted WSS Mesh, production app canary, and public https://venn.carboncaste.io deployment remain blocked on external infrastructure access and are not release-ready in this packet."
   ],
   "forbidden_launch_copy": [
-    "Mesh release_ready.",
-    "Production app canary pass.",
-    "Downstream production app surfaces observed end to end.",
-    "Full production app readiness.",
-    "Test-group readiness.",
-    "Legal or commercial approval unless explicitly recorded.",
-    "Production-grade live headline freshness unless StoryCluster production readiness separately says release_ready.",
-    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, or production attestation.",
-    "Public WSS proof satisfied unless the Mesh report says so.",
-    "Mesh sample floors satisfied unless the Mesh report says so.",
-    "Native App Store or TestFlight readiness.",
-    "Private support desk or SLA unless externally provisioned."
+    "go_for_public_beta_launch",
+    "Mesh release_ready",
+    "production app canary pass",
+    "public WSS proof satisfied",
+    "https://venn.carboncaste.io deployed or publicly reachable",
+    "downstream production app surfaces observed end to end",
+    "legal approval",
+    "commercial approval",
+    "LUMA Silver",
+    "verified-human identity",
+    "one-human-one-vote",
+    "Sybil resistance",
+    "production attestation",
+    "native App Store or TestFlight readiness",
+    "private support desk or SLA"
   ],
   "protected_surfaces": {
-    "branch_runtime_changes": "narrow runtime hardening only: news-aggregator dependency build order, analysis relay GPT-5 missing-content retry compatibility, and upstream auth-error redaction/classification",
+    "branch_runtime_changes": "runtime hardening and evidence fixes: StoryCluster publication/audit recovery, public-feed browser smoke harness, Web PWA hydration/persistence fixes, relay signed-envelope preservation, and analysis relay GPT-5 output-limit retry compatibility",
     "inherited_rc_runtime_fix": "PR #627 includes one tested aggregate readback fix in packages/gun-client/src/aggregateAdapters.ts for nested LUMA signed-write envelope relation pointers.",
     "unchanged_in_this_branch": [
       "Mesh readiness implementation",
@@ -212,7 +337,12 @@
       "engineering evidence passes but any required approval, owner, or launch-copy field is pending"
     ],
     "blocked_engineering_evidence": [
-      "any deterministic release gate fails"
+      "any deterministic release gate fails or required public infrastructure proof is unavailable"
     ]
-  }
+  },
+  "remaining_blockers": [
+    "public_bootstrap_infrastructure_blocked",
+    "mesh_release_ready_not_proven",
+    "production_app_canary_not_proven"
+  ]
 }

@@ -320,12 +320,14 @@ describe('useAppStore', () => {
     expect(mockPublishDirectory).not.toHaveBeenCalled();
   });
 
-  it('createIdentity falls back when randomUUID is missing and surfaces write errors', async () => {
+  it('createIdentity falls back when randomUUID is missing and keeps local profile when mesh profile write fails', async () => {
     vi.stubGlobal('crypto', {} as any);
     await useAppStore.getState().init();
     mockWrite.mockRejectedValueOnce(new Error('fail'));
-    await expect(useAppStore.getState().createIdentity('bob')).rejects.toThrow('fail');
-    expect(useAppStore.getState().identityStatus).toBe('error');
+    await expect(useAppStore.getState().createIdentity('bob')).resolves.toBeUndefined();
+    expect(useAppStore.getState().profile?.username).toBe('bob');
+    expect(useAppStore.getState().identityStatus).toBe('ready');
+    expect((globalThis as any).localStorage.getItem('vh_profile')).toContain('bob');
     vi.unstubAllGlobals();
   });
 

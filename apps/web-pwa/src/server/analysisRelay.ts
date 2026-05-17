@@ -100,6 +100,15 @@ function classifyUpstreamError(status: number, message?: string): string {
   return `upstream_${status}`;
 }
 
+function isRetryableOutputLimitError(status: number, message = ''): boolean {
+  if (status !== 400) return false;
+  const normalizedMessage = message.toLowerCase().replace(/[\s_-]+/g, ' ');
+  if (normalizedMessage.includes('max tokens')) return true;
+  if (normalizedMessage.includes('max completion tokens')) return true;
+  if (normalizedMessage.includes('model output limit')) return true;
+  return normalizedMessage.includes('output limit');
+}
+
 function asPositiveInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     return undefined;
@@ -480,10 +489,14 @@ export async function relayAnalysis(
           const errField = isObject(errBody) ? errBody.error : undefined;
           const msg = asNonEmptyString(isObject(errField) ? errField.message : errField);
           if (msg) {
-            upstreamMessage = msg;
-            errorDetail = `Upstream ${upstream.status}: ${redactSensitiveText(msg)}`;
-          }
+              upstreamMessage = msg;
+              errorDetail = `Upstream ${upstream.status}: ${redactSensitiveText(msg)}`;
+            }
         } catch { /* ignore unparseable error body */ }
+        if (isRetryableOutputLimitError(upstream.status, upstreamMessage ?? errorDetail) && attempt < maxAttempts - 1) {
+          lastMissingContentDetails = 'upstream_output_limit';
+          continue;
+        }
         return {
           status: 502,
           payload: {

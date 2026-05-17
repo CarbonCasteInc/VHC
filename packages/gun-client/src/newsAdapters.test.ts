@@ -1145,6 +1145,22 @@ describe('newsAdapters', () => {
     await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
   });
 
+  it('readNewsLatestIndex merges metadata child entries when the root direct payload is partial', async () => {
+    const mesh = createFakeMesh();
+    mesh.setOnSequence('news/index/latest', [
+      { value: { _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123, 'story-b': 456 } }, 'story-a': 123 } },
+    ]);
+    mesh.setRead('news/index/latest/story-b', 456);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({
+      'story-a': 123,
+      'story-b': 456,
+    });
+  });
+
   it('readNewsLatestIndex falls back to once() when root subscriptions are unavailable', async () => {
     const chain = {
       once: vi.fn((cb?: (data: unknown) => void) => cb?.({ 'story-a': 123 })),
@@ -1227,6 +1243,22 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(readNewsHotIndex(client)).resolves.toEqual({ 'story-a': 0.61 });
+  });
+
+  it('readNewsHotIndex merges metadata child entries when the root direct payload is partial', async () => {
+    const mesh = createFakeMesh();
+    mesh.setOnSequence('news/index/hot', [
+      { value: { _: { '#': 'vh/news/index/hot', '>': { 'story-a': 123, 'story-b': 456 } }, 'story-a': { hotness: 0.72 } } },
+    ]);
+    mesh.setRead('news/index/hot/story-b', { hotness: 0.61 });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsHotIndex(client)).resolves.toEqual({
+      'story-a': 0.72,
+      'story-b': 0.61,
+    });
   });
 
   it('readNewsLatestIndex and readNewsHotIndex validate signed system index records', async () => {

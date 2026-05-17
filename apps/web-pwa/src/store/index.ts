@@ -623,7 +623,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         username
       };
       client.markSessionReady?.();
-      await client.user.write(profile);
+      try {
+        await client.user.write(profile);
+      } catch (err) {
+        console.warn('[vh:identity] Profile mesh write failed; using local profile:', err);
+      }
       persistProfile(profile);
       set({ profile, identityStatus: 'ready', sessionReady: true });
     } catch (err) {

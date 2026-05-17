@@ -144,11 +144,32 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
       'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('3');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('12');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('8');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('32');
+    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('40');
+    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('32');
+    expect(env.VH_DAEMON_FEED_READY_TIMEOUT_MS).toBe('900000');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_DAEMON_FEED_MANAGED_STORYCLUSTER).toBe('true');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('preserves explicit public StoryCluster chunk and readiness overrides', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST: '24',
+      VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES: '12',
+      VH_DAEMON_FEED_READY_TIMEOUT_MS: '480000',
+    }, 'run-overrides', 4, 180000, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('24');
+    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('12');
+    expect(env.VH_DAEMON_FEED_READY_TIMEOUT_MS).toBe('480000');
   });
 
   it('reuses the shared automation-stack storycluster when required', () => {
@@ -241,9 +262,9 @@ describe('runDaemonFeedSemanticSoak', () => {
     ]);
   });
 
-  it('preserves explicit feed source and limit overrides', () => {
+  it('uses the dedicated public-smoke source override and preserves item limits', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({
-      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,fox-latest',
+      VH_DAEMON_FEED_PUBLIC_SMOKE_SOURCE_IDS: 'guardian-us,fox-latest',
       VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '2',
       VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '8',
     }, 'run-2', 2, 1000);
@@ -253,6 +274,33 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('ignores ambient dev source ids and prefers fresh public source-health ranking', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,fox-latest',
+    }, 'run-dev-env', 2, 1000, {
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        keepSourceIds: [
+          'guardian-us',
+          'fox-latest',
+          'bbc-us-canada',
+        ],
+        feedContribution: {
+          sources: [
+            { sourceId: 'bbc-us-canada', corroboratedBundleCount: 8, bundleAppearanceCount: 17, ingestedItemCount: 24 },
+            { sourceId: 'guardian-us', corroboratedBundleCount: 6, bundleAppearanceCount: 10, ingestedItemCount: 33 },
+            { sourceId: 'fox-latest', corroboratedBundleCount: 2, bundleAppearanceCount: 8, ingestedItemCount: 25 },
+          ],
+        },
+      }),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('bbc-us-canada,guardian-us,fox-latest');
   });
 
   it('does not inject smoke-only source defaults for fixture runs', () => {
@@ -284,6 +332,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
+      'nevadaindependent-main',
+      'canarymedia-main',
+      'abc-politics',
+      'huffpost-us',
     ]);
   });
 
@@ -318,6 +370,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
+      'nevadaindependent-main',
+      'canarymedia-main',
+      'abc-politics',
+      'huffpost-us',
     ]);
   });
 

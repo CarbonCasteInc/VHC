@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildProductionAppCanaryReport,
+  observeProductionAppDownstream,
   parseProductionAppCanaryOptions,
   PRODUCTION_APP_CANARY_SCHEMA_VERSION,
   runProductionAppCanary,
@@ -47,6 +48,53 @@ function git(args) {
   return '';
 }
 
+function releaseReadyMeshReport(overrides = {}) {
+  return meshReport({
+    status: 'release_ready',
+    release_readiness_blockers: [],
+    topology: {
+      deployment_scope: 'public_wss_deployment',
+      configured_peer_count: 3,
+      quorum_required: 2,
+    },
+    public_wss_proof: { status: 'pass' },
+    ...overrides,
+  });
+}
+
+function passDownstreamObservation(overrides = {}) {
+  return {
+    status: 'pass',
+    required_surfaces: [
+      'production_wss_relay_config',
+      'app_preview_or_deploy_shape',
+      'api_analyze',
+      'news_synthesis_publication',
+      'point_stance_write_readback',
+      'story_thread_create_comment',
+    ],
+    app_url: 'https://venn.example/',
+    gun_peer_url: 'wss://gun-a.example/gun',
+    public_wss_peers: [
+      'wss://gun-a.example/gun',
+      'wss://gun-b.example/gun',
+      'wss://gun-c.example/gun',
+    ],
+    artifact_dir: '/repo/.tmp/production-app-canary/run/downstream-observation',
+    summary_path: '/repo/.tmp/production-app-canary/run/downstream-observation/public-feed-browser-smoke/public-feed-browser-smoke-summary.json',
+    surfaces: {
+      production_wss_relay_config: { status: 'pass' },
+      app_preview_or_deploy_shape: { status: 'pass' },
+      api_analyze: { status: 'pass' },
+      news_synthesis_publication: { status: 'pass' },
+      point_stance_write_readback: { status: 'pass' },
+      story_thread_create_comment: { status: 'pass' },
+    },
+    failures: [],
+    ...overrides,
+  };
+}
+
 describe('production-app-canary', () => {
   it('defaults to the repo latest mesh report and supports CLI/env overrides', () => {
     expect(parseProductionAppCanaryOptions({
@@ -68,15 +116,27 @@ describe('production-app-canary', () => {
     })).toMatchObject({
       meshReportPath: '/repo/.tmp/cli-report.json',
       expectedLumaProfile: 'production-attestation',
+      appUrl: 'https://venn.carboncaste.io/',
+    });
+
+    expect(parseProductionAppCanaryOptions({
+      argv: ['--app-url', 'https://venn.example', '--public-wss-peers', '["wss://gun-a.example/gun","wss://gun-b.example/gun"]'],
+      env: {},
+      repoRoot: '/repo',
+    })).toMatchObject({
+      appUrl: 'https://venn.example/',
+      gunPeerUrl: 'wss://gun-a.example/gun',
+      publicWssPeers: ['wss://gun-a.example/gun', 'wss://gun-b.example/gun'],
     });
   });
 
-  it('blocks current review_required mesh evidence without faking an app canary pass', () => {
+  it('blocks current review_required mesh evidence without faking an app canary pass', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const meshReportPath = path.join(repoRoot, '.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
+    let observerCalled = false;
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -84,9 +144,14 @@ describe('production-app-canary', () => {
       now: () => nowMs,
       randomBytes: () => Buffer.from('00112233', 'hex'),
       git,
+      downstreamObserver: async () => {
+        observerCalled = true;
+        return passDownstreamObservation();
+      },
     });
 
     expect(result.exitCode).toBe(1);
+    expect(observerCalled).toBe(false);
     expect(result.report).toMatchObject({
       schema_version: PRODUCTION_APP_CANARY_SCHEMA_VERSION,
       status: 'blocked',
@@ -132,7 +197,7 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('still refuses to pass release_ready mesh evidence until real downstream observation exists', () => {
+  it('fails closed on release_ready mesh evidence when downstream observation is missing', () => {
     const report = buildProductionAppCanaryReport({
       runId: 'production-app-canary-test',
       startedAtMs: nowMs,
@@ -144,11 +209,173 @@ describe('production-app-canary', () => {
     });
 
     expect(report.status).toBe('blocked');
-    expect(report.reason).toBe('downstream_observation_not_implemented');
+    expect(report.reason).toBe('downstream_observation_missing');
     expect(report.release_claims.forbidden).toContain('The production app canary passed.');
     expect(report.checks.find((check) => check.id === 'downstream_observation')).toMatchObject({
       status: 'blocked',
-      reason: 'downstream_observation_not_implemented',
+      reason: 'downstream_observation_missing',
+    });
+  });
+
+  it('passes only when every required downstream surface is observed', () => {
+    const downstreamObservation = passDownstreamObservation();
+    const report = buildProductionAppCanaryReport({
+      runId: 'production-app-canary-test',
+      startedAtMs: nowMs,
+      completedAtMs: nowMs,
+      command: 'pnpm check:production-app-canary',
+      repo: { branch: 'coord/test', commit: 'abc123', dirty: false },
+      meshReportPath: '/repo/.tmp/mesh.json',
+      meshReport: releaseReadyMeshReport(),
+      downstreamObservation,
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.reason).toBe('all_required_surfaces_observed');
+    expect(report.release_claims.allowed).toContain('The production app canary passed for the observed public deployment.');
+    expect(report.release_claims.forbidden).not.toContain('The production app canary passed.');
+    expect(report.checks.find((check) => check.id === 'downstream_observation')).toMatchObject({
+      status: 'pass',
+      observed_surfaces: downstreamObservation.required_surfaces,
+    });
+  });
+
+  it('observes production app surfaces through public HTTPS, API health, and browser smoke evidence', async () => {
+    const fetchImpl = async (url) => {
+      if (String(url).endsWith('/api/analyze/health')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ ok: true, model: 'gpt-5-nano', upstream: 'reachable' }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'text/html; charset=utf-8' },
+        text: async () => '<!doctype html><html><body><div id="root"></div><script src="/assets/app.js"></script></body></html>',
+      };
+    };
+
+    const result = await observeProductionAppDownstream({
+      repoRoot: '/repo',
+      env: {},
+      options: {
+        appUrl: 'https://venn.example/',
+        gunPeerUrl: 'wss://gun-a.example/gun',
+        publicWssPeers: [
+          'wss://gun-a.example/gun',
+          'wss://gun-b.example/gun',
+          'wss://gun-c.example/gun',
+        ],
+        readyTimeoutMs: 1_000,
+        analysisTimeoutMs: 2_000,
+      },
+      meshReport: releaseReadyMeshReport(),
+      artifactDir: '/repo/.tmp/production-app-canary/run/downstream-observation',
+      fetchImpl,
+      runPublicFeedBrowserSmokeImpl: async ({ env }) => ({
+        status: 'pass',
+        artifactPaths: {
+          summaryPath: path.join(env.VH_PUBLIC_FEED_SMOKE_ARTIFACT_DIR, 'public-feed-browser-smoke-summary.json'),
+        },
+        checks: {
+          acceptedAnalysisSynthesisVisible: {
+            summaryText: 'A sourced public beta synthesis is visible.',
+            voteButtonCount: 2,
+            basis: '2 sources',
+            provenance: 'observed in browser smoke',
+          },
+          pointStanceWriteReadback: {
+            pointId: 'point-1',
+            canonicalPointId: 'canonical-point-1',
+            beforeAgree: 0,
+            afterAgree: 1,
+          },
+          storyThreadCreateComment: {
+            sectionId: 'news-card-topic-1',
+            createdThread: true,
+            countText: '1 comment',
+          },
+        },
+      }),
+    });
+
+    expect(result.status).toBe('pass');
+    expect(Object.keys(result.surfaces).sort()).toEqual([
+      'api_analyze',
+      'app_preview_or_deploy_shape',
+      'news_synthesis_publication',
+      'point_stance_write_readback',
+      'production_wss_relay_config',
+      'story_thread_create_comment',
+    ]);
+    expect(result.surfaces.api_analyze).toMatchObject({
+      status: 'pass',
+      evidence: { model: 'gpt-5-nano', upstream: 'reachable' },
+    });
+  });
+
+  it('runs downstream observation for release_ready mesh evidence and writes a passing report', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const meshReportPath = path.join(repoRoot, '.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json');
+    writeJson(meshReportPath, releaseReadyMeshReport());
+    let observedAppUrl = null;
+
+    const result = await runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: [
+        '--mesh-report',
+        meshReportPath,
+        '--app-url',
+        'https://venn.example',
+        '--public-wss-peers',
+        '["wss://gun-a.example/gun","wss://gun-b.example/gun","wss://gun-c.example/gun"]',
+      ],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git,
+      downstreamObserver: async ({ options }) => {
+        observedAppUrl = options.appUrl;
+        return passDownstreamObservation();
+      },
+    });
+
+    expect(observedAppUrl).toBe('https://venn.example/');
+    expect(result.exitCode).toBe(0);
+    expect(result.report.status).toBe('pass');
+    expect(fs.existsSync(result.reportPath)).toBe(true);
+  });
+
+  it('maps downstream observation failures to a blocked canary report', () => {
+    const report = buildProductionAppCanaryReport({
+      runId: 'production-app-canary-test',
+      startedAtMs: nowMs,
+      completedAtMs: nowMs,
+      command: 'pnpm check:production-app-canary',
+      repo: { branch: 'coord/test', commit: 'abc123', dirty: false },
+      meshReportPath: '/repo/.tmp/mesh.json',
+      meshReport: releaseReadyMeshReport(),
+      downstreamObservation: passDownstreamObservation({
+        status: 'fail',
+        reason: 'downstream_observation_failed',
+        surfaces: {
+          ...passDownstreamObservation().surfaces,
+          api_analyze: { status: 'fail', reason: 'api_analyze_health_not_ok' },
+        },
+        failures: [{ surface: 'api_analyze', reason: 'api_analyze_health_not_ok' }],
+      }),
+    });
+
+    expect(report.status).toBe('blocked');
+    expect(report.reason).toBe('downstream_observation_failed');
+    expect(report.checks.find((check) => check.id === 'downstream_observation')).toMatchObject({
+      status: 'blocked',
+      reason: 'downstream_observation_failed',
+      failures: [{ surface: 'api_analyze', reason: 'api_analyze_health_not_ok' }],
     });
   });
 
@@ -177,13 +404,13 @@ describe('production-app-canary', () => {
     ]));
   });
 
-  it('accepts a docs evidence packet generated at the immediate parent when the current diff is limited to that packet', () => {
+  it('accepts a docs evidence packet generated at the immediate parent when the current diff is limited to that packet', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -215,13 +442,13 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('does not accept a parent-generated docs packet when the current diff touches anything outside that packet', () => {
+  it('does not accept a parent-generated docs packet when the current diff touches anything outside that packet', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -254,13 +481,13 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('accepts a docs evidence packet generated before a merge commit when only that packet changed since the source commit', () => {
+  it('accepts a docs evidence packet generated before a merge commit when only that packet changed since the source commit', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -293,13 +520,13 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('accepts an ancestor docs evidence packet when intervening changes are limited to release-claim contract maintenance', () => {
+  it('accepts an ancestor docs evidence packet when intervening changes are limited to release-claim contract maintenance', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -335,13 +562,13 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('accepts an ancestor docs evidence packet when intervening changes include the sample-floor contract helper', () => {
+  it('accepts an ancestor docs evidence packet when intervening changes include the sample-floor contract helper', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
@@ -383,13 +610,13 @@ describe('production-app-canary', () => {
     });
   });
 
-  it('does not accept a docs evidence packet from an unrelated commit even when the diff is packet-only', () => {
+  it('does not accept a docs evidence packet from an unrelated commit even when the diff is packet-only', async () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
     const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
     const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
     writeJson(meshReportPath, meshReport());
 
-    const result = runProductionAppCanary({
+    const result = await runProductionAppCanary({
       repoRoot,
       outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
       argv: ['--mesh-report', meshReportPath],
