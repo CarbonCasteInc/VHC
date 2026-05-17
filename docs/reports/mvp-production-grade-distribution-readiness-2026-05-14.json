@@ -9,7 +9,7 @@
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "StoryCluster production readiness is release_ready, the local public/remote Web PWA feed browser smoke passed, and approvals/owners were recorded from operator-provided inputs. The packet remains blocked because public self-hosted deployment cannot proceed truthfully without DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions; therefore public WSS Mesh release_ready and production app canary pass are not proven.",
+  "status_reason": "StoryCluster production readiness is release_ready, the local public/remote Web PWA feed browser smoke passed, the clean-tree Mesh evidence chain now includes a passing canonical 30-minute soak with required write/resource sample floors, and approvals/owners were recorded from operator-provided inputs. The packet remains blocked because public self-hosted deployment cannot proceed truthfully without DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions; therefore public WSS Mesh release_ready and production app canary pass are not proven.",
   "fixes": {
     "news_daemon_stack_startup": {
       "files": [
@@ -123,27 +123,49 @@
     "luma_gated_write_coverage_artifact": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json",
     "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
     "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
-    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260514T085031Z-8364162c",
-    "current_clean_mesh_aggregate_status": "blocked_external_infrastructure",
+    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260517T072725Z-8f7a7e43",
+    "current_clean_mesh_aggregate_status": "blocked",
     "current_clean_mesh_repo": {
       "branch": "coord/mvp-production-grade-distribution-ready-v1",
-      "commit": "0f4b050681fc72792920c17ffae1a78d88dfeb3e",
+      "commit": "b7f37edac904673b8b22704eaa081f8a7fb3db8e",
       "base_ref": "origin/main",
       "dirty": false
     },
     "current_clean_mesh_observations": [
-      "public WSS deployment was not attempted because external infrastructure gates failed before changes",
-      "required public peer endpoints and signed peer config are not deployed",
-      "Mesh release_ready is not claimed"
+      "LUMA-gated write coverage passed on the clean PR branch.",
+      "The Mesh aggregate ran from a clean tree and passed topology, signed peer config, state resolution, disconnect, partition, read repair, canonical 30-minute soak, clock skew, and conflict source gates.",
+      "The canonical soak source report passed full duration with zero terminal failures, zero duplicate canonical writes, cleanup pass, and all required write/resource sample floors satisfied.",
+      "Public WSS deployment proof failed closed because the required public DNS/TLS/WSS infrastructure is unavailable.",
+      "Mesh release_ready is not claimed; aggregate blockers are public-wss-deployment-proof and evidence-scrub-promotion."
     ],
     "current_mesh_blockers": [
-      "public_bootstrap_infrastructure_blocked",
-      "public-wss-deployment-proof"
+      "public-wss-deployment-proof",
+      "evidence-scrub-promotion"
     ],
+    "canonical_soak": {
+      "run_id": "mesh-soak-20260517T073528Z-142f7543",
+      "full_duration_satisfied": true,
+      "soak_gate": "pass",
+      "terminal_failures": 0,
+      "duplicate_canonical_writes": 0,
+      "repair_events": 0,
+      "cleanup": "pass",
+      "required_write_sample_floors": "pass",
+      "relay_open_sockets_file_descriptors": "pass"
+    },
+    "production_app_canary_run_id": "production-app-canary-20260517T080920Z-447d5576",
     "production_app_canary_status": "blocked",
-    "production_app_canary_reason": "mesh_not_release_ready_public_infrastructure_blocked",
+    "production_app_canary_reason": "mesh_not_release_ready",
     "production_app_canary_downstream_observation_status": "not_run",
-    "production_app_canary_downstream_observation_reason": "public deployment and Mesh release_ready prerequisites blocked"
+    "production_app_canary_downstream_observation_reason": "Mesh status is blocked; public deployment and Mesh release_ready prerequisites are unavailable",
+    "production_app_canary_required_surfaces": [
+      "production_wss_relay_config",
+      "app_preview_or_deploy_shape",
+      "api_analyze",
+      "news_synthesis_publication",
+      "point_stance_write_readback",
+      "story_thread_create_comment"
+    ]
   },
   "approvals": {
     "release_owner": "Carbon Caste Inc",
@@ -189,9 +211,9 @@
     "mesh_release_ready_not_proven",
     "production_app_canary_not_proven"
   ],
-  "updated_at": "2026-05-17T05:47:51Z",
+  "updated_at": "2026-05-17T08:10:26Z",
   "infrastructure_access": {
-    "checked_at": "2026-05-17T05:47:51Z",
+    "checked_at": "2026-05-17T08:10:26Z",
     "local_host": {
       "hostname": "Benjamins-Mac-mini.local",
       "os": "macOS 26.3 build 25D125",
@@ -230,19 +252,19 @@
       {
         "id": "dns_registrar_access_required",
         "status": "blocked_external_action_required",
-        "observed": "carboncaste.io uses Namecheap nameservers dns1.registrar-servers.com and dns2.registrar-servers.com; venn.carboncaste.io and gun-a/gun-b/gun-c.venn.carboncaste.io have no A records; no NAMECHEAP/CLOUDFLARE/AWS/ROUTE53 DNS API credentials are present in the process environment.",
+        "observed": "carboncaste.io uses Namecheap nameservers dns1.registrar-servers.com and dns2.registrar-servers.com; carboncaste.io has A record 38.45.14.38; venn.carboncaste.io and gun-a/gun-b/gun-c.venn.carboncaste.io have no A records.",
         "required_human_action": "Provide registrar/DNS API access or create A/AAAA records for venn.carboncaste.io, gun-a.venn.carboncaste.io, gun-b.venn.carboncaste.io, and gun-c.venn.carboncaste.io pointing at the intended public ingress."
       },
       {
         "id": "public_inbound_router_firewall_required",
         "status": "blocked_external_action_required",
-        "observed": "The Mac mini and ssh humble both report public IPv4 129.222.193.128; inbound TCP 80 and 443 to 129.222.193.128 timed out, including from the humble host. carboncaste.io currently resolves to 38.45.14.38 and https://carboncaste.io also timed out.",
+        "observed": "The Mac mini and ssh humble both report public IPv4 129.222.193.128; inbound TCP 80 and 443 to 129.222.193.128 timed out.",
         "required_human_action": "Provide router/firewall/NAT control or an alternate public ingress so inbound 80/443 and WSS traffic can reach the selected bootstrap hosts."
       },
       {
         "id": "host_admin_rights_required",
         "status": "blocked_external_action_required",
-        "observed": "sudo -n true requires a password on both the Mac mini and humble. The Mac user is in admin, and humble is in sudo, but noninteractive service/firewall/privileged-port administration is not available to this agent.",
+        "observed": "sudo -n true exits 1 on both the Mac mini and humble; noninteractive service/firewall/privileged-port administration is not available to this agent.",
         "required_human_action": "Provide noninteractive sudo/admin rights or preinstall the service, firewall, and privileged-port configuration required for 443/TLS/WSS."
       },
       {
