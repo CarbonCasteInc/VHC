@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-17T08:10:26Z",
+  "updated_at": "2026-05-17T11:14:27Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
@@ -13,7 +13,7 @@
   "verification_timing": "StoryCluster, local public/remote Web PWA feed evidence, clean-tree Mesh production-readiness evidence, production app canary fail-closed behavior, and public infrastructure access were refreshed on the PR #630 branch. Public self-hosted deployment stopped before infra changes because DNS, inbound reachability, TLS, and noninteractive admin/service-manager access are unavailable.",
   "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "StoryCluster is release_ready, the local public/remote Web PWA feed smoke passed with current headlines and downstream UX proof, the clean-tree Mesh evidence chain passed the canonical local soak and sample floors, and operator-provided approval/owner fields are recorded. Launch remains blocked because the required public self-hosted infrastructure cannot be truthfully deployed or proven: DNS registrar access, inbound router/firewall reachability, TLS issuance path, and noninteractive host admin/service-manager permissions are unavailable; therefore public WSS Mesh release_ready and production app canary pass are not proven.",
+  "status_reason": "Current StoryCluster production-readiness is blocked by headline soak release evidence: the latest headline-soak execution is not promotable. Source health, correctness, local public/remote Web PWA feed smoke, Mesh local soak/sample-floor evidence, and operator-provided approval/owner fields are recorded, but launch remains blocked because live headline freshness is not release_ready and the required public self-hosted infrastructure cannot be truthfully deployed or proven without DNS registrar access, inbound router/firewall reachability, TLS issuance path, and noninteractive host admin/service-manager permissions.",
   "approval_input_result": {
     "required_approval_text_provided": true,
     "repo_local_approval_artifact_found": true,
@@ -118,7 +118,7 @@
       "downstream_observation_status": "not_run",
       "downstream_observation_reason": "Mesh status is blocked; public deployment and Mesh release_ready prerequisites are unavailable",
       "path": ".tmp/production-app-canary/latest/production-app-canary-report.json",
-      "run_id": "production-app-canary-20260517T080920Z-447d5576"
+      "run_id": "production-app-canary-20260517T085915Z-6610ccfa"
     },
     "launch_rehearsal": {
       "stack_up_command": "pnpm live:stack:up:analysis-stub",
@@ -133,17 +133,26 @@
     "storycluster_production_readiness": {
       "collect_command": "pnpm collect:storycluster:headline-soak",
       "check_command": "pnpm check:storycluster:production-readiness",
-      "status": "release_ready",
-      "recommended_action": "release_ready",
+      "status": "blocked",
+      "recommended_action": "hold_for_public_soak_recovery",
       "correctness_gate": "pass",
       "source_health_release_evidence_status": "pass",
-      "headline_soak_release_evidence_status": "pass",
-      "execution_count": 4,
+      "headline_soak_release_evidence_status": "fail",
+      "headline_soak_release_evidence_reasons": [
+        "latest_headline_soak_execution_not_promotable"
+      ],
+      "execution_count": 5,
       "promotable_execution_count": 4,
-      "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1778986350680",
-      "average_corroborated_bundle_rate": 1,
-      "average_unique_source_count": 10,
-      "total_audited_pairs": 30,
+      "not_ready_execution_count": 1,
+      "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1779011264028",
+      "latest_execution_readiness_status": "not_ready",
+      "latest_execution_strict_soak_pass": false,
+      "latest_execution_run_count": 3,
+      "latest_execution_pass_count": 0,
+      "latest_execution_fail_count": 3,
+      "average_corroborated_bundle_rate": null,
+      "average_unique_source_count": 0,
+      "total_audited_pairs": 0,
       "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
     },
     "public_feed_browser_smoke": {
@@ -289,11 +298,11 @@
   },
   "allowed_launch_copy": [
     "Web PWA MVP public beta candidate for the implemented scope.",
-    "MVP release gates passed.",
+    "Current launch-control status is blocked_engineering_evidence.",
     "Source health passed the complete release evidence window.",
     "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
     "Release-shaped public/remote analysis health passed using the Mac-mini-local release env path recorded in this packet.",
-    "StoryCluster production readiness is release_ready as of the recorded production-readiness report.",
+    "StoryCluster production readiness is currently blocked by headline soak release evidence; do not claim production-grade live headline freshness.",
     "Local public/remote Web PWA feed smoke passed with current headlines, source labels, timestamps, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility.",
     "Public self-hosted WSS Mesh, production app canary, and public https://venn.carboncaste.io deployment remain blocked on external infrastructure access and are not release-ready in this packet."
   ],
@@ -322,6 +331,9 @@
       "source-health thresholds",
       "source registry",
       "aggregate adapter runtime"
+    ],
+    "storycluster_release_ready": [
+      "public_headline_soak_release_evidence_failed"
     ]
   },
   "go_no_go_logic": {
@@ -343,6 +355,7 @@
     ]
   },
   "remaining_blockers": [
+    "public_headline_soak_release_evidence_failed",
     "public_bootstrap_infrastructure_blocked",
     "mesh_release_ready_not_proven",
     "production_app_canary_not_proven"

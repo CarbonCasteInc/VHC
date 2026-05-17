@@ -158,7 +158,7 @@ function canonicalSources(bundle: StoryBundle): StoryBundle['sources'] {
 
 function bundleConfidenceScore(bundle: StoryBundle): number {
   const confidence = bundle.cluster_features.confidence_score;
-  return Number.isFinite(confidence) ? confidence ?? 0.5 : 0.5;
+  return typeof confidence === 'number' && Number.isFinite(confidence) ? confidence : 0.5;
 }
 
 function titleKeywordOverlap(leftTitle: string, rightTitle: string): number {
@@ -502,11 +502,17 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 }
 
 export const __internal = {
+  bundleConfidenceScore,
   defaultPrompt,
+  hasTitlePairCanonicalSupport,
   isTruthyFlag,
+  normalizeOptionalPositiveInt,
   normalizePollInterval,
+  normalizeTitleKeyword,
   isPublicationEligibleBundle,
   refineBundleForPublication,
   selectBundlesForPublication,
   readEnvVar,
+  readOptionalPositiveIntEnv,
+  titlesHaveMatchingAction,
 };

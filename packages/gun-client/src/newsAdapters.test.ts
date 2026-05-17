@@ -1506,8 +1506,10 @@ describe('newsAdapters', () => {
         chain,
         { _: { '>': { 'story-a': 1, 'story-b': 2 } } },
         (_storyId, value) => Promise.resolve(typeof value === 'number' ? value : null),
+        new Set(['story-b']),
       ),
     ).resolves.toEqual({ 'story-a': 12 });
+    expect(chain.get).toHaveBeenCalledTimes(1);
   });
 
   it('computeStoryHotness is deterministic for fixed inputs', () => {

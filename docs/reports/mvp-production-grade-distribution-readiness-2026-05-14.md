@@ -1,7 +1,7 @@
 # MVP Production-Grade Distribution Readiness Packet
 
 Date: 2026-05-14
-Updated at: 2026-05-17T08:10:26Z
+Updated at: 2026-05-17T11:14:27Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Target PR: `#630`
@@ -12,7 +12,7 @@ pnpm: `9.7.1`
 
 `blocked_engineering_evidence`
 
-StoryCluster production readiness is now `release_ready`, the real local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain now includes a passing canonical 30-minute soak with required write/resource sample floors, and operator-provided launch-control approvals/owners are recorded. This packet remains blocked because public self-hosted deployment cannot proceed truthfully without external infrastructure access: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. Mesh `release_ready`, production app canary pass, public WSS proof, and `https://venn.carboncaste.io` public deployment are not claimed.
+Current StoryCluster production readiness is `blocked`: correctness and source-health release evidence pass, but the latest headline-soak execution is not promotable. The real local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain includes a passing canonical 30-minute soak with required write/resource sample floors, and operator-provided launch-control approvals/owners are recorded. This packet remains blocked because live headline freshness is not `release_ready` and public self-hosted deployment cannot proceed truthfully without external infrastructure access: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. StoryCluster `release_ready`, Mesh `release_ready`, production app canary pass, public WSS proof, and `https://venn.carboncaste.io` public deployment are not claimed.
 
 ## Release Env And Analysis Health
 
@@ -36,13 +36,13 @@ pnpm collect:storycluster:headline-soak
 pnpm check:storycluster:production-readiness
 ```
 
-Result: `release_ready`
+Result: `blocked`
 
 Artifact: `.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
 
-Key evidence: correctness gate `pass`; source-health release evidence `pass`; headline-soak release evidence `pass`; 4 recent executions; 4 promotable executions; 0 not-ready executions; latest execution 8 sampled stories, 30 audited pairs, corroborated bundle rate 1, average unique source count 10.
+Key evidence: correctness gate `pass`; source-health release evidence `pass`; headline-soak release evidence `fail`; current production-readiness report reason `headline_soak_release_evidence_failed`; 5 recent executions; 4 promotable executions; 1 not-ready execution; latest headline-soak execution `.tmp/daemon-feed-semantic-soak/1779011264028` is `not_ready` with `latest_headline_soak_execution_not_promotable`.
 
-Production-grade live headline freshness is allowed only to the extent represented by this StoryCluster report. It does not imply public WSS Mesh or production app readiness.
+Production-grade live headline freshness is not claimed until the aggregate headline-soak gate promotes a current execution.
 
 ## Public Web PWA Feed Proof
 
@@ -97,15 +97,15 @@ Required public WSS peers:
 
 Status: not deployed, not probed, not claimed.
 
-Clean-tree Mesh evidence refreshed on commit `b7f37edac904673b8b22704eaa081f8a7fb3db8e`:
+Clean-tree Mesh evidence refreshed on commit `f56dc609fd102694d14d7626a4d3467d9f99a27a`:
 
 - LUMA-gated write coverage: `pass`, artifact `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`
-- Mesh aggregate: `blocked`, run `mesh-production-readiness-20260517T072725Z-8f7a7e43`, artifact `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+- Mesh aggregate: `blocked`, run `mesh-production-readiness-20260517T081752Z-42e9559c`, artifact `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
 - Passing Mesh source gates: topology, signed peer config, state resolution, disconnect, partition, read repair, canonical 30-minute soak, clock skew, conflict
-- Canonical soak source: run `mesh-soak-20260517T073528Z-142f7543`; full duration satisfied; zero terminal failures; zero duplicate canonical writes; cleanup `pass`; all required write sample floors `pass`; `relay_open_sockets_file_descriptors` `pass`
+- Canonical soak source: run `mesh-soak-20260517T082555Z-3053b8aa`; full duration satisfied; zero terminal failures; zero duplicate canonical writes; cleanup `pass`; all required write sample floors `pass`; `relay_open_sockets_file_descriptors` `pass`
 - Aggregate blockers: `public-wss-deployment-proof`, `evidence-scrub-promotion`
 
-Production app canary: `blocked`, run `production-app-canary-20260517T080920Z-447d5576`, artifact `.tmp/production-app-canary/latest/production-app-canary-report.json`. It failed closed with `mesh_not_release_ready`; downstream observations for production WSS relay config, app deployment shape, `/api/analyze`, news synthesis publication, point stance write/readback, and story thread/comment were not run because Mesh is blocked and `https://venn.carboncaste.io` is not deployed.
+Production app canary: `blocked`, run `production-app-canary-20260517T085915Z-6610ccfa`, artifact `.tmp/production-app-canary/latest/production-app-canary-report.json`. It failed closed with `mesh_not_release_ready`; downstream observations for production WSS relay config, app deployment shape, `/api/analyze`, news synthesis publication, point stance write/readback, and story thread/comment were not run because Mesh is blocked and `https://venn.carboncaste.io` is not deployed.
 
 ## Launch Control
 
@@ -126,6 +126,7 @@ Production app canary: `blocked`, run `production-app-canary-20260517T080920Z-44
 ## Forbidden Claims
 
 - `go_for_public_beta_launch`
+- StoryCluster `release_ready`
 - Mesh `release_ready`
 - production app canary pass
 - public WSS proof satisfied
@@ -144,6 +145,7 @@ Production app canary: `blocked`, run `production-app-canary-20260517T080920Z-44
 
 | Blocker | Required human action |
 | --- | --- |
+| `public_headline_soak_release_evidence_failed` | Restore live headline-soak release evidence so `pnpm check:storycluster:production-readiness` returns `release_ready`; current failure is `latest_headline_soak_execution_not_promotable` from `.tmp/daemon-feed-semantic-soak/1779011264028`. |
 | `dns_registrar_access_required` | Provide registrar/DNS access or create A/AAAA records for `venn.carboncaste.io`, `gun-a.venn.carboncaste.io`, `gun-b.venn.carboncaste.io`, and `gun-c.venn.carboncaste.io`. |
 | `public_inbound_router_firewall_required` | Provide router/firewall/NAT control or another public ingress so inbound 80/443 and WSS traffic reach the selected bootstrap hosts. |
 | `host_admin_rights_required` | Provide noninteractive sudo/admin rights or preconfigure services/firewall/privileged ports. |

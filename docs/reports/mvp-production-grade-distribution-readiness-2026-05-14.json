@@ -9,7 +9,7 @@
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "StoryCluster production readiness is release_ready, the local public/remote Web PWA feed browser smoke passed, the clean-tree Mesh evidence chain now includes a passing canonical 30-minute soak with required write/resource sample floors, and approvals/owners were recorded from operator-provided inputs. The packet remains blocked because public self-hosted deployment cannot proceed truthfully without DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions; therefore public WSS Mesh release_ready and production app canary pass are not proven.",
+  "status_reason": "Current StoryCluster production-readiness is blocked by headline soak release evidence: the latest headline-soak execution is not promotable. Source health, correctness, local public/remote Web PWA feed smoke, Mesh local soak/sample-floor evidence, and operator-provided approval/owner fields are recorded, but launch remains blocked because live headline freshness is not release_ready and the required public self-hosted infrastructure cannot be truthfully deployed or proven without DNS registrar access, inbound router/firewall reachability, TLS issuance path, and noninteractive host admin/service-manager permissions.",
   "fixes": {
     "news_daemon_stack_startup": {
       "files": [
@@ -104,17 +104,26 @@
   "storycluster_production_readiness": {
     "collect_command": "pnpm collect:storycluster:headline-soak",
     "check_command": "pnpm check:storycluster:production-readiness",
-    "status": "release_ready",
-    "recommended_action": "release_ready",
+    "status": "blocked",
+    "recommended_action": "hold_for_public_soak_recovery",
     "correctness_gate": "pass",
     "source_health_release_evidence_status": "pass",
-    "headline_soak_release_evidence_status": "pass",
-    "execution_count": 4,
+    "headline_soak_release_evidence_status": "fail",
+    "headline_soak_release_evidence_reasons": [
+      "latest_headline_soak_execution_not_promotable"
+    ],
+    "execution_count": 5,
     "promotable_execution_count": 4,
-    "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1778986350680",
-    "average_corroborated_bundle_rate": 1,
-    "average_unique_source_count": 10,
-    "total_audited_pairs": 30,
+    "not_ready_execution_count": 1,
+    "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1779011264028",
+    "latest_execution_readiness_status": "not_ready",
+    "latest_execution_strict_soak_pass": false,
+    "latest_execution_run_count": 3,
+    "latest_execution_pass_count": 0,
+    "latest_execution_fail_count": 3,
+    "average_corroborated_bundle_rate": null,
+    "average_unique_source_count": 0,
+    "total_audited_pairs": 0,
     "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
   },
   "mesh_and_app_canary": {
@@ -123,11 +132,11 @@
     "luma_gated_write_coverage_artifact": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json",
     "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
     "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
-    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260517T072725Z-8f7a7e43",
+    "current_clean_mesh_aggregate_run_id": "mesh-production-readiness-20260517T081752Z-42e9559c",
     "current_clean_mesh_aggregate_status": "blocked",
     "current_clean_mesh_repo": {
       "branch": "coord/mvp-production-grade-distribution-ready-v1",
-      "commit": "b7f37edac904673b8b22704eaa081f8a7fb3db8e",
+      "commit": "f56dc609fd102694d14d7626a4d3467d9f99a27a",
       "base_ref": "origin/main",
       "dirty": false
     },
@@ -143,7 +152,7 @@
       "evidence-scrub-promotion"
     ],
     "canonical_soak": {
-      "run_id": "mesh-soak-20260517T073528Z-142f7543",
+      "run_id": "mesh-soak-20260517T082555Z-3053b8aa",
       "full_duration_satisfied": true,
       "soak_gate": "pass",
       "terminal_failures": 0,
@@ -153,7 +162,7 @@
       "required_write_sample_floors": "pass",
       "relay_open_sockets_file_descriptors": "pass"
     },
-    "production_app_canary_run_id": "production-app-canary-20260517T080920Z-447d5576",
+    "production_app_canary_run_id": "production-app-canary-20260517T085915Z-6610ccfa",
     "production_app_canary_status": "blocked",
     "production_app_canary_reason": "mesh_not_release_ready",
     "production_app_canary_downstream_observation_status": "not_run",
@@ -181,16 +190,17 @@
   },
   "allowed_launch_copy": [
     "Web PWA MVP public beta candidate for the implemented scope.",
-    "MVP release gates passed.",
+    "Current launch-control status is blocked_engineering_evidence.",
     "Source health passed the complete release evidence window.",
     "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
     "Release-shaped public/remote analysis health passed using the Mac-mini-local release env path recorded in this packet.",
-    "StoryCluster production readiness is release_ready as of the recorded production-readiness report.",
+    "StoryCluster production readiness is currently blocked by headline soak release evidence; do not claim production-grade live headline freshness.",
     "Local public/remote Web PWA feed smoke passed with current headlines, source labels, timestamps, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility.",
     "Public self-hosted WSS Mesh, production app canary, and public https://venn.carboncaste.io deployment remain blocked on external infrastructure access and are not release-ready in this packet."
   ],
   "forbidden_claims": [
     "go_for_public_beta_launch",
+    "StoryCluster release_ready",
     "Mesh release_ready",
     "production app canary pass",
     "public WSS proof satisfied",
@@ -207,11 +217,12 @@
     "private support desk or SLA"
   ],
   "remaining_blockers": [
+    "public_headline_soak_release_evidence_failed",
     "public_bootstrap_infrastructure_blocked",
     "mesh_release_ready_not_proven",
     "production_app_canary_not_proven"
   ],
-  "updated_at": "2026-05-17T08:10:26Z",
+  "updated_at": "2026-05-17T11:14:27Z",
   "infrastructure_access": {
     "checked_at": "2026-05-17T08:10:26Z",
     "local_host": {
@@ -287,6 +298,7 @@
     "Mesh release_ready",
     "production app canary pass",
     "legal approval or commercial approval",
-    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, production attestation, or native App Store/TestFlight readiness"
+    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, production attestation, or native App Store/TestFlight readiness",
+    "StoryCluster release_ready"
   ]
 }

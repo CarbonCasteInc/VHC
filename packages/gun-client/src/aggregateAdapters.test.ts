@@ -1035,6 +1035,34 @@ describe('aggregateAdapters', () => {
     }
   });
 
+  it('writeVoterNode relay fallback declines LUMA v1 nodes when downgrade protection is disabled', async () => {
+    const client = createClient(createFakeMesh(), { validateWrite: vi.fn() } as unknown as TopologyGuard, [
+      'http://127.0.0.1:7777/gun',
+    ]);
+    const node = await createLumaAggregateVoterNode();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(
+        aggregateAdapterInternal.writeVoterNodeViaRelayFallback(
+          client,
+          {
+            topicId: 'topic-1',
+            synthesisId: 'synth-1',
+            epoch: 4,
+            voterId: LUMA_VOTER_ID,
+            node,
+          },
+          { allowLumaV1: false },
+        ),
+      ).resolves.toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('writeVoterNode rejects when relay fallback declines or throws', async () => {
     vi.useFakeTimers();
     try {

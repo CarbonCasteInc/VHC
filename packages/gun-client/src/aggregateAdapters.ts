@@ -1402,4 +1402,5 @@ export const aggregateAdapterInternal = {
   aggregatePointPath,
   aggregatePointsPath,
   readOnce,
+  writeVoterNodeViaRelayFallback,
 };

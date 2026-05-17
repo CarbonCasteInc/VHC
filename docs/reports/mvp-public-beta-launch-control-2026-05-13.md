@@ -1,7 +1,7 @@
 # MVP Public Beta Launch Control Packet
 
 Date: 2026-05-13
-Updated at: 2026-05-17T08:10:26Z
+Updated at: 2026-05-17T11:14:27Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
@@ -12,7 +12,7 @@ pnpm: `9.7.1`
 
 `blocked_engineering_evidence`
 
-StoryCluster is now `release_ready`, the local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain passed the canonical 30-minute local soak and required sample floors, and the operator-provided approval/owner fields are recorded. This packet still cannot move to `go_for_public_beta_launch` because the required public self-hosted deployment cannot be truthfully built or proven from this agent: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. Therefore Mesh `release_ready`, production app canary pass, and `https://venn.carboncaste.io` public deployment are not claimed.
+StoryCluster is currently `blocked`: correctness and source-health release evidence pass, but the latest headline-soak execution is not promotable. The local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain passed the canonical 30-minute local soak and required sample floors, and the operator-provided approval/owner fields are recorded. This packet cannot move to `go_for_public_beta_launch` because live headline freshness is not `release_ready` and the required public self-hosted deployment cannot be truthfully built or proven from this agent: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. Therefore StoryCluster `release_ready`, Mesh `release_ready`, production app canary pass, and `https://venn.carboncaste.io` public deployment are not claimed.
 
 ## Release Env
 
@@ -26,18 +26,18 @@ Presence-only verification found `OPENAI_API_KEY` and `ANALYSIS_RELAY_API_KEY`. 
 
 | Evidence | Result | Artifact |
 | --- | --- | --- |
-| StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
+| StoryCluster production readiness | `blocked`; `headline_soak_release_evidence_failed` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 | Public/remote Web PWA feed smoke | `pass` | `.tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json` |
 | Public feed screenshots | saved | `.tmp/release-evidence/public-feed-browser-smoke/1778996451746/` |
 | Analysis relay health | `200 OK` | local curl output |
 | Mesh production-readiness aggregate | `blocked` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
-| Mesh canonical 30-minute soak | `pass` | source run `mesh-soak-20260517T073528Z-142f7543` |
+| Mesh canonical 30-minute soak | `pass` | source run `mesh-soak-20260517T082555Z-3053b8aa` |
 | Public WSS Mesh proof | blocked | `public-wss-deployment-proof`; external infrastructure access unavailable |
 | Production app canary | blocked | `.tmp/production-app-canary/latest/production-app-canary-report.json`; `mesh_not_release_ready` |
 
 Public-feed proof covered daemon/Gun latest-index readback, current public headlines, source labels, timestamps, refresh, scroll, story detail, accepted synthesis, identity creation, point stance write/readback, story comments, reload persistence, and second-browser visibility.
 
-Mesh local proof covered topology, signed peer config, state resolution, disconnect, partition, read repair, a canonical 30-minute soak, clock skew, conflict, and LUMA-gated write coverage on clean commit `b7f37edac904673b8b22704eaa081f8a7fb3db8e`. The soak passed full duration with zero terminal failures, zero duplicate canonical writes, cleanup `pass`, all required write sample floors `pass`, and `relay_open_sockets_file_descriptors` `pass`. The Mesh aggregate remains blocked on `public-wss-deployment-proof` and `evidence-scrub-promotion`.
+Mesh local proof covered topology, signed peer config, state resolution, disconnect, partition, read repair, a canonical 30-minute soak, clock skew, conflict, and LUMA-gated write coverage on clean commit `f56dc609fd102694d14d7626a4d3467d9f99a27a`. The soak passed full duration with zero terminal failures, zero duplicate canonical writes, cleanup `pass`, all required write sample floors `pass`, and `relay_open_sockets_file_descriptors` `pass`. The Mesh aggregate remains blocked on `public-wss-deployment-proof` and `evidence-scrub-promotion`.
 
 ## Approval Table
 
@@ -67,11 +67,12 @@ Mesh local proof covered topology, signed peer config, state resolution, disconn
 
 ## Allowed Launch Copy
 
-The approved bounded copy is in `docs/launch/public-beta-copy.md`. It allows only the local public/remote and StoryCluster evidence recorded here. It explicitly does not activate a public launch while infrastructure blockers remain.
+The approved bounded copy is in `docs/launch/public-beta-copy.md`. It allows only the local public/remote evidence recorded here. It explicitly does not activate a public launch while headline-soak and infrastructure blockers remain.
 
 ## Forbidden Claims
 
 - `go_for_public_beta_launch`
+- StoryCluster `release_ready`
 - Mesh `release_ready`
 - production app canary pass
 - public WSS proof satisfied

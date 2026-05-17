@@ -166,9 +166,20 @@ describe('newsRuntime', () => {
     expect(__internal.normalizePollInterval(undefined)).toBe(30 * 60 * 1000);
     expect(__internal.normalizePollInterval(10.7)).toBe(10);
     expect(() => __internal.normalizePollInterval(0)).toThrow('pollIntervalMs must be a positive finite number');
+    expect(__internal.normalizeOptionalPositiveInt(undefined, 'sample')).toBeNull();
+    expect(__internal.normalizeOptionalPositiveInt(4.8, 'sample')).toBe(4);
+    expect(() => __internal.normalizeOptionalPositiveInt(0, 'sample')).toThrow(
+      'sample must be a positive finite number',
+    );
 
     vi.stubEnv('CUSTOM_RUNTIME_ENV', ' value ');
     expect(__internal.readEnvVar('CUSTOM_RUNTIME_ENV')).toBe(' value ');
+    vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', ' 3 ');
+    expect(__internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toBe(3);
+    vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', 'bad');
+    expect(() => __internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toThrow(
+      'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES must be a positive integer',
+    );
 
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
@@ -350,6 +361,35 @@ describe('newsRuntime', () => {
     expect(__internal.isPublicationEligibleBundle(taiwanEpisode)).toBe(true);
   });
 
+  it('normalizes title anchors and action overlap for publication support', () => {
+    expect(__internal.normalizeTitleKeyword('')).toBeNull();
+    expect(__internal.normalizeTitleKeyword('00042')).toBeNull();
+    expect(__internal.normalizeTitleKeyword('Trump&#039;s')).toBe('trump');
+    expect(__internal.titlesHaveMatchingAction(
+      'Senator introduces a budget amendment',
+      'Budget amendment draws sharp criticism',
+    )).toBe(false);
+    expect(__internal.titlesHaveMatchingAction(
+      'Man arrested in turtle trafficking case',
+      'Suspect charged over turtle smuggling plot',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'Trump threatens to pull Boebert endorsement over Massie support',
+      'Trump threatens weak minded Boebert with primary after Massie campaign',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'Man arrested in turtle trafficking case',
+      'Suspect charged over turtle smuggling plot',
+    )).toBe(true);
+    expect(__internal.bundleConfidenceScore({
+      ...STORY_BUNDLE,
+      cluster_features: {
+        ...STORY_BUNDLE.cluster_features,
+        confidence_score: Number.NaN,
+      },
+    })).toBe(0.5);
+  });
+
   it('keeps three-source corroborated bundles on source diversity even with varied headlines', () => {
     const multiSource = storyBundle('multi-source', {
       sourceCount: 3,
@@ -385,6 +425,65 @@ describe('newsRuntime', () => {
     ]);
     expect(selected?.related_links?.map((source) => source.title)).toEqual([
       'Supreme Court allows access to abortion pill by mail for now',
+    ]);
+  });
+
+  it('keeps multi-source bundles unchanged when title support is all-or-nothing', () => {
+    const allSupported = storyBundle('all-supported', {
+      sourceCount: 3,
+      confidenceScore: 0.79,
+      titles: [
+        'Court rejects Virginia map challenge from Democrats',
+        'Supreme Court rejects Virginia Democrats map challenge',
+        'High court rejects Virginia Democrats congressional map bid',
+      ],
+    });
+    const tooFewSupported = storyBundle('too-few-supported', {
+      sourceCount: 4,
+      confidenceScore: 0.79,
+      titles: [
+        'Senate parliamentarian nixes ballroom fund in budget bill',
+        'Ebola response team expands Congo vaccine campaign',
+        'Climate report says sea levels rose again this year',
+        'Transit agency approves late-night rail extension',
+      ],
+    });
+
+    expect(__internal.refineBundleForPublication(allSupported)).toBe(allSupported);
+    expect(__internal.refineBundleForPublication(tooFewSupported)).toBe(tooFewSupported);
+  });
+
+  it('sorts capped bundle publication deterministically through every tie breaker', () => {
+    const older = storyBundle('older', {
+      sourceCount: 2,
+      clusterWindowEnd: 100,
+      createdAt: 100,
+    });
+    const newerWindow = storyBundle('newer-window', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 50,
+    });
+    const newerCreated = storyBundle('newer-created', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 80,
+    });
+    const alphabeticWinner = storyBundle('alphabetic-winner', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 80,
+    });
+
+    expect(__internal.selectBundlesForPublication([
+      older,
+      newerWindow,
+      newerCreated,
+      alphabeticWinner,
+    ], 3).map((bundle) => bundle.story_id)).toEqual([
+      'alphabetic-winner',
+      'newer-created',
+      'newer-window',
     ]);
   });
 
@@ -444,6 +543,58 @@ describe('newsRuntime', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledTimes(1);
     expect(removeStoryBundle).not.toHaveBeenCalled();
+
+    handle.stop();
+  });
+
+  it('reports storyline write failures and continues the tick', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockRejectedValue(new Error('storyline write failed'));
+    const onError = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'storyline write failed' }));
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+
+    handle.stop();
+  });
+
+  it('reports non-Error storyline write failures', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockRejectedValue('storyline string failure');
+    const onError = vi.fn();
+    const traceSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(traceSpy).toHaveBeenCalledWith('[vh:news-runtime] storyline_write_failed', {
+      storyline_id: STORYLINE.storyline_id,
+      error: 'storyline string failure',
+    });
+    expect(onError).toHaveBeenCalledWith('storyline string failure');
 
     handle.stop();
   });
