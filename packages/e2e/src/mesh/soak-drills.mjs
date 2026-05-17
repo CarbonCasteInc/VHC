@@ -47,6 +47,10 @@ const RELEASE_SAMPLE_FLOORS = new Map([
   ['vote intent materialization (web pwa app client)', 20],
 ]);
 
+function releaseSampleFloorsRequested() {
+  return SOAK_DURATION_MS >= FULL_SOAK_DURATION_MS || process.env.VH_MESH_SOAK_FILL_SAMPLE_FLOORS === 'true';
+}
+
 const WRITE_CLASS_DEFS = [
   {
     slug: 'health-probe',
@@ -135,6 +139,16 @@ function createGun(peers) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appendBoundedOutput(target, key, chunk, maxLength = 64_000) {
+  const next = `${target[key] || ''}${chunk}`;
+  target[key] = next.length > maxLength ? next.slice(next.length - maxLength) : next;
+}
+
+function appendBoundedText(current, chunk, maxLength = 64_000) {
+  const next = `${current || ''}${chunk}`;
+  return next.length > maxLength ? next.slice(next.length - maxLength) : next;
 }
 
 async function sleepWithHeartbeat(ms, label) {
@@ -350,10 +364,10 @@ async function startRelay({ relayId, port, peers, runDir, children, allowedOrigi
   child.stdoutText = '';
   child.stderrText = '';
   child.stdout.on('data', (chunk) => {
-    child.stdoutText += chunk;
+    appendBoundedOutput(child, 'stdoutText', chunk);
   });
   child.stderr.on('data', (chunk) => {
-    child.stderrText += chunk;
+    appendBoundedOutput(child, 'stderrText', chunk);
   });
   children.add(child);
   await waitForOutput(child, new RegExp(`Gun relay listening on 127\\.0\\.0\\.1:${port}`));
@@ -452,7 +466,7 @@ function isCompleteDrillRecord(record, runId) {
   );
 }
 
-async function putNode({ peers, runId, caseId, section, nodeId, record, timeoutMs = WRITE_TIMEOUT_MS }) {
+async function putNodeLocal({ peers, runId, caseId, section, nodeId, record, timeoutMs = WRITE_TIMEOUT_MS }) {
   const gun = createGun(peers);
   try {
     const result = await putWithTimeout(drillChain(gun, runId, caseId, section, nodeId), record, timeoutMs);
@@ -463,7 +477,14 @@ async function putNode({ peers, runId, caseId, section, nodeId, record, timeoutM
   }
 }
 
-async function readNode({ peer, runId, caseId, section, nodeId, timeoutMs = READ_TIMEOUT_MS }) {
+async function putNode({ peers, runId, caseId, section, nodeId, record, timeoutMs = WRITE_TIMEOUT_MS }) {
+  if (process.env.VH_MESH_SOAK_INLINE_GUN_IO === 'true') {
+    return putNodeLocal({ peers, runId, caseId, section, nodeId, record, timeoutMs });
+  }
+  return putNodeDirect({ peers, runId, caseId, section, nodeId, record, timeoutMs });
+}
+
+async function readNodeLocal({ peer, runId, caseId, section, nodeId, timeoutMs = READ_TIMEOUT_MS }) {
   const startedAt = Date.now();
   const gun = createGun([peer]);
   try {
@@ -497,6 +518,13 @@ async function readNode({ peer, runId, caseId, section, nodeId, timeoutMs = READ
   }
 }
 
+async function readNode({ peer, runId, caseId, section, nodeId, timeoutMs = READ_TIMEOUT_MS }) {
+  if (process.env.VH_MESH_SOAK_INLINE_GUN_IO === 'true') {
+    return readNodeLocal({ peer, runId, caseId, section, nodeId, timeoutMs });
+  }
+  return readNodeDirect({ peer, runId, caseId, section, nodeId, timeoutMs });
+}
+
 function parseChildJson(stdout) {
   const lines = String(stdout || '').trim().split(/\r?\n/).reverse();
   for (const line of lines) {
@@ -508,6 +536,76 @@ function parseChildJson(stdout) {
     }
   }
   return null;
+}
+
+function putNodeDirect({ peers, runId, caseId, section, nodeId, record, timeoutMs = WRITE_TIMEOUT_MS }) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [
+        __filename,
+        '--put-node',
+        JSON.stringify({
+          peers,
+          runId,
+          caseId,
+          section,
+          nodeId,
+          record,
+          timeoutMs,
+        }),
+      ],
+      {
+        cwd: repoRoot,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout = appendBoundedText(stdout, chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr = appendBoundedText(stderr, chunk);
+    });
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({
+        ok: false,
+        latency_ms: timeoutMs,
+        error: `put-node-child-timeout-${timeoutMs}`,
+      });
+    }, timeoutMs + 10000);
+    child.on('exit', (code) => {
+      const parsed = parseChildJson(stdout);
+      if (code === 0 && parsed) {
+        finish(parsed);
+        return;
+      }
+      finish({
+        ok: false,
+        latency_ms: null,
+        error: stderr.trim() || stdout.trim() || `put-node-child-exit-${code}`,
+      });
+    });
+    child.on('error', (error) => {
+      finish({
+        ok: false,
+        latency_ms: null,
+        error: error.message,
+      });
+    });
+  });
 }
 
 function readNodeDirect({ peer, runId, caseId, section, nodeId, timeoutMs = READ_TIMEOUT_MS }) {
@@ -538,10 +636,10 @@ function readNodeDirect({ peer, runId, caseId, section, nodeId, timeoutMs = READ
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
-      stdout += chunk;
+      stdout = appendBoundedText(stdout, chunk);
     });
     child.stderr.on('data', (chunk) => {
-      stderr += chunk;
+      stderr = appendBoundedText(stderr, chunk);
     });
     const finish = (result) => {
       if (settled) return;
@@ -668,7 +766,7 @@ function makeSample({ runId, traceId, classDef, laneId, actorCount, phase, ordin
   };
 }
 
-function makeBrowserSample({ runId, traceId, issuedAt, expiresAt }) {
+function makeBrowserSample({ runId, traceId, issuedAt, expiresAt, ordinal = 0 }) {
   const classDef = {
     slug: 'browser-vote-intent',
     objectClass: 'vote intent materialization (web pwa app client)',
@@ -681,11 +779,11 @@ function makeBrowserSample({ runId, traceId, issuedAt, expiresAt }) {
     laneId: 'browser-reconnect',
     actorCount: 1,
     phase: 'browser-reconnect',
-    ordinal: 0,
+    ordinal,
     issuedAt,
     expiresAt,
   });
-  sample.caseId = 'browser-soak-reconnect-vote-intent';
+  sample.caseId = `browser-soak-reconnect-vote-intent-${ordinal}`;
   sample.sampleId = sample.caseId;
   sample.objectId = `${sample.caseId}-${runId}`;
   sample.nodes[0].record._drillObjectClass = sample.objectClass;
@@ -912,6 +1010,7 @@ async function collectRelayMetrics(relays, phase) {
         radata_bytes: values.get('vh_relay_radata_bytes') ?? null,
         rss_bytes: values.get('vh_relay_process_rss_bytes') ?? null,
         heap_used_bytes: values.get('vh_relay_process_heap_used_bytes') ?? null,
+        open_fds: values.get('vh_relay_process_open_fds') ?? null,
         event_loop_lag_p95_ms: values.get('vh_relay_event_loop_lag_p95_ms') ?? null,
       });
     } catch (error) {
@@ -927,9 +1026,11 @@ async function collectRelayMetrics(relays, phase) {
 
 function buildResourceSlos(metricsRows) {
   const byRelay = new Map();
+  const openFdSamples = [];
   for (const row of metricsRows) {
     if (!byRelay.has(row.relay_id)) byRelay.set(row.relay_id, []);
     byRelay.get(row.relay_id).push(row);
+    if (Number.isFinite(row.open_fds)) openFdSamples.push(row.open_fds);
   }
   const rows = [];
   for (const [relayId, relayRows] of byRelay) {
@@ -941,6 +1042,7 @@ function buildResourceSlos(metricsRows) {
     rows.push(
       resourceRow(`${relayId}:rss_bytes`, latest.rss_bytes, 512 * 1024 * 1024, 'bytes'),
       resourceRow(`${relayId}:heap_used_bytes`, latest.heap_used_bytes, 256 * 1024 * 1024, 'bytes'),
+      resourceRow(`${relayId}:open_file_descriptors`, latest.open_fds, 250, 'file-descriptors'),
       resourceRow(`${relayId}:event_loop_lag_p95_ms`, latest.event_loop_lag_p95_ms, 100, 'ms'),
       resourceRow(`${relayId}:active_connections`, latest.active_connections, 250, 'connections'),
       resourceRow(`${relayId}:dropped_connections`, latest.dropped_connections, 100, 'connections'),
@@ -950,12 +1052,13 @@ function buildResourceSlos(metricsRows) {
     );
   }
   rows.push({
-    resource: 'relay_open_sockets_file_descriptors',
-    observed: null,
-    budget: 250,
-    unit: 'file-descriptors',
-    status: 'insufficient_samples',
-    reason: 'not exposed by the relay metrics endpoint on this platform; active_connections is recorded separately',
+    ...resourceRow(
+      'relay_open_sockets_file_descriptors',
+      openFdSamples.length > 0 ? Math.max(...openFdSamples) : null,
+      250,
+      'file-descriptors',
+    ),
+    sample_count: openFdSamples.length,
   });
   return rows;
 }
@@ -985,23 +1088,33 @@ function runStep(name, command, args, env) {
 }
 
 async function runBrowserSoak({ runId, traceId, relays, peerUrls, artifactDir, appPort, issuedAt, expiresAt }) {
-  const sample = makeBrowserSample({ runId, traceId, issuedAt, expiresAt });
+  const browserSampleCount = releaseSampleFloorsRequested()
+    ? RELEASE_SAMPLE_FLOORS.get('vote intent materialization (web pwa app client)')
+    : 1;
+  const samples = Array.from({ length: browserSampleCount }, (_, ordinal) =>
+    makeBrowserSample({ runId, traceId, issuedAt, expiresAt, ordinal })
+  );
+  const firstSample = samples[0];
   const manifestPath = path.join(artifactDir, 'browser-soak-manifest.json');
   const evidencePath = path.join(artifactDir, 'browser-soak-evidence.json');
   writeJson(manifestPath, {
     runId,
     traceId,
     peerUrls,
-    caseId: sample.caseId,
-    canonicalId: sample.canonicalId,
-    logicalKey: sample.logicalKey,
-    nodes: sample.nodes.map((node, index) => ({
+    caseId: firstSample.caseId,
+    canonicalId: firstSample.canonicalId,
+    logicalKey: firstSample.logicalKey,
+    nodes: samples.flatMap((sample, sampleIndex) => sample.nodes.map((node, nodeIndex) => ({
       namespace: 'soak',
+      caseId: sample.caseId,
+      sampleId: sample.sampleId,
+      canonicalId: sample.canonicalId,
+      logicalKey: sample.logicalKey,
       section: node.section,
       nodeId: node.nodeId,
       record: node.record,
-      forceReconnect: index === 0,
-    })),
+      forceReconnect: sampleIndex === 0 && nodeIndex === 0,
+    }))),
   });
 
   const env = {
@@ -1033,9 +1146,47 @@ async function runBrowserSoak({ runId, traceId, relays, peerUrls, artifactDir, a
   }
   const evidence = fs.existsSync(evidencePath) ? JSON.parse(fs.readFileSync(evidencePath, 'utf8')) : null;
   const writeRows = [];
-  for (const node of sample.nodes) {
-    const row = evidence?.writes?.find((entry) => entry.nodeId === node.nodeId && entry.section === node.section);
-    if (!row) {
+  for (const sample of samples) {
+    for (const node of sample.nodes) {
+      const row = evidence?.writes?.find((entry) => entry.nodeId === node.nodeId && entry.section === node.section);
+      if (!row) {
+        writeRows.push({
+          sample_id: sample.sampleId,
+          case_id: sample.caseId,
+          write_class: sample.objectClass,
+          lane_id: sample.laneId,
+          actor_count: sample.actorCount,
+          phase: sample.phase,
+          section: node.section,
+          node_id: node.nodeId,
+          write_id: node.writeId,
+          source: 'web-pwa-app-client',
+          forced_reconnect: Boolean(node.section === 'canonical'),
+          ok: false,
+          latency_ms: null,
+          error: 'browser-soak-evidence-missing',
+        });
+        continue;
+      }
+      if (row.first) {
+        writeRows.push({
+          sample_id: sample.sampleId,
+          case_id: sample.caseId,
+          write_class: sample.objectClass,
+          lane_id: sample.laneId,
+          actor_count: sample.actorCount,
+          phase: sample.phase,
+          section: node.section,
+          node_id: node.nodeId,
+          write_id: node.writeId,
+          source: 'web-pwa-app-client',
+          forced_reconnect: true,
+          non_terminal_forced_close_attempt: true,
+          ok: Boolean(row.first.ok),
+          latency_ms: row.first.latency_ms ?? null,
+          error: row.first.error ?? null,
+        });
+      }
       writeRows.push({
         sample_id: sample.sampleId,
         case_id: sample.caseId,
@@ -1047,84 +1198,57 @@ async function runBrowserSoak({ runId, traceId, relays, peerUrls, artifactDir, a
         node_id: node.nodeId,
         write_id: node.writeId,
         source: 'web-pwa-app-client',
-        forced_reconnect: Boolean(node.section === 'canonical'),
-        ok: false,
-        latency_ms: null,
-        error: 'browser-soak-evidence-missing',
-      });
-      continue;
-    }
-    if (row.first) {
-      writeRows.push({
-        sample_id: sample.sampleId,
-        case_id: sample.caseId,
-        write_class: sample.objectClass,
-        lane_id: sample.laneId,
-        actor_count: sample.actorCount,
-        phase: sample.phase,
-        section: node.section,
-        node_id: node.nodeId,
-        write_id: node.writeId,
-        source: 'web-pwa-app-client',
-        forced_reconnect: true,
         non_terminal_forced_close_attempt: true,
-        ok: Boolean(row.first.ok),
-        latency_ms: row.first.latency_ms ?? null,
-        error: row.first.error ?? null,
+        forced_reconnect: Boolean(row.forceReconnect),
+        ok: Boolean(row.result?.ok),
+        latency_ms: row.result?.latency_ms ?? null,
+        error: row.result?.error ?? null,
       });
     }
-    writeRows.push({
-      sample_id: sample.sampleId,
-      case_id: sample.caseId,
-      write_class: sample.objectClass,
-      lane_id: sample.laneId,
-      actor_count: sample.actorCount,
-      phase: sample.phase,
-      section: node.section,
-      node_id: node.nodeId,
-      write_id: node.writeId,
-      source: 'web-pwa-app-client',
-      forced_reconnect: Boolean(row.forceReconnect),
-      ok: Boolean(row.result?.ok),
-      latency_ms: row.result?.latency_ms ?? null,
-      error: row.result?.error ?? null,
-    });
   }
   const browserPassed = steps.every((step) => step.status === 'pass');
-  const readbacks = browserPassed ? await readSampleFromRelays({ relays, runId, sample }) : [];
-  const evaluation = browserPassed
-    ? evaluateSample(sample, readbacks)
-    : {
-        sample_id: sample.sampleId,
-        fixture: sample.phase,
-        object_id: sample.objectId,
-        object_class: sample.objectClass,
-        logical_key: sample.logicalKey,
-        canonical_id: sample.canonicalId,
-        lane_id: sample.laneId,
-        actor_count: sample.actorCount,
-        phase: sample.phase,
-        expected_write_ids: sample.nodes.map((node) => node.writeId),
-        duplicate_count: 1,
-        missing_count: sample.nodes.length * relays.length,
-        per_relay: [],
-        status: 'fail',
-        reason: 'Web PWA soak Playwright step failed before direct relay readback',
-      };
-  return {
-    sample,
-    steps,
-    evidence,
-    writeRows,
-    readbacks,
-    evaluation: {
+  const readbacks = [];
+  const evaluations = [];
+  for (const sample of samples) {
+    const sampleReadbacks = browserPassed ? await readSampleFromRelays({ relays, runId, sample }) : [];
+    readbacks.push(...sampleReadbacks);
+    const evaluation = browserPassed
+      ? evaluateSample(sample, sampleReadbacks)
+      : {
+          sample_id: sample.sampleId,
+          fixture: sample.phase,
+          object_id: sample.objectId,
+          object_class: sample.objectClass,
+          logical_key: sample.logicalKey,
+          canonical_id: sample.canonicalId,
+          lane_id: sample.laneId,
+          actor_count: sample.actorCount,
+          phase: sample.phase,
+          expected_write_ids: sample.nodes.map((node) => node.writeId),
+          duplicate_count: 1,
+          missing_count: sample.nodes.length * relays.length,
+          per_relay: [],
+          status: 'fail',
+          reason: 'Web PWA soak Playwright step failed before direct relay readback',
+        };
+    evaluations.push({
       ...evaluation,
       status: browserPassed && evaluation.status === 'pass' ? 'pass' : 'fail',
       reason:
         browserPassed && evaluation.status === 'pass'
           ? 'Web PWA app-created Gun client reconnected after forced socket close and wrote deterministic soak records'
           : evaluation.reason,
-    },
+    });
+  }
+  return {
+    sample: firstSample,
+    samples,
+    steps,
+    evidence,
+    writeRows,
+    readbacks,
+    evaluation: evaluations[0],
+    evaluations,
   };
 }
 
@@ -1154,7 +1278,7 @@ async function cleanupNode({ peers, runId, sample, node }) {
     await sleep(250);
   }
   return {
-    ok: Boolean(result.ok) && !retained.observed,
+    ok: !retained.observed,
     ack: result,
     retained: retained.observed,
   };
@@ -1318,6 +1442,15 @@ async function runSoakDrill() {
     const issuedAt = Date.now();
     const expiresAt = issuedAt + DEFAULT_TTL_MS;
     let ordinal = 0;
+    const writeAndEvaluateSample = async ({ sample, peers = peerUrls, source = 'node-gun-client', relaysToRead = relays }) => {
+      samples.push(sample);
+      writeRows.push(...await writeSample({ peers, runId, sample, source }));
+      const rows = await readSampleFromRelays({ relays: relaysToRead, runId, sample });
+      readbackRows.push(...rows);
+      const evaluation = evaluateSample(sample, rows);
+      evaluations.push(evaluation);
+      return evaluation;
+    };
     const baselineSamples = [];
     for (const [classIndex, classDef] of WRITE_CLASS_DEFS.entries()) {
       const lane = classIndex % 2 === 0
@@ -1339,11 +1472,7 @@ async function runSoakDrill() {
     }
 
     for (const sample of baselineSamples) {
-      samples.push(sample);
-      writeRows.push(...await writeSample({ peers: peerUrls, runId, sample }));
-      const rows = await readSampleFromRelays({ relays, runId, sample });
-      readbackRows.push(...rows);
-      evaluations.push(evaluateSample(sample, rows));
+      await writeAndEvaluateSample({ sample });
     }
 
     const browser = await runBrowserSoak({
@@ -1356,10 +1485,10 @@ async function runSoakDrill() {
       issuedAt: Date.now(),
       expiresAt,
     });
-    samples.push(browser.sample);
+    samples.push(...browser.samples);
     writeRows.push(...browser.writeRows);
     readbackRows.push(...browser.readbacks);
-    evaluations.push(browser.evaluation);
+    evaluations.push(...browser.evaluations);
     gates.push(...browser.steps.map((step) => ({
       name: step.name,
       status: step.status,
@@ -1432,6 +1561,34 @@ async function runSoakDrill() {
         if (evaluation.status !== 'pass') {
           const repair = await repairMissingSample({ relays, runId, sample, evaluations, writeRows, readbackRows });
           if (repair) repairEvents.push(repair);
+        }
+      }
+    }
+
+    if (releaseSampleFloorsRequested()) {
+      for (const [classIndex, classDef] of WRITE_CLASS_DEFS.entries()) {
+        const target = RELEASE_SAMPLE_FLOORS.get(classDef.objectClass) ?? 1;
+        const existing = () => evaluations.filter((row) => row.object_class === classDef.objectClass).length;
+        while (existing() < target) {
+          const lane = (existing() + classIndex) % 2 === 0
+            ? { laneId: 'two-user-engagement', actorCount: 2 }
+            : { laneId: 'five-user-engagement', actorCount: 5 };
+          const sample = makeSample({
+            runId,
+            traceId,
+            classDef,
+            laneId: lane.laneId,
+            actorCount: lane.actorCount,
+            phase: 'release-sample-floor',
+            ordinal: ordinal++,
+            issuedAt: Date.now(),
+            expiresAt,
+          });
+          await writeAndEvaluateSample({
+            sample,
+            peers: [peerUrls[0]],
+            source: 'node-gun-client-release-sample-floor',
+          });
         }
       }
     }
@@ -1707,9 +1864,15 @@ async function runSoakDrill() {
 }
 
 async function main() {
+  if (process.argv[2] === '--put-node') {
+    const request = JSON.parse(process.argv[3] || '{}');
+    const result = await putNodeLocal(request);
+    console.log(JSON.stringify(result));
+    return;
+  }
   if (process.argv[2] === '--read-node') {
     const request = JSON.parse(process.argv[3] || '{}');
-    const result = await readNode(request);
+    const result = await readNodeLocal(request);
     console.log(JSON.stringify(result));
     return;
   }

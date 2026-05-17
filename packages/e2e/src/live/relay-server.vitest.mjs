@@ -244,6 +244,7 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_http_requests_total');
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
+    expect(metrics.body).toMatch(/vh_relay_process_open_fds \d+/);
   });
 
   it('exposes explicit relay topology metadata when relay peers are configured', async () => {

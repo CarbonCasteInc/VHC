@@ -3,6 +3,10 @@ import * as fs from 'node:fs';
 
 interface BrowserSoakNode {
   namespace: string;
+  caseId?: string;
+  sampleId?: string;
+  canonicalId?: string;
+  logicalKey?: string;
   section: 'canonical' | 'attempts' | 'indexes' | 'projections';
   nodeId: string;
   record: Record<string, unknown>;
@@ -85,6 +89,10 @@ if (!manifestPath) {
 
 const evidencePath = process.env.VH_MESH_SOAK_BROWSER_EVIDENCE_PATH;
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BrowserSoakManifest;
+
+function nodeCaseId(node: BrowserSoakNode): string {
+  return node.caseId || manifest.caseId;
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -199,10 +207,11 @@ async function socketEvidence(page: import('@playwright/test').Page) {
 test('web pwa app client reconnects and writes deterministic soak records', async ({ page }) => {
   await page.goto('/');
   const firstPageProof = await waitForAppDrillReady(page);
-  const writes: Array<{ nodeId: string; section: string; forceReconnect: boolean; first?: WriteResult; retry?: WriteResult; result: WriteResult }> = [];
+  const writes: Array<{ nodeId: string; section: string; caseId: string; sampleId?: string; forceReconnect: boolean; first?: WriteResult; retry?: WriteResult; result: WriteResult }> = [];
   let forcedSocketEvidence: Awaited<ReturnType<typeof socketEvidence>> | null = null;
 
   for (const node of manifest.nodes) {
+    const caseId = nodeCaseId(node);
     if (node.forceReconnect) {
       const first = await page.evaluate(async ({ runId, caseId, node }) => {
         const win = window as DrillWindow;
@@ -217,7 +226,7 @@ test('web pwa app client reconnects and writes deterministic soak records', asyn
         });
         win.__VH_MESH_SOAK_SOCKET_CONTROL__!.forceCloseSockets();
         return await pending;
-      }, { runId: manifest.runId, caseId: manifest.caseId, node });
+      }, { runId: manifest.runId, caseId, node });
       forcedSocketEvidence = await socketEvidence(page);
       await page.reload();
       await waitForAppDrillReady(page);
@@ -232,9 +241,9 @@ test('web pwa app client reconnects and writes deterministic soak records', asyn
           record: node.record,
           timeoutMs: 5_000,
         });
-      }, { runId: manifest.runId, caseId: manifest.caseId, node });
+      }, { runId: manifest.runId, caseId, node });
       expect(retry.ok).toBe(true);
-      writes.push({ nodeId: node.nodeId, section: node.section, forceReconnect: true, first, retry, result: retry });
+      writes.push({ nodeId: node.nodeId, section: node.section, caseId, sampleId: node.sampleId, forceReconnect: true, first, retry, result: retry });
       continue;
     }
 
@@ -249,9 +258,9 @@ test('web pwa app client reconnects and writes deterministic soak records', asyn
         record: node.record,
         timeoutMs: 5_000,
       });
-    }, { runId: manifest.runId, caseId: manifest.caseId, node });
+    }, { runId: manifest.runId, caseId, node });
     expect(result.ok).toBe(true);
-    writes.push({ nodeId: node.nodeId, section: node.section, forceReconnect: false, result });
+    writes.push({ nodeId: node.nodeId, section: node.section, caseId, sampleId: node.sampleId, forceReconnect: false, result });
   }
 
   await page.waitForTimeout(2_500);
@@ -264,7 +273,7 @@ test('web pwa app client reconnects and writes deterministic soak records', asyn
     return await win.__VH_MESH_DISCONNECT_DRILL__!.readNode({
       namespace: node.namespace,
       runId,
-      caseId,
+      caseId: node.caseId || caseId,
       section: node.section,
       nodeId: node.nodeId,
       timeoutMs: 8_000,
@@ -275,8 +284,8 @@ test('web pwa app client reconnects and writes deterministic soak records', asyn
     node: firstNode,
   });
   expect(read.observed).toBe(true);
-  expect(read.record?._drillCanonicalId).toBe(manifest.canonicalId);
-  expect(read.record?._drillLogicalKey).toBe(manifest.logicalKey);
+  expect(read.record?._drillCanonicalId).toBe(firstNode.canonicalId || manifest.canonicalId);
+  expect(read.record?._drillLogicalKey).toBe(firstNode.logicalKey || manifest.logicalKey);
 
   const finalPageProof = await waitForResolvedTopology(page);
   const sockets = await socketEvidence(page);

@@ -470,6 +470,17 @@ function dirSizeBytes(target) {
   }
 }
 
+function openFileDescriptorCount() {
+  for (const fdDir of ['/proc/self/fd', '/dev/fd']) {
+    try {
+      return fs.readdirSync(fdDir).length;
+    } catch {
+      // Try the next platform-specific descriptor directory.
+    }
+  }
+  return null;
+}
+
 function metricsText() {
   const lines = [];
   const add = (name, value, labels = {}) => {
@@ -494,8 +505,12 @@ function metricsText() {
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
   const memory = process.memoryUsage();
+  const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
   add('vh_relay_process_heap_used_bytes', memory.heapUsed);
+  if (Number.isFinite(openFds)) {
+    add('vh_relay_process_open_fds', openFds);
+  }
   add('vh_relay_event_loop_lag_p95_ms', Math.round(eventLoopDelay.percentile(95) / 1e6));
   for (const [status, count] of metrics.httpResponses) {
     add('vh_relay_http_responses_total', count, { status });
