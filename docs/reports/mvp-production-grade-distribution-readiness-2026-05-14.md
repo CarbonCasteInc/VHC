@@ -1,7 +1,7 @@
 # MVP Production-Grade Distribution Readiness Packet
 
 Date: 2026-05-14
-Updated at: 2026-05-17T11:14:27Z
+Updated at: 2026-05-18T01:17:56Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Target PR: `#630`
@@ -12,7 +12,9 @@ pnpm: `9.7.1`
 
 `blocked_engineering_evidence`
 
-Current StoryCluster production readiness is `blocked`: correctness and source-health release evidence pass, but the latest headline-soak execution is not promotable. The real local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain includes a passing canonical 30-minute soak with required write/resource sample floors, and operator-provided launch-control approvals/owners are recorded. This packet remains blocked because live headline freshness is not `release_ready` and public self-hosted deployment cannot proceed truthfully without external infrastructure access: DNS registrar access, inbound router/firewall reachability, TLS issuance ability, and noninteractive host admin/service-manager permissions are unavailable. StoryCluster `release_ready`, Mesh `release_ready`, production app canary pass, public WSS proof, and `https://venn.carboncaste.io` public deployment are not claimed.
+Current StoryCluster production readiness is `blocked`: correctness and source-health release evidence pass, but the latest headline-soak execution is not promotable. The real local public/remote Web PWA feed smoke passed, the clean-tree Mesh evidence chain includes a passing canonical 30-minute soak with required write/resource sample floors, and operator-provided launch-control approvals/owners are recorded. Public ingress setup has advanced: Cloudflare is authoritative for `carboncaste.io`, the A6 Cloudflare Tunnel is active, and public app/peer routes exist. This packet remains blocked because live headline freshness is not `release_ready`, the app and WSS origin services are not deployed behind the tunnel, the original nested `gun-a/b/c.venn.carboncaste.io` peer names do not have valid TLS on Cloudflare Free Universal SSL, public WSS proof has not passed, Mesh is not `release_ready`, and the production app canary has not passed. StoryCluster `release_ready`, Mesh `release_ready`, production app canary pass, public WSS proof, and `https://venn.carboncaste.io` public app service are not claimed.
+
+State of Play summary: `docs/reports/mvp-public-beta-state-of-play-2026-05-18.md`
 
 ## Release Env And Analysis Health
 
@@ -75,27 +77,38 @@ Observed proof: 32 latest-index entries, 16 story readbacks, 15 visible current 
 
 ## Infrastructure Verification
 
+Cloudflare Tunnel setup was completed after the prior blocker packet.
+
 | Surface | Observed |
 | --- | --- |
-| Mac mini | `Benjamins-Mac-mini.local`, macOS 26.3 build 25D125, root disk 926Gi with 792Gi available |
-| Ubuntu A6 | `ssh humble`, host `ccibootstrap`, Ubuntu 24.04 kernel 6.17.0-22-generic, root disk 1.9T with 1.7T available, 58Gi memory with 56Gi available |
-| Public IP | both hosts report `129.222.193.128` |
-| DNS | `carboncaste.io` nameservers are `dns1.registrar-servers.com` and `dns2.registrar-servers.com`; root A record is `38.45.14.38`; `venn.carboncaste.io` and `gun-a/b/c.venn.carboncaste.io` have no A records |
-| Inbound | TCP 80 and 443 to `129.222.193.128` timed out |
-| Host admin | `sudo -n true` requires a password on both hosts |
-| TLS tooling | no Caddy/certbot/nginx binary found on either host |
+| Mac mini | `Benjamins-Mac-mini.local`, macOS 26.3 build 25D125, root disk 926Gi with 788Gi available, LAN IP `192.168.1.56` |
+| Ubuntu A6 | `ssh humble`, host `ccibootstrap`, Ubuntu 24.04 kernel 6.17.0-22-generic, root disk 1.9T with 1.7T available, 58Gi memory with 56Gi available, LAN IP `192.168.1.198` |
+| Public ingress | Cloudflare Tunnel on A6, tunnel `vhc-a6-public-beta`, id `1479d29e-4a0a-4e53-9aaf-b9984672ff9e` |
+| Tunnel token | stored only at `/home/humble/.config/vhc/cloudflared.env`; file mode `600`, parent directory mode `700`; token value not printed or committed |
+| A6 service state | `cloudflared` version `2026.5.0`, systemd service `active`; `sudo -n true` ready; Docker installed and `sudo docker ps` works |
+| DNS authority | `carboncaste.io` nameservers are `eric.ns.cloudflare.com` and `riya.ns.cloudflare.com` |
+| Requested app route | `https://venn.carboncaste.io` -> A6 `http://localhost:8080`; DNS resolves through Cloudflare and TLS works, currently `HTTP/2 502` until the origin app is deployed |
+| Requested peer routes | `gun-a/b/c.venn.carboncaste.io` route to A6 `8765`, A6 `8766`, and Mac `192.168.1.56:8767`; DNS resolves, but TLS handshake fails because Cloudflare Free Universal SSL does not cover nested `*.venn.carboncaste.io` names |
+| TLS-valid fallback peer routes | `gun-a/b/c.carboncaste.io` route to the same origins; DNS resolves through Cloudflare and TLS works, currently `HTTP/2 502` until the origin peer services are deployed |
+| Router | not needed for the chosen tunnel path; Starlink CGNAT is bypassed by outbound A6 tunnel connections |
 
-Required public topology was not deployed because these checks failed before public infrastructure changes.
+Required public topology is partially configured but not deployed or proven: Cloudflare routing exists, but the Web PWA and Gun relay services are not running behind the configured origins and no public WSS proof has passed.
 
 ## Mesh And Production App Canary
 
-Required public WSS peers:
+Required public WSS peers from the original target topology:
 
 - `wss://gun-a.venn.carboncaste.io/gun`
 - `wss://gun-b.venn.carboncaste.io/gun`
 - `wss://gun-c.venn.carboncaste.io/gun`
 
-Status: not deployed, not probed, not claimed.
+TLS-valid fallback peers configured for the near-term Cloudflare Free proof path:
+
+- `wss://gun-a.carboncaste.io/gun`
+- `wss://gun-b.carboncaste.io/gun`
+- `wss://gun-c.carboncaste.io/gun`
+
+Status: routes configured, origins not deployed, public WSS proof not run, not claimed. The original nested peer hostnames require Cloudflare Advanced Certificate Manager or a custom certificate before they can satisfy WSS TLS.
 
 Clean-tree Mesh evidence refreshed on commit `f56dc609fd102694d14d7626a4d3467d9f99a27a`:
 
@@ -130,7 +143,8 @@ Production app canary: `blocked`, run `production-app-canary-20260517T085915Z-66
 - Mesh `release_ready`
 - production app canary pass
 - public WSS proof satisfied
-- `https://venn.carboncaste.io` deployed or publicly reachable
+- `https://venn.carboncaste.io` serving the deployed Web PWA
+- original nested `gun-a/b/c.venn.carboncaste.io` peer TLS validity
 - downstream production app surfaces observed end to end
 - legal approval or commercial approval
 - LUMA Silver
@@ -146,11 +160,9 @@ Production app canary: `blocked`, run `production-app-canary-20260517T085915Z-66
 | Blocker | Required human action |
 | --- | --- |
 | `public_headline_soak_release_evidence_failed` | Restore live headline-soak release evidence so `pnpm check:storycluster:production-readiness` returns `release_ready`; current failure is `latest_headline_soak_execution_not_promotable` from `.tmp/daemon-feed-semantic-soak/1779011264028`. |
-| `dns_registrar_access_required` | Provide registrar/DNS access or create A/AAAA records for `venn.carboncaste.io`, `gun-a.venn.carboncaste.io`, `gun-b.venn.carboncaste.io`, and `gun-c.venn.carboncaste.io`. |
-| `public_inbound_router_firewall_required` | Provide router/firewall/NAT control or another public ingress so inbound 80/443 and WSS traffic reach the selected bootstrap hosts. |
-| `host_admin_rights_required` | Provide noninteractive sudo/admin rights or preconfigure services/firewall/privileged ports. |
-| `tls_issuance_blocked_by_dns_and_inbound` | Provide TLS tooling plus DNS challenge credentials, or open inbound 80/443 and authorize installation/configuration of an ACME-capable reverse proxy. |
-| `public_wss_deployment_proof_missing` | After access is available, deploy the three public WSS peers, signed peer config, CSP connect-src, health checks, restart persistence, and rerun public Mesh proof without threshold dilution. |
+| `public_origin_services_not_deployed` | Deploy the Web PWA on A6 `localhost:8080`, Gun peers on A6 `localhost:8765` and `localhost:8766`, and the Mac mini peer on `192.168.1.56:8767`; current Cloudflare routes return `502` because origins are not serving yet. |
+| `nested_peer_tls_certificate_missing` | Either enable Cloudflare Advanced Certificate Manager/custom certificate for `*.venn.carboncaste.io`, or use the TLS-valid fallback peers `gun-a/b/c.carboncaste.io` for the public Mesh proof. |
+| `public_wss_deployment_proof_missing` | After origins are deployed, publish signed public peer config, set CSP connect-src, verify health/restart persistence, and rerun public Mesh proof without threshold dilution. |
 | `mesh_release_ready_not_proven` | Run Mesh public WSS proof and production-readiness checks to `release_ready`; current aggregate blockers are `public-wss-deployment-proof` and `evidence-scrub-promotion`. |
 | `production_app_canary_not_proven` | After Mesh `release_ready`, run the production app canary against `https://venn.carboncaste.io` with real downstream observations. |
 

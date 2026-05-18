@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-17T11:14:27Z",
+  "updated_at": "2026-05-18T01:17:56Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "release_control_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "release_control_base": "origin/main after PR #628 merge",
@@ -10,10 +10,10 @@
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
-  "verification_timing": "StoryCluster, local public/remote Web PWA feed evidence, clean-tree Mesh production-readiness evidence, production app canary fail-closed behavior, and public infrastructure access were refreshed on the PR #630 branch. Public self-hosted deployment stopped before infra changes because DNS, inbound reachability, TLS, and noninteractive admin/service-manager access are unavailable.",
+  "verification_timing": "StoryCluster, local public/remote Web PWA feed evidence, clean-tree Mesh production-readiness evidence, production app canary fail-closed behavior, and public infrastructure access were refreshed on the PR #630 branch. Cloudflare DNS authority, A6 tunnel service, route configuration, and TLS behavior are now recorded; public app/WSS origins remain undeployed.",
   "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "Current StoryCluster production-readiness is blocked by headline soak release evidence: the latest headline-soak execution is not promotable. Source health, correctness, local public/remote Web PWA feed smoke, Mesh local soak/sample-floor evidence, and operator-provided approval/owner fields are recorded, but launch remains blocked because live headline freshness is not release_ready and the required public self-hosted infrastructure cannot be truthfully deployed or proven without DNS registrar access, inbound router/firewall reachability, TLS issuance path, and noninteractive host admin/service-manager permissions.",
+  "status_reason": "Current StoryCluster production-readiness is blocked by headline soak release evidence: the latest headline-soak execution is not promotable. Source health, correctness, local public/remote Web PWA feed smoke, Mesh local soak/sample-floor evidence, and operator-provided approval/owner fields are recorded. Public ingress setup has advanced through Cloudflare Tunnel: carboncaste.io is delegated to Cloudflare, the A6 tunnel is active, and public app/peer routes exist. Launch remains blocked because live headline freshness is not release_ready, the Web PWA and public WSS origin services are not deployed behind the tunnel, the original nested gun-a/b/c.venn.carboncaste.io peer names do not have valid TLS on Cloudflare Free Universal SSL, public WSS proof has not passed, Mesh is not release_ready, and the production app canary has not passed.",
   "approval_input_result": {
     "required_approval_text_provided": true,
     "repo_local_approval_artifact_found": true,
@@ -25,7 +25,9 @@
       "status": "blocked_engineering_evidence",
       "path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
       "blockers": [
-        "public_bootstrap_infrastructure_blocked",
+        "public_origin_services_not_deployed",
+        "nested_peer_tls_certificate_missing",
+        "public_wss_deployment_proof_missing",
         "mesh_release_ready_not_proven",
         "production_app_canary_not_proven"
       ]
@@ -189,14 +191,15 @@
       "upstream": "reachable"
     },
     "infrastructure_access": {
-      "checked_at": "2026-05-17T08:10:26Z",
+      "checked_at": "2026-05-18T01:17:56Z",
       "local_host": {
         "hostname": "Benjamins-Mac-mini.local",
         "os": "macOS 26.3 build 25D125",
-        "root_disk": "926Gi size, 792Gi available",
-        "public_ipv4": "129.222.193.128",
+        "root_disk": "926Gi size, 788Gi available",
+        "public_ipv4_observed_before_tunnel_selection": "129.222.193.128",
+        "lan_ip": "192.168.1.56",
         "passwordless_sudo": false,
-        "service_manager": "launchctl user context available; system/privileged service changes still require admin authentication"
+        "service_manager": "Mac peer service not installed yet; target origin is 192.168.1.56:8767 behind the A6 Cloudflare Tunnel route"
       },
       "ubuntu_host": {
         "ssh_alias": "humble",
@@ -204,56 +207,110 @@
         "os": "Ubuntu 24.04 kernel 6.17.0-22-generic",
         "root_disk": "1.9T size, 1.7T available",
         "memory": "58Gi total, 56Gi available",
-        "public_ipv4": "129.222.193.128",
-        "passwordless_sudo": false,
-        "systemd_user_linger": "yes"
+        "public_ipv4_observed_before_tunnel_selection": "129.222.193.128",
+        "lan_ip": "192.168.1.198",
+        "passwordless_sudo": true,
+        "docker": "installed; sudo docker ps works",
+        "cloudflared": {
+          "version": "2026.5.0",
+          "systemd_service": "active",
+          "token_env_path": "/home/humble/.config/vhc/cloudflared.env",
+          "token_env_parent_mode": "700",
+          "token_env_file_mode": "600",
+          "secret_handling": "token value not printed or committed"
+        }
       },
       "dns": {
         "domain": "carboncaste.io",
+        "authority": "Cloudflare",
         "nameservers": [
-          "dns1.registrar-servers.com",
-          "dns2.registrar-servers.com"
+          "eric.ns.cloudflare.com",
+          "riya.ns.cloudflare.com"
         ],
-        "current_root_a_records": [
-          "38.45.14.38"
+        "tunnel_id": "1479d29e-4a0a-4e53-9aaf-b9984672ff9e",
+        "cloudflare_edge_ips_observed": [
+          "104.21.86.178",
+          "172.67.223.77"
+        ]
+      },
+      "ingress": {
+        "choice": "Cloudflare Tunnel",
+        "host": "humble / ccibootstrap",
+        "tunnel_name": "vhc-a6-public-beta",
+        "tunnel_id": "1479d29e-4a0a-4e53-9aaf-b9984672ff9e",
+        "tls_path": "Cloudflare edge TLS via Tunnel",
+        "router": "not needed; Starlink CGNAT bypassed by outbound A6 tunnel connections"
+      },
+      "routes": {
+        "requested": [
+          {
+            "public_url": "https://venn.carboncaste.io",
+            "origin": "http://localhost:8080",
+            "dns": "resolves through Cloudflare",
+            "tls": "valid",
+            "http_probe": "HTTP/2 502 until origin app is deployed"
+          },
+          {
+            "public_url": "wss://gun-a.venn.carboncaste.io/gun",
+            "origin": "http://localhost:8765",
+            "dns": "resolves through Cloudflare",
+            "tls": "fails handshake on Cloudflare Free Universal SSL because nested wildcard is not covered"
+          },
+          {
+            "public_url": "wss://gun-b.venn.carboncaste.io/gun",
+            "origin": "http://localhost:8766",
+            "dns": "resolves through Cloudflare",
+            "tls": "fails handshake on Cloudflare Free Universal SSL because nested wildcard is not covered"
+          },
+          {
+            "public_url": "wss://gun-c.venn.carboncaste.io/gun",
+            "origin": "http://192.168.1.56:8767",
+            "dns": "resolves through Cloudflare",
+            "tls": "fails handshake on Cloudflare Free Universal SSL because nested wildcard is not covered"
+          }
         ],
-        "required_records_missing": [
-          "venn.carboncaste.io",
-          "gun-a.venn.carboncaste.io",
-          "gun-b.venn.carboncaste.io",
-          "gun-c.venn.carboncaste.io"
+        "tls_valid_fallback_peers": [
+          {
+            "public_url": "wss://gun-a.carboncaste.io/gun",
+            "origin": "http://localhost:8765",
+            "dns": "resolves through Cloudflare",
+            "tls": "valid",
+            "http_probe": "HTTP/2 502 until origin peer is deployed"
+          },
+          {
+            "public_url": "wss://gun-b.carboncaste.io/gun",
+            "origin": "http://localhost:8766",
+            "dns": "resolves through Cloudflare",
+            "tls": "valid",
+            "http_probe": "HTTP/2 502 until origin peer is deployed"
+          },
+          {
+            "public_url": "wss://gun-c.carboncaste.io/gun",
+            "origin": "http://192.168.1.56:8767",
+            "dns": "resolves through Cloudflare",
+            "tls": "valid",
+            "http_probe": "HTTP/2 502 until origin peer is deployed"
+          }
         ]
       },
       "blockers": [
         {
-          "id": "dns_registrar_access_required",
-          "status": "blocked_external_action_required",
-          "observed": "carboncaste.io uses Namecheap nameservers dns1.registrar-servers.com and dns2.registrar-servers.com; carboncaste.io has A record 38.45.14.38; venn.carboncaste.io and gun-a/gun-b/gun-c.venn.carboncaste.io have no A records.",
-          "required_human_action": "Provide registrar/DNS API access or create A/AAAA records for venn.carboncaste.io, gun-a.venn.carboncaste.io, gun-b.venn.carboncaste.io, and gun-c.venn.carboncaste.io pointing at the intended public ingress."
+          "id": "public_origin_services_not_deployed",
+          "status": "blocked_engineering_action_required",
+          "observed": "Cloudflare routes exist, but the app and peer origins on A6 localhost:8080, A6 localhost:8765, A6 localhost:8766, and Mac mini 192.168.1.56:8767 are not serving yet; Cloudflare returns HTTP/2 502 for TLS-valid routes.",
+          "required_action": "Deploy persistent Web PWA and Gun peer services with health checks and restart persistence behind the configured origins."
         },
         {
-          "id": "public_inbound_router_firewall_required",
-          "status": "blocked_external_action_required",
-          "observed": "The Mac mini and ssh humble both report public IPv4 129.222.193.128; inbound TCP 80 and 443 to 129.222.193.128 timed out.",
-          "required_human_action": "Provide router/firewall/NAT control or an alternate public ingress so inbound 80/443 and WSS traffic can reach the selected bootstrap hosts."
-        },
-        {
-          "id": "host_admin_rights_required",
-          "status": "blocked_external_action_required",
-          "observed": "sudo -n true exits 1 on both the Mac mini and humble; noninteractive service/firewall/privileged-port administration is not available to this agent.",
-          "required_human_action": "Provide noninteractive sudo/admin rights or preinstall the service, firewall, and privileged-port configuration required for 443/TLS/WSS."
-        },
-        {
-          "id": "tls_issuance_blocked_by_dns_and_inbound",
-          "status": "blocked_external_action_required",
-          "observed": "No caddy/certbot/nginx binary is installed on either host, and DNS plus inbound 80/443 are not available for ACME DNS-01 or HTTP-01 validation.",
-          "required_human_action": "Provide TLS tooling plus DNS challenge credentials, or open inbound 80/443 and authorize installation/configuration of an ACME-capable reverse proxy."
+          "id": "nested_peer_tls_certificate_missing",
+          "status": "blocked_external_or_topology_action_required",
+          "observed": "gun-a/b/c.venn.carboncaste.io resolve through Cloudflare but fail TLS handshake because Cloudflare Free Universal SSL does not cover nested *.venn.carboncaste.io hostnames.",
+          "required_action": "Enable Cloudflare Advanced Certificate Manager or a custom certificate for *.venn.carboncaste.io, or use the TLS-valid fallback peer hostnames gun-a/b/c.carboncaste.io for the public Mesh proof."
         },
         {
           "id": "public_wss_deployment_proof_missing",
-          "status": "blocked_external_action_required",
-          "observed": "The required public WSS peers wss://gun-a.venn.carboncaste.io/gun, wss://gun-b.venn.carboncaste.io/gun, and wss://gun-c.venn.carboncaste.io/gun cannot be truthfully deployed or probed until DNS, inbound reachability, TLS, and service permissions are available.",
-          "required_human_action": "After the above access is provided, deploy the three public WSS peers without lowering Mesh thresholds and run the public WSS proof."
+          "status": "blocked_engineering_action_required",
+          "observed": "No public WSS proof has run against deployed app/peer services yet.",
+          "required_action": "After origin deployment, publish signed peer config, set CSP connect-src, run public WSS proof with minimum peer count 3 and quorum 2, and do not lower thresholds."
         }
       ]
     }
@@ -356,8 +413,30 @@
   },
   "remaining_blockers": [
     "public_headline_soak_release_evidence_failed",
-    "public_bootstrap_infrastructure_blocked",
+    "public_origin_services_not_deployed",
+    "nested_peer_tls_certificate_missing",
+    "public_wss_deployment_proof_missing",
     "mesh_release_ready_not_proven",
     "production_app_canary_not_proven"
+  ],
+  "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md",
+  "forbidden_claims": [
+    "go_for_public_beta_launch",
+    "StoryCluster release_ready",
+    "Mesh release_ready",
+    "production app canary pass",
+    "public WSS proof satisfied",
+    "https://venn.carboncaste.io serving the deployed Web PWA",
+    "original nested gun-a/b/c.venn.carboncaste.io peer TLS validity",
+    "downstream production app surfaces observed end to end",
+    "legal approval",
+    "commercial approval",
+    "LUMA Silver",
+    "verified-human identity",
+    "one-human-one-vote",
+    "Sybil resistance",
+    "production attestation",
+    "native App Store or TestFlight readiness",
+    "private support desk or SLA"
   ]
 }
