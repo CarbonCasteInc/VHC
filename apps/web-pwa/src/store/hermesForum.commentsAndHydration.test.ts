@@ -1459,6 +1459,52 @@ describe('hermesForum store (comments & hydration)', () => {
     expect(store.getState().comments.get(comment.threadId)?.map((item) => item.id)).toEqual([comment.id]);
   });
 
+  it('reconstructs mapped comments from scalar fields when whole-node hydration is partial', async () => {
+    setIdentity('hydrator');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-map-scalars', now: () => 1 });
+    const comment = {
+      id: 'comment-from-map-scalars',
+      schemaVersion: 'hermes-comment-v1',
+      threadId: 'news-story:story-mapped-scalar-comment',
+      parentId: null,
+      content: 'mapped comment payload reconstructed from scalar fields',
+      author: 'hydrator',
+      timestamp: 1,
+      stance: 'discuss',
+      upvotes: 0,
+      downvotes: 0
+    };
+    const commentNode = {
+      once: vi.fn((cb: (data: any) => void) => cb({
+        id: comment.id,
+        schemaVersion: comment.schemaVersion,
+        threadId: comment.threadId
+      })),
+      get: vi.fn((field: keyof typeof comment) => ({
+        once: vi.fn((cb: (data: any) => void) => cb(comment[field]))
+      })),
+      put: commentsChain.put
+    };
+    commentsChain.get.mockImplementation((key: string) => (key === comment.id ? commentNode : commentsChain));
+    commentSnapshots.push({
+      key: comment.id,
+      data: {
+        id: comment.id,
+        schemaVersion: comment.schemaVersion,
+        threadId: comment.threadId
+      }
+    });
+
+    await store.getState().loadComments(comment.threadId);
+    for (let attempt = 0; attempt < 5 && !store.getState().comments.get(comment.threadId); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(commentNode.get).toHaveBeenCalledWith('schemaVersion');
+    expect(commentNode.get).toHaveBeenCalledWith('content');
+    expect(store.getState().comments.get(comment.threadId)?.map((item) => item.id)).toEqual([comment.id]);
+  });
+
   it('hydrates indexed comments from the JSON envelope when scalar field projection is incomplete', async () => {
     setIdentity('hydrator');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-index-envelope', now: () => 1 });

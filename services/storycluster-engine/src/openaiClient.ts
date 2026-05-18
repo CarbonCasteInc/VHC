@@ -23,6 +23,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 2;
 const CHAT_COMPLETIONS_PATH = '/chat/completions';
 const EMBEDDINGS_PATH = '/embeddings';
+const API_KEY_TOKEN_PATTERN = /sk-[A-Za-z0-9_*=\\-]{8,}/g;
 
 function normalizeBaseUrl(baseUrl: string | undefined): string {
   const trimmed = (baseUrl ?? 'https://api.openai.com/v1').trim();
@@ -38,6 +39,10 @@ function normalizeApiKey(apiKey: string): string {
     throw new Error('OpenAI API key must be non-empty');
   }
   return trimmed;
+}
+
+function redactSensitiveText(input: string): string {
+  return input.replace(API_KEY_TOKEN_PATTERN, 'sk-[REDACTED]');
 }
 
 function normalizeTimeoutMs(timeoutMs: number | undefined): number {
@@ -83,7 +88,7 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
     return await response.json();
   } catch {
     const text = await response.text().catch(() => '');
-    throw new Error(`OpenAI returned invalid JSON: ${text.slice(0, 240)}`);
+    throw new Error(`OpenAI returned invalid JSON: ${redactSensitiveText(text).slice(0, 240)}`);
   }
 }
 
@@ -95,7 +100,7 @@ function extractJsonContent(payload: unknown): unknown {
   }
   const match = content.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new Error(`OpenAI chat response missing JSON object: ${content.slice(0, 240)}`);
+    throw new Error(`OpenAI chat response missing JSON object: ${redactSensitiveText(content).slice(0, 240)}`);
   }
   return JSON.parse(match[0]) as unknown;
 }
@@ -147,7 +152,7 @@ export class OpenAIClient {
             continue;
           }
           clearTimeout(timer);
-          throw new Error(`OpenAI chat request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
+          throw new Error(`OpenAI chat request failed: HTTP ${response.status} ${redactSensitiveText(text).slice(0, 240)}`);
         }
 
         const result = extractJsonContent(await parseJsonResponse(response)) as T;
@@ -197,7 +202,7 @@ export class OpenAIClient {
             continue;
           }
           clearTimeout(timer);
-          throw new Error(`OpenAI embedding request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
+          throw new Error(`OpenAI embedding request failed: HTTP ${response.status} ${redactSensitiveText(text).slice(0, 240)}`);
         }
 
         const payload = await parseJsonResponse(response) as { data?: Array<{ embedding?: unknown }> };

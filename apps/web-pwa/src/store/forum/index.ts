@@ -967,16 +967,23 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     data: unknown,
     key?: string
   ): void => {
+    const resolvedKey = typeof key === 'string' && key.trim().length > 0 ? key : null;
     if (
-      key
+      resolvedKey
       && data
       && typeof data === 'object'
       && (!('id' in data) || !('schemaVersion' in data) || !('threadId' in data))
     ) {
-      commentsChain.get(key).once?.((resolved: unknown) => ingestComment(threadId, resolved, key));
+      commentsChain.get(resolvedKey).once?.((resolved: unknown) => {
+        if (!ingestComment(threadId, resolved, resolvedKey)) {
+          void hydrateIndexedCommentScalars(threadId, commentsChain.get(resolvedKey) as ReadChain, resolvedKey);
+        }
+      });
       return;
     }
-    ingestComment(threadId, data, key);
+    if (!ingestComment(threadId, data, key) && resolvedKey) {
+      void hydrateIndexedCommentScalars(threadId, commentsChain.get(resolvedKey) as ReadChain, resolvedKey);
+    }
   };
 
   const hydrateIndexedCommentScalars = async (

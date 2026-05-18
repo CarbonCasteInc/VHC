@@ -91,6 +91,87 @@ describe('liveSemanticAudit classifier', () => {
     ]);
   });
 
+  it('retries only omitted pair labels and preserves original order', async () => {
+    const omittedPair = makePair({
+      pair_id: 'story-1::wire-a:hash-a::wire-c:hash-c',
+      right: {
+        source_id: 'wire-c',
+        publisher: 'Wire C',
+        url: 'https://example.com/c',
+        url_hash: 'hash-c',
+        title: 'Stocks still slide the next morning',
+        text: 'Later follow-up coverage.',
+      },
+    });
+    const responses = [
+      {
+        pair_labels: [
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-b:hash-b',
+            label: 'same_incident',
+            confidence: 0.93,
+            rationale: 'Both sources describe the same strike-driven market selloff.',
+          },
+        ],
+      },
+      {
+        pair_labels: [
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-c:hash-c',
+            label: 'same_developing_episode',
+            confidence: 0.79,
+            rationale: 'The later report is a direct follow-up within the same episode.',
+          },
+        ],
+      },
+    ];
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const response = responses[fetchFn.mock.calls.length - 1]!;
+      const request = JSON.parse(String(init?.body ?? '{}'));
+      const userPayload = JSON.parse(request.messages?.[1]?.content ?? '{}');
+      if (fetchFn.mock.calls.length === 1) {
+        expect(userPayload.required_pair_ids).toEqual([
+          'story-1::wire-a:hash-a::wire-b:hash-b',
+          'story-1::wire-a:hash-a::wire-c:hash-c',
+        ]);
+      } else {
+        expect(userPayload.required_pair_ids).toEqual([
+          'story-1::wire-a:hash-a::wire-c:hash-c',
+        ]);
+      }
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(response) } }],
+      }), { status: 200 });
+    });
+
+    const results = await classifyCanonicalSourcePairs(
+      [
+        makePair(),
+        omittedPair,
+      ],
+      {
+        apiKey: 'test-key',
+        fetchFn,
+      },
+    );
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(results).toEqual([
+      {
+        pair_id: 'story-1::wire-a:hash-a::wire-b:hash-b',
+        label: 'same_incident',
+        confidence: 0.93,
+        rationale: 'Both sources describe the same strike-driven market selloff.',
+      },
+      {
+        pair_id: 'story-1::wire-a:hash-a::wire-c:hash-c',
+        label: 'same_developing_episode',
+        confidence: 0.79,
+        rationale: 'The later report is a direct follow-up within the same episode.',
+      },
+    ]);
+  });
+
   it('rejects invalid model labels', async () => {
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       choices: [
@@ -259,7 +340,10 @@ describe('liveSemanticAudit classifier', () => {
   });
 
   it('classifies batches concurrently while preserving input order', async () => {
-    const gate = Promise.withResolvers<void>();
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
     let callCount = 0;
     let inFlight = 0;
     let maxInFlight = 0;
@@ -311,12 +395,12 @@ describe('liveSemanticAudit classifier', () => {
       maxInFlight = Math.max(maxInFlight, inFlight);
       if (currentCall === 1) {
         await Promise.race([
-          gate.promise,
+          gate,
           new Promise((resolve) => setTimeout(resolve, 50)),
         ]);
       }
       if (currentCall === 2) {
-        gate.resolve();
+        releaseGate();
       }
       void init;
       const payload = responses[currentCall - 1]!;
@@ -417,6 +501,9 @@ describe('liveSemanticAudit classifier', () => {
       expect(body.messages?.[0]?.content).toContain(
         'same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger',
       );
+      expect(body.messages?.[0]?.content).toContain(
+        'Timing context is not a separate event by itself',
+      );
       expect(body.messages?.[1]?.content).toContain("Cuban official reveals military 'preparing' for conflict");
       expect(body.messages?.[1]?.content).toContain("Cuba's deputy foreign minister says it is preparing for possible U.S. 'military aggression'");
       return new Response(JSON.stringify({
@@ -460,6 +547,9 @@ describe('liveSemanticAudit classifier', () => {
     );
     expect(liveSemanticAuditInternal.buildSemanticAuditSystemPrompt()).toContain(
       'same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger',
+    );
+    expect(liveSemanticAuditInternal.buildSemanticAuditSystemPrompt()).toContain(
+      'Timing context is not a separate event by itself',
     );
   });
 });

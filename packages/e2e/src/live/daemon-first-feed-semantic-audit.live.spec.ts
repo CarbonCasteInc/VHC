@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { expect, test, type BrowserContext } from '@playwright/test';
 import {
+  FEED_READY_TIMEOUT_MS,
   LIVE_BASE_URL,
   NAV_TIMEOUT_MS,
   SHOULD_RUN,
@@ -29,6 +30,15 @@ function readPositiveIntEnv(name: string): number | undefined {
     throw new Error(`${name} must be a positive integer. Received: ${raw}`);
   }
   return parsed;
+}
+
+function resolveSemanticAuditTestTimeoutMs(): number {
+  const semanticAuditTimeoutMs =
+    readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS') ?? 180_000;
+  return Math.max(
+    12 * 60_000,
+    FEED_READY_TIMEOUT_MS + semanticAuditTimeoutMs + 180_000,
+  );
 }
 
 function semanticAuditArtifactDir(): string | null {
@@ -88,7 +98,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
   test.skip(!SHOULD_RUN, 'VH_RUN_DAEMON_FIRST_FEED is not enabled');
 
   test('rejects canonical bundles that contain topic-only source pairings', async ({ browser }, testInfo) => {
-    test.setTimeout(12 * 60_000);
+    test.setTimeout(resolveSemanticAuditTestTimeoutMs());
 
     let stack: DaemonFirstStack | null = null;
     let context: BrowserContext | null = null;

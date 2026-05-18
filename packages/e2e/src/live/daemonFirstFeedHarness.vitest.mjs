@@ -18,10 +18,10 @@ describe('daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs', () => {
     expect(daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs()).toBe(String(30 * 60 * 1000));
   });
 
-  it('falls back to the short poll interval for non-fixture runs', () => {
+  it('falls back to a long poll interval for non-fixture semantic evidence runs', () => {
     vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
     vi.stubEnv('VITE_NEWS_POLL_INTERVAL_MS', '');
-    expect(daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs()).toBe('15000');
+    expect(daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs()).toBe(String(30 * 60 * 1000));
   });
 });
 
@@ -74,6 +74,38 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
     vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '2');
     expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(2);
+  });
+
+  it('prunes stale runtime bundles only for fixture-backed correctness gates by default', () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES', '');
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'true');
+    expect(daemonFirstFeedHarnessInternal.resolveNewsRuntimePruneStaleBundles()).toBe('true');
+
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
+    expect(daemonFirstFeedHarnessInternal.resolveNewsRuntimePruneStaleBundles()).toBe('false');
+  });
+
+  it('allows live release soaks to explicitly opt into stale bundle pruning', () => {
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
+    vi.stubEnv('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES', 'true');
+
+    expect(daemonFirstFeedHarnessInternal.resolveNewsRuntimePruneStaleBundles()).toBe('true');
+  });
+
+  it('uses run-scoped daemon-local Gun radisk only for fixture-backed correctness gates by default', () => {
+    vi.stubEnv('VH_NEWS_DAEMON_GUN_RADISK', '');
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'true');
+
+    expect(daemonFirstFeedHarnessInternal.resolveNewsDaemonGunRadisk()).toBe('true');
+
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
+    expect(daemonFirstFeedHarnessInternal.resolveNewsDaemonGunRadisk()).toBe('false');
+  });
+
+  it('preserves an explicit daemon-local Gun radisk override for targeted diagnostics', () => {
+    vi.stubEnv('VH_NEWS_DAEMON_GUN_RADISK', 'true');
+
+    expect(daemonFirstFeedHarnessInternal.resolveNewsDaemonGunRadisk()).toBe('true');
   });
 
   it('defaults the soak storycluster remote timeout to 300000ms', () => {
@@ -133,5 +165,21 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
         'x-storycluster-auth': 'Token stack-token',
       },
     });
+  });
+
+  it('allows semantic soaks to reuse a persistent managed StoryCluster state directory', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR', '/tmp/vh-storycluster-state');
+    vi.stubEnv('VH_STORYCLUSTER_STATE_DIR', '/tmp/ignored-direct-state');
+
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterStateDir('/repo')).toBe(
+      '/tmp/vh-storycluster-state',
+    );
+  });
+
+  it('falls back to direct StoryCluster state override before the per-run default', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR', '');
+    vi.stubEnv('VH_STORYCLUSTER_STATE_DIR', '/tmp/direct-state');
+
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterStateDir('/repo')).toBe('/tmp/direct-state');
   });
 });

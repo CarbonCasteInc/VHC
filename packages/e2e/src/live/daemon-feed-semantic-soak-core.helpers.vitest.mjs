@@ -1,3 +1,7 @@
+import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   artifactRootFromEnv,
@@ -14,6 +18,7 @@ import {
   resolvePlaywrightTimeoutMs,
   resolvePublicSemanticSoakSpawnEnv,
   sleep,
+  startManagedRelayServer,
   startManagedRelayWithPortFallback,
   summarizeRun,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -172,7 +177,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
   it('resolves artifact roots and sleep promises', async () => {
     expect(artifactRootFromEnv({ VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/tmp/out' }, '/repo')).toBe('/tmp/out');
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);
-    expect(artifactRootFromEnv({})).toMatch(/^\/Users\/bldt\/Desktop\/VHC\/VHC\/\.tmp\/daemon-feed-semantic-soak\//);
+    expect(artifactRootFromEnv({})).toContain('/.tmp/daemon-feed-semantic-soak/');
     await expect(sleep(0)).resolves.toBeUndefined();
   });
 
@@ -299,6 +304,112 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(log).toHaveBeenCalledWith('[vh:daemon-soak] managed relay port fallback 8716 -> 19125');
   });
 
+  it('starts the managed relay with a bounded release sync byte ceiling by default', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'vh-managed-relay-'));
+    const child = new EventEmitter();
+    child.exitCode = null;
+    child.stdout = { pipe: vi.fn() };
+    child.stderr = { pipe: vi.fn() };
+    const spawnChild = vi.fn(() => child);
+    const spawnSyncImpl = vi.fn(() => ({ status: 0, stdout: '', stderr: '' }));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      text: async () => 'vh relay alive',
+    })));
+
+    try {
+      const result = await startManagedRelayServer({
+        cwd: repoRoot,
+        repoRoot,
+        env: {
+          VH_DAEMON_FEED_ARTIFACT_ROOT: path.join(repoRoot, '.tmp/e2e-daemon-feed'),
+        },
+        runId: 'semantic-soak-123-1',
+        ports: {
+          gunPort: 8716,
+          storyclusterPort: 4316,
+          fixturePort: 8916,
+          qdrantPort: 6316,
+          analysisStubPort: 9116,
+          webPort: 2116,
+        },
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+        spawnChild,
+        spawnSyncImpl,
+      });
+      await new Promise((resolve) => result.relayLogStream.end(resolve));
+
+      expect(spawnSyncImpl).toHaveBeenCalled();
+      expect(spawnChild).toHaveBeenCalledWith(
+        'node',
+        [path.join(repoRoot, 'infra/relay/server.js')],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            GUN_HOST: '127.0.0.1',
+            GUN_PORT: '8716',
+            VH_DAEMON_FEED_MANAGED_RELAY: '1',
+            VH_RELAY_WS_BYTES_PER_SEC: '25000000',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves an explicit managed relay byte ceiling override', async () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'vh-managed-relay-'));
+    const child = new EventEmitter();
+    child.exitCode = null;
+    child.stdout = { pipe: vi.fn() };
+    child.stderr = { pipe: vi.fn() };
+    const spawnChild = vi.fn(() => child);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      text: async () => 'vh relay alive',
+    })));
+
+    try {
+      const result = await startManagedRelayServer({
+        cwd: repoRoot,
+        repoRoot,
+        env: {
+          VH_DAEMON_FEED_ARTIFACT_ROOT: path.join(repoRoot, '.tmp/e2e-daemon-feed'),
+          VH_RELAY_WS_BYTES_PER_SEC: '7000000',
+        },
+        runId: 'semantic-soak-123-1',
+        ports: {
+          gunPort: 8716,
+          storyclusterPort: 4316,
+          fixturePort: 8916,
+          qdrantPort: 6316,
+          analysisStubPort: 9116,
+          webPort: 2116,
+        },
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+        spawnChild,
+        spawnSyncImpl: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+      });
+      await new Promise((resolve) => result.relayLogStream.end(resolve));
+
+      expect(spawnChild).toHaveBeenCalledWith(
+        'node',
+        [path.join(repoRoot, 'infra/relay/server.js')],
+        expect.objectContaining({
+          env: expect.objectContaining({
+            VH_RELAY_WS_BYTES_PER_SEC: '7000000',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('seeds playwright env with the resolved daemon-first port plan', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'semantic-soak-123-1', 8, 180000, {
       portPlan: {
@@ -378,6 +489,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(formatDaemonFeedSemanticSoakRunState({
       pass: true,
       requestedSampleCount: 2,
+      effectiveSampleCount: 2,
       sampledStoryCount: 2,
       auditedPairCount: 4,
       sampleFillRate: 1,

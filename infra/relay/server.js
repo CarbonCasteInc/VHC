@@ -19,6 +19,7 @@ function resolveGun() {
 }
 
 const { Gun, gunRequire } = resolveGun();
+const SEA = gunRequire('gun/sea');
 const seaShim = gunRequire('gun/sea/shim');
 
 // Provide required internal utilities that the WS adapter depends on.
@@ -55,6 +56,11 @@ const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
+const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
+const AGGREGATE_PUBLIC_PROTOCOL_VERSION = 'luma-public-v1';
+const AGGREGATE_VOTER_WRITER_KIND = 'luma';
+const AGGREGATE_VOTER_AUTHOR_SCHEME = 'voter-v1';
+const AGGREGATE_VOTER_AUDIENCE = 'vh-aggregate-voter';
 const ROUTE_KIND = {
   USER: 'user',
   DAEMON: 'daemon',
@@ -264,6 +270,26 @@ function decodeSignatureHeader(value) {
   }
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function signatureMessageMatchesCanonical(message, canonical) {
+  try {
+    const expected = JSON.parse(canonical);
+    const actual = typeof message === 'string' ? JSON.parse(message) : message;
+    return stableJson(actual) === stableJson(expected);
+  } catch {
+    return message === canonical;
+  }
+}
+
 function cleanupSeenUserNonces(now = Date.now()) {
   for (const [key, expiresAt] of seenUserNonces) {
     if (expiresAt <= now) seenUserNonces.delete(key);
@@ -370,6 +396,15 @@ async function verifyUserSignature(req, pathname, body) {
 
 async function verifySeaSignature(signature, devicePub, canonical) {
   try {
+    const verifiedMessage = await SEA.verify(signature, devicePub);
+    if (signatureMessageMatchesCanonical(verifiedMessage, canonical)) {
+      return true;
+    }
+  } catch {
+    // Fall through to the local shim verifier for runtimes where SEA.verify is unavailable.
+  }
+
+  try {
     const parsed = JSON.parse(signature.startsWith('SEA') ? signature.slice(3) : signature);
     const message = parsed?.m;
     const signatureValue = parsed?.s;
@@ -379,7 +414,7 @@ async function verifySeaSignature(signature, devicePub, canonical) {
         : message && typeof message === 'object'
           ? JSON.stringify(message)
           : '';
-    if (messageCanonical !== canonical || typeof signatureValue !== 'string') {
+    if (!signatureMessageMatchesCanonical(messageCanonical, canonical) || typeof signatureValue !== 'string') {
       return false;
     }
     const [x, y] = String(devicePub).split('.');
@@ -435,6 +470,17 @@ function dirSizeBytes(target) {
   }
 }
 
+function openFileDescriptorCount() {
+  for (const fdDir of ['/proc/self/fd', '/dev/fd']) {
+    try {
+      return fs.readdirSync(fdDir).length;
+    } catch {
+      // Try the next platform-specific descriptor directory.
+    }
+  }
+  return null;
+}
+
 function metricsText() {
   const lines = [];
   const add = (name, value, labels = {}) => {
@@ -459,8 +505,12 @@ function metricsText() {
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
   const memory = process.memoryUsage();
+  const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
   add('vh_relay_process_heap_used_bytes', memory.heapUsed);
+  if (Number.isFinite(openFds)) {
+    add('vh_relay_process_open_fds', openFds);
+  }
   add('vh_relay_event_loop_lag_p95_ms', Math.round(eventLoopDelay.percentile(95) / 1e6));
   for (const [status, count] of metrics.httpResponses) {
     add('vh_relay_http_responses_total', count, { status });
@@ -577,6 +627,27 @@ function linkNode(graph, soul, field, childSoul, state) {
   graph[soul] = stateNode(graph[soul], field, state, { '#': childSoul }, soul);
 }
 
+function isPlainRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isGunScalar(value) {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+function writeScalarFields(graph, soul, state, value) {
+  for (const [key, raw] of Object.entries(value)) {
+    if (raw === undefined || key === '_') continue;
+    if (!isGunScalar(raw)) continue;
+    graph[soul] = stateNode(graph[soul], key, state, raw, soul);
+  }
+}
+
 function buildThreadGraph(thread) {
   const state = Gun.state();
   const threadSoul = `vh/forum/threads/${thread.id}`;
@@ -634,6 +705,15 @@ function buildCommentGraph(comment) {
 
   for (const [key, value] of Object.entries(encodedComment)) {
     if (value === undefined) continue;
+    if (
+      key !== COMMENT_JSON_FIELD &&
+      value !== null &&
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+    ) {
+      continue;
+    }
     graph[commentSoul] = stateNode(graph[commentSoul], key, state, value, commentSoul);
   }
   for (const [key, value] of Object.entries(indexEntry)) {
@@ -694,6 +774,10 @@ function buildAggregateVoterGraph(write) {
   const votersSoul = `${epochSoul}/voters`;
   const voterSoul = `${votersSoul}/${write.voter_id}`;
   const pointSoul = `${voterSoul}/${write.node.point_id}`;
+  const envelope = isPlainRecord(write.node.signedWriteEnvelope) ? write.node.signedWriteEnvelope : null;
+  const envelopeSoul = `${pointSoul}/signedWriteEnvelope`;
+  const envelopePayloadSoul = `${envelopeSoul}/payload`;
+  const envelopeSessionRefSoul = `${envelopeSoul}/sessionRef`;
   const graph = {};
 
   linkNode(graph, 'vh', 'aggregates', 'vh/aggregates', state);
@@ -707,9 +791,25 @@ function buildAggregateVoterGraph(write) {
   linkNode(graph, votersSoul, write.voter_id, voterSoul, state);
   linkNode(graph, voterSoul, write.node.point_id, pointSoul, state);
 
-  for (const [key, value] of Object.entries(write.node)) {
-    if (value === undefined) continue;
-    graph[pointSoul] = stateNode(graph[pointSoul], key, state, value, pointSoul);
+  writeScalarFields(graph, pointSoul, state, write.node);
+
+  if (envelope) {
+    linkNode(graph, pointSoul, 'signedWriteEnvelope', envelopeSoul, state);
+    for (const [key, value] of Object.entries(envelope)) {
+      if (key === 'payload' && isPlainRecord(value)) {
+        linkNode(graph, envelopeSoul, 'payload', envelopePayloadSoul, state);
+        writeScalarFields(graph, envelopePayloadSoul, state, value);
+        continue;
+      }
+      if (key === 'sessionRef' && isPlainRecord(value)) {
+        linkNode(graph, envelopeSoul, 'sessionRef', envelopeSessionRefSoul, state);
+        writeScalarFields(graph, envelopeSessionRefSoul, state, value);
+        continue;
+      }
+      if (isGunScalar(value)) {
+        graph[envelopeSoul] = stateNode(graph[envelopeSoul], key, state, value, envelopeSoul);
+      }
+    }
   }
 
   return graph;
@@ -851,6 +951,10 @@ function sanitizeComment(value) {
   const clean = {};
   for (const [key, raw] of Object.entries(value)) {
     if (raw === undefined || key === '_' || key === COMMENT_JSON_FIELD) continue;
+    if (key === 'signedWriteEnvelope' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      clean[key] = JSON.parse(JSON.stringify(raw));
+      continue;
+    }
     if (
       raw === null ||
       typeof raw === 'string' ||
@@ -907,6 +1011,70 @@ function normalizeFiniteNonNegativeInteger(value, name) {
   return Math.floor(normalized);
 }
 
+function normalizeLiteralString(value, name, expected) {
+  const normalized = normalizeRequiredString(value, name);
+  if (normalized !== expected) throw new Error(`${name}-invalid`);
+  return normalized;
+}
+
+function normalizeLiteralNumber(value, name, expected) {
+  const normalized = normalizeFiniteNumber(value, name);
+  if (normalized !== expected) throw new Error(`${name}-invalid`);
+  return normalized;
+}
+
+function assertExactObjectKeys(value, allowedKeys, name) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) throw new Error(`${name}-field-invalid`);
+  }
+}
+
+function aggregateVoterEnvelopePayloadMatches(envelopePayload, payload) {
+  for (const [key, value] of Object.entries(payload)) {
+    if (envelopePayload[key] !== value) return false;
+  }
+  return Object.keys(envelopePayload).length === Object.keys(payload).length;
+}
+
+function sanitizeAggregateVoterEnvelope(envelope, payload, voterId) {
+  if (!isPlainRecord(envelope)) {
+    throw new Error('signed-write-envelope-required');
+  }
+  const envelopePayload = envelope.payload;
+  if (!isPlainRecord(envelopePayload)) {
+    throw new Error('signed-write-envelope-payload-required');
+  }
+  if (!aggregateVoterEnvelopePayloadMatches(envelopePayload, payload)) {
+    throw new Error('signed-write-envelope-payload-mismatch');
+  }
+  const sessionRef = envelope.sessionRef;
+  if (!isPlainRecord(sessionRef)) {
+    throw new Error('signed-write-envelope-session-ref-required');
+  }
+
+  return {
+    envelopeVersion: normalizeLiteralNumber(envelope.envelopeVersion, 'signed-envelope-version', 1),
+    signatureSuite: normalizeLiteralString(envelope.signatureSuite, 'signed-envelope-signature-suite', 'jcs-ed25519-sha256-v1'),
+    protocolVersion: normalizeLiteralString(envelope.protocolVersion, 'signed-envelope-protocol-version', 'luma-write-v1'),
+    profile: normalizeRequiredString(envelope.profile, 'signed-envelope-profile'),
+    audience: normalizeLiteralString(envelope.audience, 'signed-envelope-audience', AGGREGATE_VOTER_AUDIENCE),
+    origin: normalizeRequiredString(envelope.origin, 'signed-envelope-origin'),
+    scheme: normalizeLiteralString(envelope.scheme, 'signed-envelope-scheme', AGGREGATE_VOTER_AUTHOR_SCHEME),
+    publicAuthor: normalizeLiteralString(envelope.publicAuthor, 'signed-envelope-public-author', voterId),
+    sessionRef: {
+      tokenHash: normalizeRequiredString(sessionRef.tokenHash, 'signed-envelope-session-token-hash'),
+      envelopeDigest: normalizeRequiredString(sessionRef.envelopeDigest, 'signed-envelope-session-envelope-digest'),
+    },
+    payload,
+    payloadDigest: normalizeRequiredString(envelope.payloadDigest, 'signed-envelope-payload-digest'),
+    sequence: normalizeFiniteNonNegativeInteger(envelope.sequence, 'signed-envelope-sequence'),
+    nonce: normalizeRequiredString(envelope.nonce, 'signed-envelope-nonce'),
+    idempotencyKey: normalizeRequiredString(envelope.idempotencyKey, 'signed-envelope-idempotency-key'),
+    issuedAt: normalizeFiniteNonNegativeInteger(envelope.issuedAt, 'signed-envelope-issued-at'),
+    signature: normalizeRequiredString(envelope.signature, 'signed-envelope-signature'),
+  };
+}
+
 function sanitizeAggregateVoterWrite(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('aggregate-voter-required');
@@ -921,16 +1089,79 @@ function sanitizeAggregateVoterWrite(value) {
     throw new Error('agreement-invalid');
   }
 
+  const topicId = normalizeRequiredString(value.topic_id, 'topic-id');
+  const synthesisId = normalizeRequiredString(value.synthesis_id, 'synthesis-id');
+  const epoch = normalizeFiniteNonNegativeInteger(value.epoch, 'epoch');
+  const voterId = normalizeRequiredString(value.voter_id, 'voter-id');
+  const pointId = normalizeRequiredString(node.point_id, 'point-id');
+  const baseNode = {
+    point_id: pointId,
+    agreement,
+    weight: normalizeFiniteNumber(node.weight, 'weight'),
+    updated_at: normalizeRequiredString(node.updated_at, 'updated-at'),
+  };
+  const isLumaNode =
+    node.schema_version !== undefined ||
+    node._protocolVersion !== undefined ||
+    node._writerKind !== undefined ||
+    node._authorScheme !== undefined ||
+    node.signedWriteEnvelope !== undefined ||
+    node.topic_id !== undefined ||
+    node.synthesis_id !== undefined ||
+    node.epoch !== undefined ||
+    node.voter_id !== undefined;
+
+  if (!isLumaNode) {
+    assertExactObjectKeys(node, new Set(['point_id', 'agreement', 'weight', 'updated_at']), 'aggregate-voter-node');
+    return {
+      topic_id: topicId,
+      synthesis_id: synthesisId,
+      epoch,
+      voter_id: voterId,
+      node: baseNode,
+    };
+  }
+
+  assertExactObjectKeys(
+    node,
+    new Set([
+      'schema_version',
+      '_protocolVersion',
+      '_writerKind',
+      '_authorScheme',
+      'topic_id',
+      'synthesis_id',
+      'epoch',
+      'voter_id',
+      'point_id',
+      'agreement',
+      'weight',
+      'updated_at',
+      'signedWriteEnvelope',
+    ]),
+    'aggregate-voter-luma-node',
+  );
+  const lumaPayload = {
+    schema_version: normalizeLiteralString(node.schema_version, 'schema-version', AGGREGATE_VOTER_NODE_VERSION),
+    _protocolVersion: normalizeLiteralString(node._protocolVersion, 'protocol-version', AGGREGATE_PUBLIC_PROTOCOL_VERSION),
+    _writerKind: normalizeLiteralString(node._writerKind, 'writer-kind', AGGREGATE_VOTER_WRITER_KIND),
+    _authorScheme: normalizeLiteralString(node._authorScheme, 'author-scheme', AGGREGATE_VOTER_AUTHOR_SCHEME),
+    topic_id: normalizeLiteralString(node.topic_id, 'node-topic-id', topicId),
+    synthesis_id: normalizeLiteralString(node.synthesis_id, 'node-synthesis-id', synthesisId),
+    epoch: normalizeLiteralNumber(node.epoch, 'node-epoch', epoch),
+    voter_id: normalizeLiteralString(node.voter_id, 'node-voter-id', voterId),
+    ...baseNode,
+  };
+  const signedWriteEnvelope = sanitizeAggregateVoterEnvelope(node.signedWriteEnvelope, lumaPayload, voterId);
+
   return {
-    topic_id: normalizeRequiredString(value.topic_id, 'topic-id'),
-    synthesis_id: normalizeRequiredString(value.synthesis_id, 'synthesis-id'),
-    epoch: normalizeFiniteNonNegativeInteger(value.epoch, 'epoch'),
-    voter_id: normalizeRequiredString(value.voter_id, 'voter-id'),
+    topic_id: topicId,
+    synthesis_id: synthesisId,
+    epoch,
+    voter_id: voterId,
     node: {
-      point_id: normalizeRequiredString(node.point_id, 'point-id'),
-      agreement,
-      weight: normalizeFiniteNumber(node.weight, 'weight'),
-      updated_at: normalizeRequiredString(node.updated_at, 'updated-at'),
+      ...lumaPayload,
+      signedWriteEnvelope,
     },
   };
 }

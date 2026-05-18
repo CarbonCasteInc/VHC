@@ -79,21 +79,28 @@ function isSystemWriterPin(value: unknown): value is SystemWriterPin {
     ));
 }
 
-function resolveClientSystemWriterPin(): SystemWriterPin {
+function readBuildEnv(name: string): string | undefined {
+  const viteValue = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[name];
+  const processValue = typeof process !== 'undefined' ? process.env?.[name] : undefined;
+  return viteValue ?? processValue;
+}
+
+export function resolveClientSystemWriterPin(): SystemWriterPin {
   const bakedPin = systemWriterPin as SystemWriterPin;
-  const e2ePinJson = import.meta.env.DEV
-    ? import.meta.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
-    : undefined;
-  if (!e2ePinJson) return bakedPin;
+  const configuredPinJson =
+    readBuildEnv('VITE_NEWS_SYSTEM_WRITER_PIN_JSON')?.trim()
+    || readBuildEnv('VITE_SYSTEM_WRITER_PIN_JSON')?.trim()
+    || (import.meta.env.DEV ? readBuildEnv('VITE_E2E_SYSTEM_WRITER_PIN_JSON')?.trim() : undefined);
+  if (!configuredPinJson) return bakedPin;
   try {
-    const parsed = JSON.parse(e2ePinJson) as unknown;
+    const parsed = JSON.parse(configuredPinJson) as unknown;
     if (isSystemWriterPin(parsed)) {
       return parsed;
     }
   } catch {
     // Fall through to the baked public pin.
   }
-  console.warn('[vh:web-pwa] ignoring invalid E2E system writer pin override');
+  console.warn('[vh:web-pwa] ignoring invalid system writer pin override');
   return bakedPin;
 }
 
@@ -623,7 +630,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         username
       };
       client.markSessionReady?.();
-      await client.user.write(profile);
+      try {
+        await client.user.write(profile);
+      } catch (err) {
+        console.warn('[vh:identity] Profile mesh write failed; using local profile:', err);
+      }
       persistProfile(profile);
       set({ profile, identityStatus: 'ready', sessionReady: true });
     } catch (err) {

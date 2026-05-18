@@ -3,6 +3,7 @@ import {
   readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory,
+  type VennClient,
 } from '@vh/gun-client';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 import { resolveClientFromAppStore } from '../clientResolver';
@@ -76,6 +77,12 @@ const NEWS_REFRESH_TIMEOUT_MS = readNewsStoreNumber(
   1_000,
 );
 
+const NEWS_REFRESH_STORY_READ_CONCURRENCY = readNewsStoreNumber(
+  ['VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY', 'VH_NEWS_REFRESH_STORY_READ_CONCURRENCY'],
+  8,
+  1,
+);
+
 async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -93,6 +100,43 @@ async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
       clearTimeout(timeoutHandle);
     }
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(Math.floor(concurrency), items.length));
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex]!);
+    }
+  }));
+
+  return results;
+}
+
+async function readLatestStoriesBounded(
+  client: VennClient,
+  storyIds: readonly string[],
+): Promise<Array<StoryBundle | null>> {
+  return mapWithConcurrency(storyIds, NEWS_REFRESH_STORY_READ_CONCURRENCY, async (storyId) => {
+    try {
+      return await readNewsStory(client, storyId);
+    } catch {
+      return null;
+    }
+  });
 }
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
@@ -367,13 +411,13 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       try {
         const { filteredStories, hotIndex, latestIndex, storylines } =
           await withNewsRefreshTimeout((async () => {
-            const [nextLatestIndex, nextHotIndex] = await Promise.all([
-              readNewsLatestIndex(client).then(sanitizeLatestIndex),
-              readNewsHotIndex(client).then(sanitizeHotIndex),
-            ]);
+            const nextLatestIndex = await readNewsLatestIndex(client).then(sanitizeLatestIndex);
+            const nextHotIndex = await readNewsHotIndex(client)
+              .then(sanitizeHotIndex)
+              .catch(() => ({}));
 
             const storyIds = selectLatestStoryIds(nextLatestIndex, limit);
-            const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
+            const stories = await readLatestStoriesBounded(client, storyIds);
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
             const nextStorylines = await loadStorylinesForStories(client, nextFilteredStories);

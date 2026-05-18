@@ -462,6 +462,38 @@ describe('newsIngest', () => {
     );
   });
 
+  it('bounds feed fetches with a timeout signal so one stalled source cannot hang ingestion', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '1');
+    vi.stubEnv('VH_NEWS_FEED_FETCH_TIMEOUT_MS', '1');
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+      const signal = (init as RequestInit | undefined)?.signal;
+      expect(signal).toBeTruthy();
+      signal?.addEventListener('abort', () => {
+        const error = new Error('feed fetch aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }) as Promise<Response>);
+
+    const items = await ingestFeeds([
+      {
+        id: 'source-a',
+        name: 'Source A',
+        rssUrl: 'https://example.com/a.xml',
+        enabled: true,
+      },
+    ]);
+
+    expect(items).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(warningSpy).toHaveBeenCalledWith(
+      "[newsIngest] Failed to fetch feed 'source-a': feed fetch aborted",
+    );
+  });
+
   it('normalizes non-Error final fetch failures into warning text', async () => {
     const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '1');
@@ -496,8 +528,10 @@ describe('newsIngest', () => {
     expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();
     vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '5');
     vi.stubEnv('VH_NEWS_FEED_FETCH_RETRY_BACKOFF_MS', '7');
+    vi.stubEnv('VH_NEWS_FEED_FETCH_TIMEOUT_MS', '9');
     expect(newsIngestInternal.readFeedFetchAttempts()).toBe(5);
     expect(newsIngestInternal.readFeedFetchRetryBackoffMs()).toBe(7);
+    expect(newsIngestInternal.readFeedFetchTimeoutMs()).toBe(9);
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
     expect(newsIngestInternal.readEnvVar('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();

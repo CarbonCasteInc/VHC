@@ -7,6 +7,7 @@ import {
   resolveGunPeers,
   resolveGunPeerTopologySync,
   resolveGunLocalStorage,
+  resolveClientSystemWriterPin,
 } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
@@ -122,6 +123,30 @@ describe('useAppStore', () => {
 
     (globalThis as any).__VH_GUN_PEERS__ = [];
     expect(resolveGunPeers('127.0.0.1')).toEqual([]);
+  });
+
+  it('allows production builds to pin the launch news system writer explicitly', () => {
+    vi.stubEnv('VITE_NEWS_SYSTEM_WRITER_PIN_JSON', JSON.stringify({
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [
+        {
+          id: 'vh-public-beta-news-system-writer-v1',
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: 'public-beta-writer-material',
+          },
+        },
+      ],
+    }));
+
+    expect(resolveClientSystemWriterPin().writers[0]).toMatchObject({
+      id: 'vh-public-beta-news-system-writer-v1',
+      publicKey: { material: 'public-beta-writer-material' },
+    });
   });
 
   it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
@@ -320,12 +345,14 @@ describe('useAppStore', () => {
     expect(mockPublishDirectory).not.toHaveBeenCalled();
   });
 
-  it('createIdentity falls back when randomUUID is missing and surfaces write errors', async () => {
+  it('createIdentity falls back when randomUUID is missing and keeps local profile when mesh profile write fails', async () => {
     vi.stubGlobal('crypto', {} as any);
     await useAppStore.getState().init();
     mockWrite.mockRejectedValueOnce(new Error('fail'));
-    await expect(useAppStore.getState().createIdentity('bob')).rejects.toThrow('fail');
-    expect(useAppStore.getState().identityStatus).toBe('error');
+    await expect(useAppStore.getState().createIdentity('bob')).resolves.toBeUndefined();
+    expect(useAppStore.getState().profile?.username).toBe('bob');
+    expect(useAppStore.getState().identityStatus).toBe('ready');
+    expect((globalThis as any).localStorage.getItem('vh_profile')).toContain('bob');
     vi.unstubAllGlobals();
   });
 

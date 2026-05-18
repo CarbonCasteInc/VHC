@@ -984,26 +984,82 @@ describe('aggregateAdapters', () => {
     }
   });
 
-  it('writeVoterNode does not downgrade LUMA v1 nodes through legacy relay fallback', async () => {
+  it('writeVoterNode relays LUMA v1 nodes without downgrading the signed payload', async () => {
     vi.useFakeTimers();
     try {
       const mesh = createFakeMesh();
       mesh.setPutHang(`aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`);
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
-      const fetchMock = vi.fn();
-      vi.stubGlobal('fetch', fetchMock);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
       const node = await createLumaAggregateVoterNode();
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          voter_id: LUMA_VOTER_ID,
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
 
       const pending = writeVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, node);
-      const assertion = expect(pending).rejects.toThrow('aggregate-put-ack-timeout');
       await vi.advanceTimersByTimeAsync(8_000);
-      await assertion;
 
-      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(pending).resolves.toEqual(node);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/aggregates/voter',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
+          body: JSON.stringify({
+            topic_id: 'topic-1',
+            synthesis_id: 'synth-1',
+            epoch: 4,
+            voter_id: LUMA_VOTER_ID,
+            node,
+          }),
+        }),
+      );
     } finally {
       vi.unstubAllGlobals();
       vi.useRealTimers();
+    }
+  });
+
+  it('writeVoterNode relay fallback declines LUMA v1 nodes when downgrade protection is disabled', async () => {
+    const client = createClient(createFakeMesh(), { validateWrite: vi.fn() } as unknown as TopologyGuard, [
+      'http://127.0.0.1:7777/gun',
+    ]);
+    const node = await createLumaAggregateVoterNode();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(
+        aggregateAdapterInternal.writeVoterNodeViaRelayFallback(
+          client,
+          {
+            topicId: 'topic-1',
+            synthesisId: 'synth-1',
+            epoch: 4,
+            voterId: LUMA_VOTER_ID,
+            node,
+          },
+          { allowLumaV1: false },
+        ),
+      ).resolves.toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

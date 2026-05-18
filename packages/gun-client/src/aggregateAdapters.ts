@@ -927,7 +927,7 @@ export async function writeVoterNode(
         epoch: Number(normalizedEpoch),
         voterId: normalizedVoterId,
         node: sanitized,
-      }, { allowLumaV1: false });
+      }, { allowLumaV1: true });
       if (relayed) {
         console.info('[vh:aggregate:voter-write]', {
           topic_id: normalizedTopicId,
@@ -1402,4 +1402,5 @@ export const aggregateAdapterInternal = {
   aggregatePointPath,
   aggregatePointsPath,
   readOnce,
+  writeVoterNodeViaRelayFallback,
 };

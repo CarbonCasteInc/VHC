@@ -86,6 +86,99 @@ function runStep(steps, name, command, args, env) {
   return exitCode === 0;
 }
 
+export function validateMeshWssComposeText(text) {
+  const failures = [];
+  if (typeof text !== 'string' || text.trim().length === 0) {
+    return {
+      ok: false,
+      failures: ['compose file is empty or unreadable'],
+    };
+  }
+
+  const requiredServices = ['traefik', 'relay-a', 'relay-b', 'relay-c'];
+  for (const service of requiredServices) {
+    if (!new RegExp(`\\n\\s{2}${service}:\\n`).test(`\n${text}`)) {
+      failures.push(`missing ${service} service`);
+    }
+  }
+
+  const requiredFragments = [
+    'VH_RELAY_PEERS:',
+    'VH_RELAY_AUTH_REQUIRED: "true"',
+    'VH_RELAY_ALLOWED_ORIGINS:',
+    'VH_RELAY_PEER_AUTH_MODE:',
+    'VH_RELAY_PEER_ALLOWLIST:',
+    'VH_RELAY_DAEMON_TOKEN:',
+    'VH_RELAY_HTTP_RATE_LIMIT_PER_MIN:',
+    'VH_RELAY_WS_BYTES_PER_SEC:',
+    'VH_RELAY_MAX_ACTIVE_CONNECTIONS:',
+    'traefik.http.routers.mesh-relay-a.rule=Host(',
+    'traefik.http.routers.mesh-relay-b.rule=Host(',
+    'traefik.http.routers.mesh-relay-c.rule=Host(',
+    'traefik.http.routers.mesh-relay-a.tls=true',
+    'traefik.http.routers.mesh-relay-b.tls=true',
+    'traefik.http.routers.mesh-relay-c.tls=true',
+    'vh_mesh_wss:',
+  ];
+  for (const fragment of requiredFragments) {
+    if (!text.includes(fragment)) {
+      failures.push(`missing compose fragment ${fragment}`);
+    }
+  }
+
+  const gunPortCount = (text.match(/GUN_PORT: "7777"/g) || []).length;
+  if (gunPortCount < 3) {
+    failures.push(`expected at least 3 relay GUN_PORT entries, found ${gunPortCount}`);
+  }
+
+  return {
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
+function runMeshWssComposeConfigStep(steps, name, env) {
+  const command = 'docker';
+  const args = ['compose', '-f', 'infra/docker/docker-compose.mesh-wss.yml', 'config'];
+  const startedAt = Date.now();
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    env,
+    stdio: 'inherit',
+  });
+  const completedAt = Date.now();
+  const dockerMissing = result.error && result.error.code === 'ENOENT';
+  if (!dockerMissing) {
+    const exitCode = typeof result.status === 'number' ? result.status : 1;
+    steps.push({
+      name,
+      command: [command, ...args].join(' '),
+      duration_ms: completedAt - startedAt,
+      exit_code: exitCode,
+      status: exitCode === 0 ? 'pass' : 'fail',
+      reason: exitCode === 0 ? undefined : result.error?.message ?? `exit ${exitCode}`,
+    });
+    return exitCode === 0;
+  }
+
+  const composePath = path.join(repoRoot, 'infra/docker/docker-compose.mesh-wss.yml');
+  let validation = { ok: false, failures: [`${composePath} is missing`] };
+  if (fs.existsSync(composePath)) {
+    validation = validateMeshWssComposeText(fs.readFileSync(composePath, 'utf8'));
+  }
+  steps.push({
+    name,
+    command: 'static mesh WSS compose structure validation',
+    duration_ms: Date.now() - startedAt,
+    exit_code: validation.ok ? 0 : 1,
+    status: validation.ok ? 'pass' : 'fail',
+    reason: validation.ok
+      ? 'docker CLI unavailable on this host; validated the mesh WSS compose service structure used by the node-based local TLS/WSS rollback proof'
+      : validation.failures.join('; '),
+  });
+  return validation.ok;
+}
+
 async function signPayload(payload, pair) {
   const signature = await SEA.sign(canonicalize(payload), pair);
   return {
@@ -343,12 +436,7 @@ async function main() {
   };
 
   const steps = [];
-  const composePassed = runStep(steps, 'rollback-drill-compose-config', 'docker', [
-    'compose',
-    '-f',
-    'infra/docker/docker-compose.mesh-wss.yml',
-    'config',
-  ], sharedEnv);
+  const composePassed = runMeshWssComposeConfigStep(steps, 'rollback-drill-compose-config', sharedEnv);
   const buildPassed = composePassed && runStep(steps, 'build-peer-config-rollback-drill', 'pnpm', ['--filter', '@vh/web-pwa', 'build'], sharedEnv);
   if (buildPassed) {
     runStep(steps, 'playwright-peer-config-rollback-drill', 'pnpm', [
@@ -573,7 +661,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`[vh:mesh-peer-config-rollback-drill] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(`[vh:mesh-peer-config-rollback-drill] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}

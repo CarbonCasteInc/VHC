@@ -63,6 +63,28 @@ export function writeCorrectnessGateStatusReport(
   return paths;
 }
 
+export function buildCorrectnessGateEnv(env = process.env) {
+  const nextEnv = { ...env };
+  for (const key of [
+    'VH_LIVE_BASE_URL',
+    'VH_DAEMON_FEED_RUN_ID',
+    'VH_DAEMON_FEED_GUN_PORT',
+    'VH_DAEMON_FEED_STORYCLUSTER_PORT',
+    'VH_DAEMON_FEED_FIXTURE_PORT',
+    'VH_DAEMON_FEED_QDRANT_PORT',
+    'VH_DAEMON_FEED_ANALYSIS_STUB_PORT',
+    'VH_DAEMON_FEED_SHARED_RELAY_URL',
+    'VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL',
+    'VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL',
+    'VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN',
+    'VH_DAEMON_FEED_MANAGED_RELAY',
+    'VH_DAEMON_FEED_MANAGED_STORYCLUSTER',
+  ]) {
+    delete nextEnv[key];
+  }
+  return nextEnv;
+}
+
 export function runStoryclusterCorrectnessGate({
   env = process.env,
   repoRoot = normalizeNonEmpty(env.VH_STORYCLUSTER_PRODUCTION_READINESS_REPO_ROOT) ?? DEFAULT_REPO_ROOT,
@@ -76,7 +98,7 @@ export function runStoryclusterCorrectnessGate({
   const paths = buildCorrectnessGateStatusPaths(repoRoot, now());
   const proc = spawn('pnpm', ['test:storycluster:correctness'], {
     cwd: repoRoot,
-    env,
+    env: buildCorrectnessGateEnv(env),
     stdio: 'inherit',
     encoding: 'utf8',
   });

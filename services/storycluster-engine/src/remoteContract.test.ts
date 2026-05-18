@@ -154,6 +154,69 @@ describe('runStoryClusterRemoteContract', () => {
     expect(second.bundles[0]?.primary_sources?.[0]?.imageUrl).toBe('https://example.com/a.jpg');
   });
 
+  it('keeps singleton stories in the topic snapshot and upgrades them when later matching sources arrive', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterRemoteContract({
+      topic_id: 'topic-singleton-growth',
+      items: [
+        {
+          sourceId: 'wire-a',
+          publisher: 'Reuters',
+          url: 'https://example.com/port-a',
+          canonicalUrl: 'https://example.com/port-a',
+          title: 'Port attack disrupts terminals overnight',
+          publishedAt: 100,
+          summary: 'Officials say recovery talks begin Friday.',
+          url_hash: 'hash-port-a',
+          entity_keys: ['port_attack'],
+        },
+        {
+          sourceId: 'metro-a',
+          publisher: 'Metro Daily',
+          url: 'https://example.com/transit-a',
+          canonicalUrl: 'https://example.com/transit-a',
+          title: 'Capitol transit resumes after morning evacuation',
+          publishedAt: 105,
+          summary: 'Train service resumed after the evacuation was lifted.',
+          url_hash: 'hash-transit-a',
+          entity_keys: ['capitol_evacuation'],
+        },
+      ],
+    }, { clock: () => 200, store });
+
+    const portStoryId = first.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'wire-a'),
+    )?.story_id;
+    const transitStoryId = first.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'metro-a'),
+    )?.story_id;
+    expect(portStoryId).toBeTruthy();
+    expect(transitStoryId).toBeTruthy();
+    expect(portStoryId).not.toBe(transitStoryId);
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-singleton-growth',
+      items: [
+        {
+          sourceId: 'wire-b',
+          publisher: 'AP',
+          url: 'https://example.com/port-b',
+          canonicalUrl: 'https://example.com/port-b',
+          title: 'Officials say recovery talks begin Friday after port attack',
+          publishedAt: 130,
+          summary: 'Recovery talks begin Friday after the port attack.',
+          url_hash: 'hash-port-b',
+          entity_keys: ['port_attack'],
+        },
+      ],
+    }, { clock: () => 300, store });
+
+    const portBundle = second.bundles.find((bundle) => bundle.story_id === portStoryId);
+    const transitBundle = second.bundles.find((bundle) => bundle.story_id === transitStoryId);
+    expect(portBundle?.sources.map((source) => source.source_id)).toEqual(['wire-a', 'wire-b']);
+    expect(transitBundle?.sources.map((source) => source.source_id)).toEqual(['metro-a']);
+  });
+
   it('projects same-publisher derivative assets into secondary assets only', async () => {
     const response = await runStoryClusterRemoteContract({
       topic_id: 'topic-assets',

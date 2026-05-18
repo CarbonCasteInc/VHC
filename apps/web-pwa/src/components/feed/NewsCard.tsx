@@ -188,9 +188,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
 
   const openDetail = useCallback(() => {
     expandCard(cardInstanceKey);
+  }, [cardInstanceKey, expandCard]);
+
+  useEffect(() => {
+    if (!isExpanded) {
+      return;
+    }
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
+  }, [isExpanded, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
     if (!isExpanded || effectiveSynthesis || synthesisCorrection || synthesisLoading || synthesisError) {

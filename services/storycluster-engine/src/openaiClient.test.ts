@@ -333,4 +333,27 @@ describe('OpenAIClient', () => {
       dimensions: 2,
     })).rejects.toThrow('OpenAI embedding request failed: HTTP 503 ');
   });
+
+  it('redacts API-key-shaped tokens from upstream HTTP errors', async () => {
+    const authBody = '{"error":{"message":"Incorrect API key provided: sk-proj-secret_tail********wnMA."}}';
+    const chatClient = new OpenAIClient({
+      apiKey: 'key',
+      fetchFn: async () => new Response(authBody, { status: 401 }),
+    });
+    await expect(chatClient.chatJson({
+      model: 'gpt-4o-mini',
+      system: 'sys',
+      user: 'usr',
+    })).rejects.toThrow('OpenAI chat request failed: HTTP 401 {"error":{"message":"Incorrect API key provided: sk-[REDACTED]."}}');
+
+    const embedClient = new OpenAIClient({
+      apiKey: 'key',
+      fetchFn: async () => new Response(authBody, { status: 401 }),
+    });
+    await expect(embedClient.embed({
+      model: 'text-embedding-3-small',
+      texts: ['a'],
+      dimensions: 2,
+    })).rejects.toThrow('OpenAI embedding request failed: HTTP 401 {"error":{"message":"Incorrect API key provided: sk-[REDACTED]."}}');
+  });
 });

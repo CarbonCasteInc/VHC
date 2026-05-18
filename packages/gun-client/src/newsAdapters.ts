@@ -331,6 +331,16 @@ async function readIndexedEntries(
   return output;
 }
 
+function hasMissingIndexChildEntries(
+  raw: unknown,
+  parsedIndex: Readonly<Record<string, number>>,
+  blockedStoryIds: ReadonlySet<string>,
+): boolean {
+  return extractIndexChildKeys(raw).some((storyId) =>
+    !blockedStoryIds.has(storyId) && parsedIndex[storyId] === undefined,
+  );
+}
+
 const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
 const NEWS_ACK_WARN_INTERVAL_MS = 15_000;
 let lastNewsAckWarnAt = Number.NEGATIVE_INFINITY;
@@ -1055,15 +1065,18 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
       index[storyId] = timestamp;
     }
   }
-  if (Object.keys(index).length > 0) {
+  if (!hasMissingIndexChildEntries(raw, index, blockedStoryIds)) {
     return index;
   }
-  return readIndexedEntries(
-    latestChain,
-    raw,
-    (storyId, value) => parseLatestIndexEntry(client, storyId, value),
-    blockedStoryIds,
-  );
+  return {
+    ...await readIndexedEntries(
+      latestChain,
+      raw,
+      (storyId, value) => parseLatestIndexEntry(client, storyId, value),
+      blockedStoryIds,
+    ),
+    ...index,
+  };
 }
 
 /**
@@ -1093,15 +1106,18 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
       index[storyId] = hotness;
     }
   }
-  if (Object.keys(index).length > 0) {
+  if (!hasMissingIndexChildEntries(raw, index, blockedStoryIds)) {
     return index;
   }
-  return readIndexedEntries(
-    hotChain,
-    raw,
-    (storyId, value) => parseHotIndexEntry(client, storyId, value),
-    blockedStoryIds,
-  );
+  return {
+    ...await readIndexedEntries(
+      hotChain,
+      raw,
+      (storyId, value) => parseHotIndexEntry(client, storyId, value),
+      blockedStoryIds,
+    ),
+    ...index,
+  };
 }
 
 /**

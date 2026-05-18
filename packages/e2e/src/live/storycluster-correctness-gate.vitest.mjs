@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildCorrectnessGateEnv,
   buildCorrectnessGateStatusPaths,
   buildCorrectnessGateStatusReport,
   runStoryclusterCorrectnessGate,
@@ -37,6 +38,22 @@ describe('storycluster-correctness-gate', () => {
     expect(writes.get(paths.latestReportPath)).toContain('"status": "pass"');
   });
 
+  it('scrubs live-stack ports before launching the isolated correctness command', () => {
+    const env = buildCorrectnessGateEnv({
+      PATH: '/bin',
+      VH_LIVE_BASE_URL: 'http://127.0.0.1:2048/',
+      VH_DAEMON_FEED_GUN_PORT: '7777',
+      VH_DAEMON_FEED_SHARED_RELAY_URL: 'http://127.0.0.1:7777/gun',
+      VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN: 'local-token',
+    });
+
+    expect(env.PATH).toBe('/bin');
+    expect(env.VH_LIVE_BASE_URL).toBeUndefined();
+    expect(env.VH_DAEMON_FEED_GUN_PORT).toBeUndefined();
+    expect(env.VH_DAEMON_FEED_SHARED_RELAY_URL).toBeUndefined();
+    expect(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN).toBeUndefined();
+  });
+
   it('runs the correctness command and persists a passing receipt', () => {
     const writes = new Map();
     const spawn = vi.fn(() => ({
@@ -56,6 +73,7 @@ describe('storycluster-correctness-gate', () => {
 
     expect(spawn).toHaveBeenCalledWith('pnpm', ['test:storycluster:correctness'], expect.objectContaining({
       cwd: '/repo',
+      env: {},
       stdio: 'inherit',
     }));
     expect(report.status).toBe('pass');

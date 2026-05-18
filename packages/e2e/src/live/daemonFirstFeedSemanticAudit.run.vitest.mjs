@@ -452,6 +452,55 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     });
   });
 
+  it('excludes loopback fixture bundles from non-fixture public semantic samples', async () => {
+    const localBundle = {
+      ...makeBundle('story-local'),
+      sources: makeBundle('story-local').sources.map((source, index) => ({
+        ...source,
+        url: `http://127.0.0.1:8985/article/local-${index}`,
+      })),
+    };
+    const publicBundle = makeBundle('story-public');
+    const pair = makePair(publicBundle);
+    readAuditableBundles.mockResolvedValue([localBundle, publicBundle]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 2 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-local') {
+        throw new Error('local fixture bundle should not be sampled for public release evidence');
+      }
+      return [pair];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(pair.pair_id)]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 0,
+    });
+
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-public']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(report).toMatchObject({
+      requested_sample_count: 2,
+      effective_sample_count: 1,
+      sampled_story_count: 1,
+      supply: {
+        status: 'full',
+        auditable_count: 2,
+        effective_sample_count: 1,
+        requested_sample_fill_rate: 0.5,
+        release_candidate_count: 1,
+        excluded_local_only_bundle_count: 1,
+      },
+      overall: {
+        article_fetch_failure_count: 0,
+        requested_sample_fill_rate: 0.5,
+        pass: true,
+      },
+    });
+  });
+
   it('degrades persistent article-text failures into incomplete bundle evidence instead of aborting the run', async () => {
     const bundleA = makeBundle('story-1');
     const bundleB = makeBundle('story-2');
