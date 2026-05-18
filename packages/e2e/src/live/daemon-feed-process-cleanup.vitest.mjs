@@ -94,7 +94,7 @@ describe('daemon-feed-process-cleanup', () => {
     ).toBe(true);
   });
 
-  it('matches sibling-repo relay processes inside the same workspace family', () => {
+  it('matches managed relay processes inside the same workspace family', () => {
     const repoRoot = '/Users/bldt/Desktop/VHC/VHC-hottest-fix';
     const execSync = vi.fn((command, args) => {
       if (command === 'lsof') {
@@ -108,9 +108,42 @@ describe('daemon-feed-process-cleanup', () => {
 
     expect(
       shouldKillStaleProbeWriter(
-        { pid: '118', command: 'node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js' },
+        {
+          pid: '118',
+          command:
+            'node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js VH_DAEMON_FEED_MANAGED_RELAY=1',
+        },
         repoRoot,
         '',
+        execSync,
+      ),
+    ).toBe(true);
+  });
+
+  it('preserves persistent repo-local relay processes unless they are managed or target the current port', () => {
+    const repoRoot = '/Users/bldt/Desktop/VHC/VHC-hottest-fix';
+    const execSync = vi.fn(() => 'n/Users/bldt/Desktop/VHC/VHC\n');
+
+    expect(
+      shouldKillStaleProbeWriter(
+        {
+          pid: '118',
+          command: 'node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js GUN_PORT=8767',
+        },
+        repoRoot,
+        'http://127.0.0.1:8841/gun',
+        execSync,
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldKillStaleProbeWriter(
+        {
+          pid: '119',
+          command: 'node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js GUN_PORT=8841',
+        },
+        repoRoot,
+        'http://127.0.0.1:8841/gun',
         execSync,
       ),
     ).toBe(true);
@@ -199,7 +232,7 @@ describe('daemon-feed-process-cleanup', () => {
           `111 node dist/daemon.js VH_NEWS_DAEMON_HOLDER_ID=${PROBE_HOLDER_ID} VH_GUN_PEERS=["${gunPeerUrl}"]`,
           '222 node dist/daemon.js VH_GUN_PEERS=["http://localhost:9999/gun"]',
           '333 node /Users/bldt/Desktop/VHC/VHC-hottest-fix/services/storycluster-engine/dist/server.js',
-          '444 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js',
+          '444 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js VH_DAEMON_FEED_MANAGED_RELAY=1',
         ].join('\n');
       }
       if (command === 'lsof') {
@@ -264,7 +297,7 @@ describe('daemon-feed-process-cleanup', () => {
         return [
           '998 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js',
           '999 node daemon-feed-process-cleanup.mjs',
-          '111 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js',
+          '111 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js GUN_PORT=9787',
         ].join('\n');
       }
       if (command === 'kill') {

@@ -11,6 +11,7 @@ const STORYCLUSTER_SERVER_FALLBACK_MARKER = `services${path.sep}storycluster-eng
 const NEWS_DAEMON_MARKER = '@vh/news-aggregator daemon';
 const RELAY_SERVER_MARKER = `${path.sep}infra${path.sep}relay${path.sep}server.js`;
 const RELAY_SERVER_FALLBACK_MARKER = `infra${path.sep}relay${path.sep}server.js`;
+const MANAGED_RELAY_ENV_MARKER = 'VH_DAEMON_FEED_MANAGED_RELAY';
 
 export function parseProcessTable(output) {
   return output
@@ -53,6 +54,30 @@ function cwdWithinWorkspace(pid, repoRoot, execSync = execFileSync) {
   return processCwdWithinRepo(pid, workspaceRoot(repoRoot), execSync);
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function commandHasEnvValue(command, name, value) {
+  return new RegExp(`(?:^|\\s)${escapeRegex(name)}=${escapeRegex(value)}(?:\\s|$)`).test(command);
+}
+
+function localPeerPort(gunPeerUrl) {
+  if (!gunPeerUrl) {
+    return '';
+  }
+  try {
+    const parsed = new URL(gunPeerUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (!['127.0.0.1', 'localhost', '0.0.0.0', '[::1]', '::1'].includes(host)) {
+      return '';
+    }
+    return parsed.port;
+  } catch {
+    return '';
+  }
+}
+
 function normalizeCleanupOptions(options = {}) {
   return {
     preserveRelayServer: options.preserveRelayServer === true,
@@ -92,7 +117,20 @@ export function shouldKillStaleProbeWriter(
   if (isStoryclusterServer && cleanupOptions.preserveStoryclusterServer) {
     return false;
   }
-  if (isRelayServer || isStoryclusterServer) {
+  if (isRelayServer) {
+    const targetPort = localPeerPort(gunPeerUrl);
+    const isManagedProbeRelay = commandHasEnvValue(
+      entry.command,
+      MANAGED_RELAY_ENV_MARKER,
+      '1',
+    );
+    const targetsCurrentPort = targetPort
+      ? commandHasEnvValue(entry.command, 'GUN_PORT', targetPort)
+      : false;
+    return (isManagedProbeRelay || targetsCurrentPort)
+      && (commandWithinWorkspace(entry.command, repoRoot) || cwdWithinWorkspace(entry.pid, repoRoot, execSync));
+  }
+  if (isStoryclusterServer) {
     return commandWithinWorkspace(entry.command, repoRoot) || cwdWithinWorkspace(entry.pid, repoRoot, execSync);
   }
   if (!isDaemonChild) {

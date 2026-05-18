@@ -7,6 +7,7 @@ import {
   resolveGunPeers,
   resolveGunPeerTopologySync,
   resolveGunLocalStorage,
+  resolveClientSystemWriterPin,
 } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
@@ -122,6 +123,30 @@ describe('useAppStore', () => {
 
     (globalThis as any).__VH_GUN_PEERS__ = [];
     expect(resolveGunPeers('127.0.0.1')).toEqual([]);
+  });
+
+  it('allows production builds to pin the launch news system writer explicitly', () => {
+    vi.stubEnv('VITE_NEWS_SYSTEM_WRITER_PIN_JSON', JSON.stringify({
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [
+        {
+          id: 'vh-public-beta-news-system-writer-v1',
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: 'public-beta-writer-material',
+          },
+        },
+      ],
+    }));
+
+    expect(resolveClientSystemWriterPin().writers[0]).toMatchObject({
+      id: 'vh-public-beta-news-system-writer-v1',
+      publicKey: { material: 'public-beta-writer-material' },
+    });
   });
 
   it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {

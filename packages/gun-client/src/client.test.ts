@@ -109,6 +109,23 @@ describe('createClient', () => {
     expect(__internal.resolveBrowserGunLocalStorage({ gunLocalStorage: false })).toBe(false);
   });
 
+  it('disables browser Radisk when browser Gun local storage is explicitly disabled', () => {
+    (globalThis as typeof globalThis & { window?: unknown }).window = {};
+    try {
+      createClient({
+        peers: ['http://host:7777'],
+        gunLocalStorage: false,
+      });
+      expect(mockGun).toHaveBeenCalledWith({
+        peers: ['http://host:7777/gun'],
+        localStorage: false,
+        radisk: false,
+      });
+    } finally {
+      delete (globalThis as typeof globalThis & { window?: unknown }).window;
+    }
+  });
+
   it('shutdown closes storage and marks ready', async () => {
     const client = createClient();
     const storageClose = (client.storage as any).close;

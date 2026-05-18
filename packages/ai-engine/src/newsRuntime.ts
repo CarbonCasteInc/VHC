@@ -63,6 +63,7 @@ export interface NewsRuntimeConfig {
   gunClient: unknown;
   pollIntervalMs?: number;
   maxPublishedBundles?: number;
+  pruneStaleBundles?: boolean;
   runOnStart?: boolean;
   enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
@@ -146,6 +147,14 @@ function resolveMaxPublishedBundles(config: NewsRuntimeConfig): number | null {
   return normalizeOptionalPositiveInt(config.maxPublishedBundles, 'maxPublishedBundles')
     ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')
     ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES');
+}
+
+function resolvePruneStaleBundles(config: NewsRuntimeConfig): boolean {
+  if (config.pruneStaleBundles !== undefined) {
+    return config.pruneStaleBundles;
+  }
+  return isTruthyFlag(readEnvVar('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES'))
+    || isTruthyFlag(readEnvVar('VITE_NEWS_RUNTIME_PRUNE_STALE_BUNDLES'));
 }
 
 function canonicalSourceCount(bundle: StoryBundle): number {
@@ -307,6 +316,7 @@ function runtimeTrace(event: string, detail: Record<string, unknown>): void {
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
+  const pruneStaleBundles = resolvePruneStaleBundles(config);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
 
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -347,6 +357,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         bundle_count: bundles.length,
         storyline_count: storylines.length,
         published_bundle_limit: maxPublishedBundles,
+        prune_stale_bundles: pruneStaleBundles,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
         selected_bundle_count: bundlesToPublish.length,
       });
@@ -416,7 +427,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         }
       }
 
-      if (removeStorylineGroup && bundlesToPublish.length > 0) {
+      if (pruneStaleBundles && removeStorylineGroup && bundlesToPublish.length > 0) {
         const staleStorylineIds = [...publishedStorylineIds]
           .filter((storylineId) => !nextPublishedStorylineIds.has(storylineId))
           .sort();
@@ -427,7 +438,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         }
       }
 
-      if (removeStoryBundle && nextPublishedStoryIds.size > 0) {
+      if (pruneStaleBundles && removeStoryBundle && nextPublishedStoryIds.size > 0) {
         const staleStoryIds = [...publishedStoryIds]
           .filter((storyId) => !nextPublishedStoryIds.has(storyId))
           .sort();
@@ -511,6 +522,7 @@ export const __internal = {
   normalizeTitleKeyword,
   isPublicationEligibleBundle,
   refineBundleForPublication,
+  resolvePruneStaleBundles,
   selectBundlesForPublication,
   readEnvVar,
   readOptionalPositiveIntEnv,

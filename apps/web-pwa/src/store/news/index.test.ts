@@ -650,6 +650,90 @@ describe('news store', () => {
     expect(store.getState().error).toBeNull();
   });
 
+  it('refreshLatest bounds concurrent story reads for large live indexes', async () => {
+    vi.stubEnv('VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY', '2');
+    vi.resetModules();
+
+    try {
+      const client = { id: 'client-large-index' };
+      readNewsLatestIndexMock.mockResolvedValue({
+        s1: 500,
+        s2: 400,
+        s3: 300,
+        s4: 200,
+        s5: 100,
+      });
+      readNewsHotIndexMock.mockResolvedValue({});
+      let inFlight = 0;
+      let maxInFlight = 0;
+      readNewsStoryMock.mockImplementation(async (_client, storyId) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        inFlight -= 1;
+        return story({ story_id: storyId, created_at: Number(storyId.slice(1)) });
+      });
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => client as never });
+
+      await store.getState().refreshLatest(5);
+
+      expect(maxInFlight).toBeLessThanOrEqual(2);
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual([
+        's1',
+        's2',
+        's3',
+        's4',
+        's5',
+      ]);
+      expect(store.getState().error).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('refreshLatest keeps readable stories when one latest-index story read fails', async () => {
+    const client = { id: 'client-partial-index' };
+    readNewsLatestIndexMock.mockResolvedValue({ s1: 300, s2: 200, s3: 100 });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) => {
+      if (storyId === 's2') {
+        throw new Error('story-read-timeout');
+      }
+      return story({ story_id: storyId, created_at: Number(storyId.slice(1)) });
+    });
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(3);
+
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s1', 's3']);
+    expect(store.getState().latestIndex).toEqual({ s1: 300, s2: 200, s3: 100 });
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest keeps latest stories when the optional hot index is corrupt', async () => {
+    const client = { id: 'client-corrupt-hot-index' };
+    readNewsLatestIndexMock.mockResolvedValue({ s1: 300, s2: 200 });
+    readNewsHotIndexMock.mockRejectedValue(new Error('system-writer-validation-failed'));
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({ story_id: storyId, created_at: Number(storyId.slice(1)) }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(2);
+
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s1', 's2']);
+    expect(store.getState().latestIndex).toEqual({ s1: 300, s2: 200 });
+    expect(store.getState().hotIndex).toEqual({});
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+  });
+
   it('refreshLatest skips story reads when the requested limit is not finite', async () => {
     const client = { id: 'client-non-finite-limit' };
     readNewsLatestIndexMock.mockResolvedValue({ s1: 200, s2: 100 });

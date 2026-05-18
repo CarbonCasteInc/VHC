@@ -46,6 +46,14 @@ function readFeedFetchRetryBackoffMs(): number {
   ) ?? 250;
 }
 
+function readFeedFetchTimeoutMs(): number {
+  return readPositiveIntEnv(
+    'VH_NEWS_FEED_FETCH_TIMEOUT_MS',
+    'VITE_NEWS_FEED_FETCH_TIMEOUT_MS',
+    'VH_NEWS_SOURCE_ADMISSION_FETCH_TIMEOUT_MS',
+  ) ?? 10_000;
+}
+
 function sortByPublishedDesc(left: RawFeedItem, right: RawFeedItem): number {
   const publishedDelta = (right.publishedAt ?? 0) - (left.publishedAt ?? 0);
   if (publishedDelta !== 0) {
@@ -301,11 +309,14 @@ function sleep(ms: number): Promise<void> {
 async function fetchFeedItems(source: FeedSource): Promise<RawFeedItem[]> {
   const feedFetchAttempts = readFeedFetchAttempts();
   const feedFetchRetryBackoffMs = readFeedFetchRetryBackoffMs();
+  const feedFetchTimeoutMs = readFeedFetchTimeoutMs();
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= feedFetchAttempts; attempt += 1) {
     try {
-      const response = await fetch(source.rssUrl);
+      const response = await fetch(source.rssUrl, {
+        signal: AbortSignal.timeout(feedFetchTimeoutMs),
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -395,6 +406,7 @@ export const newsIngestInternal = {
   fetchFeedItems,
   readFeedFetchAttempts,
   readFeedFetchRetryBackoffMs,
+  readFeedFetchTimeoutMs,
   readEnvVar,
   readPositiveIntEnv,
   sortByPublishedDesc,

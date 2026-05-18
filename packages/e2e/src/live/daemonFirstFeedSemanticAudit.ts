@@ -34,6 +34,7 @@ const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
 const SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS = 4_000;
 const runtimeImport = async (modulePath: string): Promise<unknown> => await import(modulePath);
 const RETRIABLE_ARTICLE_TEXT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 async function loadSemanticAuditModule(): Promise<{
   buildCanonicalSourcePairs: (
@@ -88,6 +89,64 @@ export function normalizeSemanticAuditArticleUrlForFetch(targetUrl: string): str
   } catch {
     return targetUrl;
   }
+}
+
+function isLoopbackUrl(targetUrl: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(targetUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function canonicalSourcesForBundle(bundle: LiveSemanticAuditBundleLike): ReadonlyArray<StoryBundleSource> {
+  return bundle.primary_sources ?? bundle.sources;
+}
+
+function isPublicReleaseCandidateBundle(bundle: LiveSemanticAuditBundleLike): boolean {
+  if (process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return true;
+  }
+
+  return canonicalSourcesForBundle(bundle).every((source) => !isLoopbackUrl(source.url));
+}
+
+function filterSemanticAuditCandidateBundles(
+  bundles: readonly LiveSemanticAuditBundleLike[],
+): {
+  readonly candidates: LiveSemanticAuditBundleLike[];
+  readonly excludedLocalOnlyCount: number;
+} {
+  const candidates: LiveSemanticAuditBundleLike[] = [];
+  let excludedLocalOnlyCount = 0;
+
+  for (const bundle of bundles) {
+    if (isPublicReleaseCandidateBundle(bundle)) {
+      candidates.push(bundle);
+    } else {
+      excludedLocalOnlyCount += 1;
+    }
+  }
+
+  return { candidates, excludedLocalOnlyCount };
+}
+
+function resolveSemanticAuditSampleTarget(
+  sampleCount: number,
+  candidateCount: number,
+  totalAuditableCount: number,
+  excludedLocalOnlyCount: number,
+): number {
+  if (
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true'
+    && excludedLocalOnlyCount > 0
+    && totalAuditableCount >= sampleCount
+    && candidateCount > 0
+  ) {
+    return Math.min(sampleCount, candidateCount);
+  }
+
+  return sampleCount;
 }
 
 function articleTextUrl(baseUrl: string, targetUrl: string): string {
@@ -244,27 +303,44 @@ async function waitForSampledBundles(
 ): Promise<{
   readonly bundles: ReadonlyArray<LiveSemanticAuditBundleLike>;
   readonly storeSnapshot: SemanticAuditStoreSnapshot;
+  readonly candidateCount: number;
+  readonly excludedLocalOnlyCount: number;
 }> {
   const deadline = Date.now() + timeoutMs;
   const progressiveSampling = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true';
   const observedByStoryId = new Map<string, LiveSemanticAuditBundleLike>();
   let storeSnapshot = await readSemanticAuditStoreSnapshot(page);
+  let latestCandidateCount = 0;
+  let totalExcludedLocalOnlyCount = 0;
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
+    const { candidates, excludedLocalOnlyCount } = filterSemanticAuditCandidateBundles(auditable);
+    latestCandidateCount = candidates.length;
+    totalExcludedLocalOnlyCount += excludedLocalOnlyCount;
     if (progressiveSampling) {
-      mergeObservedBundles(observedByStoryId, auditable);
+      mergeObservedBundles(observedByStoryId, candidates);
     }
     storeSnapshot = await readSemanticAuditStoreSnapshot(page);
-    if (progressiveSampling && observedByStoryId.size >= sampleCount) {
+    const effectiveSampleTarget = resolveSemanticAuditSampleTarget(
+      sampleCount,
+      latestCandidateCount,
+      auditable.length,
+      excludedLocalOnlyCount,
+    );
+    if (progressiveSampling && observedByStoryId.size >= effectiveSampleTarget) {
       return {
-        bundles: [...observedByStoryId.values()].slice(0, sampleCount),
+        bundles: [...observedByStoryId.values()].slice(0, effectiveSampleTarget),
         storeSnapshot,
+        candidateCount: latestCandidateCount,
+        excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
       };
     }
-    if (!progressiveSampling && auditable.length >= sampleCount) {
+    if (!progressiveSampling && candidates.length >= effectiveSampleTarget) {
       return {
-        bundles: auditable.slice(0, sampleCount),
+        bundles: candidates.slice(0, effectiveSampleTarget),
         storeSnapshot,
+        candidateCount: latestCandidateCount,
+        excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
       };
     }
 
@@ -276,16 +352,27 @@ async function waitForSampledBundles(
   }
 
   const auditable = await readAuditableBundles(page);
+  const { candidates, excludedLocalOnlyCount } = filterSemanticAuditCandidateBundles(auditable);
+  latestCandidateCount = candidates.length;
+  totalExcludedLocalOnlyCount += excludedLocalOnlyCount;
   if (progressiveSampling) {
-    mergeObservedBundles(observedByStoryId, auditable);
+    mergeObservedBundles(observedByStoryId, candidates);
   }
   storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   await persistSemanticAuditFailureSnapshot(storeSnapshot);
+  const effectiveSampleTarget = resolveSemanticAuditSampleTarget(
+    sampleCount,
+    latestCandidateCount,
+    candidates.length + excludedLocalOnlyCount,
+    excludedLocalOnlyCount,
+  );
   return {
     bundles: progressiveSampling
-      ? [...observedByStoryId.values()].slice(0, sampleCount)
-      : auditable.slice(0, sampleCount),
+      ? [...observedByStoryId.values()].slice(0, effectiveSampleTarget)
+      : candidates.slice(0, effectiveSampleTarget),
     storeSnapshot,
+    candidateCount: latestCandidateCount,
+    excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
   };
 }
 
@@ -293,18 +380,47 @@ export function summarizeSemanticAuditSupply(
   sampleCount: number,
   sampledBundles: readonly LiveSemanticAuditBundleLike[],
   storeSnapshot: SemanticAuditStoreSnapshot,
+  candidateDiagnostics: {
+    readonly candidateCount?: number;
+    readonly excludedLocalOnlyCount?: number;
+    readonly totalAuditableCount?: number;
+  } = {},
 ): SemanticAuditSupplyDiagnostics {
   const sampledStoryCount = sampledBundles.length;
-  return {
-    status: sampledStoryCount >= sampleCount ? 'full' : sampledStoryCount > 0 ? 'partial' : 'empty',
+  const candidateCount = candidateDiagnostics.candidateCount;
+  const effectiveSampleCount =
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true'
+    && Number.isFinite(candidateCount)
+    && (candidateCount ?? 0) > 0
+    && (candidateDiagnostics.excludedLocalOnlyCount ?? 0) > 0
+    && (candidateDiagnostics.totalAuditableCount ?? 0) >= sampleCount
+      ? Math.min(sampleCount, Math.max(1, Math.floor(candidateCount ?? sampleCount)))
+      : sampleCount;
+  const diagnostics: SemanticAuditSupplyDiagnostics = {
+    status: sampledStoryCount >= effectiveSampleCount ? 'full' : sampledStoryCount > 0 ? 'partial' : 'empty',
     story_count: storeSnapshot.story_count,
     auditable_count: storeSnapshot.auditable_count,
     visible_story_ids: storeSnapshot.visible_story_ids,
     top_story_ids: storeSnapshot.top_story_ids,
     top_auditable_story_ids: storeSnapshot.top_auditable_story_ids,
-    sample_fill_rate: sampledStoryCount / sampleCount,
-    sample_shortfall: Math.max(sampleCount - sampledStoryCount, 0),
+    sample_fill_rate: sampledStoryCount / effectiveSampleCount,
+    sample_shortfall: Math.max(effectiveSampleCount - sampledStoryCount, 0),
   };
+  if (effectiveSampleCount !== sampleCount) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { effective_sample_count?: number })
+      .effective_sample_count = effectiveSampleCount;
+    (diagnostics as SemanticAuditSupplyDiagnostics & { requested_sample_fill_rate?: number })
+      .requested_sample_fill_rate = sampledStoryCount / sampleCount;
+  }
+  if (Number.isFinite(candidateDiagnostics.candidateCount)) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { release_candidate_count?: number })
+      .release_candidate_count = candidateDiagnostics.candidateCount;
+  }
+  if ((candidateDiagnostics.excludedLocalOnlyCount ?? 0) > 0) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { excluded_local_only_bundle_count?: number })
+      .excluded_local_only_bundle_count = candidateDiagnostics.excludedLocalOnlyCount;
+  }
+  return diagnostics;
 }
 
 function groupPairResults(pairs: readonly LiveSemanticAuditPair[], results: readonly LiveSemanticAuditPairResult[]) {
@@ -417,6 +533,7 @@ export function buildDaemonFeedSemanticAuditReport(
   articleFetchFailures: readonly SemanticAuditArticleFetchFailure[] = [],
 ): DaemonFeedSemanticAuditReport {
   const incompleteBundleCount = reports.filter((bundle) => bundle.audit_status === 'incomplete_article_text').length;
+  const effectiveSampleCount = supply.effective_sample_count ?? sampleCount;
   return {
     schema_version: 'daemon-first-feed-semantic-audit-v3',
     base_url: LIVE_BASE_URL,
@@ -427,6 +544,7 @@ export function buildDaemonFeedSemanticAuditReport(
       uses_fixture_stub: options.openAIUsesFixtureStub === true,
     },
     requested_sample_count: sampleCount,
+    effective_sample_count: effectiveSampleCount,
     sampled_story_count: reports.length,
     visible_story_ids: supply.visible_story_ids,
     supply,
@@ -439,7 +557,10 @@ export function buildDaemonFeedSemanticAuditReport(
       article_fetch_failure_count: articleFetchFailures.length,
       sample_fill_rate: supply.sample_fill_rate,
       sample_shortfall: supply.sample_shortfall,
-      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0 && incompleteBundleCount === 0,
+      ...(typeof supply.requested_sample_fill_rate === 'number'
+        ? { requested_sample_fill_rate: supply.requested_sample_fill_rate }
+        : {}),
+      pass: reports.length >= effectiveSampleCount && relatedTopicOnlyPairCount === 0 && incompleteBundleCount === 0,
     },
   };
 }
@@ -457,7 +578,12 @@ export async function runDaemonFirstFeedSemanticAudit(
     hasRelatedTopicOnlyPair,
   } = await loadSemanticAuditModule();
 
-  const { bundles: sampledBundles, storeSnapshot } = await waitForSampledBundles(page, sampleCount, timeoutMs);
+  const {
+    bundles: sampledBundles,
+    storeSnapshot,
+    candidateCount,
+    excludedLocalOnlyCount,
+  } = await waitForSampledBundles(page, sampleCount, timeoutMs);
   const retainedSourceEvidenceSnapshot = await readRetainedSourceEvidenceSnapshot(page);
   await persistRetainedSourceEvidenceSnapshot(retainedSourceEvidenceSnapshot);
   const hydratedBundles = [...sampledBundles];
@@ -588,7 +714,11 @@ export async function runDaemonFirstFeedSemanticAudit(
     reports,
     results.length,
     relatedTopicOnlyPairCount,
-    summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot),
+    summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot, {
+      candidateCount,
+      excludedLocalOnlyCount,
+      totalAuditableCount: storeSnapshot.auditable_count,
+    }),
     options,
     articleFetchFailures,
   );

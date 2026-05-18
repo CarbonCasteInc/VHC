@@ -180,6 +180,10 @@ describe('newsRuntime', () => {
     expect(() => __internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toThrow(
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES must be a positive integer',
     );
+    expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(false);
+    vi.stubEnv('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES', 'true');
+    expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(true);
+    expect(__internal.resolvePruneStaleBundles({ ...BASE_CONFIG, pruneStaleBundles: false })).toBe(false);
 
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
@@ -506,6 +510,7 @@ describe('newsRuntime', () => {
       ...BASE_CONFIG,
       writeStoryBundle,
       removeStoryBundle,
+      pruneStaleBundles: true,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -518,6 +523,40 @@ describe('newsRuntime', () => {
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, storyTwo);
     expect(removeStoryBundle).toHaveBeenCalledTimes(1);
     expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
+
+    handle.stop();
+  });
+
+  it('preserves previously published stories by default when a refresh returns fewer bundles', async () => {
+    const storyTwo: StoryBundle = {
+      ...STORY_BUNDLE,
+      story_id: 'story-2',
+      topic_id: 'topic-2',
+      headline: 'Second story',
+      provenance_hash: 'provhash-2',
+      created_at: STORY_BUNDLE.created_at + 1,
+    };
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce(batch([STORY_BUNDLE, storyTwo]))
+      .mockResolvedValueOnce(batch([STORY_BUNDLE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      removeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, storyTwo);
+    expect(removeStoryBundle).not.toHaveBeenCalled();
 
     handle.stop();
   });

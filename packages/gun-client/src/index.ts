@@ -114,7 +114,11 @@ export function createClient(config: VennClientConfig = {}): VennClient {
     gunConfig.radisk = config.gunRadisk ?? (nodeGunFile !== false && nodeGunFile !== undefined);
     gunConfig.axe = false;
   } else {
-    gunConfig.localStorage = resolveBrowserGunLocalStorage(config);
+    const browserLocalStorage = resolveBrowserGunLocalStorage(config);
+    gunConfig.localStorage = browserLocalStorage;
+    if (!browserLocalStorage) {
+      gunConfig.radisk = false;
+    }
   }
   if (gunFileOption !== undefined) {
     gunConfig.file = gunFileOption;

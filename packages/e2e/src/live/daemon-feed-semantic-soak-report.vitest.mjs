@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   accumulateStoryCoverage,
@@ -34,11 +35,21 @@ function makeResult(overrides = {}) {
 
 describe('daemon-feed-semantic-soak-report', () => {
   it('defaults correctness-gate paths to the workspace root', () => {
+    const repoRoot = path.resolve(import.meta.dirname, '../../../..');
     expect(buildStoryClusterCorrectnessGate()).toMatchObject({
       authoritativeInputs: {
-        fixtureCorpusPath: '/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts',
-        replayCorpusPath: '/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts',
-        servedSemanticGateSpecPath: '/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts',
+        fixtureCorpusPath: path.join(
+          repoRoot,
+          'services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts',
+        ),
+        replayCorpusPath: path.join(
+          repoRoot,
+          'services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts',
+        ),
+        servedSemanticGateSpecPath: path.join(
+          repoRoot,
+          'packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts',
+        ),
       },
     });
   });
@@ -101,6 +112,7 @@ describe('daemon-feed-semantic-soak-report', () => {
       auditPath: null,
       failureSnapshotPath: '/tmp/run-1.failure.json',
       retainedSourceEvidencePath: null,
+      clusterCapturePath: null,
       runtimeLogsPath: null,
     });
 
@@ -114,6 +126,7 @@ describe('daemon-feed-semantic-soak-report', () => {
       auditPath: '/tmp/run-2.audit.json',
       failureSnapshotPath: null,
       retainedSourceEvidencePath: null,
+      clusterCapturePath: null,
       runtimeLogsPath: '/tmp/run-2.logs.json',
     });
   });

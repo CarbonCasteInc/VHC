@@ -207,7 +207,7 @@ export function buildRunArtifactPaths(result) {
 }
 
 export function summarizeSoakDensity(result) {
-  const requestedSampleCount = result.requestedSampleCount ?? null;
+  const requestedSampleCount = result.effectiveSampleCount ?? result.requestedSampleCount ?? null;
   const sampledStoryCount = result.sampledStoryCount ?? null;
   const auditedPairCount = result.auditedPairCount ?? null;
   const relatedTopicOnlyPairCount = result.relatedTopicOnlyPairCount ?? null;
@@ -318,6 +318,8 @@ export function buildSoakTrend(results) {
       run: result.run,
       pass: result.pass,
       classification,
+      nominalRequestedSampleCount: result.requestedSampleCount ?? null,
+      effectiveSampleCount: result.effectiveSampleCount ?? result.requestedSampleCount ?? null,
       requestedSampleCount: density.requestedSampleCount,
       sampledStoryCount: density.sampledStoryCount,
       auditedPairCount: density.auditedPairCount,

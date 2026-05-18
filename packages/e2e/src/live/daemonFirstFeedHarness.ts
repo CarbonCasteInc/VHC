@@ -44,7 +44,7 @@ const DEFAULT_FEED_READY_TIMEOUT_MS = 240_000;
 const FEED_READY_TIMEOUT_BUFFER_MS = 60_000;
 export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
 const FIXTURE_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
-const DEFAULT_NEWS_POLL_INTERVAL_MS = '15000';
+const DEFAULT_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
 const FIXTURE_MAX_ITEMS_PER_SOURCE = '5';
 const FIXTURE_MAX_ITEMS_TOTAL = '30';
 const LIVE_MAX_ITEMS_PER_SOURCE = '3';
@@ -149,6 +149,24 @@ function resolveMinimumAuditableStories(): number {
   return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 1 : 0;
 }
 
+function resolveNewsRuntimePruneStaleBundles(): string {
+  const configured = process.env.VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES?.trim();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 'true' : 'false';
+}
+
+function resolveNewsDaemonGunRadisk(): string {
+  const configured = process.env.VH_NEWS_DAEMON_GUN_RADISK?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 'true' : 'false';
+}
+
 function resolveStoryClusterRemoteTimeoutMs(): string {
   const configured = process.env.VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS?.trim();
   if (configured) {
@@ -190,6 +208,12 @@ function resolveFeedReadyTimeoutMs(): number {
   return Math.max(DEFAULT_FEED_READY_TIMEOUT_MS, derivedTimeoutMs);
 }
 
+function resolveStoryClusterStateDir(root = repoRootDir()): string {
+  return process.env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR?.trim()
+    || process.env.VH_STORYCLUSTER_STATE_DIR?.trim()
+    || path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`);
+}
+
 function resolveStoryclusterRemoteConfig() {
   const configuredSharedStoryclusterUrl = process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL?.trim();
   const endpointUrl = configuredSharedStoryclusterUrl
@@ -220,9 +244,12 @@ export const daemonFirstFeedHarnessInternal = {
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
   resolveMinimumAuditableStories,
+  resolveNewsRuntimePruneStaleBundles,
+  resolveNewsDaemonGunRadisk,
   resolveStoryClusterRemoteTimeoutMs,
   resolveStoryClusterOpenAITimeoutMs,
   resolveFeedReadyTimeoutMs,
+  resolveStoryClusterStateDir,
   resolveStoryclusterRemoteConfig,
 };
 
@@ -249,7 +276,7 @@ function commonEnv(): NodeJS.ProcessEnv {
         }
       : {}),
     VH_STORYCLUSTER_ESM_LOADER_PATH: esmLoaderPath,
-    VH_STORYCLUSTER_STATE_DIR: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`),
+    VH_STORYCLUSTER_STATE_DIR: resolveStoryClusterStateDir(root),
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: storyClusterOpenAITimeoutMs,
@@ -259,6 +286,8 @@ function commonEnv(): NodeJS.ProcessEnv {
     VITE_NEWS_POLL_INTERVAL_MS: resolveNewsPollIntervalMs(),
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
+    VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES: resolveNewsRuntimePruneStaleBundles(),
+    VH_NEWS_DAEMON_GUN_RADISK: resolveNewsDaemonGunRadisk(),
     VH_STORYCLUSTER_REMOTE_URL: storyclusterRemote.endpointUrl,
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: storyclusterRemote.healthUrl,
     VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: storyClusterRemoteTimeoutMs,

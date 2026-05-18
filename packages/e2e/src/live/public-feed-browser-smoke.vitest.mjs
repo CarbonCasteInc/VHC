@@ -119,4 +119,29 @@ describe('public feed browser smoke helpers', () => {
   it('reads string constants from the system-writer fixture source', () => {
     expect(internal.readFixtureConst("export const EXAMPLE =\n  'value-1';", 'EXAMPLE')).toBe('value-1');
   });
+
+  it('prefers the production news system writer pin over the E2E fixture pin', () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'public-material',
+        },
+      }],
+    };
+
+    expect(internal.loadSystemWriterPin('/repo', {
+      VITE_NEWS_SYSTEM_WRITER_PIN_JSON: JSON.stringify(pin),
+      VITE_E2E_SYSTEM_WRITER_PIN_JSON: JSON.stringify({
+        ...pin,
+        writers: [{ ...pin.writers[0], id: 'vh-e2e-news-daemon-system-writer-v1' }],
+      }),
+    })).toEqual(pin);
+  });
 });

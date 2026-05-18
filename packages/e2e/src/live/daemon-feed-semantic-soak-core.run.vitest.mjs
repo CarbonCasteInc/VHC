@@ -144,14 +144,48 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
       'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('8');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('32');
-    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('40');
-    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('32');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
+    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('10');
+    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('64');
     expect(env.VH_DAEMON_FEED_READY_TIMEOUT_MS).toBe('900000');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_DAEMON_FEED_MANAGED_STORYCLUSTER).toBe('true');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('shares managed StoryCluster state across runs in the same soak artifact by default', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-persistent-state', 4, 180000, {
+      repoRoot: '/repo',
+      artifactDir: '/repo/.tmp/daemon-feed-semantic-soak/123',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR).toBe(
+      '/repo/.tmp/daemon-feed-semantic-soak/123/storycluster-state',
+    );
+    expect(env.VH_STORYCLUSTER_STATE_DIR).toBe(
+      '/repo/.tmp/daemon-feed-semantic-soak/123/storycluster-state',
+    );
+  });
+
+  it('preserves an explicit persistent StoryCluster state directory override', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR: '/repo/.tmp/storycluster-live-state',
+    }, 'run-explicit-persistent-state', 4, 180000, {
+      repoRoot: '/repo',
+      artifactDir: '/repo/.tmp/daemon-feed-semantic-soak/123',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR).toBe('/repo/.tmp/storycluster-live-state');
+    expect(env.VH_STORYCLUSTER_STATE_DIR).toBe('/repo/.tmp/storycluster-live-state');
   });
 
   it('preserves explicit public StoryCluster chunk and readiness overrides', () => {
@@ -336,6 +370,18 @@ describe('runDaemonFeedSemanticSoak', () => {
       'canarymedia-main',
       'abc-politics',
       'huffpost-us',
+      'npr-news',
+      'npr-politics',
+      'pbs-politics',
+      'fox-latest',
+      'nypost-politics',
+      'ap-topnews',
+      'ap-politics',
+      'latimes-california',
+      'bbc-general',
+      'fedsmith-news',
+      'democracydocket-alerts',
+      'bigbendsentinel-border-wall',
     ]);
   });
 
@@ -374,6 +420,18 @@ describe('runDaemonFeedSemanticSoak', () => {
       'canarymedia-main',
       'abc-politics',
       'huffpost-us',
+      'npr-news',
+      'npr-politics',
+      'pbs-politics',
+      'fox-latest',
+      'nypost-politics',
+      'ap-topnews',
+      'ap-politics',
+      'latimes-california',
+      'bbc-general',
+      'fedsmith-news',
+      'democracydocket-alerts',
+      'bigbendsentinel-border-wall',
     ]);
   });
 

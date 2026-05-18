@@ -59,9 +59,13 @@ function readFixtureConst(source, name) {
   return match[1];
 }
 
-function loadE2eSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT) {
-  const explicit = process.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
-    || process.env.VH_E2E_SYSTEM_WRITER_PIN_JSON?.trim();
+function loadSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT, env = process.env) {
+  const explicit = env.VITE_NEWS_SYSTEM_WRITER_PIN_JSON?.trim()
+    || env.VH_NEWS_SYSTEM_WRITER_PIN_JSON?.trim()
+    || env.VITE_SYSTEM_WRITER_PIN_JSON?.trim()
+    || env.VH_SYSTEM_WRITER_PIN_JSON?.trim()
+    || env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
+    || env.VH_E2E_SYSTEM_WRITER_PIN_JSON?.trim();
   if (explicit) return JSON.parse(explicit);
 
   const source = readFileSync(
@@ -637,7 +641,7 @@ async function runPublicFeedBrowserSmoke({
       gunPeerUrl,
       minHeadlines,
       timeoutMs: readyTimeoutMs,
-      systemWriterPin: loadE2eSystemWriterPin(repoRoot),
+      systemWriterPin: loadSystemWriterPin(repoRoot, env),
     });
     browser = await launchBrowser();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
@@ -802,6 +806,7 @@ export const publicFeedBrowserSmokeInternal = {
   readFixtureConst,
   refreshLatest,
   resolveArtifactDir,
+  loadSystemWriterPin,
   storyDetailUrl,
   viewportScreenshotOptions,
   withTimeout,

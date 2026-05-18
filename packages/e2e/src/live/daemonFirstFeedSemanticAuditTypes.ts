@@ -132,6 +132,10 @@ export interface SemanticAuditSupplyDiagnostics {
   readonly top_auditable_story_ids: ReadonlyArray<string>;
   readonly sample_fill_rate: number;
   readonly sample_shortfall: number;
+  readonly effective_sample_count?: number;
+  readonly requested_sample_fill_rate?: number;
+  readonly release_candidate_count?: number;
+  readonly excluded_local_only_bundle_count?: number;
 }
 
 export interface DaemonFeedSemanticAuditReport {
@@ -144,6 +148,7 @@ export interface DaemonFeedSemanticAuditReport {
     readonly uses_fixture_stub: boolean;
   };
   readonly requested_sample_count: number;
+  readonly effective_sample_count?: number;
   readonly sampled_story_count: number;
   readonly visible_story_ids: ReadonlyArray<string>;
   readonly supply: SemanticAuditSupplyDiagnostics;
@@ -156,6 +161,7 @@ export interface DaemonFeedSemanticAuditReport {
     readonly article_fetch_failure_count: number;
     readonly sample_fill_rate: number;
     readonly sample_shortfall: number;
+    readonly requested_sample_fill_rate?: number;
     readonly pass: boolean;
   };
 }

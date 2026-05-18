@@ -153,6 +153,9 @@ describe('hydrateNewsStore', () => {
 
   afterEach(() => {
     delete process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT;
+    delete process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY;
+    delete process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX;
+    delete process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX;
   });
 
   it('returns false when no client is available', async () => {
@@ -194,6 +197,53 @@ describe('hydrateNewsStore', () => {
     expect(storylineChain.onSpy).not.toHaveBeenCalled();
     expect(latestChain.onSpy).toHaveBeenCalledTimes(1);
     expect(hotChain.onSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('can skip hot-index live subscription while retaining latest-index hydration', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX = 'false';
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 's1', created_at: 321, cluster_window_end: 654 }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateNewsStore(() => ({}) as never, store)).toBe(true);
+    latestChain.emit(654, 's1');
+    hotChain.emit(0.9, 's1');
+    await Promise.resolve();
+
+    expect(gunMocks.getNewsHotIndexChain).not.toHaveBeenCalled();
+    expect(hotChain.onSpy).not.toHaveBeenCalled();
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 's1' }));
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 654);
+    expect(state.upsertHotIndex).not.toHaveBeenCalled();
+  });
+
+  it('can skip all live index subscriptions while retaining explicit refresh support', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX = 'false';
+    process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX = 'false';
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateNewsStore(() => ({}) as never, store)).toBe(true);
+    latestChain.emit(654, 's1');
+    hotChain.emit(0.9, 's1');
+    await Promise.resolve();
+
+    expect(gunMocks.getNewsLatestIndexChain).not.toHaveBeenCalled();
+    expect(gunMocks.getNewsHotIndexChain).not.toHaveBeenCalled();
+    expect(latestChain.onSpy).not.toHaveBeenCalled();
+    expect(hotChain.onSpy).not.toHaveBeenCalled();
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
+    expect(state.upsertHotIndex).not.toHaveBeenCalled();
   });
 
   it('hydrates stories from latest-index entries without synthesizing extra index writes', async () => {
@@ -370,6 +420,48 @@ describe('hydrateNewsStore', () => {
 
     expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-dedupe' }));
+  });
+
+  it('bounds live latest-index story reads while hydrating large indexes', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY = '2';
+    vi.resetModules();
+
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    gunMocks.readNewsStory.mockImplementation(async (_client: unknown, storyId: string) => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      activeReads -= 1;
+      return story({ story_id: storyId });
+    });
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    for (let index = 1; index <= 5; index += 1) {
+      latestChain.emit(100 + index, `story-${index}`);
+    }
+
+    for (let attempt = 0; attempt < 20 && gunMocks.readNewsStory.mock.calls.length < 5; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    for (let attempt = 0; attempt < 20 && activeReads > 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledTimes(5);
+    expect(maxActiveReads).toBeLessThanOrEqual(2);
+    expect(state.upsertStory).toHaveBeenCalledTimes(5);
   });
 
   it('ignores direct root-story updates so the latest index stays authoritative', async () => {

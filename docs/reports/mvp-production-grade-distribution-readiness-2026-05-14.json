@@ -9,7 +9,7 @@
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "final_status": "blocked_engineering_evidence",
-  "status_reason": "Current StoryCluster production-readiness is blocked by headline soak release evidence: the latest headline-soak execution is not promotable. Source health, correctness, local public/remote Web PWA feed smoke, Mesh local soak/sample-floor evidence, and operator-provided approval/owner fields are recorded. Public ingress setup has advanced through Cloudflare Tunnel: carboncaste.io is delegated to Cloudflare, the A6 tunnel is active, and public app/peer routes exist. Launch remains blocked because live headline freshness is not release_ready, the Web PWA and public WSS origin services are not deployed behind the tunnel, the original nested gun-a/b/c.venn.carboncaste.io peer names do not have valid TLS on Cloudflare Free Universal SSL, public WSS proof has not passed, Mesh is not release_ready, and the production app canary has not passed.",
+  "status_reason": "Blocked engineering evidence: public Web PWA, analysis endpoints, signed peer config, and fallback WSS peer health endpoints are reachable through Cloudflare, and public WSS peer-config proof completed with no failures but status review_required. StoryCluster correctness and source health pass, and singleton persistence/later bundling is covered by tests, but public headline-soak evidence still fails because browser semantic readback hangs or times out after live publication. Deployed public feed browser smoke failed with public-feed-headlines-timeout and terminal evidence showed system-writer signature validation failures on public news index rows. Mesh release_ready and production app canary pass are not claimed.",
   "fixes": {
     "news_daemon_stack_startup": {
       "files": [
@@ -76,54 +76,28 @@
     }
   },
   "public_feed_ux": {
-    "command": "VH_PUBLIC_FEED_APP_URL=http://127.0.0.1:2048/ VH_PUBLIC_FEED_GUN_PEER_URL=http://127.0.0.1:7777/gun VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS=600000 VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS=240000 pnpm test:public-feed:browser-smoke",
-    "status": "pass",
-    "artifact_dir": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746",
-    "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json",
-    "latest_index_count": 32,
-    "story_readback_count": 16,
-    "visible_headline_count": 15,
-    "source_label_count": 15,
-    "timestamp_count": 15,
-    "scroll_count": 30,
-    "detail_story_id": "story-2c5f7d5a0a5e",
-    "detail_topic_id": "b67201d90082769439d27be511cc6404dc491a11f3ec008c88cc18326d7564cd",
-    "accepted_synthesis_basis": "Topic synthesis v2",
-    "point_stance_after_agree": 1,
-    "comment_visible_after_reload": true,
-    "second_browser_vote_count": 1,
-    "screenshot_paths": {
-      "initialFeed": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/01-feed-initial.png",
-      "afterRefresh": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/02-feed-after-refresh.png",
-      "afterScroll": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/03-feed-after-scroll.png",
-      "storyDetail": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/04-story-detail-synthesis.png",
-      "afterComment": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/05-story-comment.png",
-      "reloadPersistence": "/Users/benjamintucker/Desktop/VHC/.tmp/release-evidence/public-feed-browser-smoke/1778996451746/06-reload-persistence.png"
+    "local_public_remote_smoke": {
+      "status": "pass",
+      "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/1778996451746/public-feed-browser-smoke-summary.json"
+    },
+    "deployed_public_smoke": {
+      "status": "fail",
+      "command": "VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun pnpm test:public-feed:browser-smoke",
+      "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/20260518T184701Z-public/public-feed-browser-smoke-summary.json",
+      "error_message": "public-feed-headlines-timeout",
+      "terminal_observation": "system-writer-validation-failed / signature-invalid for public news index rows before timeout"
     }
   },
   "storycluster_production_readiness": {
     "collect_command": "pnpm collect:storycluster:headline-soak",
     "check_command": "pnpm check:storycluster:production-readiness",
     "status": "blocked",
-    "recommended_action": "hold_for_public_soak_recovery",
     "correctness_gate": "pass",
     "source_health_release_evidence_status": "pass",
     "headline_soak_release_evidence_status": "fail",
-    "headline_soak_release_evidence_reasons": [
-      "latest_headline_soak_execution_not_promotable"
-    ],
-    "execution_count": 5,
-    "promotable_execution_count": 4,
-    "not_ready_execution_count": 1,
-    "latest_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/1779011264028",
-    "latest_execution_readiness_status": "not_ready",
-    "latest_execution_strict_soak_pass": false,
-    "latest_execution_run_count": 3,
-    "latest_execution_pass_count": 0,
-    "latest_execution_fail_count": 3,
-    "average_corroborated_bundle_rate": null,
-    "average_unique_source_count": 0,
-    "total_audited_pairs": 0,
+    "latest_completed_failed_execution_artifact_dir": "/Users/benjamintucker/Desktop/VHC/.tmp/daemon-feed-semantic-soak/20260518T174409Z-release-root-trend-v6",
+    "latest_completed_failed_execution_error": "spawnSync pnpm ETIMEDOUT",
+    "singleton_policy": "singleton stories remain valid feed items and are covered by tests for later upgrade into bundles when matching articles arrive",
     "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json"
   },
   "mesh_and_app_canary": {
@@ -174,7 +148,14 @@
       "news_synthesis_publication",
       "point_stance_write_readback",
       "story_thread_create_comment"
-    ]
+    ],
+    "public_wss_peer_config_proof": {
+      "status": "review_required",
+      "ok": true,
+      "failures": [],
+      "run_id": "mesh-public-wss-proof-1779130008482-f3d66cf8",
+      "report_path": ".tmp/mesh-production-readiness/mesh-public-wss-proof-1779130008482-f3d66cf8/mesh-production-readiness-report.json"
+    }
   },
   "approvals": {
     "release_owner": "Carbon Caste Inc",
@@ -219,15 +200,14 @@
   ],
   "remaining_blockers": [
     "public_headline_soak_release_evidence_failed",
-    "public_origin_services_not_deployed",
+    "public_feed_browser_smoke_failed",
     "nested_peer_tls_certificate_missing",
-    "public_wss_deployment_proof_missing",
     "mesh_release_ready_not_proven",
     "production_app_canary_not_proven"
   ],
-  "updated_at": "2026-05-18T01:17:56Z",
+  "updated_at": "2026-05-18T19:00:31Z",
   "infrastructure_access": {
-    "checked_at": "2026-05-18T01:17:56Z",
+    "checked_at": "2026-05-18T19:00:31Z",
     "local_host": {
       "hostname": "Benjamins-Mac-mini.local",
       "os": "macOS 26.3 build 25D125",
@@ -348,7 +328,31 @@
         "observed": "No public WSS proof has run against deployed app/peer services yet.",
         "required_action": "After origin deployment, publish signed peer config, set CSP connect-src, run public WSS proof with minimum peer count 3 and quorum 2, and do not lower thresholds."
       }
-    ]
+    ],
+    "public_app": {
+      "status": 200,
+      "url": "https://venn.carboncaste.io"
+    },
+    "analysis_health": {
+      "status": 200,
+      "ok": true,
+      "model": "gpt-5-nano",
+      "upstream": "reachable"
+    },
+    "signed_peer_config": {
+      "status": 200,
+      "config_id": "public-beta-fallback-wss-v1",
+      "minimum_peer_count": 3,
+      "quorum_required": 2
+    },
+    "fallback_peer_health": {
+      "status": 200,
+      "endpoints": [
+        "https://gun-a.carboncaste.io/healthz",
+        "https://gun-b.carboncaste.io/healthz",
+        "https://gun-c.carboncaste.io/healthz"
+      ]
+    }
   },
   "explicit_non_claims": [
     "public WSS bootstrap mesh is deployed",
@@ -357,7 +361,8 @@
     "production app canary pass",
     "legal approval or commercial approval",
     "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, production attestation, or native App Store/TestFlight readiness",
-    "StoryCluster release_ready"
+    "StoryCluster release_ready",
+    "Public feed browser smoke pass"
   ],
   "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md"
 }
