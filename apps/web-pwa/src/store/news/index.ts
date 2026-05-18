@@ -3,6 +3,7 @@ import {
   readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory,
+  type VennClient,
 } from '@vh/gun-client';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 import { resolveClientFromAppStore } from '../clientResolver';
@@ -126,7 +127,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 async function readLatestStoriesBounded(
-  client: unknown,
+  client: VennClient,
   storyIds: readonly string[],
 ): Promise<Array<StoryBundle | null>> {
   return mapWithConcurrency(storyIds, NEWS_REFRESH_STORY_READ_CONCURRENCY, async (storyId) => {
