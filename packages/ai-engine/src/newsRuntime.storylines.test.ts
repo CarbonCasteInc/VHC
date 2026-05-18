@@ -154,7 +154,36 @@ describe('newsRuntime storylines', () => {
     handle.stop();
   });
 
-  it('removes stale storyline groups after a non-empty refresh shrinks the storyline set', async () => {
+  it('removes stale storyline groups after a non-empty refresh shrinks the storyline set when pruning is enabled', async () => {
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce(batch([STORY], [STORYLINE]))
+      .mockResolvedValueOnce(batch([STORY], []));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
+    const removeStorylineGroup = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      removeStorylineGroup,
+      pruneStaleBundles: true,
+      runOnStart: true,
+      pollIntervalMs: 10,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(removeStorylineGroup).toHaveBeenCalledTimes(1);
+    expect(removeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'storyline-1');
+
+    handle.stop();
+  });
+
+  it('preserves previously published storyline groups by default when a refresh returns fewer groups', async () => {
     orchestrateNewsPipelineMock
       .mockResolvedValueOnce(batch([STORY], [STORYLINE]))
       .mockResolvedValueOnce(batch([STORY], []));
@@ -176,8 +205,8 @@ describe('newsRuntime storylines', () => {
     await vi.advanceTimersByTimeAsync(10);
     await flushTasks();
 
-    expect(removeStorylineGroup).toHaveBeenCalledTimes(1);
-    expect(removeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'storyline-1');
+    expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
+    expect(removeStorylineGroup).not.toHaveBeenCalled();
 
     handle.stop();
   });
