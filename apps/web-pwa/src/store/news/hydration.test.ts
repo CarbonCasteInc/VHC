@@ -464,6 +464,82 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertStory).toHaveBeenCalledTimes(5);
   });
 
+  it('skips queued story reads when the authoritative latest-index timestamp changes before the read starts', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY = '1';
+    vi.resetModules();
+
+    const client = { id: 'client-stale-queued-read' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    let resolveActiveRead: ((value: StoryBundle) => void) | undefined;
+    gunMocks.readNewsStory.mockImplementation((_client: unknown, storyId: string) => {
+      if (storyId === 'story-active') {
+        return new Promise<StoryBundle>((resolve) => {
+          resolveActiveRead = resolve;
+        });
+      }
+      return Promise.resolve(story({ story_id: storyId }));
+    });
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(100, 'story-active');
+    latestChain.emit(200, 'story-stale');
+    latestChain.emit(201, 'story-stale');
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledTimes(1);
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-active');
+
+    resolveActiveRead?.(story({ story_id: 'story-active' }));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledTimes(1);
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-active' }));
+    expect(state.upsertStory).not.toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-stale' }));
+  });
+
+  it('clears failed live story reads so a later latest-index update can retry', async () => {
+    const client = { id: 'client-read-retry' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory
+      .mockRejectedValueOnce(new Error('read failed'))
+      .mockResolvedValueOnce(story({ story_id: 'story-retry' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(100, 'story-retry');
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(state.upsertStory).not.toHaveBeenCalled();
+
+    latestChain.emit(101, 'story-retry');
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledTimes(2);
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-retry' }));
+  });
+
   it('ignores direct root-story updates so the latest index stays authoritative', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();

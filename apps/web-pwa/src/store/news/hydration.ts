@@ -213,10 +213,7 @@ function drainStoryReadQueue(queueState: StoryReadQueueState): void {
     queueState.active < NEWS_HYDRATION_STORY_READ_CONCURRENCY &&
     queueState.queue.length > 0
   ) {
-    const job = queueState.queue.shift();
-    if (!job) {
-      return;
-    }
+    const job = queueState.queue.shift()!;
     queueState.active += 1;
     void runStoryReadJob(job).finally(() => {
       queueState.active -= 1;
