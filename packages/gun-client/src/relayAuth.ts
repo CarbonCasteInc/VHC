@@ -1,4 +1,4 @@
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 
 export interface RelayDevicePair {
   readonly pub: string;

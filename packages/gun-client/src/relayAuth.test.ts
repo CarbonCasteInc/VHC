@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import { createRelayDaemonAuthHeaders, createRelayUserSignatureHeaders } from './relayAuth';
 
 describe('relayAuth', () => {

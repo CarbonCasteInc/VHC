@@ -1,5 +1,5 @@
 import Gun from 'gun';
-import 'gun/sea';
+import 'gun/sea.js';
 import type { IGunInstance } from 'gun';
 import { waitForRemote, type ChainAck, type ChainLike, type ChainWithGet } from './chain';
 import { createStorageAdapter } from './storage/adapter';
@@ -227,7 +227,7 @@ export * from './relayAuth';
 export * from './relayRestFallback';
 export * from './systemWriter';
 export type { ChainWithGet } from './chain';
-export { default as SEA } from 'gun/sea';
+export { default as SEA } from 'gun/sea.js';
 export const __internal = {
   normalizePeers,
   resolveNodeGunFile,

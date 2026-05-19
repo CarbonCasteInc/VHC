@@ -121,12 +121,13 @@ describe('production-app-canary', () => {
 
     expect(parseProductionAppCanaryOptions({
       argv: ['--app-url', 'https://venn.example', '--public-wss-peers', '["wss://gun-a.example/gun","wss://gun-b.example/gun"]'],
-      env: {},
+      env: { VH_PUBLIC_FEED_SMOKE_FORCE_IPV4: 'true' },
       repoRoot: '/repo',
     })).toMatchObject({
       appUrl: 'https://venn.example/',
       gunPeerUrl: 'wss://gun-a.example/gun',
       publicWssPeers: ['wss://gun-a.example/gun', 'wss://gun-b.example/gun'],
+      forceIpv4: true,
     });
   });
 

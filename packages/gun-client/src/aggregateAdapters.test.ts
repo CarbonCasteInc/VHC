@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import {
   AGGREGATE_PUBLIC_PROTOCOL_VERSION,
   AGGREGATE_VOTER_AUDIENCE,

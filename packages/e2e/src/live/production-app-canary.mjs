@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import crypto from 'node:crypto';
+import { setDefaultResultOrder } from 'node:dns';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -80,6 +81,11 @@ function parsePositiveInteger(value, fallback) {
   if (value === undefined || value === null || value === '') return fallback;
   const parsed = Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function boolEnv(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return /^(1|true|yes|on)$/i.test(String(value).trim());
 }
 
 function parsePeerList(value) {
@@ -241,6 +247,10 @@ export function parseProductionAppCanaryOptions({
     maxMeshReportAgeMs: parsePositiveInteger(
       env.VH_PRODUCTION_APP_CANARY_MAX_MESH_REPORT_AGE_MS,
       DEFAULT_MESH_REPORT_MAX_AGE_MS,
+    ),
+    forceIpv4: boolEnv(
+      env.VH_PRODUCTION_APP_CANARY_FORCE_IPV4 || env.VH_PUBLIC_FEED_SMOKE_FORCE_IPV4,
+      false,
     ),
   };
 }
@@ -869,6 +879,9 @@ export async function runProductionAppCanary({
   const startedAtMs = now();
   const runId = makeId('production-app-canary', randomBytes);
   const options = parseProductionAppCanaryOptions({ argv, env, repoRoot });
+  if (options.forceIpv4) {
+    setDefaultResultOrder('ipv4first');
+  }
   const { meshReport, meshReadError } = readMeshReport(options.meshReportPath);
   const repo = {
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD'], { repoRoot }),
