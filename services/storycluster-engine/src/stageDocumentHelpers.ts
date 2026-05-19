@@ -1,7 +1,10 @@
 import {
   buildEventTuple,
+  deriveEventAnchorEntities,
   documentTypeWeight,
+  extractLocations,
   refineDocumentType,
+  triggerCategory,
 } from './contentSignals';
 import { coverageRoleForDocument } from './documentPolicy';
 import type { PipelineState } from './stageState';
@@ -37,12 +40,47 @@ export function mergedKeys(...groups: readonly string[][]): string[] {
   return [...new Set(groups.flat().filter(Boolean))].sort();
 }
 
+const ANCHORED_EVENT_TRIGGERS = new Map<string, ReadonlySet<string>>([
+  ['congo_uganda_ebola_outbreak', new Set(['outbreak', 'epidemic'])],
+  ['ebola_outbreak', new Set(['outbreak', 'epidemic'])],
+  ['mosque_shooting', new Set(['shoot', 'shooting', 'shot', 'killed', 'kills', 'dead'])],
+  ['san_diego_mosque_shooting', new Set(['shoot', 'shooting', 'shot', 'killed', 'kills', 'dead'])],
+]);
+
+function hasAnchoredTriggerSupport(anchors: readonly string[], trigger: string | null): boolean {
+  if (!trigger) {
+    return false;
+  }
+  return anchors.some((anchor) => ANCHORED_EVENT_TRIGGERS.get(anchor)?.has(trigger));
+}
+
+function chooseEventTrigger(
+  anchors: readonly string[],
+  providerTrigger: string | null | undefined,
+  heuristicTrigger: string | null,
+): string | null {
+  const provider = providerTrigger ?? null;
+  if (!heuristicTrigger || !hasAnchoredTriggerSupport(anchors, heuristicTrigger)) {
+    return provider ?? heuristicTrigger;
+  }
+  const providerCategory = triggerCategory(provider);
+  const heuristicCategory = triggerCategory(heuristicTrigger);
+  if (!provider || !providerCategory || providerCategory !== heuristicCategory) {
+    return heuristicTrigger;
+  }
+  return provider;
+}
+
 export function applyDocumentAnalysis(
   document: WorkingDocument,
   analysis: DocumentAnalysisWorkResult,
 ): WorkingDocument {
-  const entities = mergedKeys(document.entities, analysis.entities);
+  const localSignalText = `${document.translated_title}. ${document.summary ?? document.translated_text}`.trim();
+  const localEventAnchors = deriveEventAnchorEntities(localSignalText);
+  const localLocations = extractLocations(localSignalText);
+  const entities = mergedKeys(document.entities, analysis.entities, localEventAnchors);
   const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities);
+  const locations = mergedKeys(analysis.locations, localLocations);
   const docType = refineDocumentType(
     analysis.doc_type,
     document.translated_title,
@@ -72,7 +110,7 @@ export function applyDocumentAnalysis(
       doc_weight: documentTypeWeight(docType),
       entities,
       linked_entities: linkedEntities,
-      locations: analysis.locations,
+      locations,
       temporal_ms: analysis.temporal_ms,
       trigger: null,
       event_tuple: null,
@@ -82,8 +120,13 @@ export function applyDocumentAnalysis(
     document.translated_title,
     document.summary,
     linkedEntities,
-    analysis.locations,
+    locations,
     document.published_at,
+  );
+  const selectedTrigger = chooseEventTrigger(
+    localEventAnchors,
+    analysis.event_tuple?.trigger ?? analysis.trigger,
+    heuristicEventTuple.trigger,
   );
   const eventTuple = analysis.event_tuple
     ? {
@@ -92,12 +135,12 @@ export function applyDocumentAnalysis(
       who: analysis.event_tuple.who.length > 0 ? analysis.event_tuple.who : linkedEntities,
       where: analysis.event_tuple.where.length > 0
         ? analysis.event_tuple.where
-        : analysis.locations,
-      trigger: analysis.event_tuple.trigger ?? analysis.trigger ?? heuristicEventTuple.trigger,
+        : locations,
+      trigger: selectedTrigger,
       outcome: analysis.event_tuple.outcome ?? heuristicEventTuple.outcome,
     }
     : heuristicEventTuple;
-  const trigger = analysis.trigger ?? eventTuple?.trigger ?? heuristicEventTuple.trigger;
+  const trigger = selectedTrigger ?? analysis.trigger ?? eventTuple?.trigger ?? heuristicEventTuple.trigger;
 
   return {
     ...document,
@@ -110,7 +153,7 @@ export function applyDocumentAnalysis(
     doc_weight: documentTypeWeight(docType),
     entities,
     linked_entities: linkedEntities,
-    locations: analysis.locations,
+    locations,
     temporal_ms: analysis.temporal_ms,
     trigger,
     event_tuple: eventTuple,

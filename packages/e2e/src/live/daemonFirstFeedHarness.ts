@@ -102,6 +102,7 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
       window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
       window.__VH_TEST_SESSION = false;
       window.__VH_EXPOSE_NEWS_STORE__ = true;
+      window.__VH_DISABLE_FEED_BRIDGES__ = true;
       window.__VH_GUN_PEERS__ = [${JSON.stringify(GUN_PEER_URL)}];
     `,
   });
@@ -146,7 +147,7 @@ function resolveMinimumAuditableStories(): number {
     }
   }
 
-  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 1 : 0;
+  return 0;
 }
 
 function resolveNewsRuntimePruneStaleBundles(): string {
@@ -165,6 +166,15 @@ function resolveNewsDaemonGunRadisk(): string {
   }
 
   return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 'true' : 'false';
+}
+
+function resolveDaemonFeedBridgeEnabled(): string {
+  const configured = process.env.VH_DAEMON_FEED_BRIDGES_ENABLED?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return 'false';
 }
 
 function resolveStoryClusterRemoteTimeoutMs(): string {
@@ -246,6 +256,7 @@ export const daemonFirstFeedHarnessInternal = {
   resolveMinimumAuditableStories,
   resolveNewsRuntimePruneStaleBundles,
   resolveNewsDaemonGunRadisk,
+  resolveDaemonFeedBridgeEnabled,
   resolveStoryClusterRemoteTimeoutMs,
   resolveStoryClusterOpenAITimeoutMs,
   resolveFeedReadyTimeoutMs,
@@ -288,6 +299,9 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
     VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES: resolveNewsRuntimePruneStaleBundles(),
     VH_NEWS_DAEMON_GUN_RADISK: resolveNewsDaemonGunRadisk(),
+    VITE_NEWS_BRIDGE_ENABLED: resolveDaemonFeedBridgeEnabled(),
+    VITE_SYNTHESIS_BRIDGE_ENABLED: resolveDaemonFeedBridgeEnabled(),
+    VITE_LINKED_SOCIAL_ENABLED: resolveDaemonFeedBridgeEnabled(),
     VH_STORYCLUSTER_REMOTE_URL: storyclusterRemote.endpointUrl,
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: storyclusterRemote.healthUrl,
     VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: storyClusterRemoteTimeoutMs,
@@ -296,6 +310,8 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: storyclusterRemote.authScheme,
     VH_NEWS_DAEMON_HOLDER_ID:
       process.env.VH_NEWS_DAEMON_HOLDER_ID?.trim() || DEFAULT_NEWS_DAEMON_HOLDER_ID,
+    VH_NEWS_INGESTION_LEASE_SCOPE:
+      process.env.VH_NEWS_INGESTION_LEASE_SCOPE?.trim() || RUN_ID,
     VH_NEWS_SYSTEM_WRITER_ID: E2E_SYSTEM_WRITER_ID,
     VH_NEWS_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
     VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL: E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL,

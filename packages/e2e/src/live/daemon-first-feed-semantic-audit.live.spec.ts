@@ -16,9 +16,12 @@ import {
 } from './daemonFirstFeedHarness';
 import { resolveSemanticAuditOpenAIConfig } from './daemonFirstFeedSemanticAuditOpenAI';
 import {
+  assessDaemonFeedClusterCaptureEvidence,
+  assessDaemonFirstFeedSemanticAuditGate,
   captureDaemonFirstFeedSemanticAuditSnapshots,
   runDaemonFirstFeedSemanticAudit,
 } from './daemonFirstFeedSemanticAudit';
+import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
 
 function readPositiveIntEnv(name: string): number | undefined {
   const raw = process.env[name]?.trim();
@@ -35,9 +38,11 @@ function readPositiveIntEnv(name: string): number | undefined {
 function resolveSemanticAuditTestTimeoutMs(): number {
   const semanticAuditTimeoutMs =
     readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS') ?? 180_000;
+  const clusterCaptureTimeoutMs =
+    readPositiveIntEnv('VH_DAEMON_FEED_CLUSTER_CAPTURE_TIMEOUT_MS') ?? 180_000;
   return Math.max(
     12 * 60_000,
-    FEED_READY_TIMEOUT_MS + semanticAuditTimeoutMs + 180_000,
+    FEED_READY_TIMEOUT_MS + semanticAuditTimeoutMs + clusterCaptureTimeoutMs + 180_000,
   );
 }
 
@@ -47,6 +52,100 @@ function semanticAuditArtifactDir(): string | null {
     return null;
   }
   return path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
+}
+
+function resolveClusterCaptureTimeoutMs(): number {
+  return readPositiveIntEnv('VH_DAEMON_FEED_CLUSTER_CAPTURE_TIMEOUT_MS') ?? 180_000;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readClusterCaptureArtifact(): Promise<unknown | null> {
+  const artifactDir = semanticAuditArtifactDir();
+  if (!artifactDir) {
+    return null;
+  }
+  try {
+    return JSON.parse(await readFile(path.join(artifactDir, 'cluster-capture.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function waitForDaemonClusterCaptureEvidence(): Promise<{
+  readonly capture: unknown;
+  readonly gate: ReturnType<typeof assessDaemonFeedClusterCaptureEvidence>;
+}> {
+  const startedAt = Date.now();
+  const timeoutMs = resolveClusterCaptureTimeoutMs();
+  let lastGate: ReturnType<typeof assessDaemonFeedClusterCaptureEvidence> | null = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const capture = await readClusterCaptureArtifact();
+    if (capture) {
+      const gate = assessDaemonFeedClusterCaptureEvidence(capture);
+      lastGate = gate;
+      if (gate.pass) {
+        return { capture, gate };
+      }
+    }
+    await sleep(1_000);
+  }
+
+  throw new Error(`daemon-cluster-capture-timeout:${JSON.stringify(lastGate?.blockingReasons ?? ['daemon_cluster_capture_missing'])}`);
+}
+
+function isLiveSemanticAuditBundleLike(value: unknown): value is LiveSemanticAuditBundleLike {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+  return typeof record?.story_id === 'string'
+    && typeof record.topic_id === 'string'
+    && typeof record.headline === 'string'
+    && Array.isArray(record.sources);
+}
+
+function extractClusterCaptureBundles(capture: unknown): LiveSemanticAuditBundleLike[] {
+  const bundles: LiveSemanticAuditBundleLike[] = [];
+  const record = capture && typeof capture === 'object' && !Array.isArray(capture)
+    ? capture as Record<string, unknown>
+    : null;
+  const ticks = Array.isArray(record?.ticks) ? record.ticks : [];
+
+  for (const tick of ticks) {
+    const tickRecord = tick && typeof tick === 'object' && !Array.isArray(tick)
+      ? tick as Record<string, unknown>
+      : null;
+    const topicCaptures = Array.isArray(tickRecord?.topicCaptures) ? tickRecord.topicCaptures : [];
+    for (const topicCapture of topicCaptures) {
+      const topicRecord = topicCapture && typeof topicCapture === 'object' && !Array.isArray(topicCapture)
+        ? topicCapture as Record<string, unknown>
+        : null;
+      const result = topicRecord?.result && typeof topicRecord.result === 'object' && !Array.isArray(topicRecord.result)
+        ? topicRecord.result as Record<string, unknown>
+        : null;
+      const topicBundles = Array.isArray(result?.bundles) ? result.bundles : [];
+      for (const bundle of topicBundles) {
+        if (isLiveSemanticAuditBundleLike(bundle)) {
+          bundles.push(bundle);
+        }
+      }
+    }
+  }
+
+  return bundles;
+}
+
+function extractClusterCaptureStoryIds(capture: unknown): string[] {
+  const storyIds = new Set<string>();
+  for (const bundle of extractClusterCaptureBundles(capture)) {
+    if (bundle.story_id.trim()) {
+      storyIds.add(bundle.story_id);
+    }
+  }
+  return [...storyIds].sort();
 }
 
 async function attachSemanticAuditArtifacts(
@@ -119,6 +218,8 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
       });
       await waitForHeadlines(page);
       await captureDaemonFirstFeedSemanticAuditSnapshots(page);
+      const clusterCapture = await waitForDaemonClusterCaptureEvidence();
+      const clusterCaptureBundles = extractClusterCaptureBundles(clusterCapture.capture);
       const openAI = resolveSemanticAuditOpenAIConfig(process.env);
 
       const report = await runDaemonFirstFeedSemanticAudit(page, {
@@ -129,6 +230,8 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         openAIUsesFixtureStub: openAI.usesFixtureStub,
         sampleCount: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT'),
         timeoutMs: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS'),
+        allowedStoryIds: extractClusterCaptureStoryIds(clusterCapture.capture),
+        candidateBundles: clusterCaptureBundles,
       });
 
       await testInfo.attach('daemon-first-feed-semantic-audit', {
@@ -136,12 +239,23 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         contentType: 'application/json',
       });
       await attachSemanticAuditArtifacts(testInfo, { includeAuditReport: false });
+      if (stack) {
+        await attachRuntimeLogs(testInfo, browserLogs, stack);
+      }
 
-      expect(report.sampled_story_count).toBeGreaterThanOrEqual(1);
-      expect(report.overall.audited_pair_count).toBeGreaterThan(0);
-      expect(report.overall.sample_fill_rate).toBeGreaterThan(0);
-      expect(report.overall.related_topic_only_pair_count).toBe(0);
-      expect(report.overall.pass).toBe(true);
+      const gate = assessDaemonFirstFeedSemanticAuditGate(report);
+      const blockingReasons = [
+        ...gate.blockingReasons,
+        ...clusterCapture.gate.blockingReasons,
+      ];
+      expect(blockingReasons, JSON.stringify({
+        posture: gate.posture,
+        supply: report.supply,
+        overall: report.overall,
+        clusterCapture: clusterCapture.gate,
+      }, null, 2)).toEqual([]);
+      expect(gate.pass).toBe(true);
+      expect(clusterCapture.gate.pass).toBe(true);
     } catch (error) {
       if (page) {
         await captureDaemonFirstFeedSemanticAuditSnapshots(page).catch(() => {});

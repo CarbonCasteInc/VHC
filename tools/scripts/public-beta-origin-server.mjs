@@ -90,6 +90,33 @@ function isProxyRoute(pathname) {
     || pathname === '/article-text';
 }
 
+function isRelayProxyRoute(pathname) {
+  return pathname === '/vh/forum/thread'
+    || pathname === '/vh/forum/comment'
+    || pathname === '/vh/forum/comments'
+    || pathname === '/vh/topics/synthesis'
+    || pathname === '/vh/news/story'
+    || pathname === '/vh/aggregates/point'
+    || pathname === '/vh/aggregates/voter'
+    || pathname === '/vh/aggregates/point-snapshot';
+}
+
+function isRelayProxyMethodAllowed(pathname, method) {
+  if (pathname === '/vh/news/story' || pathname === '/vh/aggregates/point') {
+    return method === 'GET';
+  }
+  if (pathname === '/vh/topics/synthesis') {
+    return method === 'GET' || method === 'POST';
+  }
+  if (pathname === '/vh/forum/thread') {
+    return method === 'GET' || method === 'POST';
+  }
+  if (pathname === '/vh/forum/comments') {
+    return method === 'GET';
+  }
+  return method === 'POST';
+}
+
 function filteredProxyHeaders(headers) {
   const next = {};
   for (const [key, value] of Object.entries(headers)) {
@@ -158,6 +185,7 @@ export function createPublicBetaOriginHandler(options) {
   const staticDir = resolve(options.staticDir);
   const peerConfigPath = resolve(options.peerConfigPath);
   const analysisTarget = options.analysisTarget ? new URL(options.analysisTarget) : null;
+  const relayTarget = options.relayTarget ? new URL(options.relayTarget) : null;
   const csp = buildCsp(options.cspConnectSrc);
   const proxyTimeoutMs = options.proxyTimeoutMs || DEFAULT_PROXY_TIMEOUT_MS;
 
@@ -172,6 +200,7 @@ export function createPublicBetaOriginHandler(options) {
         static_dir_present: existsSync(staticDir),
         peer_config_present: existsSync(peerConfigPath),
         analysis_proxy_configured: Boolean(analysisTarget),
+        relay_proxy_configured: Boolean(relayTarget),
       });
       return;
     }
@@ -191,6 +220,19 @@ export function createPublicBetaOriginHandler(options) {
         return;
       }
       await proxyRequest(req, res, analysisTarget, proxyTimeoutMs);
+      return;
+    }
+
+    if (isRelayProxyRoute(pathname)) {
+      if (!isRelayProxyMethodAllowed(pathname, req.method || 'GET')) {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+      if (!relayTarget) {
+        sendJson(res, 503, { error: 'Relay proxy not configured' });
+        return;
+      }
+      await proxyRequest(req, res, relayTarget, proxyTimeoutMs);
       return;
     }
 
@@ -229,6 +271,7 @@ async function main() {
     staticDir,
     peerConfigPath,
     analysisTarget: process.env.VH_PUBLIC_ORIGIN_ANALYSIS_TARGET || '',
+    relayTarget: process.env.VH_PUBLIC_ORIGIN_RELAY_TARGET || '',
     cspConnectSrc: process.env.VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC || "'self'",
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
   });

@@ -3,6 +3,7 @@ import {
   readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory,
+  readNewsStoryWithRelayRestFallback,
   type VennClient,
 } from '@vh/gun-client';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
@@ -83,6 +84,18 @@ const NEWS_REFRESH_STORY_READ_CONCURRENCY = readNewsStoreNumber(
   1,
 );
 
+const NEWS_DIRECT_STORY_READ_ATTEMPTS = readNewsStoreNumber(
+  ['VITE_NEWS_DIRECT_STORY_READ_ATTEMPTS', 'VH_NEWS_DIRECT_STORY_READ_ATTEMPTS'],
+  4,
+  1,
+);
+
+const NEWS_DIRECT_STORY_READ_RETRY_MS = readNewsStoreNumber(
+  ['VITE_NEWS_DIRECT_STORY_READ_RETRY_MS', 'VH_NEWS_DIRECT_STORY_READ_RETRY_MS'],
+  500,
+  0,
+);
+
 async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -126,6 +139,13 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function readLatestStoriesBounded(
   client: VennClient,
   storyIds: readonly string[],
@@ -137,6 +157,33 @@ async function readLatestStoriesBounded(
       return null;
     }
   });
+}
+
+async function readConfiguredStoryById(
+  client: VennClient,
+  storyId: string,
+  options: { readonly attempts?: number } = {},
+): Promise<StoryBundle | null> {
+  const attempts = Math.max(1, Math.floor(options.attempts ?? NEWS_DIRECT_STORY_READ_ATTEMPTS));
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const story = parseStory(await readNewsStoryWithRelayRestFallback(client, storyId));
+      if (story) {
+        return isStoryFromConfiguredSources(story) ? story : null;
+      }
+    } catch {
+      // Cold public routes can briefly surface an old or partial record before
+      // the signed story body hydrates. Retries preserve fail-closed validation.
+    }
+    if (attempt < attempts - 1) {
+      await delay(NEWS_DIRECT_STORY_READ_RETRY_MS);
+    }
+  }
+  return null;
+}
+
+function hasIndexEntries(index: Record<string, number>): boolean {
+  return Object.keys(index).length > 0;
 }
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
@@ -373,8 +420,19 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       get().startHydration();
 
       try {
-        const story = parseStory(await readNewsStory(client, normalizedStoryId));
-        if (!story || !isStoryFromConfiguredSources(story)) {
+        let story = await readConfiguredStoryById(client, normalizedStoryId, { attempts: 1 });
+        if (!story) {
+          const latestIndex: Record<string, number> = await readNewsLatestIndex(client)
+            .then(sanitizeLatestIndex)
+            .catch(() => ({}));
+          const indexedTimestamp = latestIndex[normalizedStoryId];
+          if (typeof indexedTimestamp === 'number' && Number.isFinite(indexedTimestamp)) {
+            get().upsertLatestIndex(normalizedStoryId, indexedTimestamp);
+            story = await readConfiguredStoryById(client, normalizedStoryId);
+          }
+        }
+
+        if (!story) {
           return false;
         }
 
@@ -415,6 +473,20 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             const nextHotIndex = await readNewsHotIndex(client)
               .then(sanitizeHotIndex)
               .catch(() => ({}));
+
+            const currentState = get();
+            const shouldPreserveExistingFeed =
+              !hasIndexEntries(nextLatestIndex) &&
+              currentState.stories.length > 0 &&
+              hasIndexEntries(currentState.latestIndex);
+            if (shouldPreserveExistingFeed) {
+              return {
+                filteredStories: [...currentState.stories],
+                hotIndex: hasIndexEntries(nextHotIndex) ? nextHotIndex : { ...currentState.hotIndex },
+                latestIndex: { ...currentState.latestIndex },
+                storylines: Object.values(currentState.storylinesById),
+              };
+            }
 
             const storyIds = selectLatestStoryIds(nextLatestIndex, limit);
             const stories = await readLatestStoriesBounded(client, storyIds);

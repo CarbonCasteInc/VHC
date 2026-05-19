@@ -343,6 +343,32 @@ describe('newsRuntime', () => {
     expect(__internal.isPublicationEligibleBundle(legalSameEvent)).toBe(true);
   });
 
+  it('keeps title-supported same-incident bundles just below the normal two-source confidence floor', () => {
+    const sanDiegoShooting = storyBundle('san-diego-shooting', {
+      sourceCount: 2,
+      confidenceScore: 0.46,
+      titles: [
+        'Man charged with murder after San Diego mosque shooting leaves one dead',
+        'Former Navy man pleads not guilty in San Diego mosque shooting that killed one',
+      ],
+    });
+    const weakTopicOnly = storyBundle('weak-low-confidence-topic', {
+      sourceCount: 2,
+      confidenceScore: 0.46,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+
+    expect(__internal.hasTitlePairCanonicalSupport(
+      sanDiegoShooting.sources[0]!.title,
+      sanDiegoShooting.sources[1]!.title,
+    )).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(sanDiegoShooting)).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(weakTopicOnly)).toBe(false);
+  });
+
   it('keeps recent two-source bundles with shared normalized title anchors', () => {
     const diplomacyEpisode = storyBundle('diplomacy-episode', {
       sourceCount: 2,
@@ -369,6 +395,7 @@ describe('newsRuntime', () => {
     expect(__internal.normalizeTitleKeyword('')).toBeNull();
     expect(__internal.normalizeTitleKeyword('00042')).toBeNull();
     expect(__internal.normalizeTitleKeyword('Trump&#039;s')).toBe('trump');
+    expect(__internal.normalizeTitleKeyword('Ebola-related')).toBeNull();
     expect(__internal.titlesHaveMatchingAction(
       'Senator introduces a budget amendment',
       'Budget amendment draws sharp criticism',
@@ -384,6 +411,14 @@ describe('newsRuntime', () => {
     expect(__internal.hasTitlePairCanonicalSupport(
       'Man arrested in turtle trafficking case',
       'Suspect charged over turtle smuggling plot',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+      'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+    )).toBe(false);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'American who contracted Ebola in DR Congo evacuated for treatment',
+      'US evacuates American doctor who contracted Ebola in DR Congo for treatment',
     )).toBe(true);
     expect(__internal.bundleConfidenceScore({
       ...STORY_BUNDLE,

@@ -239,7 +239,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       writeLease(config.client, nextLease),
     );
     leaseGuard.accept(lease, nowMs);
-    logger.info('[vh:news-daemon] lease acquired', { holder_id: holderId, lease_holder_id: lease.holder_id, lease_token: lease.lease_token, expires_at: lease.expires_at });
+    logger.info('[vh:news-daemon] lease acquired', {
+      holder_id: holderId,
+      lease_holder_id: lease.holder_id,
+      lease_token_present: Boolean(lease.lease_token),
+      expires_at: lease.expires_at,
+    });
     if (!acceptedSynthesisReplayAttempted && config.replayAcceptedSynthesis) {
       acceptedSynthesisReplayAttempted = true;
       try {
@@ -389,6 +394,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     });
   }
   const holderId = readEnvVar('VH_NEWS_DAEMON_HOLDER_ID');
+  const leaseScope = firstNonEmpty(readEnvVar('VH_NEWS_INGESTION_LEASE_SCOPE'));
   const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
   const gunFile = gunRadisk
     ? firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_GUN_FILE')) ?? resolveNewsDaemonGunFile(holderId)
@@ -403,6 +409,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     requireSession: false,
     gunRadisk,
     gunFile,
+    ...(leaseScope ? { newsIngestionLeaseScope: leaseScope } : {}),
     ...systemWriterConfig,
   });
   const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console, {

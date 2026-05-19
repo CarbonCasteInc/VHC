@@ -59,7 +59,7 @@ export function reconcileClusterTopology(
   }
   for (const cluster of [...clusters.values()]) {
     const components = connectedComponents(cluster.source_documents, shouldSplitPair);
-    if (components.length <= 1 || components[1]!.length < 2) {
+    if (components.length <= 1) {
       continue;
     }
     const [primary, ...secondary] = components;

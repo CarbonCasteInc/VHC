@@ -756,6 +756,47 @@ describe('hydrateNewsStore', () => {
     );
   });
 
+  it('ignores protocol-shaped live latest and hot index records until signed reads validate them', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    latestChain.emit(
+      {
+        _protocolVersion: 'news-system-write-v1',
+        _writerKind: 'system',
+        _systemWriterId: 'stale-writer',
+        _systemSignature: 'signature',
+        latest_activity_at: 999,
+      },
+      'story-stale',
+    );
+    hotChain.emit(
+      {
+        signedWriteEnvelope: { payload: { hotness: 0.91 } },
+        hotness: 0.91,
+      },
+      'story-stale',
+    );
+
+    latestChain.emit(123, 'story-current');
+    hotChain.emit(0.42, 'story-current');
+
+    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('story-current', 123);
+    expect(state.upsertHotIndex).toHaveBeenCalledTimes(1);
+    expect(state.upsertHotIndex).toHaveBeenCalledWith('story-current', 0.42);
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalledWith(expect.anything(), 'story-stale');
+  });
+
   it('hydrates hot-index entries and ignores malformed scores', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();

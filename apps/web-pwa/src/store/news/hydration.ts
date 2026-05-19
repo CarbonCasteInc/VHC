@@ -29,6 +29,15 @@ const NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX = readBooleanEnv(
 const pendingStoryReadsByStore = new WeakMap<StoreApi<NewsState>, Set<string>>();
 const fetchedStoryTimestampsByStore = new WeakMap<StoreApi<NewsState>, Map<string, number>>();
 const storyReadQueuesByStore = new WeakMap<StoreApi<NewsState>, StoryReadQueueState>();
+const PROTOCOL_INDEX_FIELDS = [
+  '_protocolVersion',
+  '_writerKind',
+  '_systemWriterId',
+  '_systemSignature',
+  '_systemIssuedAt',
+  '_authorScheme',
+  'signedWriteEnvelope',
+];
 
 interface StoryReadJob {
   client: VennClient;
@@ -62,6 +71,14 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
 }
 /* c8 ignore stop */
 
+function carriesProtocolIndexFields(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return PROTOCOL_INDEX_FIELDS.some((field) => field in record);
+}
+
 /**
  * Latest-index migration parser.
  *
@@ -84,6 +101,10 @@ function parseLatestTimestamp(value: unknown): number | null {
   }
 
   if (value && typeof value === 'object') {
+    if (carriesProtocolIndexFields(value)) {
+      return null;
+    }
+
     const record = value as {
       cluster_window_end?: unknown;
       latest_activity_at?: unknown;
@@ -117,8 +138,13 @@ function parseHotnessScore(value: unknown): number | null {
     return null;
   }
 
-  if (value && typeof value === 'object' && 'hotness' in (value as Record<string, unknown>)) {
-    return parseHotnessScore((value as { hotness?: unknown }).hotness);
+  if (value && typeof value === 'object') {
+    if (carriesProtocolIndexFields(value)) {
+      return null;
+    }
+    if ('hotness' in (value as Record<string, unknown>)) {
+      return parseHotnessScore((value as { hotness?: unknown }).hotness);
+    }
   }
 
   return null;

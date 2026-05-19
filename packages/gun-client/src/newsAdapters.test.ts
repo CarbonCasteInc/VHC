@@ -35,6 +35,8 @@ import {
   readNewsLatestIndex,
   readNewsRemoval,
   readNewsStory,
+  readNewsStoryViaRelayRest,
+  readNewsStoryWithRelayRestFallback,
   removeNewsBundle,
   removeNewsHotIndexEntry,
   removeNewsLatestIndexEntry,
@@ -811,6 +813,45 @@ describe('newsAdapters', () => {
 
     const story = await readNewsStory(client, 'story-123');
     expect(story).toEqual(STORY);
+  });
+
+  it('reads direct-route stories through the same-origin relay REST fallback when Gun misses', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const record = {
+      __story_bundle_json: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      story_id: STORY.story_id,
+      topic_id: STORY.topic_id,
+      record,
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/?detail=news%3Astory-123',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsStoryWithRelayRestFallback(client, 'story-123')).resolves.toEqual(STORY);
+      await expect(readNewsStoryViaRelayRest(client, 'story-123')).resolves.toEqual(STORY);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('readNewsStory validates signed system story records through the shared system-writer validator', async () => {
@@ -1816,6 +1857,54 @@ describe('newsAdapters', () => {
     await chain.put(lease);
 
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/runtime/lease/ingester/', lease);
+  });
+
+  it('scopes ingestion lease reads and writes when configured', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/runtime/lease/ingester/semantic_soak_1', {
+      _: { '#': 'meta' },
+      holder_id: 'holder-1',
+      lease_token: 'token-1',
+      acquired_at: 10,
+      heartbeat_at: 15,
+      expires_at: 25,
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      newsIngestionLeaseScope: ' semantic soak 1 ',
+    });
+
+    await expect(readNewsIngestionLease(client)).resolves.toEqual({
+      holder_id: 'holder-1',
+      lease_token: 'token-1',
+      acquired_at: 10,
+      heartbeat_at: 15,
+      expires_at: 25,
+    });
+
+    await writeNewsIngestionLease(client, {
+      holder_id: 'holder-2',
+      lease_token: 'token-2',
+      acquired_at: 20,
+      heartbeat_at: 21,
+      expires_at: 40,
+    });
+
+    expect(guard.validateWrite).toHaveBeenLastCalledWith(
+      'vh/news/runtime/lease/ingester/semantic_soak_1/',
+      expect.objectContaining({ holder_id: 'holder-2' }),
+    );
+    expect(mesh.writes.at(-1)).toEqual({
+      path: 'news/runtime/lease/ingester/semantic_soak_1',
+      value: {
+        holder_id: 'holder-2',
+        lease_token: 'token-2',
+        acquired_at: 20,
+        heartbeat_at: 21,
+        expires_at: 40,
+      },
+    });
   });
 
   it('reads and writes ingestion lease records', async () => {

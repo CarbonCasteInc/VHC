@@ -205,6 +205,41 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
     await processHandle.stop();
   });
 
+  it('passes an explicit ingestion lease scope to the node mesh client', async () => {
+    const {
+      subject,
+      createNodeMeshClient,
+    } = await loadSubject({
+      env: {
+        VITE_NEWS_FEED_SOURCES: '[]',
+        VITE_NEWS_TOPIC_MAPPING: '{}',
+        VITE_NEWS_POLL_INTERVAL_MS: null,
+        VH_NEWS_RUNTIME_LEASE_TTL_MS: null,
+        VITE_NEWS_RUNTIME_LEASE_TTL_MS: '60000',
+        VH_GUN_PEERS: 'http://127.0.0.1:7777/gun',
+        VITE_GUN_PEERS: null,
+        VH_NEWS_DAEMON_HOLDER_ID: 'vh-news-daemon:test',
+        VH_NEWS_DAEMON_GUN_RADISK: 'false',
+        VH_NEWS_INGESTION_LEASE_SCOPE: 'semantic-soak-run-1',
+      },
+      gunPeers: ['http://127.0.0.1:7777/gun'],
+      pollIntervalMs: undefined,
+      leaseTtlMs: 60_000,
+    });
+
+    const processHandle = await subject.startNewsAggregatorDaemonFromEnv();
+
+    expect(createNodeMeshClient).toHaveBeenCalledWith({
+      peers: ['http://127.0.0.1:7777/gun'],
+      requireSession: false,
+      gunRadisk: false,
+      gunFile: false,
+      newsIngestionLeaseScope: 'semantic-soak-run-1',
+    });
+
+    await processHandle.stop();
+  });
+
   it('allows daemon radisk to be explicitly disabled for hermetic tests', async () => {
     const {
       subject,

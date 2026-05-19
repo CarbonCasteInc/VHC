@@ -17,6 +17,7 @@ import {
   type SystemWriterValidationFailure,
 } from './systemWriter';
 import type { VennClient } from './types';
+import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
@@ -78,6 +79,10 @@ const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
+);
+const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
+  10_000,
 );
 const ROOT_INDEX_SETTLE_MS = 150;
 
@@ -185,8 +190,27 @@ function hotIndexEntryPath(storyId: string): string {
   return `vh/news/index/hot/${storyId}/`;
 }
 
-function ingestionLeasePath(): string {
-  return 'vh/news/runtime/lease/ingester/';
+function sanitizeLeaseScope(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._:-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized.length > 0 ? normalized.slice(0, 160) : null;
+}
+
+function resolveNewsIngestionLeaseScope(client: VennClient): string | null {
+  return sanitizeLeaseScope(client.config.newsIngestionLeaseScope);
+}
+
+function ingestionLeasePath(client: VennClient): string {
+  const scope = resolveNewsIngestionLeaseScope(client);
+  return scope
+    ? `vh/news/runtime/lease/ingester/${scope}/`
+    : 'vh/news/runtime/lease/ingester/';
 }
 
 function removalPath(urlHash: string): string {
@@ -918,13 +942,15 @@ function parseNewsIngestionLease(value: unknown): NewsIngestionLease | null {
  * Chain for `vh/news/runtime/lease/ingester`.
  */
 export function getNewsIngestionLeaseChain(client: VennClient): ChainWithGet<NewsIngestionLease> {
+  const scope = resolveNewsIngestionLeaseScope(client);
   const chain = client.mesh
     .get('news')
     .get('runtime')
     .get('lease')
-    .get('ingester') as unknown as ChainWithGet<NewsIngestionLease>;
+    .get('ingester');
+  const scopedChain = (scope ? chain.get(scope) : chain) as unknown as ChainWithGet<NewsIngestionLease>;
 
-  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, ingestionLeasePath());
+  return createGuardedChain(scopedChain, client.hydrationBarrier, client.topologyGuard, ingestionLeasePath(client));
 }
 
 /**
@@ -983,6 +1009,104 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   } catch {
     return null;
   }
+}
+
+function timeoutAsNull<T>(work: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
+/**
+ * Read a StoryBundle through the relay's same-origin REST fallback.
+ *
+ * This keeps direct story routes usable when a browser's Gun live subscription
+ * lags behind the persisted public mesh.
+ */
+export async function readNewsStoryViaRelayRest(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  const normalizedStoryId = storyId.trim();
+  const peer = client.config.peers[0];
+  if (!normalizedStoryId || !peer || typeof fetch !== 'function') {
+    return null;
+  }
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/news/story?story_id=${encodeURIComponent(normalizedStoryId)}`,
+  );
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { record?: unknown };
+    const parsed = await parseStoryBundleFromStoredRecord(client, normalizedStoryId, payload.record);
+    if (!parsed) {
+      return null;
+    }
+    try {
+      await assertCanonicalNewsTopicId(parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readNewsStoryWithRelayRestFallback(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  const normalizedStoryId = storyId.trim();
+  if (!normalizedStoryId) {
+    return null;
+  }
+  const direct = await timeoutAsNull(
+    readNewsStory(client, normalizedStoryId),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
+  if (direct) {
+    return direct;
+  }
+  return timeoutAsNull(
+    readNewsStoryViaRelayRest(client, normalizedStoryId),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
 }
 
 /**

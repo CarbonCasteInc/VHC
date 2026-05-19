@@ -76,4 +76,46 @@ describe('bundleSynthesisRelay', () => {
       }),
     );
   });
+
+  it('omits temperature for GPT-5 and reasoning chat models', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'openai-key');
+
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"summary":"ok","frames":[{"frame":"f","reframe":"r"}],"source_count":1,"source_publishers":["A"],"verification_confidence":0.9}' } }],
+    }), { status: 200 }));
+
+    await postBundleSynthesisCompletion({
+      prompt: 'Generate bundle synthesis',
+      model: 'gpt-5-nano',
+      fetchFn,
+    });
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+
+    expect(body).toMatchObject({ model: 'gpt-5-nano', max_completion_tokens: 2400 });
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(body).not.toHaveProperty('temperature');
+  });
+
+  it('keeps temperature for legacy chat models', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'openai-key');
+
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"summary":"ok","frames":[{"frame":"f","reframe":"r"}],"source_count":1,"source_publishers":["A"],"verification_confidence":0.9}' } }],
+    }), { status: 200 }));
+
+    await postBundleSynthesisCompletion({
+      prompt: 'Generate bundle synthesis',
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      fetchFn,
+    });
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+
+    expect(body).toMatchObject({ model: 'gpt-4o-mini', max_tokens: 2400, temperature: 0.2 });
+    expect(body).not.toHaveProperty('max_completion_tokens');
+  });
 });

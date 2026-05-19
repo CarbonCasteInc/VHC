@@ -111,13 +111,16 @@ const allowedOrigins = csvEnv('VH_RELAY_ALLOWED_ORIGINS');
 const allowAnyOrigin = allowedOrigins.length === 0 || allowedOrigins.includes('*');
 const bodyLimitBytes = numberEnv('VH_RELAY_HTTP_BODY_LIMIT_BYTES', 1_000_000);
 const httpRateLimitPerMinute = numberEnv('VH_RELAY_HTTP_RATE_LIMIT_PER_MIN', 1_200);
-const wsBytesPerSecondLimit = numberEnv('VH_RELAY_WS_BYTES_PER_SEC', 1_000_000);
+const wsBytesPerSecondLimit = numberEnv('VH_RELAY_WS_BYTES_PER_SEC', 10_000_000);
 const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000);
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const aggregatePointReadCacheTtlMs = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_TTL_MS', 5_000);
+const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_MAX_ENTRIES', 1_000);
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
+const aggregatePointReadCache = new Map();
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -662,7 +665,7 @@ function buildThreadGraph(thread) {
   return graph;
 }
 
-function buildCommentGraph(comment) {
+function buildCommentGraph(comment, existingCommentIds = []) {
   const state = Gun.state();
   const threadSoul = `vh/forum/threads/${comment.threadId}`;
   const commentsSoul = `${threadSoul}/comments`;
@@ -682,7 +685,7 @@ function buildCommentGraph(comment) {
   const indexCurrent = {
     schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
     threadId: comment.threadId,
-    idsJson: JSON.stringify([comment.id]),
+    idsJson: JSON.stringify(Array.from(new Set([...existingCommentIds, comment.id]))),
     updatedAt,
   };
   const encodedComment = {
@@ -907,6 +910,482 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
     return scalar;
   }
   return null;
+}
+
+async function readTopicLatestSynthesisRecord(gun, topicId) {
+  const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
+  const direct = stripGunMetadata(await readOnce(latestChain));
+  const envelope = direct && typeof direct === 'object'
+    ? parseTopicSynthesisEnvelope(direct.__topic_synthesis_json)
+    : null;
+  if (envelope?.topic_id === topicId) {
+    return {
+      record: direct,
+      synthesis: envelope,
+    };
+  }
+  const scalar = parseTopicSynthesisEnvelope(await readOnce(latestChain.get('__topic_synthesis_json')));
+  if (scalar?.topic_id === topicId) {
+    return {
+      record: { __topic_synthesis_json: JSON.stringify(scalar) },
+      synthesis: scalar,
+    };
+  }
+  return null;
+}
+
+function parseStoryBundleEnvelope(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readNewsStoryRecord(gun, storyId) {
+  const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
+  const direct = stripGunMetadata(await readOnce(storyChain));
+  const envelope = direct && typeof direct === 'object'
+    ? parseStoryBundleEnvelope(direct.__story_bundle_json)
+    : null;
+  if (envelope?.story_id === storyId) {
+    return {
+      record: direct,
+      story: envelope,
+    };
+  }
+  const scalar = parseStoryBundleEnvelope(await readOnce(storyChain.get('__story_bundle_json')));
+  if (scalar?.story_id === storyId) {
+    return {
+      record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
+      story: scalar,
+    };
+  }
+  return null;
+}
+
+function parseAggregatePointSnapshot(value, context) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  const sourceWindow = stripGunMetadata(clean.source_window);
+  const snapshot = {
+    schema_version: clean.schema_version,
+    topic_id: clean.topic_id,
+    synthesis_id: clean.synthesis_id,
+    epoch: clean.epoch,
+    point_id: clean.point_id,
+    agree: clean.agree,
+    disagree: clean.disagree,
+    weight: clean.weight,
+    participants: clean.participants,
+    version: clean.version,
+    computed_at: clean.computed_at,
+    source_window: sourceWindow,
+  };
+  if (
+    snapshot.schema_version !== 'point-aggregate-snapshot-v1' ||
+    snapshot.topic_id !== context.topicId ||
+    snapshot.synthesis_id !== context.synthesisId ||
+    snapshot.epoch !== context.epoch ||
+    snapshot.point_id !== context.pointId ||
+    !Number.isFinite(snapshot.agree) ||
+    !Number.isFinite(snapshot.disagree) ||
+    !Number.isFinite(snapshot.weight) ||
+    !Number.isFinite(snapshot.participants) ||
+    !Number.isFinite(snapshot.version) ||
+    !Number.isFinite(snapshot.computed_at) ||
+    !snapshot.source_window ||
+    typeof snapshot.source_window !== 'object' ||
+    !Number.isFinite(snapshot.source_window.from_seq) ||
+    !Number.isFinite(snapshot.source_window.to_seq)
+  ) {
+    return null;
+  }
+  return {
+    ...snapshot,
+    agree: Math.max(0, Math.floor(snapshot.agree)),
+    disagree: Math.max(0, Math.floor(snapshot.disagree)),
+    participants: Math.max(0, Math.floor(snapshot.participants)),
+    version: Math.max(0, Math.floor(snapshot.version)),
+    computed_at: Math.max(0, Math.floor(snapshot.computed_at)),
+    source_window: {
+      from_seq: Math.max(0, Math.floor(snapshot.source_window.from_seq)),
+      to_seq: Math.max(0, Math.floor(snapshot.source_window.to_seq)),
+    },
+  };
+}
+
+function parseAggregateVoterNodeForRead(value, context, voterId) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  if (clean.point_id !== context.pointId) return null;
+  if (clean.topic_id !== undefined && clean.topic_id !== context.topicId) return null;
+  if (clean.synthesis_id !== undefined && clean.synthesis_id !== context.synthesisId) return null;
+  if (clean.epoch !== undefined && clean.epoch !== context.epoch) return null;
+  if (clean.voter_id !== undefined && clean.voter_id !== voterId) return null;
+  if (![ -1, 0, 1 ].includes(clean.agreement)) return null;
+  if (!Number.isFinite(clean.weight) || clean.weight < 0) return null;
+  if (typeof clean.updated_at !== 'string' || !clean.updated_at.trim()) return null;
+  return {
+    point_id: clean.point_id,
+    agreement: clean.agreement,
+    weight: clean.weight,
+    updated_at: clean.updated_at,
+  };
+}
+
+function parseAggregateVoterRow(voterId, voterPayload, context) {
+  if (typeof voterId !== 'string' || !voterId.trim() || voterId === '_') return null;
+  const voterRecord = stripGunMetadata(voterPayload);
+  if (!voterRecord || typeof voterRecord !== 'object') return null;
+  const node = parseAggregateVoterNodeForRead(voterRecord[context.pointId], context, voterId);
+  if (!node) return null;
+  const updatedAtMs = Date.parse(node.updated_at);
+  return {
+    voter_id: voterId,
+    node,
+    updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
+  };
+}
+
+function mergeAggregateRowsByVoter(rows) {
+  const byVoter = new Map();
+  for (const row of rows) {
+    if (!row) continue;
+    const existing = byVoter.get(row.voter_id);
+    if (!existing || row.updated_at_ms >= existing.updated_at_ms) {
+      byVoter.set(row.voter_id, row);
+    }
+  }
+  return [...byVoter.values()];
+}
+
+async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 750) {
+  return new Promise((resolve) => {
+    const mapped = votersChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const ids = new Set();
+    const callback = (_value, key) => {
+      if (typeof key === 'string' && key.trim() && key !== '_') {
+        ids.add(key);
+      }
+    };
+    mapped.once(callback);
+    setTimeout(() => {
+      try {
+        mapped.off?.(callback);
+      } catch {
+        // Best-effort Gun map cleanup.
+      }
+      resolve([...ids]);
+    }, timeoutMs);
+  });
+}
+
+async function readAggregateVoterRows(gun, context) {
+  const votersChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
+    .get('syntheses').get(context.synthesisId)
+    .get('epochs').get(String(context.epoch))
+    .get('voters');
+  const raw = stripGunMetadata(await readOnce(votersChain, 750));
+  const rootRows = [];
+  const voterIds = new Set();
+  if (raw && typeof raw === 'object') {
+    for (const [voterId, voterPayload] of Object.entries(raw)) {
+      if (voterId === '_') continue;
+      voterIds.add(voterId);
+      const row = parseAggregateVoterRow(voterId, voterPayload, context);
+      if (row) rootRows.push(row);
+    }
+  }
+  for (const voterId of await readAggregateVoterIdsViaMap(votersChain)) {
+    voterIds.add(voterId);
+  }
+  const leafRows = await Promise.all([...voterIds].map(async (voterId) => {
+    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 750);
+    const node = parseAggregateVoterNodeForRead(direct, context, voterId);
+    if (!node) return null;
+    const updatedAtMs = Date.parse(node.updated_at);
+    return {
+      voter_id: voterId,
+      node,
+      updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
+    };
+  }));
+  return mergeAggregateRowsByVoter([...rootRows, ...leafRows]);
+}
+
+async function readAggregatePointSnapshot(gun, context) {
+  const pointChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
+    .get('syntheses').get(context.synthesisId)
+    .get('epochs').get(String(context.epoch))
+    .get('points').get(context.pointId);
+  const direct = stripGunMetadata(await readOnce(pointChain, 750));
+  let snapshot = parseAggregatePointSnapshot(direct, context);
+  if (!snapshot && direct && typeof direct === 'object') {
+    const sourceWindow = stripGunMetadata(await readOnce(pointChain.get('source_window'), 750));
+    snapshot = parseAggregatePointSnapshot({ ...direct, source_window: sourceWindow }, context);
+  }
+  return snapshot;
+}
+
+function summarizeAggregateRows(pointId, rows) {
+  let agree = 0;
+  let disagree = 0;
+  let weight = 0;
+  let participants = 0;
+  for (const row of rows) {
+    if (row.node.agreement === 1) {
+      agree += 1;
+      weight += row.node.weight;
+      participants += 1;
+    } else if (row.node.agreement === -1) {
+      disagree += 1;
+      weight += row.node.weight;
+      participants += 1;
+    }
+  }
+  return { point_id: pointId, agree, disagree, weight, participants };
+}
+
+function snapshotAggregate(snapshot) {
+  return snapshot ? {
+    point_id: snapshot.point_id,
+    agree: snapshot.agree,
+    disagree: snapshot.disagree,
+    weight: snapshot.weight,
+    participants: snapshot.participants,
+  } : null;
+}
+
+function aggregatePointReadCacheKey(context) {
+  return [
+    context.topicId,
+    context.synthesisId,
+    String(context.epoch),
+    context.pointId,
+  ].join('\u001f');
+}
+
+function readAggregatePointCache(context) {
+  if (aggregatePointReadCacheTtlMs <= 0) return null;
+  const key = aggregatePointReadCacheKey(context);
+  const cached = aggregatePointReadCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.cached_at > aggregatePointReadCacheTtlMs) {
+    aggregatePointReadCache.delete(key);
+    return null;
+  }
+  return {
+    ...cached.result,
+    cached: true,
+  };
+}
+
+function writeAggregatePointCache(result) {
+  if (aggregatePointReadCacheTtlMs <= 0) return;
+  const key = aggregatePointReadCacheKey(result.context);
+  aggregatePointReadCache.set(key, {
+    cached_at: Date.now(),
+    result,
+  });
+  while (aggregatePointReadCache.size > aggregatePointReadCacheMaxEntries) {
+    const staleKey = aggregatePointReadCache.keys().next().value;
+    if (!staleKey) break;
+    aggregatePointReadCache.delete(staleKey);
+  }
+}
+
+function invalidateAggregatePointCache(params) {
+  try {
+    const context = {
+      topicId: normalizeRequiredString(params.topicId ?? params.topic_id, 'topic-id'),
+      synthesisId: normalizeRequiredString(params.synthesisId ?? params.synthesis_id, 'synthesis-id'),
+      epoch: normalizeFiniteNonNegativeInteger(params.epoch, 'epoch'),
+      pointId: normalizeRequiredString(params.pointId ?? params.point_id, 'point-id'),
+    };
+    aggregatePointReadCache.delete(aggregatePointReadCacheKey(context));
+  } catch {
+    // Ignore malformed invalidation hints; write validation reports those.
+  }
+}
+
+async function readAggregatePoint(gun, params) {
+  const context = {
+    topicId: normalizeRequiredString(params.topicId, 'topic-id'),
+    synthesisId: normalizeRequiredString(params.synthesisId, 'synthesis-id'),
+    epoch: normalizeFiniteNonNegativeInteger(params.epoch, 'epoch'),
+    pointId: normalizeRequiredString(params.pointId, 'point-id'),
+  };
+  const cached = readAggregatePointCache(context);
+  if (cached) return cached;
+
+  const [snapshot, rows] = await Promise.all([
+    readAggregatePointSnapshot(gun, context),
+    readAggregateVoterRows(gun, context),
+  ]);
+  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
+  const materialized = snapshotAggregate(snapshot);
+  const aggregate = !materialized ||
+    rowAggregate.participants > materialized.participants ||
+    rowAggregate.weight > materialized.weight
+    ? rowAggregate
+    : materialized;
+  const result = {
+    context,
+    aggregate,
+    snapshot,
+    row_count: rows.length,
+    cached: false,
+  };
+  writeAggregatePointCache(result);
+  return result;
+}
+
+function parseCommentEnvelope(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCommentIndex(value, threadId) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return [];
+  if (clean.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || clean.threadId !== threadId) return [];
+  if (typeof clean.idsJson !== 'string') return [];
+  try {
+    const parsed = JSON.parse(clean.idsJson);
+    return Array.isArray(parsed)
+      ? parsed.filter((id) => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseCommentIndexEntry(value, threadId, key) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  if (clean.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || clean.threadId !== threadId) return null;
+  if (typeof clean.commentId !== 'string' || clean.commentId.trim().length === 0) return null;
+  if (key && key !== clean.commentId) return null;
+  return clean.commentId;
+}
+
+async function readCommentIndexEntrySnapshot(entriesChain, threadId, timeoutMs = 1_000) {
+  return new Promise((resolve) => {
+    const mapped = entriesChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const ids = new Set();
+    mapped.once((data, key) => {
+      const commentId = parseCommentIndexEntry(data, threadId, key);
+      if (commentId) ids.add(commentId);
+    });
+    setTimeout(() => resolve([...ids]), timeoutMs);
+  });
+}
+
+async function readCommentIndexIds(indexRoot, threadId, timeoutMs = 250) {
+  const currentChain = indexRoot.get('current');
+  const current = await readOnce(currentChain, timeoutMs);
+  const scalar = await readOnce(currentChain.get('idsJson'), timeoutMs);
+  const entries = await readCommentIndexEntrySnapshot(indexRoot.get('entries'), threadId, timeoutMs);
+  return Array.from(new Set([
+    ...parseCommentIndex(current, threadId),
+    ...parseCommentIndex({
+      schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
+      threadId,
+      idsJson: scalar,
+    }, threadId),
+    ...entries,
+  ]));
+}
+
+async function readCommentBack(commentChain, threadId, commentId, timeoutMs = 250) {
+  const direct = stripGunMetadata(await readOnce(commentChain, timeoutMs));
+  if (direct && typeof direct === 'object' && direct.id === commentId && direct.threadId === threadId) {
+    return direct;
+  }
+  const envelope = parseCommentEnvelope(await readOnce(commentChain.get(COMMENT_JSON_FIELD), timeoutMs));
+  if (envelope?.id === commentId && envelope?.threadId === threadId) {
+    return envelope;
+  }
+  return null;
+}
+
+function normalizeCommentForRead(comment, threadId, commentId) {
+  if (!comment || typeof comment !== 'object') return null;
+  const envelope = parseCommentEnvelope(comment[COMMENT_JSON_FIELD]);
+  if (
+    envelope &&
+    envelope.id === commentId &&
+    envelope.threadId === threadId
+  ) {
+    return envelope;
+  }
+  return comment.id === commentId && comment.threadId === threadId ? comment : null;
+}
+
+async function pollCommentBack(gun, threadId, commentId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  const threadChain = gun.get('vh').get('forum').get('threads').get(threadId);
+  const commentChain = threadChain.get('comments').get(commentId);
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(threadId));
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readCommentBack(commentChain, threadId, commentId);
+    const indexIds = await readCommentIndexIds(indexRoot, threadId);
+    if (latest && indexIds.includes(commentId)) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
+async function readForumComments(gun, threadId, timeoutMs = 1_000) {
+  const cleanThreadId = typeof threadId === 'string' ? threadId.trim() : '';
+  if (!cleanThreadId) {
+    throw new Error('thread_id-required');
+  }
+  const threadChain = gun.get('vh').get('forum').get('threads').get(cleanThreadId);
+  const commentsChain = threadChain.get('comments');
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(cleanThreadId));
+  const commentIds = await readCommentIndexIds(indexRoot, cleanThreadId, timeoutMs);
+  const comments = [];
+  for (const commentId of commentIds) {
+    const comment = await readCommentBack(commentsChain.get(commentId), cleanThreadId, commentId, timeoutMs);
+    const normalized = normalizeCommentForRead(comment, cleanThreadId, commentId);
+    if (normalized) {
+      comments.push(normalized);
+    }
+  }
+  comments.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  return {
+    thread_id: cleanThreadId,
+    comment_ids: commentIds,
+    comments,
+  };
+}
+
+async function readForumThread(gun, threadId, timeoutMs = 1_000) {
+  const cleanThreadId = typeof threadId === 'string' ? threadId.trim() : '';
+  if (!cleanThreadId) {
+    throw new Error('thread_id-required');
+  }
+  const threadChain = gun.get('vh').get('forum').get('threads').get(cleanThreadId);
+  const thread = await readThreadBack(threadChain, cleanThreadId, timeoutMs);
+  return thread && thread.id === cleanThreadId ? thread : null;
 }
 
 function readTopicSynthesisFromGraph(gun, topicId, synthesisId) {
@@ -1215,8 +1694,14 @@ async function writeForumThread(gun, thread) {
 
 async function writeForumComment(gun, comment) {
   const clean = sanitizeComment(comment);
-  injectGraph(gun, buildCommentGraph(clean));
-  return clean;
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(clean.threadId));
+  const existingCommentIds = await readCommentIndexIds(indexRoot, clean.threadId);
+  injectGraph(gun, buildCommentGraph(clean, existingCommentIds));
+  const readback = await pollCommentBack(gun, clean.threadId, clean.id, 5_000);
+  if (!readback) {
+    throw new Error('comment-readback-failed');
+  }
+  return readback;
 }
 
 async function writeTopicSynthesis(gun, synthesis) {
@@ -1378,6 +1863,160 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/vh/topics/synthesis') {
+    const topicId = parsedUrl.searchParams.get('topic_id')?.trim();
+    if (!topicId) {
+      sendJson(res, 400, { ok: false, error: 'topic_id-required' });
+      return;
+    }
+    void readTopicLatestSynthesisRecord(gun, topicId)
+      .then((result) => {
+        if (!result) {
+          sendJson(res, 404, { ok: false, error: 'topic-synthesis-not-found', topic_id: topicId });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          topic_id: result.synthesis.topic_id,
+          synthesis_id: result.synthesis.synthesis_id,
+          synthesis: result.synthesis,
+          record: result.record,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          topic_id: topicId,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/story') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    if (!storyId) {
+      sendJson(res, 400, { ok: false, error: 'story_id-required' });
+      return;
+    }
+    void readNewsStoryRecord(gun, storyId)
+      .then((result) => {
+        if (!result) {
+          sendJson(res, 404, { ok: false, error: 'news-story-not-found', story_id: storyId });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          story_id: result.story.story_id,
+          topic_id: result.story.topic_id,
+          story: result.story,
+          record: result.record,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          story_id: storyId,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/aggregates/point') {
+    const topicId = parsedUrl.searchParams.get('topic_id')?.trim();
+    const synthesisId = parsedUrl.searchParams.get('synthesis_id')?.trim();
+    const epoch = Number(parsedUrl.searchParams.get('epoch'));
+    const pointId = parsedUrl.searchParams.get('point_id')?.trim();
+    void readAggregatePoint(gun, { topicId, synthesisId, epoch, pointId })
+      .then((result) => {
+        sendJson(res, 200, {
+          ok: true,
+          topic_id: result.context.topicId,
+          synthesis_id: result.context.synthesisId,
+          epoch: result.context.epoch,
+          point_id: result.context.pointId,
+          aggregate: result.aggregate,
+          snapshot: result.snapshot,
+          row_count: result.row_count,
+          cached: Boolean(result.cached),
+        });
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const status = message.includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: message,
+          topic_id: topicId ?? null,
+          synthesis_id: synthesisId ?? null,
+          epoch: Number.isFinite(epoch) ? epoch : null,
+          point_id: pointId ?? null,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/forum/comments') {
+    const threadId = parsedUrl.searchParams.get('thread_id')?.trim();
+    if (!threadId) {
+      sendJson(res, 400, { ok: false, error: 'thread_id-required' });
+      return;
+    }
+    void readForumComments(gun, threadId)
+      .then((result) => {
+        sendJson(res, 200, {
+          ok: true,
+          thread_id: result.thread_id,
+          comment_ids: result.comment_ids,
+          count: result.comments.length,
+          comments: result.comments,
+        });
+      })
+      .catch((error) => {
+        const status = String(error?.message || '').includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          thread_id: threadId,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/forum/thread') {
+    const threadId = parsedUrl.searchParams.get('thread_id')?.trim();
+    if (!threadId) {
+      sendJson(res, 400, { ok: false, error: 'thread_id-required' });
+      return;
+    }
+    void readForumThread(gun, threadId)
+      .then((thread) => {
+        if (!thread) {
+          sendJson(res, 404, {
+            ok: false,
+            error: 'thread-not-found',
+            thread_id: threadId,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          thread_id: threadId,
+          thread,
+        });
+      })
+      .catch((error) => {
+        const status = String(error?.message || '').includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          thread_id: threadId,
+        });
+      });
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/vh/forum/thread') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const thread = await writeForumThread(gun, body.thread);
@@ -1411,6 +2050,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && pathname === '/vh/aggregates/voter') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const write = await writeAggregateVoter(gun, body);
+      invalidateAggregatePointCache({
+        topicId: write.topic_id,
+        synthesisId: write.synthesis_id,
+        epoch: write.epoch,
+        pointId: write.node.point_id,
+      });
       return {
         topic_id: write.topic_id,
         synthesis_id: write.synthesis_id,
@@ -1425,6 +2070,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && pathname === '/vh/aggregates/point-snapshot') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const snapshot = await writeAggregatePointSnapshot(gun, body.snapshot);
+      invalidateAggregatePointCache({
+        topicId: snapshot.topic_id,
+        synthesisId: snapshot.synthesis_id,
+        epoch: snapshot.epoch,
+        pointId: snapshot.point_id,
+      });
       return {
         topic_id: snapshot.topic_id,
         synthesis_id: snapshot.synthesis_id,

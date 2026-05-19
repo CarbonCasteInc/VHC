@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { describe, expect, it, vi } from 'vitest';
 import { publicFeedBrowserSmokeInternal as internal } from './public-feed-browser-smoke.mjs';
 
 describe('public feed browser smoke helpers', () => {
@@ -24,6 +25,151 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.parseVoteCount('no count')).toBe(0);
   });
 
+  it('parses durable synthesis ids from public point ids', () => {
+    expect(internal.parseSynthesisIdFromPointId(
+      'synth-point:news-bundle:story-f66103718bda:bacd11de013320c1:0:frame',
+    )).toBe('news-bundle:story-f66103718bda:bacd11de013320c1');
+    expect(internal.parseSynthesisIdFromPointId(
+      'synth-point:news-bundle:story-f66103718bda:bacd11de013320c1:1:reframe',
+    )).toBe('news-bundle:story-f66103718bda:bacd11de013320c1');
+    expect(internal.parseSynthesisIdFromPointId('story-f66103718bda')).toBeNull();
+  });
+
+  it('uses the direct public aggregate baseline for durable vote proof', () => {
+    expect(internal.minimumPublicAgreeAfterVote({ agree: 2 }, 7)).toBe(3);
+    expect(internal.minimumPublicAgreeAfterVote(null, 7)).toBe(8);
+  });
+
+  it('accepts durable public voter-row readback when aggregate snapshots lag', () => {
+    const beforeRows = [
+      { voter_id: 'voter-a', node: { agreement: 1 } },
+      { voter_id: 'voter-b', node: { agreement: -1 } },
+    ];
+    const afterRows = [
+      ...beforeRows,
+      { voter_id: 'voter-c', node: { agreement: 1 } },
+    ];
+
+    expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, afterRows)).toEqual({
+      beforeTotalRows: 2,
+      afterTotalRows: 3,
+      beforeAgreeRows: 1,
+      afterAgreeRows: 2,
+      newAgreeRows: 1,
+      newAgreeVoterIds: ['voter-c'],
+    });
+    expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, beforeRows)).toBeNull();
+  });
+
+  it('treats a changed existing public voter row as a new agree readback', () => {
+    const beforeRows = [
+      { voter_id: 'voter-a', node: { agreement: -1 } },
+    ];
+    const afterRows = [
+      { voter_id: 'voter-a', node: { agreement: 1 } },
+    ];
+
+    expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, afterRows)).toMatchObject({
+      beforeAgreeRows: 0,
+      afterAgreeRows: 1,
+      newAgreeRows: 1,
+      newAgreeVoterIds: ['voter-a'],
+    });
+  });
+
+  it('reopens the target story by story id before falling back to topic id', () => {
+    const rows = [
+      { storyId: 'story-old', topicId: 'topic-1' },
+      { storyId: 'story-target', topicId: 'topic-2' },
+      { storyId: 'story-other', topicId: 'topic-target' },
+    ];
+
+    expect(internal.findVisibleStoryRow(rows, { storyId: 'story-target', topicId: 'topic-target' }))
+      .toEqual({ storyId: 'story-target', topicId: 'topic-2' });
+    expect(internal.findVisibleStoryRow(rows, { storyId: 'story-missing', topicId: 'topic-target' }))
+      .toEqual({ storyId: 'story-other', topicId: 'topic-target' });
+    expect(internal.findVisibleStoryRow(rows, { storyId: 'story-missing', topicId: 'topic-missing' }))
+      .toBeNull();
+  });
+
+  it('does not reject accepted synthesis summaries that contain words like spending', () => {
+    expect(internal.isAcceptedSynthesisText(
+      'The primary race set a spending record with multiple sourced frames.',
+      2,
+    )).toBe(true);
+    expect(internal.isAcceptedSynthesisText('Synthesis pending for this story.', 2)).toBe(false);
+    expect(internal.isAcceptedSynthesisText('Accepted summary without controls.', 0)).toBe(false);
+  });
+
+  it('keeps reload and second-browser synthesis waits on the page-scoped signature', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain('await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);');
+    expect(source).not.toContain('await waitForSynthesis(card, row, analysisTimeoutMs);');
+  });
+
+  it('keeps accepted-synthesis target discovery wider than the visible singleton headline window', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain('const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;');
+    expect(source).toContain('topStories: stories,');
+    expect(source).not.toContain('topStories: stories.slice(0, 8)');
+  });
+
+  it('uses a release-shaped timeout for second-browser public vote convergence', async () => {
+    expect(internal.DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS).toBe(120_000);
+  });
+
+  it('prefers visible vote controls when duplicate canonical point controls exist', async () => {
+    const calls = [];
+    const makeCandidate = (label, visible) => ({
+      label,
+      isVisible: vi.fn(async () => visible),
+    });
+    const hidden = makeCandidate('hidden', false);
+    const visible = makeCandidate('visible', true);
+    const locator = {
+      count: vi.fn(async () => 2),
+      nth: vi.fn((index) => {
+        calls.push(index);
+        return index === 0 ? hidden : visible;
+      }),
+      first: vi.fn(() => hidden),
+    };
+
+    await expect(internal.firstVisibleLocator(locator)).resolves.toBe(visible);
+    expect(calls).toEqual([0, 1]);
+  });
+
+  it('recovers second-browser target routing through the feed before using page scope', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain("progress('second-browser-detail-route-retry-feed'");
+    expect(source).toContain("progress('second-browser-feed-route-visible'");
+    expect(source).toContain("progress('second-browser-detail-scope-fallback'");
+  });
+
+  it('re-resolves second-browser vote controls from page scope while aggregates hydrate', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain('const agree = await findAgreeButtonByCanonical(page, voteProof.canonicalPointId, voteProof.pointId);');
+    expect(source).toContain('await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});');
+    expect(source).toContain("progress('second-browser-vote-public-ready-reopen'");
+    expect(source).toContain("progress('second-browser-diagnostics'");
+    expect(source).not.toContain("const agree = await findAgreeButtonByCanonical(card, voteProof.canonicalPointId, voteProof.pointId);\n    const voteCount = await waitFor('second-browser-vote-visibility'");
+  });
+
+  it('keeps post-vote reload proof valid on detail-route page scope', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain("progress('post-vote-detail-route-scope-visible'");
+    expect(source).toContain("progress('reload-detail-scope-visible'");
+    expect(source).toContain('const pageScopedSynthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)');
+    expect(source).toContain('let synthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)');
+    expect(source).toContain('return { row, card: page };');
+    expect(source).toContain('let card = page;');
+  });
+
   it('falls back for invalid positive integers', () => {
     expect(internal.parsePositiveInt('42', 7)).toBe(42);
     expect(internal.parsePositiveInt('0', 7)).toBe(7);
@@ -32,6 +178,31 @@ describe('public feed browser smoke helpers', () => {
 
   it('resolves an explicit artifact directory', () => {
     expect(internal.resolveArtifactDir({ VH_PUBLIC_FEED_SMOKE_ARTIFACT_DIR: '/tmp/proof' }, '/repo')).toBe('/tmp/proof');
+  });
+
+  it('builds Chromium IPv4 host resolver rules for public smoke evidence', async () => {
+    const hosts = internal.publicSmokeBrowserHostnames({
+      baseUrl: 'https://venn.carboncaste.io/',
+      gunPeerUrl: 'wss://gun-a.carboncaste.io/gun',
+      env: {
+        VH_PUBLIC_FEED_SMOKE_IPV4_HOSTS: 'gun-b.carboncaste.io,gun-c.carboncaste.io',
+        VH_MESH_PUBLIC_WSS_PEERS: '["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun"]',
+      },
+    });
+
+    expect(hosts).toEqual([
+      'gun-a.carboncaste.io',
+      'gun-b.carboncaste.io',
+      'gun-c.carboncaste.io',
+      'venn.carboncaste.io',
+    ]);
+
+    await expect(internal.buildChromiumHostResolverRules(hosts, async (host) => ({
+      address: host === 'venn.carboncaste.io' ? '104.21.86.178' : '172.67.223.77',
+      family: 4,
+    }))).resolves.toBe(
+      '--host-resolver-rules=MAP gun-a.carboncaste.io 172.67.223.77,MAP gun-b.carboncaste.io 172.67.223.77,MAP gun-c.carboncaste.io 172.67.223.77,MAP venn.carboncaste.io 104.21.86.178',
+    );
   });
 
   it('uses viewport screenshots to keep live feed evidence bounded', () => {
@@ -114,6 +285,22 @@ describe('public feed browser smoke helpers', () => {
       },
     };
     await expect(internal.postedCommentVisible(composerOnlyPage, 'Launch smoke reply')).resolves.toBe(false);
+  });
+
+  it('bounds persisted comment DOM queries when the page stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      const stalledPage = {
+        evaluate: () => new Promise(() => {}),
+      };
+      const visible = internal.postedCommentVisible(stalledPage, 'Launch smoke reply');
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(visible).resolves.toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reads string constants from the system-writer fixture source', () => {

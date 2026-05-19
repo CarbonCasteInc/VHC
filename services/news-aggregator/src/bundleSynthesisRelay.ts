@@ -1,4 +1,4 @@
-import { resolveTokenParam } from './analysisRelay';
+import { resolveTokenParam, supportsChatTemperatureParam } from './analysisRelay';
 
 export const DEFAULT_BUNDLE_SYNTHESIS_MODEL = 'gpt-4o-mini';
 export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 2400;
@@ -98,25 +98,27 @@ export async function postBundleSynthesisCompletion(
   const tokenParam = resolveTokenParam(model);
 
   try {
+    const requestBody = {
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You synthesize verified news story bundles. Return only strict JSON.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      [tokenParam]: maxTokens,
+      ...(supportsChatTemperatureParam(model) ? { temperature } : {}),
+      response_format: { type: 'json_object' },
+    };
+
     const response = await fetchFn(upstreamUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: 'You synthesize verified news story bundles. Return only strict JSON.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        [tokenParam]: maxTokens,
-        temperature,
-        response_format: { type: 'json_object' },
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 

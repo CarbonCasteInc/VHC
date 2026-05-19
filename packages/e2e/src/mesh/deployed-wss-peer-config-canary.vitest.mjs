@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildChromiumHostResolverRules,
   parsePublicProofConfig,
+  publicProofBrowserHostnames,
   validatePublicPeerConfigEnvelope,
 } from './deployed-wss-peer-config-canary.mjs';
 
@@ -78,6 +80,31 @@ describe('public WSS proof input validation', () => {
       metrics: 'https://relay-a.mesh.example.com/metrics',
       source: 'derived_from_wss_peer',
     });
+  });
+
+  it('can build explicit IPv4 resolver rules for public proof browser launches', async () => {
+    const parsed = parsePublicProofConfig(validEnv({
+      VH_MESH_PUBLIC_FORCE_IPV4: 'true',
+      VH_MESH_PUBLIC_IPV4_HOSTS: 'cdn.mesh.example.com',
+    }));
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.config.forceIpv4).toBe(true);
+    expect(publicProofBrowserHostnames(parsed.config)).toEqual([
+      'app.mesh.example.com',
+      'cdn.mesh.example.com',
+      'config.mesh.example.com',
+      'relay-a.mesh.example.com',
+      'relay-b.mesh.example.com',
+      'relay-c.mesh.example.com',
+    ]);
+
+    const rules = await buildChromiumHostResolverRules(
+      publicProofBrowserHostnames(parsed.config),
+      async (hostname) => ({ address: `203.0.113.${hostname.charCodeAt(0) % 10}` }),
+    );
+    expect(rules).toContain('--host-resolver-rules=MAP app.mesh.example.com 203.0.113.7');
+    expect(rules).toContain('MAP relay-c.mesh.example.com 203.0.113.4');
   });
 
   it('rejects localhost, private-network, insecure, and broad CSP proof inputs', () => {

@@ -1,0 +1,121 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createClient } from './index';
+import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
+import { readTopicLatestSynthesisViaRelayRest } from './synthesisAdapters';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('resolveRelayRestEndpointFromPeer', () => {
+  it('normalizes websocket peers to relay HTTPS endpoints outside the browser', () => {
+    expect(resolveRelayRestEndpointFromPeer('wss://relay.example.test/gun', '/vh/forum/comment'))
+      .toBe('https://relay.example.test/vh/forum/comment');
+    expect(resolveRelayRestEndpointFromPeer('ws://127.0.0.1:7777/gun', '/vh/aggregates/voter'))
+      .toBe('http://127.0.0.1:7777/vh/aggregates/voter');
+  });
+
+  it('uses the app origin for HTTPS browser fallbacks to preserve strict CSP', () => {
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/stories/story-1',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    expect(resolveRelayRestEndpointFromPeer('wss://gun-a.carboncaste.io/gun', '/vh/forum/comment'))
+      .toBe('https://venn.carboncaste.io/vh/forum/comment');
+  });
+
+  it('keeps same-origin and non-HTTPS browser fallbacks on the relay origin', () => {
+    vi.stubGlobal('location', {
+      href: 'http://127.0.0.1:5173/',
+      origin: 'http://127.0.0.1:5173',
+      protocol: 'http:',
+    });
+
+    expect(resolveRelayRestEndpointFromPeer('http://127.0.0.1:7777/gun', '/vh/forum/thread'))
+      .toBe('http://127.0.0.1:7777/vh/forum/thread');
+  });
+});
+
+describe('readTopicLatestSynthesisViaRelayRest', () => {
+  it('uses same-origin relay fallback and validates the returned latest record', async () => {
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: 'topic-1',
+      epoch: 2,
+      synthesis_id: 'synth-2',
+      inputs: { story_bundle_ids: ['story-1'] },
+      quorum: {
+        required: 1,
+        received: 1,
+        reached_at: 100,
+        timed_out: false,
+        selection_rule: 'deterministic',
+      },
+      facts_summary: 'Accepted synthesis summary.',
+      frames: [
+        {
+          frame_point_id: 'frame-1',
+          frame: 'Frame',
+          reframe_point_id: 'reframe-1',
+          reframe: 'Reframe',
+        },
+      ],
+      warnings: [],
+      divergence_metrics: {
+        disagreement_score: 0,
+        source_dispersion: 0,
+        candidate_count: 1,
+      },
+      provenance: {
+        candidate_ids: ['candidate-1'],
+        provider_mix: [{ provider_id: 'provider-1', count: 1 }],
+      },
+      created_at: 200,
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record: {
+        __topic_synthesis_json: JSON.stringify(synthesis),
+        schemaVersion: synthesis.schemaVersion,
+        topic_id: synthesis.topic_id,
+        epoch: synthesis.epoch,
+        synthesis_id: synthesis.synthesis_id,
+        created_at: synthesis.created_at,
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = createClient({
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      requireSession: false,
+      gunLocalStorage: false,
+      gunRadisk: false,
+    });
+    client.markSessionReady();
+
+    try {
+      await expect(readTopicLatestSynthesisViaRelayRest(client, 'topic-1'))
+        .resolves.toMatchObject({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-2',
+          facts_summary: 'Accepted synthesis summary.',
+        });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/topics/synthesis?topic_id=topic-1',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      await client.shutdown();
+    }
+  });
+});

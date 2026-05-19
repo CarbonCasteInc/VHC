@@ -1,7 +1,7 @@
 import type { CandidateMatch, StoredClusterRecord, StoredSourceDocument, WorkingDocument } from './stageState';
 import { cosineSimilarity, jaccardSimilarity, overlapRatio, tokenizeWords } from './textSignals';
 import { triggerCategory } from './contentSignals';
-import { LOW_SIGNAL_CANONICAL_ENTITIES } from './storyclusterEntitySignals.js';
+import { isLowSignalCanonicalEntity } from './storyclusterEntitySignals.js';
 import {
   canonicalEntities,
   clusterEntities,
@@ -28,6 +28,67 @@ const REVIEW_THRESHOLD = 0.52;
 const MERGE_THRESHOLD = 0.84;
 const SPLIT_SIMILARITY_THRESHOLD = 0.57;
 const HYBRID_SCORING_VERSION = 'storycluster-hybrid-v2';
+const GENERIC_EVENT_FAMILY_ANCHORS = new Set([
+  'ebola_outbreak',
+  'congo_uganda_ebola_outbreak',
+  'dr_congo',
+  'central_africa',
+  'mosque_shooting',
+]);
+const EXPLICIT_SHORT_EVENT_CONTINUITY_ANCHORS = new Set([
+  'capital_blackout',
+  'fuel_spike',
+  'luxury_fraud_verdict',
+  'port_attack',
+  'tsa_staffing_shortage',
+]);
+const PUBLIC_HEALTH_OUTBREAK_CONTEXT_ANCHORS = new Set([
+  'ebola_outbreak',
+  'congo_uganda_ebola_outbreak',
+  'dr_congo',
+  'central_africa',
+]);
+const PUBLIC_HEALTH_OUTBREAK_CONTEXT_ENTITY_VALUES = new Set([
+  ...PUBLIC_HEALTH_OUTBREAK_CONTEXT_ANCHORS,
+  'africa',
+  'congo',
+  'ebola',
+  'epidemic',
+  'outbreak',
+  'south_sudan',
+  'uganda',
+]);
+const PUBLIC_HEALTH_OUTBREAK_CONTEXT_LOCATIONS = new Set([
+  'africa',
+  'central_africa',
+  'congo',
+  'democratic_republic_of_congo',
+  'dr_congo',
+  'south_sudan',
+  'uganda',
+]);
+const LEGAL_FORUM_CONTEXT_ANCHORS = new Set([
+  'court',
+  'lower_court',
+  'scotus',
+  'supreme',
+  'supreme_court',
+]);
+const LEGAL_FORUM_CONTEXT_ENTITY_VALUES = new Set([
+  ...LEGAL_FORUM_CONTEXT_ANCHORS,
+  'case',
+  'decision',
+  'legal',
+  'justice',
+  'justices',
+  'term',
+]);
+const LEGAL_ISSUE_TITLE_ANCHORS = new Set([
+  'native_american_voting_rights',
+  'sex_discrimination',
+  'sex_discrimination_case',
+  'voting_rights',
+]);
 const NAMED_EPISODE_ANCHOR_TOKENS = new Set([
   'market',
   'blackout',
@@ -46,6 +107,9 @@ const NAMED_EPISODE_ANCHOR_TOKENS = new Set([
   'crash',
   'flood',
   'wildfire',
+  'shooting',
+  'outbreak',
+  'epidemic',
   'collapse',
   'detention',
   'deportation',
@@ -67,6 +131,7 @@ const NAMED_EPISODE_ANCHOR_TOKENS = new Set([
   'voter',
   'mail',
   'pay',
+  'tanker',
 ]);
 
 function timeScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
@@ -103,23 +168,196 @@ function canonicalEntityScore(document: WorkingDocument, cluster: StoredClusterR
 
 function specificCanonicalEntityScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   return overlapRatio(
-    canonicalEntities(document.linked_entities).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
-    canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+    canonicalEntities(document.linked_entities).filter((value) => !isLowSignalCanonicalEntity(value)),
+    canonicalEntities(clusterEntities(cluster)).filter((value) => !isLowSignalCanonicalEntity(value)),
   );
 }
 
-function sharedSpecificCanonicalEntities(document: WorkingDocument, cluster: StoredClusterRecord): string[] {
-  const clusterSpecific = new Set(
-    canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+function uniqueSpecificCanonicalEntities(values: readonly string[]): string[] {
+  return canonicalEntities(values)
+    .filter((value) => !isLowSignalCanonicalEntity(value))
+    .filter((value, index, allValues) => allValues.indexOf(value) === index);
+}
+
+function documentSpecificCanonicalEntities(document: WorkingDocument): string[] {
+  return uniqueSpecificCanonicalEntities(document.linked_entities);
+}
+
+function clusterSpecificCanonicalEntities(cluster: StoredClusterRecord): string[] {
+  return uniqueSpecificCanonicalEntities(clusterEntities(cluster));
+}
+
+function sharedSpecificEntities(left: readonly string[], right: readonly string[]): string[] {
+  const rightSpecific = new Set(right);
+  return left.filter((value) => rightSpecific.has(value));
+}
+
+function isPublicHealthOutbreakContextAnchor(entity: string): boolean {
+  return PUBLIC_HEALTH_OUTBREAK_CONTEXT_ANCHORS.has(entity);
+}
+
+function isPublicHealthOutbreakContextLocation(location: string): boolean {
+  return PUBLIC_HEALTH_OUTBREAK_CONTEXT_LOCATIONS.has(location);
+}
+
+function filterPublicHealthOutbreakContextEntities(values: readonly string[]): string[] {
+  return values.filter((value) => !PUBLIC_HEALTH_OUTBREAK_CONTEXT_ENTITY_VALUES.has(value));
+}
+
+function filterPublicHealthOutbreakContextLocations(values: readonly string[]): string[] {
+  return values.filter((value) => !isPublicHealthOutbreakContextLocation(value));
+}
+
+function isLegalForumContextAnchor(entity: string): boolean {
+  return LEGAL_FORUM_CONTEXT_ANCHORS.has(entity);
+}
+
+function filterLegalForumContextEntities(values: readonly string[]): string[] {
+  return values.filter((value) => !LEGAL_FORUM_CONTEXT_ENTITY_VALUES.has(value));
+}
+
+function legalIssueTitleAnchors(text: string): string[] {
+  const normalized = text.toLowerCase().replace(/&[#a-z0-9]+;/g, ' ');
+  const anchors = new Set<string>();
+  if (/\bvoting\s+rights?\b|\bvoting\s+rights?\s+act\b/.test(normalized)) {
+    anchors.add('voting_rights');
+  }
+  if (/\bnative\s+american\b/.test(normalized) && anchors.has('voting_rights')) {
+    anchors.add('native_american_voting_rights');
+  }
+  if (/\bsex\s+discrimination\b/.test(normalized)) {
+    anchors.add('sex_discrimination');
+    anchors.add('sex_discrimination_case');
+  }
+  return [...anchors].sort();
+}
+
+function hasLegalIssueTitleOverlap(leftTitle: string, rightTitle: string): boolean {
+  const leftAnchors = legalIssueTitleAnchors(leftTitle);
+  const rightAnchors = legalIssueTitleAnchors(rightTitle);
+  if (leftAnchors.length === 0 || rightAnchors.length === 0) {
+    return false;
+  }
+  const right = new Set(rightAnchors);
+  return leftAnchors.some((anchor) => right.has(anchor));
+}
+
+function hasLegalIssueTitleConflict(leftTitle: string, rightTitle: string): boolean {
+  const leftAnchors = legalIssueTitleAnchors(leftTitle);
+  const rightAnchors = legalIssueTitleAnchors(rightTitle);
+  if (leftAnchors.length === 0 || rightAnchors.length === 0) {
+    return false;
+  }
+  const right = new Set(rightAnchors);
+  return leftAnchors.every((anchor) => !right.has(anchor));
+}
+
+function hasPublicHealthOutbreakContextOnlyConflict(
+  leftSpecificEntities: readonly string[],
+  rightSpecificEntities: readonly string[],
+  leftActors: readonly string[],
+  rightActors: readonly string[],
+  leftLocations: readonly string[],
+  rightLocations: readonly string[],
+): boolean {
+  const shared = sharedSpecificEntities(leftSpecificEntities, rightSpecificEntities);
+  if (!shared.some(isPublicHealthOutbreakContextAnchor)) {
+    return false;
+  }
+  if (shared.some((entity) => !isPublicHealthOutbreakContextAnchor(entity))) {
+    return false;
+  }
+  const concreteActorOverlap = overlapRatio(
+    filterPublicHealthOutbreakContextEntities(leftActors),
+    filterPublicHealthOutbreakContextEntities(rightActors),
   );
-  return canonicalEntities(document.linked_entities)
-    .filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value))
-    .filter((value, index, values) => values.indexOf(value) === index)
-    .filter((value) => clusterSpecific.has(value));
+  const concreteLocationOverlap = overlapRatio(
+    filterPublicHealthOutbreakContextLocations(leftLocations),
+    filterPublicHealthOutbreakContextLocations(rightLocations),
+  );
+  return concreteActorOverlap < 0.5 && concreteLocationOverlap < 0.45;
+}
+
+function hasLegalForumContextOnlyConflict(
+  leftSpecificEntities: readonly string[],
+  rightSpecificEntities: readonly string[],
+  leftActors: readonly string[],
+  rightActors: readonly string[],
+  leftLocations: readonly string[],
+  rightLocations: readonly string[],
+): boolean {
+  const shared = sharedSpecificEntities(leftSpecificEntities, rightSpecificEntities);
+  if (!shared.some(isLegalForumContextAnchor)) {
+    return false;
+  }
+  if (shared.some((entity) => !LEGAL_FORUM_CONTEXT_ENTITY_VALUES.has(entity))) {
+    return false;
+  }
+  const concreteActorOverlap = overlapRatio(
+    filterLegalForumContextEntities(leftActors),
+    filterLegalForumContextEntities(rightActors),
+  );
+  const concreteLocationOverlap = overlapRatio(
+    filterLegalForumContextEntities(leftLocations),
+    filterLegalForumContextEntities(rightLocations),
+  );
+  return concreteActorOverlap < 0.5 && concreteLocationOverlap < 0.45;
+}
+
+function hasDocumentClusterPublicHealthOutbreakContextOnlyConflict(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+): boolean {
+  return hasPublicHealthOutbreakContextOnlyConflict(
+    documentSpecificCanonicalEntities(document),
+    clusterSpecificCanonicalEntities(cluster),
+    documentEventActors(document),
+    clusterEventActors(cluster),
+    documentEventLocations(document),
+    clusterEventLocations(cluster),
+  );
+}
+
+function hasDocumentClusterLegalForumContextOnlyConflict(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+): boolean {
+  return hasLegalForumContextOnlyConflict(
+    documentSpecificCanonicalEntities(document),
+    clusterSpecificCanonicalEntities(cluster),
+    documentEventActors(document),
+    clusterEventActors(cluster),
+    documentEventLocations(document),
+    clusterEventLocations(cluster),
+  );
+}
+
+function hasDocumentClusterLegalIssueTitleConflict(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+): boolean {
+  const documentTitle = document.translated_title || document.title;
+  return cluster.source_documents.some((source) =>
+    hasLegalIssueTitleConflict(documentTitle, source.title));
+}
+
+function sharedSpecificCanonicalEntities(document: WorkingDocument, cluster: StoredClusterRecord): string[] {
+  return sharedSpecificEntities(documentSpecificCanonicalEntities(document), clusterSpecificCanonicalEntities(cluster));
 }
 
 function specificCanonicalEntityOverlapCount(document: WorkingDocument, cluster: StoredClusterRecord): number {
   return sharedSpecificCanonicalEntities(document, cluster).length;
+}
+
+function hasGenericOnlyEventFamilyAnchorMatch(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  location: number,
+): boolean {
+  const shared = sharedSpecificCanonicalEntities(document, cluster);
+  return shared.length > 0 &&
+    shared.every((entity) => GENERIC_EVENT_FAMILY_ANCHORS.has(entity)) &&
+    location < 0.45;
 }
 
 function hasNamedEpisodeAnchor(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
@@ -128,11 +366,26 @@ function hasNamedEpisodeAnchor(document: WorkingDocument, cluster: StoredCluster
     .some((token) => NAMED_EPISODE_ANCHOR_TOKENS.has(token));
 }
 
-function normalizedSupportKeys(values: readonly string[]): string[] {
-  return [...new Set(values
-    .map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'))
-    .filter(Boolean))]
-    .sort();
+function sharedSpecificNamedEpisodeEntities(document: WorkingDocument, cluster: StoredClusterRecord): string[] {
+  return sharedSpecificCanonicalEntities(document, cluster).filter((entity) =>
+    entity.includes('_') &&
+    !GENERIC_EVENT_FAMILY_ANCHORS.has(entity) &&
+    (
+      entity.split('_').some((token) => NAMED_EPISODE_ANCHOR_TOKENS.has(token)) ||
+      EXPLICIT_SHORT_EVENT_CONTINUITY_ANCHORS.has(entity)
+    ));
+}
+
+function hasSpecificNamedEpisodeContinuityAnchor(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  location: number,
+): boolean {
+  return sharedSpecificNamedEpisodeEntities(document, cluster).length > 0 &&
+    !hasGenericOnlyEventFamilyAnchorMatch(document, cluster, location) &&
+    !hasDocumentClusterPublicHealthOutbreakContextOnlyConflict(document, cluster) &&
+    !hasDocumentClusterLegalIssueTitleConflict(document, cluster) &&
+    !hasDocumentClusterLegalForumContextOnlyConflict(document, cluster);
 }
 
 function actorScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
@@ -218,6 +471,44 @@ function hardEventFrameConflict(
     );
 }
 
+function documentHasSpecificContinuitySignal(document: WorkingDocument): boolean {
+  return canonicalEntities(document.linked_entities).some((value) => !isLowSignalCanonicalEntity(value)) ||
+    documentEventActors(document).length > 0 ||
+    documentEventLocations(document).length > 0;
+}
+
+function clusterHasSpecificContinuitySignal(cluster: StoredClusterRecord): boolean {
+  return canonicalEntities(clusterEntities(cluster)).some((value) => !isLowSignalCanonicalEntity(value)) ||
+    clusterEventActors(cluster).length > 0 ||
+    clusterEventLocations(cluster).length > 0;
+}
+
+function hasSpecificDocumentClusterContinuitySupport(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  specificCanonicalScore: number,
+  actor: number,
+  location: number,
+): boolean {
+  return specificCanonicalScore >= 0.5 ||
+    specificCanonicalEntityOverlapCount(document, cluster) >= 2 ||
+    hasSpecificNamedEpisodeContinuityAnchor(document, cluster, location) ||
+    actor >= 0.5 ||
+    location >= 0.45;
+}
+
+function hasSpecificDocumentClusterContinuityConflict(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  specificCanonicalScore: number,
+  actor: number,
+  location: number,
+): boolean {
+  return documentHasSpecificContinuitySignal(document) &&
+    clusterHasSpecificContinuitySignal(cluster) &&
+    !hasSpecificDocumentClusterContinuitySupport(document, cluster, specificCanonicalScore, actor, location);
+}
+
 function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord): {
   score: number;
   hardReject: boolean;
@@ -258,8 +549,8 @@ function hasExplicitOngoingEventSupport(
   actor: number,
   location: number,
 ): boolean {
-  const documentActors = normalizedSupportKeys(document.event_tuple?.who ?? []);
-  const clusterActors = normalizedSupportKeys(cluster.source_documents.flatMap((source) => source.event_tuple?.who ?? []));
+  const documentActors = documentEventActors(document);
+  const clusterActors = clusterEventActors(cluster);
   const documentLocations = documentEventLocations(document);
   const clusterLocations = clusterEventLocations(cluster);
   return (
@@ -299,6 +590,7 @@ function hasLongWindowContinuitySupport(
   }
   const actor = actorScore(document, cluster);
   const location = eventLocationScore(document, cluster);
+  const namedEpisodeContinuity = hasSpecificNamedEpisodeContinuityAnchor(document, cluster, location);
   const structuredEpisodeAnchor = hasStructuredEpisodeAnchor(
     document,
     cluster,
@@ -311,11 +603,19 @@ function hasLongWindowContinuitySupport(
   const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   if (
     categoryConflict &&
-    !structuredEpisodeAnchor
+    !structuredEpisodeAnchor &&
+    !namedEpisodeContinuity
   ) {
     return false;
   }
   return structuredEpisodeAnchor || (
+    namedEpisodeContinuity &&
+    (
+      specificCanonicalScore >= 0.2 ||
+      lexical >= 0.04 ||
+      eventFrame.score >= 0.18
+    )
+  ) || (
     specificCanonicalScore >= 0.5 &&
     canonicalScore >= 0.5 &&
     lexical >= 0.08 &&
@@ -352,6 +652,20 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
   const location = eventLocationScore(document, cluster);
   const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
+  const publicHealthOutbreakContextConflict =
+    hasDocumentClusterPublicHealthOutbreakContextOnlyConflict(document, cluster);
+  const legalForumContextConflict =
+    hasDocumentClusterLegalForumContextOnlyConflict(document, cluster);
+  const legalIssueTitleConflict =
+    hasDocumentClusterLegalIssueTitleConflict(document, cluster);
+  const genericOnlyEventFamilyAnchorMatch = hasGenericOnlyEventFamilyAnchorMatch(document, cluster, location);
+  const specificContinuityConflict = hasSpecificDocumentClusterContinuityConflict(
+    document,
+    cluster,
+    specificCanonicalScore,
+    actor,
+    location,
+  );
   const longWindowContinuity = hasLongWindowContinuitySupport(
     document,
     cluster,
@@ -396,7 +710,17 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
 
   let adjudication: CandidateMatch['adjudication'] = 'rejected';
   let reason = 'below-threshold';
-  if (isSecondaryAssetAttachmentConflict(document, cluster)) {
+  if (legalIssueTitleConflict) {
+    reason = 'legal-issue-title-conflict';
+  } else if (legalForumContextConflict) {
+    reason = 'legal-forum-context-conflict';
+  } else if (publicHealthOutbreakContextConflict) {
+    reason = 'public-health-outbreak-context-conflict';
+  } else if (genericOnlyEventFamilyAnchorMatch) {
+    reason = 'generic-event-anchor-conflict';
+  } else if (specificContinuityConflict) {
+    reason = 'specific-event-continuity-conflict';
+  } else if (isSecondaryAssetAttachmentConflict(document, cluster)) {
     reason = 'secondary-asset-conflict';
   } else if (isRelatedCoverageAttachmentConflict(document, cluster)) {
     reason = 'related-coverage-conflict';
@@ -466,6 +790,21 @@ export function candidateEligible(document: WorkingDocument, cluster: StoredClus
   const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   const location = eventLocationScore(document, cluster);
   const actor = actorScore(document, cluster);
+  if (hasDocumentClusterPublicHealthOutbreakContextOnlyConflict(document, cluster)) {
+    return false;
+  }
+  if (hasDocumentClusterLegalIssueTitleConflict(document, cluster)) {
+    return false;
+  }
+  if (hasDocumentClusterLegalForumContextOnlyConflict(document, cluster)) {
+    return false;
+  }
+  if (hasGenericOnlyEventFamilyAnchorMatch(document, cluster, location)) {
+    return false;
+  }
+  if (hasSpecificDocumentClusterContinuityConflict(document, cluster, specificCanonicalScore, actor, location)) {
+    return false;
+  }
   const strongOngoingContinuityOverride = hasStrongOngoingContinuityOverride(
     document,
     cluster,
@@ -500,8 +839,8 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
   const entities = overlapRatio(clusterEntities(left), clusterEntities(right));
   const canonical = overlapRatio(canonicalEntities(clusterEntities(left)), canonicalEntities(clusterEntities(right)));
   const specificCanonical = overlapRatio(
-    canonicalEntities(clusterEntities(left)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
-    canonicalEntities(clusterEntities(right)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+    canonicalEntities(clusterEntities(left)).filter((value) => !isLowSignalCanonicalEntity(value)),
+    canonicalEntities(clusterEntities(right)).filter((value) => !isLowSignalCanonicalEntity(value)),
   );
   const triggers = overlapRatio(clusterTriggers(left), clusterTriggers(right));
   const locations = overlapRatio(clusterLocations(left), clusterLocations(right));
@@ -523,6 +862,15 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
   if (isRelatedCoverageMergeConflict(left, right)) {
     return 0;
   }
+  if (clustersHavePublicHealthOutbreakContextOnlyConflict(left, right)) {
+    return 0;
+  }
+  if (clustersHaveLegalIssueTitleConflict(left, right)) {
+    return 0;
+  }
+  if (clustersHaveLegalForumContextOnlyConflict(left, right)) {
+    return 0;
+  }
   if (categoryConflict && !(specificCanonical >= 0.5 && locations >= 0.5 && time >= 0.5)) {
     return 0;
   }
@@ -533,7 +881,8 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
 }
 
 export function shouldMergeClusters(left: StoredClusterRecord, right: StoredClusterRecord): boolean {
-  return clusterMergeScore(left, right) >= MERGE_THRESHOLD;
+  return clusterMergeScore(left, right) >= MERGE_THRESHOLD ||
+    clustersHaveAnchoredEventContinuitySupport(left, right);
 }
 
 export function splitPairScore(left: StoredSourceDocument, right: StoredSourceDocument): number {
@@ -547,7 +896,261 @@ export function splitPairScore(left: StoredSourceDocument, right: StoredSourceDo
 }
 
 export function shouldSplitPair(left: StoredSourceDocument, right: StoredSourceDocument): boolean {
+  if (storedPairHasLegalIssueTitleConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasLegalForumContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasPublicHealthOutbreakContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasAnchoredEventContinuitySupport(left, right)) {
+    return true;
+  }
+  if (
+    !storedPairHasSpecificEventContinuitySupport(left, right) &&
+    storedDocumentHasSpecificEventSignal(left) &&
+    storedDocumentHasSpecificEventSignal(right)
+  ) {
+    return false;
+  }
   return splitPairScore(left, right) >= SPLIT_SIMILARITY_THRESHOLD;
+}
+
+function sourceSpecificCanonicalEntities(document: StoredSourceDocument): string[] {
+  return uniqueSpecificCanonicalEntities([...(document.entities ?? []), ...(document.linked_entities ?? [])]);
+}
+
+function sharedSourceSpecificCanonicalEntities(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): string[] {
+  const rightSpecific = new Set(sourceSpecificCanonicalEntities(right));
+  return sourceSpecificCanonicalEntities(left).filter((value) => rightSpecific.has(value));
+}
+
+function storedPairHasNamedEpisodeAnchor(left: StoredSourceDocument, right: StoredSourceDocument): boolean {
+  return sharedSourceSpecificCanonicalEntities(left, right)
+    .flatMap((entity) => entity.split('_'))
+    .some((token) => NAMED_EPISODE_ANCHOR_TOKENS.has(token));
+}
+
+function sharedSourceSpecificNamedEpisodeEntities(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): string[] {
+  return sharedSourceSpecificCanonicalEntities(left, right).filter((entity) =>
+    entity.includes('_') &&
+    !GENERIC_EVENT_FAMILY_ANCHORS.has(entity) &&
+    (
+      entity.split('_').some((token) => NAMED_EPISODE_ANCHOR_TOKENS.has(token)) ||
+      EXPLICIT_SHORT_EVENT_CONTINUITY_ANCHORS.has(entity)
+    ));
+}
+
+function storedPairHasSpecificNamedEpisodeContinuityAnchor(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  return sharedSourceSpecificNamedEpisodeEntities(left, right).length > 0 &&
+    !storedPairHasLegalIssueTitleConflict(left, right) &&
+    !storedPairHasLegalForumContextOnlyConflict(left, right) &&
+    !storedPairHasPublicHealthOutbreakContextOnlyConflict(left, right);
+}
+
+function normalizedStoredEventKeys(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? [])
+    .map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'))
+    .filter(Boolean))]
+    .sort();
+}
+
+function sourceEventActors(document: StoredSourceDocument): string[] {
+  return normalizedStoredEventKeys(document.event_tuple?.who);
+}
+
+function sourceEventLocations(document: StoredSourceDocument): string[] {
+  return normalizedStoredEventKeys([
+    ...(document.event_tuple?.where ?? []),
+    ...document.locations,
+  ]).filter((value) => !isLowSignalCanonicalEntity(value));
+}
+
+function storedDocumentHasSpecificEventSignal(document: StoredSourceDocument): boolean {
+  return sourceSpecificCanonicalEntities(document).length > 0 ||
+    sourceEventActors(document).length > 0 ||
+    sourceEventLocations(document).length > 0;
+}
+
+function storedPairHasSpecificEventContinuitySupport(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  if (storedPairHasLegalIssueTitleConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasLegalForumContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasPublicHealthOutbreakContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasSpecificNamedEpisodeContinuityAnchor(left, right)) {
+    return true;
+  }
+  const specificEntities = overlapRatio(sourceSpecificCanonicalEntities(left), sourceSpecificCanonicalEntities(right));
+  const actors = overlapRatio(sourceEventActors(left), sourceEventActors(right));
+  const locations = overlapRatio(sourceEventLocations(left), sourceEventLocations(right));
+  const leftCategory = triggerCategory(left.event_tuple?.trigger ?? left.trigger);
+  const rightCategory = triggerCategory(right.event_tuple?.trigger ?? right.trigger);
+  const triggerCompatible = leftCategory === null || rightCategory === null || leftCategory === rightCategory;
+  return (
+    specificEntities >= 0.5 ||
+    actors >= 0.5 ||
+    (triggerCompatible && locations >= 0.45)
+  );
+}
+
+function storedPairHasPublicHealthOutbreakContextOnlyConflict(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  return hasPublicHealthOutbreakContextOnlyConflict(
+    sourceSpecificCanonicalEntities(left),
+    sourceSpecificCanonicalEntities(right),
+    sourceEventActors(left),
+    sourceEventActors(right),
+    sourceEventLocations(left),
+    sourceEventLocations(right),
+  );
+}
+
+function storedPairHasLegalForumContextOnlyConflict(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  return hasLegalForumContextOnlyConflict(
+    sourceSpecificCanonicalEntities(left),
+    sourceSpecificCanonicalEntities(right),
+    sourceEventActors(left),
+    sourceEventActors(right),
+    sourceEventLocations(left),
+    sourceEventLocations(right),
+  );
+}
+
+function storedPairHasLegalIssueTitleConflict(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  return hasLegalIssueTitleConflict(left.title, right.title);
+}
+
+function storedPairHasAnchoredEventContinuitySupport(
+  left: StoredSourceDocument,
+  right: StoredSourceDocument,
+): boolean {
+  if (storedPairHasLegalIssueTitleConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasLegalForumContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasPublicHealthOutbreakContextOnlyConflict(left, right)) {
+    return false;
+  }
+  if (storedPairHasSpecificNamedEpisodeContinuityAnchor(left, right)) {
+    return true;
+  }
+  const sharedSpecificCount = sharedSourceSpecificCanonicalEntities(left, right).length;
+  const actors = overlapRatio(sourceEventActors(left), sourceEventActors(right));
+  const locations = overlapRatio(sourceEventLocations(left), sourceEventLocations(right));
+  const leftCategory = triggerCategory(left.event_tuple?.trigger ?? left.trigger);
+  const rightCategory = triggerCategory(right.event_tuple?.trigger ?? right.trigger);
+  const categoryCompatible = leftCategory === null || rightCategory === null || leftCategory === rightCategory;
+  return (
+    (sharedSpecificCount >= 2 || storedPairHasNamedEpisodeAnchor(left, right)) &&
+    (actors >= 0.5 || locations >= 0.45) &&
+    (categoryCompatible || (sharedSpecificCount >= 2 && locations >= 0.45))
+  );
+}
+
+function clustersHavePublicHealthOutbreakContextOnlyConflict(
+  left: StoredClusterRecord,
+  right: StoredClusterRecord,
+): boolean {
+  let sawConflict = false;
+  for (const leftDocument of left.source_documents) {
+    for (const rightDocument of right.source_documents) {
+      if (storedPairHasPublicHealthOutbreakContextOnlyConflict(leftDocument, rightDocument)) {
+        sawConflict = true;
+        continue;
+      }
+      const shared = sharedSourceSpecificCanonicalEntities(leftDocument, rightDocument);
+      if (shared.some(isPublicHealthOutbreakContextAnchor)) {
+        return false;
+      }
+    }
+  }
+  return sawConflict;
+}
+
+function clustersHaveLegalForumContextOnlyConflict(
+  left: StoredClusterRecord,
+  right: StoredClusterRecord,
+): boolean {
+  let sawConflict = false;
+  for (const leftDocument of left.source_documents) {
+    for (const rightDocument of right.source_documents) {
+      if (storedPairHasLegalForumContextOnlyConflict(leftDocument, rightDocument)) {
+        sawConflict = true;
+        continue;
+      }
+      const shared = sharedSourceSpecificCanonicalEntities(leftDocument, rightDocument);
+      if (shared.some(isLegalForumContextAnchor)) {
+        return false;
+      }
+    }
+  }
+  return sawConflict;
+}
+
+function clustersHaveLegalIssueTitleConflict(
+  left: StoredClusterRecord,
+  right: StoredClusterRecord,
+): boolean {
+  let sawConflict = false;
+  for (const leftDocument of left.source_documents) {
+    for (const rightDocument of right.source_documents) {
+      if (storedPairHasLegalIssueTitleConflict(leftDocument, rightDocument)) {
+        sawConflict = true;
+        continue;
+      }
+      if (hasLegalIssueTitleOverlap(leftDocument.title, rightDocument.title)) {
+        return false;
+      }
+    }
+  }
+  return sawConflict;
+}
+
+function clustersHaveAnchoredEventContinuitySupport(
+  left: StoredClusterRecord,
+  right: StoredClusterRecord,
+): boolean {
+  if (isRelatedCoverageMergeConflict(left, right)) {
+    return false;
+  }
+  if (
+    Math.abs(left.cluster_window_end - right.cluster_window_end) > TIME_WINDOW_MS &&
+    Math.abs(left.cluster_window_start - right.cluster_window_start) > TIME_WINDOW_MS
+  ) {
+    return false;
+  }
+  return left.source_documents.some((leftDocument) =>
+    right.source_documents.some((rightDocument) =>
+      storedPairHasAnchoredEventContinuitySupport(leftDocument, rightDocument)));
 }
 
 export const clusterScoringConfig = {

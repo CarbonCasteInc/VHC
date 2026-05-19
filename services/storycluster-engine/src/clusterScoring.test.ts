@@ -164,6 +164,144 @@ describe('clusterScoring', () => {
     expect(shouldMergeClusters(shipCluster, fuelCluster)).toBe(false);
   });
 
+  it('keeps shared canonical event identities connected when same-story wording diverges', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const fuelPrices = makeWorkingDocument({
+      doc_id: 'doc-fuel-prices',
+      source_id: 'wire-fuel-prices',
+      title: 'Fuel prices jump as traders price in the conflict risk',
+      summary: 'Fuel prices jump as traders price in the conflict risk.',
+      raw_text: 'Fuel prices jump as traders price in the conflict risk. Fuel prices jump as traders price in the conflict risk.',
+      normalized_text: 'fuel prices jump traders price conflict risk fuel prices jump traders price conflict risk',
+      entities: ['fuel_spike'],
+      linked_entities: ['fuel_spike'],
+      trigger: '',
+      locations: [],
+      event_tuple: {
+        description: 'Fuel prices jump as traders price in the conflict risk',
+        trigger: null,
+        who: ['Fuel Spike'],
+        where: [],
+        when_ms: 200,
+        outcome: 'Fuel prices jumped.',
+      },
+      temporal_ms: 200,
+      published_at: 200,
+      coarse_vector: [0.8, 0.2],
+      full_vector: [0.8, 0.2],
+    });
+    const energyForecasts = makeWorkingDocument({
+      doc_id: 'doc-energy-forecasts',
+      source_id: 'wire-energy-forecasts',
+      title: 'Energy desks raise price forecasts after the overnight strike',
+      summary: 'Energy desks raise price forecasts after the overnight strike.',
+      raw_text: 'Energy desks raise price forecasts after the overnight strike. Energy desks raise price forecasts after the overnight strike.',
+      normalized_text: 'energy desks raise price forecasts overnight strike energy desks raise price forecasts overnight strike',
+      entities: ['fuel_spike', 'strike'],
+      linked_entities: ['fuel_spike', 'strike'],
+      trigger: 'strike',
+      locations: [],
+      event_tuple: {
+        description: 'Energy desks raise price forecasts after the overnight strike',
+        trigger: 'strike',
+        who: ['Fuel Spike'],
+        where: [],
+        when_ms: 220,
+        outcome: 'Price forecasts rose.',
+      },
+      temporal_ms: 220,
+      published_at: 220,
+      coarse_vector: [0.2, 0.8],
+      full_vector: [0.2, 0.8],
+    });
+    const fuelCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(fuelPrices, fuelPrices.source_variants[0]!),
+    ]);
+    const forecastCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(energyForecasts, energyForecasts.source_variants[0]!),
+    ]);
+
+    expect(shouldSplitPair(fuelCluster.source_documents[0]!, forecastCluster.source_documents[0]!)).toBe(true);
+    expect(shouldMergeClusters(fuelCluster, forecastCluster)).toBe(true);
+  });
+
+  it('rejects legal forum matches that share only Supreme Court context', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const votingRightsDoc = makeWorkingDocument({
+      doc_id: 'doc-voting-rights',
+      source_id: 'ap-politics',
+      title: 'Supreme Court sends closely watched Native American voting rights decision back to lower court',
+      summary: 'The justices sent a Native American voting rights dispute back to a lower court.',
+      raw_text: 'Supreme Court sends closely watched Native American voting rights decision back to lower court. The justices sent a Native American voting rights dispute back to a lower court.',
+      normalized_text: 'supreme court sends closely watched native american voting rights decision back to lower court justices sent native american voting rights dispute back lower court',
+      entities: ['supreme_court', 'court', 'native_american_voting_rights', 'voting_rights', 'native_american'],
+      linked_entities: ['supreme_court', 'court', 'native_american_voting_rights', 'voting_rights', 'native_american'],
+      trigger: 'decision',
+      locations: [],
+      event_tuple: {
+        description: 'Supreme Court sends Native American voting rights decision back to lower court.',
+        trigger: 'decision',
+        who: ['Supreme Court'],
+        where: ['lower court'],
+        when_ms: 200,
+        outcome: 'Sent the decision back.',
+      },
+      temporal_ms: 200,
+      published_at: 200,
+      coarse_vector: [0.96, 0.04],
+      full_vector: [0.96, 0.04],
+    });
+    const sexDiscriminationDoc = makeWorkingDocument({
+      doc_id: 'doc-sex-discrimination',
+      source_id: 'scotusblog-main',
+      title: 'Court to hear sex discrimination case next term',
+      summary: 'The Supreme Court agreed to hear a sex discrimination case next term.',
+      raw_text: 'Court to hear sex discrimination case next term. The Supreme Court agreed to hear a sex discrimination case next term.',
+      normalized_text: 'court hear sex discrimination case next term supreme court agreed hear sex discrimination case next term',
+      entities: ['supreme_court', 'court', 'sex_discrimination', 'sex_discrimination_case'],
+      linked_entities: ['supreme_court', 'court', 'sex_discrimination', 'sex_discrimination_case'],
+      trigger: 'hear',
+      locations: [],
+      event_tuple: {
+        description: 'Supreme Court will hear a sex discrimination case.',
+        trigger: 'hear',
+        who: ['Supreme Court'],
+        where: [],
+        when_ms: 230,
+        outcome: 'Agreed to hear the case.',
+      },
+      temporal_ms: 230,
+      published_at: 230,
+      coarse_vector: [0.95, 0.05],
+      full_vector: [0.95, 0.05],
+    });
+    const votingRightsCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(votingRightsDoc, votingRightsDoc.source_variants[0]!),
+    ]);
+    const sexDiscriminationCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(sexDiscriminationDoc, sexDiscriminationDoc.source_variants[0]!),
+    ]);
+
+    const match = buildCandidateMatch(sexDiscriminationDoc, votingRightsCluster);
+
+    expect(match.adjudication).toBe('rejected');
+    expect(match.reason).toBe('legal-issue-title-conflict');
+    expect(candidateEligible(sexDiscriminationDoc, votingRightsCluster)).toBe(false);
+    expect(clusterMergeScore(votingRightsCluster, sexDiscriminationCluster)).toBe(0);
+    expect(shouldMergeClusters(votingRightsCluster, sexDiscriminationCluster)).toBe(false);
+    expect(shouldSplitPair(votingRightsCluster.source_documents[0]!, sexDiscriminationCluster.source_documents[0]!)).toBe(false);
+  });
+
   it('rejects trigger-category conflicts when only one specific event anchor overlaps', () => {
     const cluster = makeCluster();
     const inflationAftershock = makeWorkingDocument({
@@ -308,6 +446,95 @@ describe('clusterScoring', () => {
     expect(candidateEligible(golfDocument, dartsCluster)).toBe(false);
     expect(clusterMergeScore(dartsCluster, golfCluster)).toBe(0);
     expect(shouldMergeClusters(dartsCluster, golfCluster)).toBe(false);
+  });
+
+  it('keeps same-competition sports singletons separate until a specific event anchor overlaps', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const firstRound = makeWorkingDocument({
+      doc_id: 'doc-scheffler',
+      source_id: 'ap-topnews',
+      title: 'Scottie Scheffler part of 7-way tie for the lead at PGA Championship',
+      translated_title: 'Scottie Scheffler part of 7-way tie for the lead at PGA Championship',
+      summary: 'Scheffler is part of a crowded first-round lead at the PGA Championship.',
+      raw_text: 'Scottie Scheffler is part of a crowded first-round lead at the PGA Championship.',
+      normalized_text: 'scottie scheffler part crowded first round lead pga championship',
+      entities: ['pga_championship', 'scottie_scheffler'],
+      linked_entities: ['pga_championship', 'scottie_scheffler'],
+      event_tuple: {
+        description: 'Scottie Scheffler is tied for the lead at the PGA Championship.',
+        trigger: 'leads',
+        who: ['scottie_scheffler'],
+        where: ['pga_championship'],
+        when_ms: 200,
+        outcome: 'Tied for the lead.',
+      },
+      trigger: 'leads',
+      locations: [],
+      temporal_ms: 200,
+      published_at: 200,
+      coarse_vector: [0.97, 0.03],
+      full_vector: [0.97, 0.03],
+    });
+    const raiWin = makeWorkingDocument({
+      doc_id: 'doc-rai',
+      source_id: 'guardian-us',
+      title: 'Aaron Rai keeps celebrations low-key after PGA Championship win',
+      translated_title: 'Aaron Rai keeps celebrations low-key after PGA Championship win',
+      summary: 'Aaron Rai wins the PGA Championship at Aronimink.',
+      raw_text: 'Aaron Rai wins the PGA Championship at Aronimink.',
+      normalized_text: 'aaron rai wins pga championship aronimink',
+      entities: ['pga_championship', 'aaron_rai'],
+      linked_entities: ['pga_championship', 'aaron_rai'],
+      event_tuple: {
+        description: 'Aaron Rai wins the PGA Championship.',
+        trigger: 'wins',
+        who: ['aaron_rai'],
+        where: ['aronimink'],
+        when_ms: 260,
+        outcome: 'Wins the tournament.',
+      },
+      trigger: 'wins',
+      locations: ['aronimink'],
+      temporal_ms: 260,
+      published_at: 260,
+      coarse_vector: [0.96, 0.04],
+      full_vector: [0.96, 0.04],
+    });
+    const raiWire = makeWorkingDocument({
+      ...raiWin,
+      doc_id: 'doc-rai-wire',
+      source_id: 'ap-sports',
+      url_hash: 'hash-rai-wire',
+      title: 'Aaron Rai wins PGA Championship at Aronimink',
+      translated_title: 'Aaron Rai wins PGA Championship at Aronimink',
+      summary: 'A wire report says Aaron Rai won the PGA Championship at Aronimink.',
+      raw_text: 'Aaron Rai wins the PGA Championship at Aronimink.',
+      normalized_text: 'aaron rai wins pga championship aronimink',
+    });
+    raiWire.source_variants = [{
+      ...raiWire.source_variants[0]!,
+      doc_id: 'doc-rai-wire',
+      source_id: 'ap-sports',
+      url_hash: 'hash-rai-wire',
+      title: 'Aaron Rai wins PGA Championship at Aronimink',
+      summary: 'A wire report says Aaron Rai won the PGA Championship at Aronimink.',
+    }];
+    const firstRoundCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(firstRound, firstRound.source_variants[0]!),
+    ]);
+    const raiCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(raiWin, raiWin.source_variants[0]!),
+    ]);
+
+    expect(candidateEligible(raiWin, firstRoundCluster)).toBe(false);
+    expect(buildCandidateMatch(raiWin, firstRoundCluster).adjudication).toBe('rejected');
+    expect(candidateEligible(raiWire, raiCluster)).toBe(true);
+    expect(buildCandidateMatch(raiWire, raiCluster).adjudication).toBe('accepted');
   });
 
   it('covers canonical-entity, abstain, and eligibility branches', () => {
@@ -628,5 +855,207 @@ describe('clusterScoring', () => {
     const rightCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(rightDoc, rightDoc.source_variants[0]!)]);
 
     expect(clusterMergeScore(leftCluster, rightCluster)).toBeGreaterThan(0);
+  });
+
+  it('keeps public-health outbreak response singletons separate until a concrete action anchor overlaps', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const travelRestrictions = makeWorkingDocument({
+      doc_id: 'doc-ebola-cbs',
+      source_id: 'cbs-politics',
+      title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+      summary: 'The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+      raw_text: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda. The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+      normalized_text: 'u s announces ebola related travel restrictions amid outbreak in congo uganda administration restricted travelers congo south sudan uganda amid ebola outbreak',
+      entities: [
+        'congo_uganda_ebola_outbreak',
+        'ebola_outbreak',
+        'ebola_travel_restrictions',
+        'travel_restrictions',
+        'trump_administration',
+        'us_ebola_travel_restrictions',
+      ],
+      linked_entities: [
+        'congo_uganda_ebola_outbreak',
+        'ebola_outbreak',
+        'ebola_travel_restrictions',
+        'travel_restrictions',
+        'trump_administration',
+        'us_ebola_travel_restrictions',
+      ],
+      locations: ['congo', 'south_sudan', 'uganda', 'united_states'],
+      trigger: 'outbreak',
+      event_tuple: {
+        description: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+        trigger: 'outbreak',
+        who: ['trump_administration'],
+        where: ['congo', 'uganda', 'united_states'],
+        when_ms: null,
+        outcome: 'Travel restrictions were announced.',
+      },
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+      published_at: 1_779_183_061_000,
+      temporal_ms: null,
+    });
+    const healthMeasures = makeWorkingDocument({
+      doc_id: 'doc-ebola-cna',
+      source_id: 'channelnewsasia-latest',
+      title: 'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+      summary: 'Health advisories were put in place at all points of entry for travelers after the Ebola outbreak in DR Congo and Uganda.',
+      raw_text: 'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda. Health advisories were put in place at all points of entry for travelers after the Ebola outbreak in DR Congo and Uganda.',
+      normalized_text: 'singapore steps up health measures after ebola outbreak dr congo uganda health advisories put place entry travelers after ebola outbreak dr congo uganda',
+      entities: [
+        'congo_uganda_ebola_outbreak',
+        'dr_congo',
+        'ebola_outbreak',
+        'health_measures',
+        'singapore',
+        'singapore_ebola_health_measures',
+      ],
+      linked_entities: [
+        'congo_uganda_ebola_outbreak',
+        'dr_congo',
+        'ebola_outbreak',
+        'health_measures',
+        'singapore',
+        'singapore_ebola_health_measures',
+      ],
+      locations: ['congo', 'dr_congo', 'singapore', 'uganda'],
+      trigger: 'outbreak',
+      event_tuple: {
+        description: 'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+        trigger: 'outbreak',
+        who: ['singapore'],
+        where: ['congo', 'singapore', 'uganda'],
+        when_ms: null,
+        outcome: 'Health measures were announced.',
+      },
+      coarse_vector: [0, 1],
+      full_vector: [0, 1],
+      published_at: 1_779_188_400_000,
+      temporal_ms: null,
+    });
+    const americanEvacuation = makeWorkingDocument({
+      doc_id: 'doc-ebola-bbc-patient',
+      source_id: 'bbc-us-canada',
+      title: 'American who contracted Ebola in DR Congo evacuated for treatment',
+      summary: 'The patient was evacuated after contracting Ebola in DR Congo.',
+      raw_text: 'American who contracted Ebola in DR Congo evacuated for treatment. The patient was evacuated after contracting Ebola in DR Congo.',
+      normalized_text: 'american contracted ebola dr congo evacuated treatment patient evacuated after contracting ebola dr congo',
+      entities: ['american_ebola_evacuation', 'dr_congo', 'ebola_outbreak'],
+      linked_entities: ['american_ebola_evacuation', 'dr_congo', 'ebola_outbreak'],
+      locations: ['dr_congo'],
+      trigger: 'outbreak',
+      event_tuple: {
+        description: 'American who contracted Ebola in DR Congo evacuated for treatment',
+        trigger: 'outbreak',
+        who: ['american_ebola_evacuation'],
+        where: ['dr_congo'],
+        when_ms: null,
+        outcome: 'The patient was evacuated for treatment.',
+      },
+      coarse_vector: [0, 1],
+      full_vector: [0, 1],
+      published_at: 1_779_196_381_000,
+      temporal_ms: null,
+    });
+    const secondTravelRestrictions = makeWorkingDocument({
+      doc_id: 'doc-ebola-ap-travel',
+      source_id: 'ap-health',
+      title: 'United States adds Ebola travel restrictions after Congo and Uganda outbreak',
+      summary: 'U.S. officials restricted travelers after the Ebola outbreak in Congo and Uganda.',
+      raw_text: 'United States adds Ebola travel restrictions after Congo and Uganda outbreak. U.S. officials restricted travelers after the Ebola outbreak in Congo and Uganda.',
+      normalized_text: 'united states adds ebola travel restrictions after congo uganda outbreak u s officials restricted travelers after ebola outbreak congo uganda',
+      entities: [
+        'congo_uganda_ebola_outbreak',
+        'ebola_outbreak',
+        'ebola_travel_restrictions',
+        'travel_restrictions',
+        'us_ebola_travel_restrictions',
+      ],
+      linked_entities: [
+        'congo_uganda_ebola_outbreak',
+        'ebola_outbreak',
+        'ebola_travel_restrictions',
+        'travel_restrictions',
+        'us_ebola_travel_restrictions',
+      ],
+      locations: ['congo', 'uganda', 'united_states'],
+      trigger: 'outbreak',
+      event_tuple: {
+        description: 'United States adds Ebola travel restrictions after Congo and Uganda outbreak',
+        trigger: 'outbreak',
+        who: ['us_ebola_travel_restrictions'],
+        where: ['congo', 'uganda', 'united_states'],
+        when_ms: null,
+        outcome: 'Travel restrictions were expanded.',
+      },
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+      published_at: 1_779_183_461_000,
+      temporal_ms: null,
+    });
+    const broadOutbreak = makeWorkingDocument({
+      doc_id: 'doc-ebola-bbc',
+      source_id: 'bbc-general',
+      title: "'Ebola has tortured us': Fear as outbreak spreads faster than first thought",
+      summary: 'Hundreds of cases are suspected in central Africa but experts fear the actual number may be much higher.',
+      raw_text: "'Ebola has tortured us': Fear as outbreak spreads faster than first thought. Hundreds of cases are suspected in central Africa but experts fear the actual number may be much higher.",
+      normalized_text: 'ebola has tortured us fear as outbreak spreads faster than first thought hundreds cases suspected central africa experts fear actual number much higher',
+      entities: ['central_africa', 'ebola_outbreak'],
+      linked_entities: ['central_africa', 'ebola_outbreak'],
+      locations: ['central_africa'],
+      trigger: 'outbreak',
+      event_tuple: {
+        description: "'Ebola has tortured us': Fear as outbreak spreads faster than first thought",
+        trigger: 'outbreak',
+        who: ['ebola_outbreak'],
+        where: ['central_africa'],
+        when_ms: null,
+        outcome: 'Cases may be higher than reported.',
+      },
+      coarse_vector: [0, 1],
+      full_vector: [0, 1],
+      published_at: 1_779_193_447_000,
+      temporal_ms: null,
+    });
+    const travelCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(travelRestrictions, travelRestrictions.source_variants[0]!),
+    ]);
+    const healthCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(healthMeasures, healthMeasures.source_variants[0]!),
+    ]);
+    const americanCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(americanEvacuation, americanEvacuation.source_variants[0]!),
+    ]);
+    const secondTravelCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(secondTravelRestrictions, secondTravelRestrictions.source_variants[0]!),
+    ]);
+    const broadCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(broadOutbreak, broadOutbreak.source_variants[0]!),
+    ]);
+
+    expect(
+      shouldSplitPair(travelCluster.source_documents[0]!, healthCluster.source_documents[0]!),
+    ).toBe(false);
+    expect(clusterMergeScore(travelCluster, healthCluster)).toBeLessThan(clusterScoringConfig.mergeThreshold);
+    expect(shouldMergeClusters(travelCluster, healthCluster)).toBe(false);
+    expect(
+      shouldSplitPair(americanCluster.source_documents[0]!, healthCluster.source_documents[0]!),
+    ).toBe(false);
+    expect(shouldMergeClusters(americanCluster, healthCluster)).toBe(false);
+    expect(
+      shouldSplitPair(travelCluster.source_documents[0]!, secondTravelCluster.source_documents[0]!),
+    ).toBe(true);
+    expect(shouldMergeClusters(travelCluster, secondTravelCluster)).toBe(true);
+    expect(
+      shouldSplitPair(travelCluster.source_documents[0]!, broadCluster.source_documents[0]!),
+    ).toBe(false);
+    expect(shouldMergeClusters(travelCluster, broadCluster)).toBe(false);
   });
 });

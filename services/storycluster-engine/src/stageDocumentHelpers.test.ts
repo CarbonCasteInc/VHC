@@ -94,6 +94,38 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.coverage_role).toBe('canonical');
   });
 
+  it('uses high-confidence local event anchors over vague provider verbs', () => {
+    const document = makeWorkingDocument({
+      title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+      translated_title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+      summary: 'The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+      translated_text: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda. The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['ebola', 'outbreak', 'congo', 'uganda', 'travel_restrictions'],
+      linked_entities: ['ebola', 'outbreak', 'congo', 'uganda', 'travel_restrictions'],
+      locations: ['congo', 'uganda', 'united_states'],
+      temporal_ms: null,
+      trigger: 'announced',
+      event_tuple: {
+        description: 'The administration announced travel restrictions related to the Ebola outbreak.',
+        trigger: 'announced',
+        who: ['trump_administration'],
+        where: ['united_states'],
+        when_ms: null,
+        outcome: 'Travel restrictions were announced.',
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.linked_entities).toEqual(expect.arrayContaining(['congo_uganda_ebola_outbreak', 'ebola_outbreak']));
+    expect(merged.trigger).toBe('outbreak');
+    expect(merged.event_tuple?.trigger).toBe('outbreak');
+  });
+
   it('keeps related coverage without synthesizing a canonical event tuple', () => {
     const document = makeWorkingDocument({
       title: 'Analysis: how markets are reacting to Iran',

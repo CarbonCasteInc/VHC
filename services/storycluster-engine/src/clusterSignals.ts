@@ -1,5 +1,6 @@
 import type { StoredClusterRecord, StoredSourceDocument, WorkingDocument } from './stageState';
 import { isRelatedCoverageText, triggerCategory } from './contentSignals';
+import { isLowSignalCanonicalEntity } from './storyclusterEntitySignals.js';
 
 function normalizedEventKeys(values: readonly string[]): string[] {
   return [...new Set(values
@@ -16,10 +17,23 @@ function normalizedCanonicalEventKeys(values: readonly string[]): string[] {
   return normalizedEventKeys(values).filter((value) => value.includes('_'));
 }
 
+function entitySignalRank(entity: string): number {
+  if (entity.includes('_') && !isLowSignalCanonicalEntity(entity)) {
+    return 0;
+  }
+  if (entity.includes('_')) {
+    return 1;
+  }
+  return 2;
+}
+
 export function clusterEntities(cluster: StoredClusterRecord): string[] {
   return Object.entries(cluster.entity_scores)
     .filter(([, score]) => score > 0)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .sort((left, right) =>
+      right[1] - left[1] ||
+      entitySignalRank(left[0]) - entitySignalRank(right[0]) ||
+      left[0].localeCompare(right[0]))
     .map(([entity]) => entity)
     .slice(0, 12);
 }
@@ -44,28 +58,36 @@ export function documentEventActors(document: WorkingDocument): string[] {
   return normalizedCanonicalEventKeys([
     ...(document.event_tuple?.who ?? []),
     ...canonicalEntities(document.linked_entities),
-  ]).slice(0, 10);
+  ])
+    .filter((value) => !isLowSignalCanonicalEntity(value))
+    .slice(0, 10);
 }
 
 export function clusterEventActors(cluster: StoredClusterRecord): string[] {
   return normalizedCanonicalEventKeys([
     ...cluster.source_documents.flatMap((document) => document.event_tuple?.who ?? []),
     ...canonicalEntities(clusterEntities(cluster)),
-  ]).slice(0, 12);
+  ])
+    .filter((value) => !isLowSignalCanonicalEntity(value))
+    .slice(0, 12);
 }
 
 export function documentEventLocations(document: WorkingDocument): string[] {
   return normalizedEventKeys([
     ...(document.event_tuple?.where ?? []),
     ...document.locations,
-  ]).slice(0, 8);
+  ])
+    .filter((value) => !isLowSignalCanonicalEntity(value))
+    .slice(0, 8);
 }
 
 export function clusterEventLocations(cluster: StoredClusterRecord): string[] {
   return normalizedEventKeys([
     ...cluster.source_documents.flatMap((document) => document.event_tuple?.where ?? []),
     ...clusterLocations(cluster),
-  ]).slice(0, 8);
+  ])
+    .filter((value) => !isLowSignalCanonicalEntity(value))
+    .slice(0, 8);
 }
 
 export function clusterTemporalAnchors(cluster: StoredClusterRecord): number[] {

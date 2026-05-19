@@ -113,4 +113,37 @@ describe('liveSemanticAudit pair building', () => {
       },
     ])).toBe(true);
   });
+
+  it('labels exact duplicate source URLs without remote classification', async () => {
+    const bundle = makeBundle({
+      sources: [
+        {
+          source_id: 'ap-politics',
+          publisher: 'AP Politics',
+          url: 'https://apnews.com/article/greenland-us-landry-visit-nielsen-bbece2f899116788fe45525dcfe7d030',
+          url_hash: 'c9346c73',
+          published_at: 100,
+          title: "Greenland's prime minister tells Trump's envoy self-determination cannot be negotiated",
+        },
+        {
+          source_id: 'ap-topnews',
+          publisher: 'AP Top News',
+          url: 'https://apnews.com/article/greenland-us-landry-visit-nielsen-bbece2f899116788fe45525dcfe7d030',
+          url_hash: 'c9346c73',
+          published_at: 101,
+          title: "Greenland's prime minister tells Trump's envoy self-determination cannot be negotiated",
+        },
+      ],
+    });
+    const pairs = buildCanonicalSourcePairs(bundle, () => 'Same AP article text.');
+
+    const results = await classifyCanonicalSourcePairs(pairs, { apiKey: 'unused-for-exact-duplicates' });
+
+    expect(results).toEqual([{
+      pair_id: 'story-1::ap-politics:c9346c73::ap-topnews:c9346c73',
+      label: 'duplicate',
+      confidence: 1,
+      rationale: 'Exact duplicate source URL or URL hash across publisher feeds.',
+    }]);
+  });
 });

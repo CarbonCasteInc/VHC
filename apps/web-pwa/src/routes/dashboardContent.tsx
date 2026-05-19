@@ -32,6 +32,8 @@ export const DashboardContent: React.FC = () => {
     workerFactory
   });
   const [statusTrail, setStatusTrail] = useState<string[]>(() => ['idle']);
+  const identityCreating = identityStatus === 'creating' || identityRecordStatus === 'creating';
+  const meshClientReady = Boolean(client);
 
   useEffect(() => {
     if (E2E_MODE) {
@@ -100,6 +102,7 @@ export const DashboardContent: React.FC = () => {
               e.preventDefault();
               const chosen = username.trim() || 'vh-user';
               if (handleErrorMsg) return;
+              if (!meshClientReady || identityCreating) return;
               void (async () => {
                 const trimmedHandle = handleInput.trim();
                 const validation = getHandleError(trimmedHandle);
@@ -117,7 +120,7 @@ export const DashboardContent: React.FC = () => {
               placeholder="Choose a username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={identityStatus === 'creating' || identityRecordStatus === 'creating'}
+              disabled={identityCreating}
             />
             <input
               className="w-full rounded border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
@@ -132,14 +135,14 @@ export const DashboardContent: React.FC = () => {
               maxLength={20}
               pattern="[A-Za-z0-9_]{3,20}"
               data-testid="handle-input"
-              disabled={identityStatus === 'creating' || identityRecordStatus === 'creating'}
+              disabled={identityCreating}
             />
             <Button
               type="submit"
-              disabled={identityStatus === 'creating' || identityRecordStatus === 'creating' || Boolean(handleErrorMsg)}
+              disabled={identityCreating || !meshClientReady || Boolean(handleErrorMsg)}
               data-testid="create-identity-btn"
             >
-              {identityStatus === 'creating' || identityRecordStatus === 'creating' ? 'Creating…' : 'Join'}
+              {identityCreating ? 'Creating…' : meshClientReady ? 'Join' : 'Connecting…'}
             </Button>
           </form>
           {handleErrorMsg && <span className="text-xs text-red-700">{handleErrorMsg}</span>}

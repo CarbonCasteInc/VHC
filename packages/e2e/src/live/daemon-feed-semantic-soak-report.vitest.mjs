@@ -2,10 +2,14 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   accumulateStoryCoverage,
+  assessHeadlineSoakReleaseEvidence,
   assessPromotionReadiness,
+  buildHeadlineSoakTrendIndex,
+  buildSoakTrend,
   buildStoryClusterCorrectnessGate,
   buildRunArtifactPaths,
   classifySoakRun,
+  PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
   summarizeBundleComposition,
   summarizeLabelCounts,
@@ -29,6 +33,46 @@ function makeResult(overrides = {}) {
     auditError: null,
     reportParseError: null,
     storyIds: [],
+    ...overrides,
+  };
+}
+
+function makeExecution(overrides = {}) {
+  return {
+    artifactDir: `/tmp/semantic-soak/${overrides.run ?? 1}`,
+    generatedAt: '2026-05-19T00:00:00.000Z',
+    strictSoakPass: true,
+    readinessStatus: 'promotable',
+    promotionBlockingReasons: [],
+    runCount: 5,
+    passCount: 5,
+    failCount: 0,
+    totalSampledStories: 0,
+    totalAuditedPairs: 0,
+    totalRelatedTopicOnlyPairs: 0,
+    repeatedStoryCount: 0,
+    totalBundledStories: 12,
+    totalCorroboratedBundles: 0,
+    totalSingletonBundles: 12,
+    averageSampleFillRate: 1,
+    averageAuditedPairsPerSampledStory: null,
+    averageCorroboratedBundleRate: 0,
+    averageUniqueSourceCount: 8,
+    maxUniqueSourceCount: 8,
+    classifications: {
+      pass: 5,
+      semantic_contamination: 0,
+      bundle_starvation: 0,
+      insufficient_auditable_supply: 0,
+      artifact_missing: 0,
+      report_parse_error: 0,
+      runner_failure: 0,
+    },
+    artifactPaths: {
+      summaryPath: `/tmp/semantic-soak/${overrides.run ?? 1}/semantic-soak-summary.json`,
+      trendPath: `/tmp/semantic-soak/${overrides.run ?? 1}/semantic-soak-trend.json`,
+      indexPath: `/tmp/semantic-soak/${overrides.run ?? 1}/release-artifact-index.json`,
+    },
     ...overrides,
   };
 }
@@ -310,6 +354,91 @@ describe('daemon-feed-semantic-soak-report', () => {
       status: 'promotable',
       criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
       blockingReasons: [],
+    });
+  });
+
+  it('keeps singleton-only public overlap passes promotable while release corroboration is assessed at the headline trend layer', () => {
+    const singletonOnlyRuns = Array.from({ length: 5 }, (_, index) => makeResult({
+      run: index + 1,
+      pass: true,
+      requestedSampleCount: 3,
+      effectiveSampleCount: 0,
+      sampledStoryCount: 0,
+      auditedPairCount: 0,
+      relatedTopicOnlyPairCount: 0,
+      sampleFillRate: 1,
+      sampleShortfall: 0,
+      supplyStatus: 'singleton_only',
+      bundleComposition: {
+        bundledStoryCount: 0,
+        corroboratedBundleCount: 0,
+        singletonBundleCount: 0,
+        corroboratedBundleRate: null,
+        uniqueSourceCount: 0,
+      },
+    }));
+
+    const trend = buildSoakTrend(singletonOnlyRuns);
+
+    expect(trend.supply).toMatchObject({
+      singletonOnlyPassCount: 5,
+      fullPassCount: 0,
+    });
+    expect(trend.promotionAssessment).toEqual({
+      promotable: true,
+      status: 'promotable',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [],
+    });
+  });
+
+  it('does not let valid singleton-only executions dilute release corroboration evidence', () => {
+    const corroboratedExecution = makeExecution({
+      run: 4,
+      totalSampledStories: 2,
+      totalAuditedPairs: 2,
+      totalBundledStories: 2,
+      totalCorroboratedBundles: 2,
+      totalSingletonBundles: 0,
+      averageAuditedPairsPerSampledStory: 1,
+      averageCorroboratedBundleRate: 1,
+      averageUniqueSourceCount: 3,
+      maxUniqueSourceCount: 3,
+    });
+
+    const trendIndex = buildHeadlineSoakTrendIndex([
+      makeExecution({ run: 1 }),
+      makeExecution({ run: 2 }),
+      makeExecution({ run: 3 }),
+      corroboratedExecution,
+    ]);
+
+    expect(trendIndex.usefulness).toMatchObject({
+      averageCorroboratedBundleRate: 0.25,
+      promotableAverageCorroboratedBundleRate: 0.25,
+      releaseAverageCorroboratedBundleRate: 1,
+      corroborationEvidenceExecutionCount: 1,
+      singletonOnlyPromotableExecutionCount: 3,
+    });
+    expect(trendIndex.releaseEvidence).toMatchObject({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+    });
+  });
+
+  it('still blocks release evidence when no promotable execution proves a corroborated bundle', () => {
+    expect(assessHeadlineSoakReleaseEvidence(buildHeadlineSoakTrendIndex([
+      makeExecution({ run: 1 }),
+      makeExecution({ run: 2 }),
+      makeExecution({ run: 3 }),
+      makeExecution({ run: 4 }),
+    ]))).toMatchObject({
+      status: 'fail',
+      recommendedAction: 'hold_release_for_headline_soak_recovery',
+      reasons: ['corroborated_bundle_evidence_missing'],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
     });
   });
 

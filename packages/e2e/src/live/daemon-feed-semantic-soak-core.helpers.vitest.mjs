@@ -12,6 +12,7 @@ import {
   formatErrorMessage,
   logDaemonFeedSemanticSoakFatal,
   readNonNegativeInt,
+  readHistoricalHeadlineSoakExecutions,
   readPositiveInt,
   resolveBindableDaemonFirstPortPlan,
   resolveDaemonFirstPortPlan,
@@ -94,6 +95,81 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(collectSpecs(report.suites)).toHaveLength(1);
     expect(decodeAttachment(primaryResult, 'audit')).toEqual({ ok: true });
     expect(decodeAttachment(primaryResult, 'missing')).toBeNull();
+  });
+
+  it('counts complete headline soak executions after skipping interrupted artifact directories', () => {
+    const files = new Map();
+    const artifactRoot = '/repo/.tmp/daemon-feed-semantic-soak';
+    const mtimeByDir = new Map();
+    const addCompleteRun = (name, mtimeMs, status = 'promotable') => {
+      const artifactDir = `${artifactRoot}/${name}`;
+      mtimeByDir.set(artifactDir, mtimeMs);
+      files.set(`${artifactDir}/semantic-soak-summary.json`, JSON.stringify({
+        generatedAt: new Date(mtimeMs).toISOString(),
+        strictSoakPass: true,
+        runCount: 1,
+        passCount: 1,
+        failCount: 0,
+      }));
+      files.set(`${artifactDir}/semantic-soak-trend.json`, JSON.stringify({
+        generatedAt: new Date(mtimeMs).toISOString(),
+        totalRuns: 1,
+        promotionAssessment: {
+          status,
+          blockingReasons: status === 'promotable' ? [] : ['insufficient_run_count'],
+        },
+        density: {
+          sampledStoryTotal: 1,
+          auditedPairTotal: 1,
+          relatedTopicOnlyPairTotal: 0,
+          averageSampleFillRate: 1,
+          averageAuditedPairsPerSampledStory: 1,
+        },
+        usefulness: {
+          bundledStoryTotal: 1,
+          corroboratedBundleTotal: 1,
+          singletonBundleTotal: 0,
+          averageCorroboratedBundleRate: 1,
+          averageUniqueSourceCount: 2,
+        },
+      }));
+      files.set(`${artifactDir}/release-artifact-index.json`, JSON.stringify({
+        generatedAt: new Date(mtimeMs).toISOString(),
+      }));
+    };
+    const addInterruptedRun = (name, mtimeMs) => {
+      const artifactDir = `${artifactRoot}/${name}`;
+      mtimeByDir.set(artifactDir, mtimeMs);
+      files.set(`${artifactDir}/run-1.preflight.log`, 'started but interrupted');
+    };
+
+    addCompleteRun('complete-1', 1_000);
+    addInterruptedRun('interrupted-2', 2_000);
+    addCompleteRun('complete-3', 3_000);
+    addCompleteRun('complete-4', 4_000);
+    addCompleteRun('complete-5', 5_000);
+
+    const executions = readHistoricalHeadlineSoakExecutions(artifactRoot, 4, {
+      currentTimestampMs: 6_000,
+      lookbackHours: 24,
+      exists: (filePath) => files.has(filePath),
+      readFile: (filePath) => files.get(filePath),
+      readdir: (dirPath) => {
+        if (dirPath !== artifactRoot) return [];
+        return [...mtimeByDir.keys()].map((dirPathWithRoot) => ({
+          name: path.basename(dirPathWithRoot),
+          isDirectory: () => true,
+        }));
+      },
+      stat: (targetPath) => ({ mtimeMs: mtimeByDir.get(targetPath) ?? 0 }),
+    });
+
+    expect(executions.map((execution) => path.basename(execution.artifactDir))).toEqual([
+      'complete-1',
+      'complete-3',
+      'complete-4',
+      'complete-5',
+    ]);
   });
 
   it('handles empty suites and missing primary results', () => {

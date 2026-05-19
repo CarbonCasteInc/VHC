@@ -19,6 +19,7 @@ vi.mock('@vh/gun-client', () => ({
   readNewsHotIndex: readNewsHotIndexMock,
   readNewsLatestIndex: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock,
+  readNewsStoryWithRelayRestFallback: readNewsStoryMock,
   readNewsStoryline: readNewsStorylineMock,
 }));
 
@@ -520,6 +521,33 @@ describe('news store', () => {
     ]);
   });
 
+  it('ensureStory warms the signed latest index before retrying a cold direct story route', async () => {
+    const client = { id: 'client-cold-direct-story' };
+    const directStory = story({
+      story_id: 'story-cold-route',
+      topic_id: 'e'.repeat(64),
+      headline: 'Cold direct route headline',
+      cluster_window_end: 888,
+    });
+    readNewsStoryMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(directStory);
+    readNewsLatestIndexMock.mockResolvedValueOnce({ 'story-cold-route': 888 });
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await expect(store.getState().ensureStory('story-cold-route')).resolves.toBe(true);
+
+    expect(readNewsLatestIndexMock).toHaveBeenCalledWith(client);
+    expect(readNewsStoryMock.mock.calls.map(([, storyId]) => storyId)).toEqual([
+      'story-cold-route',
+      'story-cold-route',
+    ]);
+    expect(store.getState().latestIndex).toEqual({ 'story-cold-route': 888 });
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['story-cold-route']);
+  });
+
   it('ensureStory rejects empty ids and missing clients without mesh reads', async () => {
     const { createNewsStore } = await import('./index');
     const storeWithoutClient = createNewsStore({ resolveClient: () => null });
@@ -730,6 +758,33 @@ describe('news store', () => {
     expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().latestIndex).toEqual({ s1: 300, s2: 200 });
     expect(store.getState().hotIndex).toEqual({});
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest preserves the existing feed when a transient public index read is empty', async () => {
+    const client = { id: 'client-transient-empty-index' };
+    const existing = story({
+      story_id: 'story-existing-public',
+      headline: 'Existing public singleton',
+      cluster_window_end: 456,
+      created_at: 123,
+    });
+    readNewsLatestIndexMock.mockResolvedValue({});
+    readNewsHotIndexMock.mockResolvedValue({});
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+    store.getState().setStories([existing]);
+    store.getState().setLatestIndex({ [existing.story_id]: 456 });
+    store.getState().setHotIndex({ [existing.story_id]: 0.77 });
+
+    await store.getState().refreshLatest(10);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual([existing.story_id]);
+    expect(store.getState().latestIndex).toEqual({ [existing.story_id]: 456 });
+    expect(store.getState().hotIndex).toEqual({ [existing.story_id]: 0.77 });
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
   });

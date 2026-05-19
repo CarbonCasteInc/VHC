@@ -22,6 +22,8 @@ import {
   getAggregateVotersChain,
   hasForbiddenAggregatePayloadFields,
   readAggregates,
+  readAggregatesViaRelayRest,
+  readAggregatesWithRelayRestFallback,
   readAggregateVoterNode,
   readAggregateVoterRows,
   readPointAggregateSnapshot,
@@ -181,6 +183,22 @@ function createClientWithoutMap(reads: Map<string, unknown>, guard: TopologyGuar
 }
 
 const LUMA_VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+function withGunClientRuntimeConfig(config: Record<string, unknown>): () => void {
+  const target = globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> | undefined };
+  const previous = target.__VH_GUN_CLIENT_CONFIG__;
+  target.__VH_GUN_CLIENT_CONFIG__ = {
+    ...(previous ?? {}),
+    ...config,
+  };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_GUN_CLIENT_CONFIG__;
+      return;
+    }
+    target.__VH_GUN_CLIENT_CONFIG__ = previous;
+  };
+}
 
 async function createLumaAggregateVoterNode(
   overrides: Partial<AggregateVoterSignedPayload> = {},
@@ -670,7 +688,7 @@ describe('aggregateAdapters', () => {
       const mesh = createFakeMesh();
       mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const client = createClient(mesh, guard, ['wss://relay.example.test/gun']);
       const pair = await SEA.pair() as { pub: string; priv: string };
       (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
       const snapshot = {
@@ -704,7 +722,7 @@ describe('aggregateAdapters', () => {
 
       await expect(pending).resolves.toEqual(snapshot);
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://127.0.0.1:7777/vh/aggregates/point-snapshot',
+        'https://relay.example.test/vh/aggregates/point-snapshot',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -718,6 +736,117 @@ describe('aggregateAdapters', () => {
     } finally {
       vi.unstubAllGlobals();
       vi.useRealTimers();
+    }
+  });
+
+  it('writePointAggregateSnapshot mirrors acknowledged writes through the relay aggregate endpoint', async () => {
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['https://relay.example.test/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
+      const snapshot = {
+        schema_version: 'point-aggregate-snapshot-v1' as const,
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writePointAggregateSnapshot(client, snapshot)).resolves.toEqual(snapshot);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://relay.example.test/vh/aggregates/point-snapshot',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
+          body: JSON.stringify({ snapshot }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('writePointAggregateSnapshot uses the signed relay aggregate endpoint first when configured', async () => {
+    const restoreConfig = withGunClientRuntimeConfig({
+      VITE_VH_AGGREGATE_RELAY_REST_WRITE_FIRST: 'true',
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['https://relay.example.test/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
+      const snapshot = {
+        schema_version: 'point-aggregate-snapshot-v1' as const,
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writePointAggregateSnapshot(client, snapshot)).resolves.toEqual(snapshot);
+
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://relay.example.test/vh/aggregates/point-snapshot',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
+          body: JSON.stringify({ snapshot }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      restoreConfig();
+      vi.unstubAllGlobals();
     }
   });
 
@@ -928,6 +1057,115 @@ describe('aggregateAdapters', () => {
     }
   });
 
+  it('writeVoterNode mirrors acknowledged writes through the relay aggregate endpoint', async () => {
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
+      const node = {
+        point_id: 'point-1',
+        agreement: 1 as const,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          voter_id: 'voter-1',
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).resolves.toEqual(node);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/aggregates/voter',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
+          body: JSON.stringify({
+            topic_id: 'topic-1',
+            synthesis_id: 'synth-1',
+            epoch: 4,
+            voter_id: 'voter-1',
+            node,
+          }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('writeVoterNode uses the signed relay aggregate endpoint first when configured', async () => {
+    const restoreConfig = withGunClientRuntimeConfig({
+      VITE_VH_AGGREGATE_RELAY_REST_WRITE_FIRST: 'true',
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['wss://relay.example.test/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
+      const node = {
+        point_id: 'point-1',
+        agreement: 1 as const,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          voter_id: 'voter-1',
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).resolves.toEqual(node);
+
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://relay.example.test/vh/aggregates/voter',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
+          body: JSON.stringify({
+            topic_id: 'topic-1',
+            synthesis_id: 'synth-1',
+            epoch: 4,
+            voter_id: 'voter-1',
+            node,
+          }),
+          signal: expect.any(Object),
+        }),
+      );
+    } finally {
+      restoreConfig();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('writeVoterNode falls back to the relay aggregate endpoint when ack and readback time out', async () => {
     vi.useFakeTimers();
     try {
@@ -990,7 +1228,7 @@ describe('aggregateAdapters', () => {
       const mesh = createFakeMesh();
       mesh.setPutHang(`aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`);
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const client = createClient(mesh, guard, ['wss://relay.example.test/gun']);
       const pair = await SEA.pair() as { pub: string; priv: string };
       (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
       const node = await createLumaAggregateVoterNode();
@@ -1012,7 +1250,7 @@ describe('aggregateAdapters', () => {
 
       await expect(pending).resolves.toEqual(node);
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://127.0.0.1:7777/vh/aggregates/voter',
+        'https://relay.example.test/vh/aggregates/voter',
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
@@ -1775,6 +2013,125 @@ describe('aggregateAdapters', () => {
       weight: 5,
       participants: 5,
     });
+  });
+
+  it('readAggregatesViaRelayRest reads same-origin relay aggregate snapshots', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, ['wss://gun-a.example.test/gun']);
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        aggregate: {
+          point_id: 'pointA',
+          agree: 7,
+          disagree: 1,
+          weight: 8,
+          participants: 8,
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(readAggregatesViaRelayRest(client, 'topic-1', 'synth-1', 4, 'pointA'))
+        .resolves.toEqual({
+          point_id: 'pointA',
+          agree: 7,
+          disagree: 1,
+          weight: 8,
+          participants: 8,
+        });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://gun-a.example.test/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=4&point_id=pointA',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { accept: 'application/json' },
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readAggregatesWithRelayRestFallback prefers the more complete public relay read', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 1,
+      computed_at: 1,
+      source_window: { from_seq: 1, to_seq: 1 },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, ['wss://gun-a.example.test/gun']);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        aggregate: {
+          point_id: 'pointA',
+          agree: 7,
+          disagree: 0,
+          weight: 7,
+          participants: 7,
+        },
+      }),
+    })));
+    try {
+      await expect(readAggregatesWithRelayRestFallback(client, 'topic-1', 'synth-1', 4, 'pointA'))
+        .resolves.toEqual({
+          point_id: 'pointA',
+          agree: 7,
+          disagree: 0,
+          weight: 7,
+          participants: 7,
+        });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readAggregatesWithRelayRestFallback returns a non-zero relay aggregate without waiting for slow direct fan-in', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, ['wss://gun-a.example.test/gun']);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        aggregate: {
+          point_id: 'pointA',
+          agree: 9,
+          disagree: 0,
+          weight: 9,
+          participants: 9,
+        },
+      }),
+    })));
+    try {
+      const startedAt = Date.now();
+      await expect(readAggregatesWithRelayRestFallback(client, 'topic-1', 'synth-1', 4, 'pointA'))
+        .resolves.toEqual({
+          point_id: 'pointA',
+          agree: 9,
+          disagree: 0,
+          weight: 9,
+          participants: 9,
+        });
+      expect(Date.now() - startedAt).toBeLessThan(500);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('readAggregates fans-in voter sub-nodes and ignores neutral/invalid rows', async () => {

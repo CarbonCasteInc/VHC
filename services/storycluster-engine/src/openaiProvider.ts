@@ -18,6 +18,7 @@ const KEY_MAX_LENGTH = 160;
 const ENTITY_LIST_MAX_ITEMS = 24;
 const TRIGGER_LIST_MAX_ITEMS = 12;
 const PAYLOAD_PREVIEW_MAX_LENGTH = 400;
+const DEFAULT_CHUNK_CONCURRENCY = 3;
 
 interface PayloadSanitizationStats {
   sanitizedFieldCount: number;
@@ -32,6 +33,37 @@ function chunkBySize<T>(values: readonly T[], size: number): T[][] {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
+}
+function envPositiveInt(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+function resolveChunkConcurrency(): number {
+  return envPositiveInt('VH_STORYCLUSTER_OPENAI_CHUNK_CONCURRENCY') ?? DEFAULT_CHUNK_CONCURRENCY;
+}
+async function collectChunksWithConcurrency<TRequest, TResult>(
+  chunks: readonly TRequest[][],
+  worker: (chunk: readonly TRequest[]) => Promise<TResult[]>,
+  concurrency = resolveChunkConcurrency(),
+): Promise<TResult[]> {
+  if (chunks.length === 0) {
+    return [];
+  }
+  const limit = Math.max(1, Math.min(chunks.length, Math.floor(concurrency)));
+  const results: TResult[][] = new Array(chunks.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: limit }, async () => {
+    while (nextIndex < chunks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(chunks[index]!);
+    }
+  }));
+  return results.flat();
 }
 function trimSummary(summary: string): string {
   return summary.replace(/\s+/g, ' ').trim();
@@ -230,9 +262,8 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    const output: TranslationWorkResult[] = [];
-    for (const chunk of chunks) {
-      output.push(...await collectWithRetry(
+    return collectChunksWithConcurrency(chunks, (chunk) =>
+      collectWithRetry(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{ translations?: TranslationWorkResult[] }>({
@@ -253,39 +284,33 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
           doc_id: item.doc_id,
           translated_text: trimSummary(item.text),
         }),
-      ));
-    }
-    return output;
+      ),
+    );
   }
   async embed(items: EmbeddingWorkItem[], dimensions: number): Promise<EmbeddingWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
     const chunks = chunkBySize(items, 64);
-    const output: EmbeddingWorkResult[] = [];
-    for (const chunk of chunks) {
+    return collectChunksWithConcurrency(chunks, async (chunk) => {
       const vectors = await this.client.embed({
         model: this.embeddingModel,
         texts: chunk.map((item) => item.text),
         dimensions,
       });
-      chunk.forEach((item, index) => {
-        output.push({
+      return chunk.map((item, index) => ({
           item_id: item.item_id,
           vector: vectors[index] ?? [],
-        });
-      });
-    }
-    return output;
+      }));
+    });
   }
   async analyzeDocuments(items: DocumentAnalysisWorkItem[]): Promise<DocumentAnalysisWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
     const chunks = chunkBySize(items, 6);
-    const output: DocumentAnalysisWorkResult[] = [];
-    for (const chunk of chunks) {
-      output.push(...await collectWithRetry(
+    return collectChunksWithConcurrency(chunks, (chunk) =>
+      collectWithRetry(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{
@@ -324,18 +349,16 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         (item) => item.doc_id,
         (item) => item.doc_id,
         defaultAnalysisResult,
-      ));
-    }
-    return output;
+      ),
+    );
   }
   async rerankPairs(items: PairJudgementWorkItem[]): Promise<PairRerankWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    const output: PairRerankWorkResult[] = [];
-    for (const chunk of chunks) {
-      output.push(...await collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
+    return collectChunksWithConcurrency(chunks, (chunk) =>
+      collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{ reranks?: Array<{ pair_id: string; score: number }> }>({
@@ -356,18 +379,16 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
           pair_id: item.pair_id,
           score: 0,
         }),
-      ));
-    }
-    return output;
+      ),
+    );
   }
   async adjudicatePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    const output: PairJudgementWorkResult[] = [];
-    for (const chunk of chunks) {
-      output.push(...await collectWithRetry<PairJudgementWorkItem, PairJudgementWorkResult>(
+    return collectChunksWithConcurrency(chunks, (chunk) =>
+      collectWithRetry<PairJudgementWorkItem, PairJudgementWorkResult>(
         chunk,
         async (pending) => {
           const { sanitized, stats } = sanitizePairJudgementWorkItems(pending);
@@ -405,18 +426,16 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
           score: 0,
           decision: 'abstain' as const,
         }),
-      ));
-    }
-    return output;
+      ),
+    );
   }
   async summarize(items: SummaryWorkItem[]): Promise<SummaryWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
     const chunks = chunkBySize(items, 6);
-    const output: SummaryWorkResult[] = [];
-    for (const chunk of chunks) {
-      output.push(...await collectWithRetry(
+    return collectChunksWithConcurrency(chunks, (chunk) =>
+      collectWithRetry(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{ summaries?: SummaryWorkResult[] }>({
@@ -437,9 +456,8 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
           cluster_id: item.cluster_id,
           summary: ensureSentence(trimSummary(item.source_summaries[0] ?? item.headline)),
         }),
-      ));
-    }
-    return output;
+      ),
+    );
   }
 }
 function envTimeoutMs(name: string): number | undefined {

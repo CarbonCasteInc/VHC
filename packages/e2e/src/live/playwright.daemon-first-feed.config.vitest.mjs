@@ -113,6 +113,31 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(sourceIds).toEqual(['guardian-us', 'latimes-california', 'ap-politics']);
   });
 
+  it('disables browser feed bridges by default for isolated daemon-first evidence', async () => {
+    const config = await loadConfig('run-bridge-default-check', {
+      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_SYNTHESIS_BRIDGE_ENABLED: 'true',
+      VITE_LINKED_SOCIAL_ENABLED: 'true',
+      VH_DAEMON_FEED_BRIDGES_ENABLED: '',
+    });
+    const appServer = config.webServer.at(-1);
+
+    expect(appServer.env.VITE_NEWS_BRIDGE_ENABLED).toBe('false');
+    expect(appServer.env.VITE_SYNTHESIS_BRIDGE_ENABLED).toBe('false');
+    expect(appServer.env.VITE_LINKED_SOCIAL_ENABLED).toBe('false');
+  });
+
+  it('allows daemon-first bridge diagnostics to opt in explicitly', async () => {
+    const config = await loadConfig('run-bridge-opt-in-check', {
+      VH_DAEMON_FEED_BRIDGES_ENABLED: 'true',
+    });
+    const appServer = config.webServer.at(-1);
+
+    expect(appServer.env.VITE_NEWS_BRIDGE_ENABLED).toBe('true');
+    expect(appServer.env.VITE_SYNTHESIS_BRIDGE_ENABLED).toBe('true');
+    expect(appServer.env.VITE_LINKED_SOCIAL_ENABLED).toBe('true');
+  });
+
   it('passes the E2E system-writer public pin override to the web app only', async () => {
     const config = await loadConfig('run-system-writer-pin-check');
     const entries = config.webServer;

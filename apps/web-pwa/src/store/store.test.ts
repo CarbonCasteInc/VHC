@@ -15,6 +15,7 @@ import * as storeModule from './index';
 const mockWrite = vi.fn();
 const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), markReady: vi.fn(), ready: true };
 const mockPublishDirectory = vi.fn();
+const mockBootstrapFeedBridges = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
 
@@ -62,6 +63,10 @@ vi.mock('./synthesis/commentRuntime', () => ({
   bootstrapSynthesisCommentRuntime: vi.fn(),
 }));
 
+vi.mock('./feedBridge', () => ({
+  bootstrapFeedBridges: (...args: unknown[]) => mockBootstrapFeedBridges(...args),
+}));
+
 class MemoryStorage {
   #store = new Map<string, string>();
   getItem(key: string) {
@@ -82,6 +87,7 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   (globalThis as any).localStorage = new MemoryStorage();
   delete (globalThis as any).__VH_GUN_PEERS__;
+  delete (globalThis as any).__VH_DISABLE_FEED_BRIDGES__;
   vi.unstubAllEnvs();
   vaultStore = null;
   mockWrite.mockReset();
@@ -90,6 +96,7 @@ beforeEach(() => {
   mockHydration.markReady.mockClear();
   mockHydration.ready = true;
   mockPublishDirectory.mockReset();
+  mockBootstrapFeedBridges.mockReset();
   mockGunAuth.mockClear();
   mockGunUser.is = null;
   (createClient as unknown as Mock).mockClear();
@@ -223,6 +230,23 @@ describe('useAppStore', () => {
     expect(state.client).toBeTruthy();
     expect(mockHydration.prepare).toHaveBeenCalled();
     expect(state.identityStatus === 'idle' || state.identityStatus === 'ready').toBe(true);
+  });
+
+  it('init suppresses browser feed bridges when daemon-first audits set the bridge kill switch', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
+    (globalThis as any).__VH_DISABLE_FEED_BRIDGES__ = true;
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
+  });
+
+  it('init still starts browser feed bridges when enabled outside daemon-first isolation', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
   });
 
   it('marks the hydration barrier ready when init continues after timeout', async () => {

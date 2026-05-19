@@ -156,6 +156,148 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
     });
   });
 
+  it('treats public singleton-only supply as valid non-pair evidence without diluting fixture gates', async () => {
+    const {
+      assessDaemonFirstFeedSemanticAuditGate,
+      buildDaemonFeedSemanticAuditReport,
+      summarizeSemanticAuditSupply,
+    } = await import('./daemonFirstFeedSemanticAudit');
+    const singletonOnlySupply = summarizeSemanticAuditSupply(
+      3,
+      [],
+      makeSnapshot({ story_count: 4, auditable_count: 0 }),
+      { candidateCount: 0, excludedLocalOnlyCount: 0, totalAuditableCount: 0 },
+    );
+
+    expect(singletonOnlySupply).toMatchObject({
+      status: 'singleton_only',
+      story_count: 4,
+      auditable_count: 0,
+      sample_fill_rate: 1,
+      sample_shortfall: 0,
+      effective_sample_count: 0,
+      requested_sample_fill_rate: 0,
+      release_candidate_count: 0,
+    });
+    const singletonOnlyReport = buildDaemonFeedSemanticAuditReport(
+      3,
+      [],
+      0,
+      0,
+      singletonOnlySupply,
+    );
+    expect(singletonOnlyReport).toMatchObject({
+      requested_sample_count: 3,
+      effective_sample_count: 0,
+      sampled_story_count: 0,
+      supply: { status: 'singleton_only' },
+      overall: {
+        audited_pair_count: 0,
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
+        requested_sample_fill_rate: 0,
+        pass: true,
+      },
+    });
+    expect(assessDaemonFirstFeedSemanticAuditGate(singletonOnlyReport)).toEqual({
+      pass: true,
+      posture: 'singleton_only',
+      blockingReasons: [],
+    });
+
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
+    const fixtureSupply = summarizeSemanticAuditSupply(
+      3,
+      [],
+      makeSnapshot({ story_count: 4, auditable_count: 0 }),
+      { candidateCount: 0, excludedLocalOnlyCount: 0, totalAuditableCount: 0 },
+    );
+    expect(fixtureSupply).toMatchObject({
+      status: 'empty',
+      sample_fill_rate: 0,
+      sample_shortfall: 3,
+    });
+  });
+
+  it('keeps the live semantic gate strict when non-singleton supply lacks auditable pairs', async () => {
+    const {
+      assessDaemonFirstFeedSemanticAuditGate,
+      buildDaemonFeedSemanticAuditReport,
+      summarizeSemanticAuditSupply,
+    } = await import('./daemonFirstFeedSemanticAudit');
+    const sampledBundles = [makeBundle('story-1')];
+    const partialSupply = summarizeSemanticAuditSupply(
+      3,
+      sampledBundles,
+      makeSnapshot({ auditable_count: 1 }),
+      { candidateCount: 1, excludedLocalOnlyCount: 0, totalAuditableCount: 1 },
+    );
+    const reportWithoutAuditedPairs = buildDaemonFeedSemanticAuditReport(
+      3,
+      [{
+        story_id: 'story-1',
+        topic_id: 'topic-story-1',
+        headline: 'Headline story-1',
+        canonical_source_count: 2,
+        secondary_asset_count: 0,
+        canonical_sources: sampledBundles[0].sources,
+        pairs: [],
+        has_related_topic_only_pair: false,
+      }],
+      0,
+      0,
+      partialSupply,
+    );
+
+    expect(assessDaemonFirstFeedSemanticAuditGate(reportWithoutAuditedPairs)).toEqual({
+      pass: false,
+      posture: 'auditable_bundle',
+      blockingReasons: [
+        'semantic_audit_overall_failed',
+        'audited_pair_evidence_missing',
+      ],
+    });
+  });
+
+  it('requires a daemon StoryCluster capture artifact for release-shaped semantic evidence', async () => {
+    const { assessDaemonFeedClusterCaptureEvidence } = await import('./daemonFirstFeedSemanticAudit');
+
+    expect(assessDaemonFeedClusterCaptureEvidence(null)).toEqual({
+      pass: false,
+      blockingReasons: [
+        'daemon_cluster_capture_schema_invalid',
+        'daemon_cluster_capture_tick_missing',
+        'daemon_cluster_capture_normalized_items_missing',
+        'daemon_cluster_capture_topic_captures_missing',
+        'daemon_cluster_capture_bundles_missing',
+      ],
+      tickCount: 0,
+      normalizedItemCount: 0,
+      topicCaptureCount: 0,
+      bundleCount: 0,
+    });
+
+    expect(assessDaemonFeedClusterCaptureEvidence({
+      schemaVersion: 'daemon-feed-cluster-capture-v1',
+      ticks: [{
+        normalizedItems: [{ sourceId: 'source-a' }],
+        topicCaptures: [{
+          topicId: 'topic-news',
+          result: {
+            bundles: [{ story_id: 'story-a', sources: [{ source_id: 'source-a' }] }],
+          },
+        }],
+      }],
+    })).toEqual({
+      pass: true,
+      blockingReasons: [],
+      tickCount: 1,
+      normalizedItemCount: 1,
+      topicCaptureCount: 1,
+      bundleCount: 1,
+    });
+  });
+
   it('surfaces article-text HTTP failures, missing text, and timeouts', async () => {
     const { fetchArticlePayload } = await import('./daemonFirstFeedSemanticAudit');
 
@@ -257,9 +399,9 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
     expect(report).toMatchObject({
       sampled_story_count: 1,
       supply: {
-        status: 'partial',
-        sample_fill_rate: 0.5,
-        sample_shortfall: 1,
+        status: 'full',
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
       },
       overall: {
         audited_pair_count: 0,

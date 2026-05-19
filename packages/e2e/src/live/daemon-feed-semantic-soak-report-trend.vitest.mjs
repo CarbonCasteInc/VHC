@@ -475,6 +475,9 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         promotableAverageUniqueSourceCount: 6,
         promotableMaxUniqueSourceCount: 6,
         promotableRunCount: 1,
+        releaseAverageCorroboratedBundleRate: 0.8,
+        corroborationEvidenceExecutionCount: 1,
+        singletonOnlyPromotableExecutionCount: 0,
         averageRepeatedStoryCount: 2,
       },
       releaseEvidence: {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildEventTuple,
   classifyDocumentType,
+  deriveEventAnchorEntities,
   documentTypeWeight,
   extractEntities,
   extractLocations,
@@ -143,6 +144,15 @@ describe('contentSignals', () => {
     expect(
       extractTrigger('Osaka officials review the regional earthquake exercise'),
     ).toBe('exercise');
+    expect(
+      extractTrigger('U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda'),
+    ).toBe('outbreak');
+    expect(
+      extractTrigger('Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda'),
+    ).toBe('outbreak');
+    expect(
+      extractTrigger('Father-of-8 security guard hailed as hero in San Diego mosque shooting'),
+    ).toBe('shooting');
     expect(triggerCategory('tells')).toBe('diplomacy');
     expect(triggerCategory('troops')).toBe('military_posture');
     expect(triggerCategory('drill')).toBe('preparedness');
@@ -171,6 +181,66 @@ describe('contentSignals', () => {
       'Iran war: How Kharg Island, Red Sea are shaping U.S. conflict in the Gulf. Axios reported that Trump had long considered attacking or seizing Kharg Island because it could be an economic knockout to Iran.',
     )).toBe('seizing');
     expect(extractTrigger('Dezi Freeman shot dead by police after seven-month manhunt')).toBe('shot');
+  });
+
+  it('extracts specific public-live event anchors for same-event follow-up coverage', () => {
+    expect(
+      deriveEventAnchorEntities('California mosque shooting leaves 5 dead. San Diego authorities are investigating a deadly shooting at a mosque as a hate crime.'),
+    ).toEqual(expect.arrayContaining(['mosque_shooting', 'san_diego', 'san_diego_mosque_shooting']));
+    expect(
+      deriveEventAnchorEntities('U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda'),
+    ).toEqual(expect.arrayContaining([
+      'congo_uganda_ebola_outbreak',
+      'ebola_outbreak',
+      'ebola_travel_restrictions',
+      'travel_restrictions',
+      'us_ebola_travel_restrictions',
+    ]));
+    expect(
+      deriveEventAnchorEntities('American who contracted Ebola in DR Congo evacuated for treatment'),
+    ).toEqual(expect.arrayContaining(['american_ebola_evacuation', 'dr_congo', 'ebola_outbreak']));
+    expect(
+      deriveEventAnchorEntities('Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda'),
+    ).toEqual(expect.arrayContaining([
+      'congo_uganda_ebola_outbreak',
+      'ebola_outbreak',
+      'singapore_ebola_health_measures',
+    ]));
+    expect(
+      deriveEventAnchorEntities('Supreme Court sends closely watched Native American voting rights decision back to lower court'),
+    ).toEqual(expect.arrayContaining([
+      'native_american_voting_rights',
+      'supreme_court',
+      'voting_rights',
+    ]));
+    expect(
+      deriveEventAnchorEntities('Court to hear sex discrimination case next term before the Supreme Court'),
+    ).toEqual(expect.arrayContaining([
+      'sex_discrimination',
+      'sex_discrimination_case',
+      'supreme_court',
+    ]));
+    expect(
+      deriveEventAnchorEntities('Grid failure leaves capital neighborhoods without power for second night'),
+    ).toEqual(expect.arrayContaining(['capital_blackout']));
+    expect(
+      deriveEventAnchorEntities('Emergency Geneva talks begin after overnight missile strike hits fuel depots'),
+    ).toEqual(expect.arrayContaining(['geneva_missile_strike_talks']));
+    expect(
+      deriveEventAnchorEntities('Dockworkers extend strike as cargo backlog grows at Atlantic ports'),
+    ).toEqual(expect.arrayContaining(['atlantic_port_strike']));
+    expect(
+      deriveEventAnchorEntities('Cyberattack forces city hospital network to divert ambulances overnight'),
+    ).toEqual(expect.arrayContaining(['hospital_ransomware_attack']));
+    expect(
+      deriveEventAnchorEntities('Brothers convicted in luxury condo fraud trial after six-week case'),
+    ).toEqual(expect.arrayContaining(['luxury_fraud_verdict']));
+    expect(
+      deriveEventAnchorEntities('City hall attack injures mayor and top aide before budget vote'),
+    ).toEqual(expect.arrayContaining(['city_hall_mayor_attack']));
+    expect(
+      deriveEventAnchorEntities('Staffing shortage leads to two-hour TSA lines at major US airports'),
+    ).toEqual(expect.arrayContaining(['tsa_staffing_shortage']));
   });
 
   it('returns no trigger candidates for empty normalized text', () => {

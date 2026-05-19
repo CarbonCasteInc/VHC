@@ -11,7 +11,8 @@ import {
   getForumDateIndexChain,
   getForumLatestCommentModerationsChain,
   getForumTagIndexChain,
-  getForumThreadChain
+  getForumThreadChain,
+  resolveRelayRestEndpointFromPeer
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
 import { useXpLedger } from '../xpLedger';
@@ -22,7 +23,7 @@ import {
   ensureIdentity, ensureClient, stripUndefined, serializeThreadForGun, isCommentSeen,
   markCommentSeen, addThread, addComment, adjustVoteCounts, findCommentThread,
   setCommentModerationState, getCommentModerationState, visibleCommentsForThread, parseThreadFromGun,
-  THREAD_JSON_FIELD
+  serializeGunScalarValue, parseJsonObjectScalar, THREAD_JSON_FIELD
 } from './helpers';
 import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
@@ -56,6 +57,7 @@ const COMMENT_DURABILITY_READBACK_POLL_MS = 500;
 const COMMENT_DURABILITY_WRITE_ATTEMPTS = 3;
 const COMMENT_DURABILITY_ATTEMPT_MIN_TIMEOUT_MS = 8_000;
 const COMMENT_DURABILITY_ATTEMPT_TIMEOUT_MS = 25_000;
+const COMMENT_RELAY_FALLBACK_TIMEOUT_MS = 10_000;
 const THREAD_PUT_ACK_TIMEOUT_MS = 5_000;
 const THREAD_FIELD_PUT_ACK_TIMEOUT_MS = 750;
 const THREAD_FAST_READ_TIMEOUT_MS = 500;
@@ -185,12 +187,11 @@ function putWithBoundedAck<T>(
       }
       resolve('ack');
     });
+    startTimer();
 
     if (putResult instanceof Promise) {
       putResult.then(
-        () => {
-          startTimer();
-        },
+        () => undefined,
         (error: unknown) => {
           if (settled) {
             return;
@@ -200,8 +201,6 @@ function putWithBoundedAck<T>(
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       );
-    } else {
-      startTimer();
     }
   });
 }
@@ -243,6 +242,23 @@ function withTimeout<T>(
       }
     );
   });
+}
+
+function relayFallbackSignal(): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(COMMENT_RELAY_FALLBACK_TIMEOUT_MS)
+    : undefined;
+}
+
+function unwrapCommentWriteError(error: unknown): unknown {
+  const maybeAggregate = error as { errors?: unknown[] } | null;
+  if (!maybeAggregate || !Array.isArray(maybeAggregate.errors)) {
+    return error;
+  }
+  return maybeAggregate.errors.find((entry) => {
+    const message = entry instanceof Error ? entry.message : String(entry);
+    return !message.startsWith('comment-relay-fallback-declined:');
+  }) ?? maybeAggregate.errors[0] ?? error;
 }
 
 function shouldConfirmCommentDurability(): boolean {
@@ -309,8 +325,12 @@ async function putScalarFieldsWithBoundedAck(
 ): Promise<void> {
   await Promise.all(
     Object.entries(cleanComment).map(async ([key, value]) => {
+      const serialized = serializeGunScalarValue(value);
+      if (serialized === undefined) {
+        return;
+      }
       const fieldNode = commentNode.get(key);
-      await putWithBoundedAck(fieldNode, value, COMMENT_FIELD_PUT_ACK_TIMEOUT_MS);
+      await putWithBoundedAck(fieldNode, serialized, COMMENT_FIELD_PUT_ACK_TIMEOUT_MS);
     })
   );
 }
@@ -322,12 +342,26 @@ async function putRecordScalarFieldsWithBoundedAck(
 ): Promise<void> {
   await Promise.all(
     Object.entries(record).map(async ([key, value]) => {
-      if (value === undefined) {
+      const serialized = serializeGunScalarValue(value);
+      if (serialized === undefined) {
         return;
       }
-      await putWithBoundedAck(node.get(key), value, timeoutMs);
+      await putWithBoundedAck(node.get(key), serialized, timeoutMs);
     })
   );
+}
+
+function serializeCommentForGun(comment: HermesComment): Record<string, unknown> {
+  const clean = stripUndefined(comment);
+  const serialized = Object.fromEntries(
+    Object.entries(clean)
+      .map(([key, value]) => [key, serializeGunScalarValue(value)] as const)
+      .filter(([, value]) => value !== undefined)
+  );
+  return {
+    ...serialized,
+    [COMMENT_JSON_FIELD]: JSON.stringify(clean),
+  };
 }
 
 function parseCommentIndex(data: unknown, threadId: string): string[] {
@@ -523,13 +557,7 @@ function resolveRelayForumThreadEndpoint(client: ForumClient): string | null {
   if (!peer || typeof fetch !== 'function') {
     return null;
   }
-  try {
-    const base = typeof window !== 'undefined' ? window.location.href : 'http://127.0.0.1/';
-    const url = new URL(peer, base);
-    return `${url.origin}/vh/forum/thread`;
-  } catch {
-    return null;
-  }
+  return resolveRelayRestEndpointFromPeer(peer, '/vh/forum/thread');
 }
 
 function resolveRelayForumCommentEndpoint(client: ForumClient): string | null {
@@ -537,12 +565,113 @@ function resolveRelayForumCommentEndpoint(client: ForumClient): string | null {
   if (!peer || typeof fetch !== 'function') {
     return null;
   }
-  try {
-    const base = typeof window !== 'undefined' ? window.location.href : 'http://127.0.0.1/';
-    const url = new URL(peer, base);
-    return `${url.origin}/vh/forum/comment`;
-  } catch {
+  return resolveRelayRestEndpointFromPeer(peer, '/vh/forum/comment');
+}
+
+function resolveRelayForumCommentsEndpoint(client: ForumClient): string | null {
+  const peer = client.config?.peers?.[0];
+  if (!peer || typeof fetch !== 'function') {
     return null;
+  }
+  return resolveRelayRestEndpointFromPeer(peer, '/vh/forum/comments');
+}
+
+async function readThreadViaRelayFallback(
+  client: ForumClient,
+  threadId: string
+): Promise<HermesThread | null> {
+  const endpoint = resolveRelayForumThreadEndpoint(client);
+  if (!endpoint) {
+    return null;
+  }
+  try {
+    const url = new URL(endpoint);
+    url.searchParams.set('thread_id', threadId);
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      signal: relayFallbackSignal(),
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json().catch(() => null) as {
+      ok?: unknown;
+      thread_id?: unknown;
+      thread?: unknown;
+    } | null;
+    if (payload?.ok !== true || payload.thread_id !== threadId) {
+      return null;
+    }
+    return parseThreadSnapshot(payload.thread, threadId);
+  } catch (error) {
+    console.warn('[vh:forum] Relay thread read fallback failed:', {
+      thread_id: threadId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+
+function parseRelayComment(value: unknown, threadId: string): HermesComment | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const obj = value as Record<string, unknown>;
+  const envelopeComment = parseCommentEnvelope(obj[COMMENT_JSON_FIELD], threadId);
+  if (envelopeComment) {
+    return envelopeComment;
+  }
+
+  const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
+  const result = HermesCommentSchema.safeParse({
+    ...cleanObj,
+    signedWriteEnvelope: parseJsonObjectScalar(cleanObj.signedWriteEnvelope),
+  });
+  if (!result.success) {
+    return null;
+  }
+  const normalized = migrateCommentToV1(result.data as HermesCommentHydratable);
+  return normalized.threadId === threadId ? normalized : null;
+}
+
+async function readCommentsViaRelayFallback(
+  client: ForumClient,
+  threadId: string
+): Promise<HermesComment[]> {
+  const endpoint = resolveRelayForumCommentsEndpoint(client);
+  if (!endpoint) {
+    return [];
+  }
+  try {
+    const url = new URL(endpoint);
+    url.searchParams.set('thread_id', threadId);
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      signal: relayFallbackSignal(),
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) {
+      return [];
+    }
+    const payload = await response.json().catch(() => null) as {
+      ok?: unknown;
+      thread_id?: unknown;
+      comments?: unknown;
+    } | null;
+    if (payload?.ok !== true || payload.thread_id !== threadId || !Array.isArray(payload.comments)) {
+      return [];
+    }
+    return payload.comments
+      .map((comment) => parseRelayComment(comment, threadId))
+      .filter((comment): comment is HermesComment => Boolean(comment))
+      .sort((a, b) => a.timestamp - b.timestamp);
+  } catch (error) {
+    console.warn('[vh:forum] Relay comment read fallback failed:', {
+      thread_id: threadId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return [];
   }
 }
 
@@ -558,6 +687,7 @@ async function writeThreadViaRelayFallback(
     const body = { thread: threadForGun };
     const response = await fetch(endpoint, {
       method: 'POST',
+      signal: relayFallbackSignal(),
       headers: {
         'content-type': 'application/json',
         ...await createRelayUserSignatureHeaders('/vh/forum/thread', body, getFullIdentity<IdentityRecord>()?.devicePair),
@@ -590,6 +720,7 @@ async function writeCommentViaRelayFallback(
     const body = { comment };
     const response = await fetch(endpoint, {
       method: 'POST',
+      signal: relayFallbackSignal(),
       headers: {
         'content-type': 'application/json',
         ...await createRelayUserSignatureHeaders('/vh/forum/comment', body, getFullIdentity<IdentityRecord>()?.devicePair),
@@ -814,7 +945,12 @@ async function writeCommentToGun(
   cleanComment: HermesComment
 ): Promise<void> {
   const commentNode = getForumCommentsChain(client, threadId).get(cleanComment.id);
-  const result = await putWithBoundedAck(commentNode, cleanComment, COMMENT_PUT_ACK_TIMEOUT_MS);
+  const commentForGun = serializeCommentForGun(cleanComment);
+  const result = await putWithBoundedAck(
+    commentNode as unknown as PutChain<Record<string, unknown>>,
+    commentForGun,
+    COMMENT_PUT_ACK_TIMEOUT_MS
+  );
   await putCommentEnvelopeWithBoundedAck(commentNode, cleanComment);
   if (result === 'ack') {
     console.info('[vh:forum] Comment written successfully to path: vh/forum/threads/' + threadId + '/comments/' + cleanComment.id);
@@ -822,7 +958,7 @@ async function writeCommentToGun(
   }
 
   console.warn('[vh:forum] Comment write ack timed out; retrying scalar field projection:', cleanComment.id);
-  await putScalarFieldsWithBoundedAck(commentNode, cleanComment as unknown as Record<string, unknown>);
+  await putScalarFieldsWithBoundedAck(commentNode, commentForGun);
   console.info('[vh:forum] Comment field projection completed for path: vh/forum/threads/' + threadId + '/comments/' + cleanComment.id);
 }
 
@@ -938,7 +1074,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     const resolvedKey = key ?? (typeof obj.id === 'string' ? obj.id : undefined);
     if (!resolvedKey) return false;
     const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
-    const result = HermesCommentSchema.safeParse(cleanObj);
+    const result = HermesCommentSchema.safeParse({
+      ...cleanObj,
+      signedWriteEnvelope: parseJsonObjectScalar(cleanObj.signedWriteEnvelope),
+    });
     if (result.success) {
       const normalized = migrateCommentToV1(result.data as HermesCommentHydratable);
       if (normalized.threadId !== threadId) {
@@ -1018,6 +1157,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       upvotes: fields.upvotes ?? 0,
       downvotes: fields.downvotes ?? 0,
       signedWriteEnvelope: fields.signedWriteEnvelope
+        ? parseJsonObjectScalar(fields.signedWriteEnvelope)
+        : fields.signedWriteEnvelope
     });
     return ingestComment(threadId, assembled, commentId);
   };
@@ -1187,28 +1328,41 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= COMMENT_DURABILITY_WRITE_ATTEMPTS; attempt += 1) {
+      const gunAttempt = withTimeout(
+        (async () => {
+          await writeCommentToGun(client, threadId, cleanComment);
+          await updateCommentIndex(client, threadId, cleanComment.id);
+          await waitForDurableCommentReadback(client, threadId, cleanComment.id);
+        })(),
+        commentDurabilityAttemptTimeoutMs(deps.commentDurabilityTimeoutMs),
+        `comment-write-attempt-timeout:${threadId}:${cleanComment.id}`
+      ).then(() => 'gun' as const);
+      const relayAttempt = writeCommentViaRelayFallback(client, cleanComment).then((confirmed) => {
+        if (!confirmed) {
+          throw new Error(`comment-relay-fallback-declined:${threadId}:${cleanComment.id}`);
+        }
+        return 'relay' as const;
+      });
       try {
-        await withTimeout(
-          (async () => {
-            await writeCommentToGun(client, threadId, cleanComment);
-            await updateCommentIndex(client, threadId, cleanComment.id);
-            await waitForDurableCommentReadback(client, threadId, cleanComment.id);
-          })(),
-          commentDurabilityAttemptTimeoutMs(deps.commentDurabilityTimeoutMs),
-          `comment-write-attempt-timeout:${threadId}:${cleanComment.id}`
-        );
-        return;
-      } catch (error) {
-        lastError = error;
-        if (await writeCommentViaRelayFallback(client, cleanComment)) {
+        const outcome = await Promise.any([gunAttempt, relayAttempt]);
+        if (outcome === 'relay') {
+          void gunAttempt.catch((error) => {
+            console.warn('[vh:forum] Comment Gun write settled after relay confirmation:', {
+              thread_id: threadId,
+              comment_id: cleanComment.id,
+              attempt,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
           console.warn('[vh:forum] Comment write confirmed by relay fallback:', {
             thread_id: threadId,
             comment_id: cleanComment.id,
-            attempt,
-            error: error instanceof Error ? error.message : String(error)
+            attempt
           });
-          return;
         }
+        return;
+      } catch (error) {
+        lastError = unwrapCommentWriteError(error);
         if (attempt >= COMMENT_DURABILITY_WRITE_ATTEMPTS) {
           break;
         }
@@ -1489,11 +1643,12 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         getForumThreadChain(client, normalizedThreadId) as unknown as ReadChain,
         normalizedThreadId
       );
-      if (!thread) {
+      const resolvedThread = thread ?? await readThreadViaRelayFallback(client, normalizedThreadId);
+      if (!resolvedThread) {
         return null;
       }
-      set((state) => addThread(state, thread));
-      return thread;
+      set((state) => addThread(state, resolvedThread));
+      return resolvedThread;
     },
     async loadThreads(sort) {
       triggerHydration();
@@ -1594,6 +1749,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         await hydrateIndexedCommentSnapshots(normalizedThreadId, commentsChain, scalarIndexIds);
         const entryIndexIds = await readCommentIndexEntrySnapshot(commentIndexEntriesChain as ReadChain, normalizedThreadId);
         await hydrateIndexedCommentSnapshots(normalizedThreadId, commentsChain, entryIndexIds);
+        const relayComments = await readCommentsViaRelayFallback(client, normalizedThreadId);
+        relayComments.forEach((comment) => ingestComment(normalizedThreadId, comment, comment.id));
         commentIndexEntriesChain.map?.()?.once?.((data: unknown, key?: string) =>
           hydrateCommentIndexEntry(normalizedThreadId, commentsChain, data, key)
         );

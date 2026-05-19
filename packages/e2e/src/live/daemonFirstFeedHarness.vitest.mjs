@@ -60,10 +60,10 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     expect(daemonFirstFeedHarnessInternal.resolveNewsFeedMaxItemsTotal()).toBe('21');
   });
 
-  it('defaults auditable-bundle waiting to fixture-only unless explicitly overridden', () => {
+  it('defaults auditable-bundle waiting off unless explicitly overridden', () => {
     vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'true');
     vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '');
-    expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(1);
+    expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(0);
 
     vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
     vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '');
@@ -106,6 +106,21 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_NEWS_DAEMON_GUN_RADISK', 'true');
 
     expect(daemonFirstFeedHarnessInternal.resolveNewsDaemonGunRadisk()).toBe('true');
+  });
+
+  it('keeps daemon-first semantic audits isolated from browser feed bridges by default', () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
+    vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'true');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'true');
+    vi.stubEnv('VH_DAEMON_FEED_BRIDGES_ENABLED', '');
+
+    expect(daemonFirstFeedHarnessInternal.resolveDaemonFeedBridgeEnabled()).toBe('false');
+  });
+
+  it('allows targeted daemon-first bridge diagnostics to opt in explicitly', () => {
+    vi.stubEnv('VH_DAEMON_FEED_BRIDGES_ENABLED', 'true');
+
+    expect(daemonFirstFeedHarnessInternal.resolveDaemonFeedBridgeEnabled()).toBe('true');
   });
 
   it('defaults the soak storycluster remote timeout to 300000ms', () => {

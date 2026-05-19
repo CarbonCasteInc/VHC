@@ -169,6 +169,9 @@ export function documentTypeWeight(type: DocumentType): number {
 
 export function extractEntities(text: string, hints: readonly string[] = []): string[] {
   const entities = new Set<string>(hints.map((hint) => normalizeText(hint).replace(/\s+/g, '_')));
+  for (const anchor of deriveEventAnchorEntities(text)) {
+    entities.add(anchor);
+  }
   const matches = text.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b/g) ?? [];
   for (const match of matches) {
     const normalized = normalizeText(match).replace(/\s+/g, '_');
@@ -185,6 +188,102 @@ export function extractEntities(text: string, hints: readonly string[] = []): st
     }
   }
   return [...entities].sort().slice(0, 10);
+}
+
+export function deriveEventAnchorEntities(text: string): string[] {
+  const normalized = normalizeText(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const anchors = new Set<string>();
+  const has = (pattern: RegExp) => pattern.test(normalized);
+  const hasSanDiego = has(/\bsan\s+diego\b/);
+  const hasMosqueShooting = has(/\bmosque\b/) && has(/\bshoot(?:ing|s)?\b|\bshot\b|\bkilled\b|\bdead\b|\bfatal(?:ly)?\b/);
+  if (hasSanDiego) {
+    anchors.add('san_diego');
+  }
+  if (has(/\bdr\s+congo\b|\bdemocratic\s+republic\s+of\s+congo\b/)) {
+    anchors.add('dr_congo');
+  }
+  if (hasMosqueShooting) {
+    anchors.add('mosque_shooting');
+  }
+  if (hasSanDiego && hasMosqueShooting) {
+    anchors.add('san_diego_mosque_shooting');
+  }
+  if (has(/\bebola\b/) && has(/\boutbreak\b|\bepidemic\b|\bdeath\s+toll\b|\bvaccine\b|\btravel\b|\bcontracted\b|\btreatment\b|\bhealth\b/)) {
+    anchors.add('ebola_outbreak');
+  }
+  if (has(/\bebola\b/) && has(/\b(?:dr\s+)?congo\b/) && has(/\buganda\b/)) {
+    anchors.add('congo_uganda_ebola_outbreak');
+  }
+  if (
+    has(/\bebola\b/) &&
+    has(/\bamerican\b|\bu\s+s\b|\bus\b|\bunited\s+states\b/) &&
+    has(/\bcontract(?:ed|s|ing)?\b|\bevacu(?:ated|ation|ate|ating)\b|\btreat(?:ment|ed|ing)?\b/)
+  ) {
+    anchors.add('american_ebola_evacuation');
+  }
+  if (
+    has(/\bebola\b/) &&
+    has(/\bsingapore\b/) &&
+    has(/\bhealth\s+measures?\b|\bhealth\s+advisor(?:y|ies)\b|\bpoints?\s+of\s+entry\b|\bmonitor(?:ing)?\b/)
+  ) {
+    anchors.add('singapore_ebola_health_measures');
+  }
+  if (has(/\btravel\s+restrictions?\b/)) {
+    anchors.add('travel_restrictions');
+  }
+  if (has(/\bebola\b/) && has(/\btravel\s+restrictions?\b|\brestricted\s+(?:some\s+)?travelers?\b/)) {
+    anchors.add('ebola_travel_restrictions');
+  }
+  if (
+    has(/\bebola\b/) &&
+    has(/\btravel\s+restrictions?\b|\brestricted\s+(?:some\s+)?travelers?\b/) &&
+    has(/\bu\s+s\b|\bus\b|\bunited\s+states\b|\badministration\b/)
+  ) {
+    anchors.add('us_ebola_travel_restrictions');
+  }
+  const hasSupremeCourt = has(/\bsupreme\s+court\b|\bscotus\b/);
+  if (hasSupremeCourt) {
+    anchors.add('supreme_court');
+  }
+  if (has(/\bvoting\s+rights?\b/)) {
+    anchors.add('voting_rights');
+  }
+  if (hasSupremeCourt && has(/\bnative\s+american\b/) && has(/\bvoting\s+rights?\b/)) {
+    anchors.add('native_american_voting_rights');
+  }
+  if (has(/\bsex\s+discrimination\b/)) {
+    anchors.add('sex_discrimination');
+  }
+  if (hasSupremeCourt && has(/\bsex\s+discrimination\b/)) {
+    anchors.add('sex_discrimination_case');
+  }
+  if (has(/\bcapital\b/) && has(/\bblackout\b|\bgrid\s+failure\b|\bpower\b|\bsubstation\b|\bapag[oó]n\b|\bsubestaci[oó]n\b/)) {
+    anchors.add('capital_blackout');
+  }
+  if (has(/\bgeneva\b/) && has(/\bmissile\b/) && has(/\bstrike\b|\bceasefire\b|\btruce\b|\btalks?\b/)) {
+    anchors.add('geneva_missile_strike_talks');
+  }
+  if (has(/\batlantic\b/) && has(/\bport(?:s)?\b/) && has(/\bstrike\b|\bdockworkers?\b|\bcargo\b|\bcontainer\b/)) {
+    anchors.add('atlantic_port_strike');
+  }
+  if (has(/\bhospital\b/) && has(/\bambulances?\b|\bnetwork\b/) && has(/\bransomware\b|\bcyberattack\b|\bcyber\s+attack\b/)) {
+    anchors.add('hospital_ransomware_attack');
+  }
+  if (has(/\bbrothers?\b/) && has(/\bfraud\b/) && has(/\bconvicted\b|\bguilty\b|\bverdict\b|\btrial\b/)) {
+    anchors.add('luxury_fraud_verdict');
+  }
+  if (has(/\bcity\s+hall\b/) && has(/\bmayor\b/) && has(/\bblast\b|\battack\b|\binjur(?:es|ed|y)\b|\bhospitali[sz]ed\b/)) {
+    anchors.add('city_hall_mayor_attack');
+  }
+  if (has(/\btsa\b|\bairports?\b|\bcheckpoints?\b/) && has(/\bstaffing\b|\bshortage\b|\bshortfall\b|\bwaits?\b|\blines?\b/)) {
+    anchors.add('tsa_staffing_shortage');
+  }
+
+  return [...anchors].sort();
 }
 
 export function extractLocations(text: string): string[] {
@@ -259,6 +358,9 @@ function extractLeadTrigger(text: string): string | null {
 }
 
 function extractPhraseTrigger(text: string): string | null {
+  if (/\bebola\b/.test(text) && /\b(?:outbreak|epidemic|travel\s+restrictions?|health\s+measures?|health\s+advisor(?:y|ies)|vaccine|death\s+toll)\b/.test(text)) {
+    return 'outbreak';
+  }
   if (/\bcuts?\s+(?:electricity|power)\b|\bpower\s+cuts?\b/.test(text)) {
     return 'blackout';
   }

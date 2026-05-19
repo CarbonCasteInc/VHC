@@ -84,7 +84,7 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
 ].join(',');
 const PUBLIC_SMOKE_SOURCE_LIMIT = 28;
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
-const PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST = '10';
+const PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST = '50';
 const PUBLIC_SMOKE_MAX_PUBLISHED_BUNDLES = '64';
 const PUBLIC_SMOKE_MIN_READY_TIMEOUT_MS = 900_000;
 const PUBLIC_SMOKE_SAMPLE_TIMEOUT_MS = 900_000;
@@ -309,7 +309,18 @@ export function resolvePublicSemanticSoakMaxItemsTotal(
   );
   const normalizedPerSource = Number.isFinite(perSource) && perSource > 0 ? perSource : 4;
   const sourceCount = Array.isArray(sourceIds) ? sourceIds.length : normalizeSourceIds(sourceIds).length;
-  return String(Math.max(sourceCount, 1) * normalizedPerSource);
+  const requestedTotal = Math.max(sourceCount, 1) * normalizedPerSource;
+  const remoteMaxItemsPerRequest = Number.parseInt(
+    env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST?.trim()
+      || env.STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST?.trim()
+      || PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST,
+    10,
+  );
+  const normalizedRemoteMaxItemsPerRequest =
+    Number.isFinite(remoteMaxItemsPerRequest) && remoteMaxItemsPerRequest > 0
+      ? remoteMaxItemsPerRequest
+      : requestedTotal;
+  return String(Math.min(requestedTotal, normalizedRemoteMaxItemsPerRequest));
 }
 
 export function readPositiveInt(name, fallback, env = process.env) {
@@ -987,7 +998,7 @@ function classifyAuditArtifactState({
     : 'audit_attachment_missing_after_failure';
 }
 
-function readHistoricalHeadlineSoakExecutions(
+export function readHistoricalHeadlineSoakExecutions(
   artifactRoot,
   lookbackExecutionCount,
   {
@@ -1007,16 +1018,15 @@ function readHistoricalHeadlineSoakExecutions(
         const artifactDir = path.join(artifactRoot, entry.name);
         return { artifactDir, mtimeMs: stat(artifactDir).mtimeMs };
       })
-      .sort((left, right) => left.mtimeMs - right.mtimeMs)
-      .slice(-lookbackExecutionCount);
+      .sort((left, right) => left.mtimeMs - right.mtimeMs);
   } catch {
     return [];
   }
 
   const maxAgeMs = Number.isFinite(lookbackHours) ? lookbackHours * 60 * 60 * 1000 : null;
-  return artifactDirs.flatMap(({ artifactDir }) => {
+  return artifactDirs.flatMap(({ artifactDir, mtimeMs }) => {
     if (maxAgeMs !== null && Number.isFinite(currentTimestampMs)) {
-      const ageMs = currentTimestampMs - stat(artifactDir).mtimeMs;
+      const ageMs = currentTimestampMs - mtimeMs;
       if (ageMs < 0 || ageMs > maxAgeMs) {
         return [];
       }
@@ -1038,7 +1048,133 @@ function readHistoricalHeadlineSoakExecutions(
     } catch {
       return [];
     }
+  }).slice(-lookbackExecutionCount);
+}
+
+function retainedSourceRecord(source) {
+  const sourceId = typeof source?.source_id === 'string' ? source.source_id.trim() : '';
+  if (!sourceId) {
+    return null;
+  }
+  return {
+    source_id: sourceId,
+    publisher: typeof source?.publisher === 'string' ? source.publisher : sourceId,
+    url: typeof source?.url === 'string' ? source.url : '',
+    url_hash: typeof source?.url_hash === 'string' ? source.url_hash : '',
+    title: typeof source?.title === 'string' ? source.title : '',
+  };
+}
+
+function sourceRolesIncludeCanonical(roles) {
+  return Array.isArray(roles) && (
+    roles.includes('primary_source') ||
+    roles.includes('canonical_source')
+  );
+}
+
+function retainedSourcesByStory(retainedSourceEvidence) {
+  const sourcesByStory = new Map();
+  for (const source of retainedSourceEvidence?.sources ?? []) {
+    const retainedSource = retainedSourceRecord(source);
+    if (!retainedSource) {
+      continue;
+    }
+    for (const observation of source?.observations ?? []) {
+      const storyId = typeof observation?.story_id === 'string' ? observation.story_id.trim() : '';
+      if (!storyId || !sourceRolesIncludeCanonical(observation?.source_roles)) {
+        continue;
+      }
+      const sources = sourcesByStory.get(storyId) ?? new Map();
+      const sourceKey = `${retainedSource.source_id}:${retainedSource.url_hash}`;
+      sources.set(sourceKey, retainedSource);
+      sourcesByStory.set(storyId, sources);
+    }
+  }
+  return sourcesByStory;
+}
+
+function fallbackBundlesFromStoreSnapshot(failureSnapshot, retainedSourceEvidence) {
+  const sourcesByStory = retainedSourcesByStory(retainedSourceEvidence);
+  return (failureSnapshot?.stories ?? []).map((story) => {
+    const storyId = typeof story?.story_id === 'string' ? story.story_id : '';
+    const retainedSources = [...(sourcesByStory.get(storyId)?.values() ?? [])];
+    return {
+      story_id: storyId,
+      topic_id: typeof story?.topic_id === 'string' ? story.topic_id : '',
+      headline: typeof story?.headline === 'string' ? story.headline : '',
+      canonical_source_count: Number.isFinite(story?.primary_source_count)
+        ? story.primary_source_count
+        : Number.isFinite(story?.source_count)
+          ? story.source_count
+          : retainedSources.length,
+      canonical_sources: retainedSources,
+      sources: retainedSources,
+      pairs: [],
+      has_related_topic_only_pair: false,
+    };
   });
+}
+
+function buildRunBundleCompositionSource(report, failureSnapshot, retainedSourceEvidence) {
+  if (Array.isArray(report?.bundles) && report.bundles.length > 0) {
+    return report;
+  }
+  return {
+    bundles: fallbackBundlesFromStoreSnapshot(failureSnapshot, retainedSourceEvidence),
+  };
+}
+
+function summarizeClusterCaptureEvidence(clusterCapture) {
+  const ticks = Array.isArray(clusterCapture?.ticks) ? clusterCapture.ticks : [];
+  let normalizedItemCount = 0;
+  let topicCaptureCount = 0;
+  let bundleCount = 0;
+  for (const tick of ticks) {
+    normalizedItemCount += Array.isArray(tick?.normalizedItems) ? tick.normalizedItems.length : 0;
+    const topicCaptures = Array.isArray(tick?.topicCaptures) ? tick.topicCaptures : [];
+    topicCaptureCount += topicCaptures.length;
+    for (const topicCapture of topicCaptures) {
+      bundleCount += Array.isArray(topicCapture?.result?.bundles)
+        ? topicCapture.result.bundles.length
+        : 0;
+    }
+  }
+  const blockingReasons = [];
+  if (clusterCapture?.schemaVersion !== 'daemon-feed-cluster-capture-v1') {
+    blockingReasons.push('daemon_cluster_capture_schema_invalid');
+  }
+  if (ticks.length < 1) {
+    blockingReasons.push('daemon_cluster_capture_tick_missing');
+  }
+  if (normalizedItemCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_normalized_items_missing');
+  }
+  if (topicCaptureCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_topic_captures_missing');
+  }
+  if (bundleCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_bundles_missing');
+  }
+  return {
+    pass: blockingReasons.length === 0,
+    blockingReasons,
+    tickCount: ticks.length,
+    normalizedItemCount,
+    topicCaptureCount,
+    bundleCount,
+  };
+}
+
+function resolveRunStoryIds(report, failureSnapshot) {
+  const auditStoryIds = (report?.bundles ?? [])
+    .map((bundle) => bundle?.story_id)
+    .filter((storyId) => typeof storyId === 'string' && storyId.trim());
+  if (auditStoryIds.length > 0) {
+    return [...new Set(auditStoryIds)].sort();
+  }
+  return [...new Set((failureSnapshot?.stories ?? [])
+    .map((story) => story?.story_id)
+    .filter((storyId) => typeof storyId === 'string' && storyId.trim()))].sort();
 }
 
 export function summarizeRun(
@@ -1058,7 +1194,10 @@ export function summarizeRun(
   runtimeLogsPath,
 ) {
   const labelCounts = summarizeLabelCounts(report);
-  const bundleComposition = summarizeBundleComposition(report);
+  const bundleComposition = summarizeBundleComposition(
+    buildRunBundleCompositionSource(report, failureSnapshot, retainedSourceEvidence),
+  );
+  const clusterCaptureEvidence = summarizeClusterCaptureEvidence(clusterCapture);
   const requestedSampleCount = report?.requested_sample_count ?? null;
   const effectiveSampleCount = report?.effective_sample_count ?? requestedSampleCount;
   const failingBundles = (report?.bundles ?? [])
@@ -1077,7 +1216,8 @@ export function summarizeRun(
       && report.overall?.related_topic_only_pair_count === 0
       && Number.isFinite(report.sampled_story_count)
       && Number.isFinite(effectiveSampleCount)
-      && report.sampled_story_count >= effectiveSampleCount,
+      && report.sampled_story_count >= effectiveSampleCount
+      && clusterCaptureEvidence.pass,
   );
 
   return {
@@ -1094,6 +1234,7 @@ export function summarizeRun(
     requestedSampleCount,
     effectiveSampleCount,
     sampledStoryCount: report?.sampled_story_count ?? null,
+    supplyStatus: report?.supply?.status ?? null,
     sampleFillRate: report?.overall?.sample_fill_rate ?? null,
     sampleShortfall: report?.overall?.sample_shortfall ?? null,
     visibleStoryCount: Array.isArray(report?.visible_story_ids) ? report.visible_story_ids.length : null,
@@ -1107,6 +1248,7 @@ export function summarizeRun(
     clusterCaptureTickCount: Array.isArray(clusterCapture?.ticks)
       ? clusterCapture.ticks.length
       : null,
+    clusterCaptureEvidence,
     runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
       ? runtimeLogs.browserLogs.length
       : null,
@@ -1114,7 +1256,7 @@ export function summarizeRun(
     labelCounts,
     bundleComposition,
     failingBundles,
-    storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
+    storyIds: resolveRunStoryIds(report, failureSnapshot),
   };
 }
 
@@ -1222,6 +1364,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
   if (requireSharedStorycluster && (!sharedStoryclusterUrl || !sharedStoryclusterAuthToken)) {
     throw new Error('daemon-feed-semantic-soak-shared-storycluster-required');
   }
+  const effectiveGunPeerUrl = sharedRelayUrl ?? `http://127.0.0.1:${portPlan.gunPort}/gun`;
 
   const nextEnv = {
     ...env,
@@ -1240,6 +1383,8 @@ export function resolvePublicSemanticSoakSpawnEnv(
     VH_DAEMON_FEED_QDRANT_PORT: String(portPlan.qdrantPort),
     VH_DAEMON_FEED_ANALYSIS_STUB_PORT: String(portPlan.analysisStubPort),
     VH_LIVE_BASE_URL: `http://127.0.0.1:${portPlan.webPort}/`,
+    VH_GUN_PEERS: JSON.stringify([effectiveGunPeerUrl]),
+    VITE_GUN_PEERS: JSON.stringify([effectiveGunPeerUrl]),
   };
   const storyclusterStateDir =
     env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR?.trim()

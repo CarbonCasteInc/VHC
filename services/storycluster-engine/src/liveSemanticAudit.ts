@@ -126,6 +126,44 @@ function pairId(storyId: string, left: Pick<LiveSemanticAuditSource, 'source_id'
   return `${storyId}::${sorted[0]}::${sorted[1]}`;
 }
 
+function canonicalUrlKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url.trim();
+  }
+}
+
+function exactSourceDuplicate(left: LiveSemanticAuditPair, right?: never): boolean;
+function exactSourceDuplicate(left: LiveSemanticAuditSource, right: LiveSemanticAuditSource): boolean;
+function exactSourceDuplicate(
+  left: LiveSemanticAuditPair | LiveSemanticAuditSource,
+  maybeRight?: LiveSemanticAuditSource,
+): boolean {
+  const leftSource = 'left' in left ? left.left : left;
+  const rightSource = 'right' in left ? left.right : maybeRight;
+  if (!rightSource) {
+    return false;
+  }
+  return (
+    leftSource.url_hash.trim().length > 0 &&
+    leftSource.url_hash === rightSource.url_hash
+  ) || (
+    canonicalUrlKey(leftSource.url) === canonicalUrlKey(rightSource.url)
+  );
+}
+
+function buildExactDuplicateResult(pair: LiveSemanticAuditPair): LiveSemanticAuditPairResult {
+  return {
+    pair_id: pair.pair_id,
+    label: 'duplicate',
+    confidence: 1,
+    rationale: 'Exact duplicate source URL or URL hash across publisher feeds.',
+  };
+}
+
 function canonicalSources(bundle: LiveSemanticAuditBundleLike): ReadonlyArray<Omit<LiveSemanticAuditSource, 'text'>> {
   return (bundle.primary_sources ?? bundle.sources)
     .slice()
@@ -309,16 +347,27 @@ export async function classifyCanonicalSourcePairs(
     return [];
   }
 
+  const exactDuplicateResults = new Map(
+    pairs
+      .filter((pair) => exactSourceDuplicate(pair))
+      .map((pair) => [pair.pair_id, buildExactDuplicateResult(pair)] as const),
+  );
+  const classifierPairs = pairs.filter((pair) => !exactDuplicateResults.has(pair.pair_id));
+  if (classifierPairs.length === 0) {
+    return pairs.map((pair) => exactDuplicateResults.get(pair.pair_id)!);
+  }
+
   const client = new OpenAIClient(options);
   const model = options.model?.trim() || DEFAULT_AUDIT_MODEL;
-  const batches = chunk(pairs, MAX_PAIRS_PER_REQUEST);
+  const batches = chunk(classifierPairs, MAX_PAIRS_PER_REQUEST);
   const batchResults = await mapWithConcurrency(
     batches,
     CLASSIFIER_BATCH_CONCURRENCY,
     async (batch) => classifyPairBatch(client, model, batch),
   );
 
-  return batchResults.flat();
+  const classifierResults = new Map(batchResults.flat().map((result) => [result.pair_id, result]));
+  return pairs.map((pair) => exactDuplicateResults.get(pair.pair_id) ?? classifierResults.get(pair.pair_id)!);
 }
 
 export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairResult[]): boolean {
@@ -328,4 +377,5 @@ export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairR
 export const liveSemanticAuditInternal = {
   buildPairLabelRequest,
   buildSemanticAuditSystemPrompt,
+  exactSourceDuplicate,
 };

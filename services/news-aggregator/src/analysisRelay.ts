@@ -16,6 +16,10 @@ export function resolveTokenParam(model: string): 'max_completion_tokens' | 'max
   return 'max_tokens';
 }
 
+export function supportsChatTemperatureParam(model: string): boolean {
+  return !/^(gpt-5|o1|o3)/i.test(model.trim());
+}
+
 // Rate limiting
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
 
@@ -72,7 +76,7 @@ export function buildOpenAIChatRequest(articleText: string, model?: string) {
       { role: 'user' as const, content: `Analyze this news article:\n\n${articleText}` },
     ],
     [tokenParam]: MAX_TOKENS,
-    temperature: TEMPERATURE,
+    ...(supportsChatTemperatureParam(usedModel) ? { temperature: TEMPERATURE } : {}),
     response_format: { type: 'json_object' as const },
   };
 }

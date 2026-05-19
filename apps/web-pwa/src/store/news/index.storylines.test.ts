@@ -19,6 +19,7 @@ vi.mock('@vh/gun-client', () => ({
   readNewsHotIndex: readNewsHotIndexMock,
   readNewsLatestIndex: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock,
+  readNewsStoryWithRelayRestFallback: readNewsStoryMock,
   readNewsStoryline: readNewsStorylineMock,
 }));
 

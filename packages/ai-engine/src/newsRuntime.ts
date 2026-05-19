@@ -18,13 +18,20 @@ import type { FeedSource, StoryBundle, StorylineGroup, TopicMapping } from './ne
 const DEFAULT_POLL_INTERVAL_MS = 30 * 60 * 1000;
 const REMOTE_PROVIDER_ID = 'remote-analysis';
 const MIN_TWO_SOURCE_PUBLICATION_CONFIDENCE = 0.6;
+const MIN_TITLE_SUPPORTED_TWO_SOURCE_PUBLICATION_CONFIDENCE = 0.45;
 const STRONG_TWO_SOURCE_PUBLICATION_CONFIDENCE = 0.8;
 const STRONG_TITLE_KEYWORD_OVERLAP = 0.35;
 const ACTION_MATCH_TITLE_KEYWORD_OVERLAP = 0.1;
 const SHARED_TITLE_ANCHOR_MIN_COUNT = 2;
 const GENERIC_TITLE_ANCHORS = new Set([
+  'congo',
   'court',
+  'dr',
+  'ebola',
+  'ebola-related',
+  'outbreak',
   'supreme',
+  'uganda',
 ]);
 const TITLE_KEYWORD_ALIASES: Readonly<Record<string, string>> = {
   chinese: 'china',
@@ -231,14 +238,21 @@ function hasTwoSourcePublicationSupport(bundle: StoryBundle): boolean {
   }
 
   const confidence = bundleConfidenceScore(bundle);
-  if (confidence < MIN_TWO_SOURCE_PUBLICATION_CONFIDENCE) {
+  if (confidence < MIN_TITLE_SUPPORTED_TWO_SOURCE_PUBLICATION_CONFIDENCE) {
     return false;
   }
 
   const left = sources[0]!;
   const right = sources[1]!;
-  return confidence >= STRONG_TWO_SOURCE_PUBLICATION_CONFIDENCE
-    || hasTitlePairCanonicalSupport(left.title, right.title);
+  const titleSupport = hasTitlePairCanonicalSupport(left.title, right.title);
+  if (confidence >= STRONG_TWO_SOURCE_PUBLICATION_CONFIDENCE) {
+    return true;
+  }
+  if (!titleSupport) {
+    return false;
+  }
+  return confidence >= MIN_TWO_SOURCE_PUBLICATION_CONFIDENCE
+    || confidence >= MIN_TITLE_SUPPORTED_TWO_SOURCE_PUBLICATION_CONFIDENCE;
 }
 
 function isPublicationEligibleBundle(bundle: StoryBundle): boolean {

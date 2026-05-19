@@ -11,7 +11,7 @@ const consumeVoteTimestampMock = vi.hoisted(() => vi.fn());
 const logConvergenceLagMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@vh/gun-client', () => ({
-  readAggregates: (...args: unknown[]) => readAggregatesMock(...args),
+  readAggregatesWithRelayRestFallback: (...args: unknown[]) => readAggregatesMock(...args),
 }));
 
 vi.mock('../store/clientResolver', () => ({

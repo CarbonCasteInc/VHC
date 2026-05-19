@@ -60,7 +60,7 @@ describe('daemon-feed-process-cleanup', () => {
         gunPeerUrl,
         execSync,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('matches repo-owned stale storycluster servers and probe-run wrappers', () => {
@@ -231,6 +231,7 @@ describe('daemon-feed-process-cleanup', () => {
         return [
           `111 node dist/daemon.js VH_NEWS_DAEMON_HOLDER_ID=${PROBE_HOLDER_ID} VH_GUN_PEERS=["${gunPeerUrl}"]`,
           '222 node dist/daemon.js VH_GUN_PEERS=["http://localhost:9999/gun"]',
+          '223 node dist/daemon.js VH_NEWS_DAEMON_HOLDER_ID=vh-public-beta-news-daemon-synthesis-4o-20260519 VH_GUN_PEERS=["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]',
           '333 node /Users/bldt/Desktop/VHC/VHC-hottest-fix/services/storycluster-engine/dist/server.js',
           '444 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js VH_DAEMON_FEED_MANAGED_RELAY=1',
         ].join('\n');
@@ -249,13 +250,13 @@ describe('daemon-feed-process-cleanup', () => {
         return '';
       }
       if (command === 'kill') {
-        expect(args).toEqual(['-9', '111', '222', '333', '444']);
+        expect(args).toEqual(['-9', '111', '333', '444']);
         return '';
       }
       throw new Error(`unexpected ${command}`);
     });
 
-    expect(killStaleProbeWriters(repoRoot, gunPeerUrl, execSync, 999, 998)).toEqual(['111', '222', '333', '444']);
+    expect(killStaleProbeWriters(repoRoot, gunPeerUrl, execSync, 999, 998)).toEqual(['111', '333', '444']);
   });
 
   it('does not kill shared relay or storycluster services when preserve flags are set', () => {

@@ -89,6 +89,8 @@ export interface RetainedSourceEvidenceSnapshot {
 export interface DaemonFeedSemanticAuditOptions {
   readonly sampleCount?: number;
   readonly timeoutMs?: number;
+  readonly allowedStoryIds?: ReadonlyArray<string>;
+  readonly candidateBundles?: ReadonlyArray<LiveSemanticAuditBundleLike>;
   readonly openAIApiKey: string;
   readonly openAIBaseUrl?: string;
   readonly openAIModel?: string;
@@ -121,7 +123,7 @@ export interface AuditedBundleReport {
   readonly missing_article_sources?: ReadonlyArray<SemanticAuditArticleFetchFailure>;
 }
 
-export type SemanticAuditSupplyStatus = 'full' | 'partial' | 'empty';
+export type SemanticAuditSupplyStatus = 'full' | 'partial' | 'empty' | 'singleton_only';
 
 export interface SemanticAuditSupplyDiagnostics {
   readonly status: SemanticAuditSupplyStatus;
@@ -136,6 +138,7 @@ export interface SemanticAuditSupplyDiagnostics {
   readonly requested_sample_fill_rate?: number;
   readonly release_candidate_count?: number;
   readonly excluded_local_only_bundle_count?: number;
+  readonly excluded_non_current_bundle_count?: number;
 }
 
 export interface DaemonFeedSemanticAuditReport {

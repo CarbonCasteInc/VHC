@@ -11,7 +11,13 @@ const dashboardMocks = vi.hoisted(() => ({
   completeLinkSession: vi.fn(),
   analyze: vi.fn(),
   reset: vi.fn(),
-  createProfile: vi.fn()
+  createProfile: vi.fn(),
+  appState: {
+    profile: { username: 'Alice' } as { username: string } | null,
+    identityStatus: 'ready',
+    client: {} as Record<string, unknown> | null,
+    error: undefined as string | undefined,
+  }
 }));
 
 vi.mock('@vh/ui', () => ({
@@ -47,11 +53,11 @@ vi.mock('./AnalysisFeed', () => ({
 
 vi.mock('../store', () => ({
   useAppStore: () => ({
-    profile: { username: 'Alice' },
+    profile: dashboardMocks.appState.profile,
     createIdentity: dashboardMocks.createProfile,
-    identityStatus: 'ready',
-    client: {},
-    error: undefined
+    identityStatus: dashboardMocks.appState.identityStatus,
+    client: dashboardMocks.appState.client,
+    error: dashboardMocks.appState.error
   })
 }));
 
@@ -75,6 +81,10 @@ vi.mock('../hooks/useIdentity', () => ({
 describe('DashboardContent multi-device deferral', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    dashboardMocks.appState.profile = { username: 'Alice' };
+    dashboardMocks.appState.identityStatus = 'ready';
+    dashboardMocks.appState.client = {};
+    dashboardMocks.appState.error = undefined;
     localStorage.clear();
   });
 
@@ -96,5 +106,17 @@ describe('DashboardContent multi-device deferral', () => {
     expect(screen.queryByTestId('link-complete-btn')).not.toBeInTheDocument();
     expect(dashboardMocks.startLinkSession).not.toHaveBeenCalled();
     expect(dashboardMocks.completeLinkSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps identity creation disabled until the mesh client is ready', async () => {
+    dashboardMocks.appState.profile = null;
+    dashboardMocks.appState.identityStatus = 'idle';
+    dashboardMocks.appState.client = null;
+
+    const { DashboardContent } = await import('./dashboardContent');
+    render(<DashboardContent />);
+
+    expect(screen.getByTestId('create-identity-btn')).toBeDisabled();
+    expect(screen.getByTestId('create-identity-btn')).toHaveTextContent('Connecting');
   });
 });

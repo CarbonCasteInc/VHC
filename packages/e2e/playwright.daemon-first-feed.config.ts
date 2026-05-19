@@ -11,6 +11,15 @@ function stablePort(base: number, span: number, seed: string): number {
   return base + offset;
 }
 
+function resolveDaemonFeedBridgeEnabled(): string {
+  const configured = process.env.VH_DAEMON_FEED_BRIDGES_ENABLED?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return 'false';
+}
+
 function wrapLoggedWebServerCommand(name: string, script: string): string {
   const logPath = path.resolve(
     process.cwd(),
@@ -63,6 +72,7 @@ const analysisStubServerPath = path.resolve(process.cwd(), './src/live/daemon-fe
 const cleanupServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-process-cleanup.mjs');
 const releaseRelayWsBytesPerSecond =
   process.env.VH_RELAY_WS_BYTES_PER_SEC?.trim() || '25000000';
+const daemonFeedBridgeEnabled = resolveDaemonFeedBridgeEnabled();
 
 if (storyclusterVectorBackend === 'qdrant') {
   process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
@@ -473,7 +483,9 @@ const localWebServers: TestConfig['webServer'] = [
         useFixtureAnalysisStub ? 'true' : 'false',
       VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS:
         useFixtureAnalysisStub ? '1500' : process.env.VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS,
-      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_NEWS_BRIDGE_ENABLED: daemonFeedBridgeEnabled,
+      VITE_SYNTHESIS_BRIDGE_ENABLED: daemonFeedBridgeEnabled,
+      VITE_LINKED_SOCIAL_ENABLED: daemonFeedBridgeEnabled,
       VITE_NEWS_RUNTIME_ENABLED: 'false',
       VITE_NEWS_RUNTIME_ROLE: 'consumer',
       VITE_VH_GUN_LOCAL_STORAGE:

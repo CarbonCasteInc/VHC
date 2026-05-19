@@ -12,6 +12,7 @@ const NEWS_DAEMON_MARKER = '@vh/news-aggregator daemon';
 const RELAY_SERVER_MARKER = `${path.sep}infra${path.sep}relay${path.sep}server.js`;
 const RELAY_SERVER_FALLBACK_MARKER = `infra${path.sep}relay${path.sep}server.js`;
 const MANAGED_RELAY_ENV_MARKER = 'VH_DAEMON_FEED_MANAGED_RELAY';
+const PUBLIC_BETA_DAEMON_HOLDER_PREFIX = 'vh-public-beta-news-daemon';
 
 export function parseProcessTable(output) {
   return output
@@ -139,11 +140,17 @@ export function shouldKillStaleProbeWriter(
 
   const targetsCurrentPeer = gunPeerUrl.length > 0 && entry.command.includes(gunPeerUrl);
   const isProbeHolder = entry.command.includes(`VH_NEWS_DAEMON_HOLDER_ID=${PROBE_HOLDER_ID}`);
+  const isPublicBetaDaemon = new RegExp(
+    `(?:^|\\s)VH_NEWS_DAEMON_HOLDER_ID=${PUBLIC_BETA_DAEMON_HOLDER_PREFIX}`,
+  ).test(entry.command);
+  if (isPublicBetaDaemon && !targetsCurrentPeer && !isProbeHolder) {
+    return false;
+  }
   if (targetsCurrentPeer || isProbeHolder) {
     return commandWithinWorkspace(entry.command, repoRoot) || cwdWithinWorkspace(entry.pid, repoRoot, execSync);
   }
 
-  return cwdWithinWorkspace(entry.pid, repoRoot, execSync);
+  return false;
 }
 
 export function killStaleProbeWriters(

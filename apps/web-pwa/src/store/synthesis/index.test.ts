@@ -17,7 +17,7 @@ vi.mock('./hydration', () => ({
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenSynthesisPayloadFields: hasForbiddenSynthesisPayloadFieldsMock,
   readTopicLatestSynthesisCorrection: readTopicLatestSynthesisCorrectionMock,
-  readTopicLatestSynthesis: readTopicLatestSynthesisMock
+  readTopicLatestSynthesisWithRelayRestFallback: readTopicLatestSynthesisMock
 }));
 
 function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 {
@@ -89,6 +89,7 @@ function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSyn
 
 describe('synthesis store', () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     hydrateSynthesisStoreMock.mockReset();
     releaseSynthesisHydrationMock.mockReset();
     hasForbiddenSynthesisPayloadFieldsMock.mockReset();
@@ -349,6 +350,24 @@ describe('synthesis store', () => {
     const topic = store.getState().getTopicState('topic-1');
     expect(topic.correction?.status).toBe('unavailable');
     expect(topic.effectiveStatus).toBe('synthesis_unavailable');
+  });
+
+  it('refreshTopic exposes latest synthesis even when correction read stalls', async () => {
+    vi.stubEnv('VITE_VH_SYNTHESIS_REFRESH_CORRECTION_TIMEOUT_MS', '5');
+    vi.resetModules();
+    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+    readTopicLatestSynthesisCorrectionMock.mockReturnValue(new Promise(() => undefined));
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis?.synthesis_id).toBe('synth-1');
+    expect(topic.loading).toBe(false);
+    expect(topic.error).toBeNull();
+    expect(topic.effectiveStatus).toBe('accepted_available');
   });
 
   it('refreshTopic handles null latest (no synthesis available)', async () => {

@@ -3,6 +3,7 @@ import {
   MAX_TOKENS,
   RATE_LIMIT_PER_MIN,
   RATE_WINDOW_MS,
+  TEMPERATURE,
   buildOpenAIChatRequest,
   checkRateLimit,
   getRelayModel,
@@ -165,6 +166,7 @@ describe('buildOpenAIChatRequest', () => {
     expect(request.model).toBe('gpt-5.2');
     expect(request).toMatchObject({ max_completion_tokens: MAX_TOKENS });
     expect(request).not.toHaveProperty('max_tokens');
+    expect(request).not.toHaveProperty('temperature');
   });
 
   it('uses max_tokens for legacy models', () => {
@@ -172,6 +174,7 @@ describe('buildOpenAIChatRequest', () => {
 
     expect(request.model).toBe('gpt-4o-mini');
     expect(request).toMatchObject({ max_tokens: MAX_TOKENS });
+    expect(request).toMatchObject({ temperature: TEMPERATURE });
     expect(request).not.toHaveProperty('max_completion_tokens');
   });
 

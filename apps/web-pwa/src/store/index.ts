@@ -333,6 +333,14 @@ function randomNonceHex(): string {
 }
 
 function shouldBootstrapFeedBridges(): boolean {
+  const runtimeFlags =
+    typeof globalThis !== 'undefined'
+      ? globalThis as typeof globalThis & { __VH_DISABLE_FEED_BRIDGES__?: unknown }
+      : undefined;
+  if (runtimeFlags?.__VH_DISABLE_FEED_BRIDGES__ === true) {
+    return false;
+  }
+
   const viteEnv = (import.meta as unknown as {
     env?: {
       VITE_NEWS_BRIDGE_ENABLED?: string;

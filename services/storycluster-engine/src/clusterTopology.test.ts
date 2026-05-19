@@ -165,4 +165,84 @@ describe('clusterTopology', () => {
       'wire-market-b:hash-market-b',
     ]);
   });
+
+  it('splits a same-tournament singleton out of a persisted bundle without deleting it', () => {
+    const topicState = makeTopicState('topic-pga-singleton');
+    const raiGuardian = makeDocument('doc-rai-guardian', 'Aaron Rai keeps celebrations low-key after PGA Championship win', {
+      source_id: 'guardian-us',
+      url_hash: 'hash-rai-guardian',
+      entities: ['pga_championship', 'aaron_rai'],
+      linked_entities: ['pga_championship', 'aaron_rai'],
+      locations: ['aronimink'],
+      trigger: 'wins',
+      event_tuple: {
+        description: 'Aaron Rai wins the PGA Championship.',
+        trigger: 'wins',
+        who: ['aaron_rai'],
+        where: ['aronimink'],
+        when_ms: 260,
+        outcome: 'Wins the tournament.',
+      },
+      coarse_vector: [1, 0],
+      full_vector: [1, 0, 0],
+      published_at: 260,
+    });
+    const raiWire = makeDocument('doc-rai-wire', 'Aaron Rai wins PGA Championship at Aronimink', {
+      source_id: 'ap-sports',
+      url_hash: 'hash-rai-wire',
+      entities: ['pga_championship', 'aaron_rai'],
+      linked_entities: ['pga_championship', 'aaron_rai'],
+      locations: ['aronimink'],
+      trigger: 'wins',
+      event_tuple: {
+        description: 'Aaron Rai wins the PGA Championship.',
+        trigger: 'wins',
+        who: ['aaron_rai'],
+        where: ['aronimink'],
+        when_ms: 261,
+        outcome: 'Wins the tournament.',
+      },
+      coarse_vector: [1, 0],
+      full_vector: [1, 0, 0],
+      published_at: 261,
+    });
+    const schefflerLead = makeDocument('doc-scheffler', 'Scottie Scheffler part of 7-way tie for the lead at PGA Championship', {
+      source_id: 'ap-topnews',
+      url_hash: 'hash-scheffler',
+      entities: ['pga_championship', 'scottie_scheffler'],
+      linked_entities: ['pga_championship', 'scottie_scheffler'],
+      locations: [],
+      trigger: 'leads',
+      event_tuple: {
+        description: 'Scottie Scheffler is tied for the lead at the PGA Championship.',
+        trigger: 'leads',
+        who: ['scottie_scheffler'],
+        where: ['pga_championship'],
+        when_ms: 200,
+        outcome: 'Tied for the lead.',
+      },
+      coarse_vector: [0.99, 0.01],
+      full_vector: [0.99, 0.01, 0],
+      published_at: 200,
+    });
+    const parent = deriveClusterRecord(topicState, topicState.topic_id, [
+      toStoredSource(raiGuardian, raiGuardian.source_variants[0]!),
+      toStoredSource(raiWire, raiWire.source_variants[0]!),
+      toStoredSource(schefflerLead, schefflerLead.source_variants[0]!),
+    ], 'story-pga-parent');
+
+    const clusters = new Map<string, StoredClusterRecord>([
+      [parent.story_id, parent],
+    ]);
+    const changed = new Set<string>();
+
+    reconcileClusterTopology(topicState, topicState.topic_id, clusters, changed);
+
+    const clusterSizes = [...clusters.values()].map((cluster) => cluster.source_documents.length).sort((left, right) => left - right);
+    const singleton = [...clusters.values()].find((cluster) => cluster.source_documents.length === 1);
+    expect(clusterSizes).toEqual([1, 2]);
+    expect(singleton?.source_documents[0]?.source_key).toBe('ap-topnews:hash-scheffler');
+    expect(singleton?.lineage.split_from).toBe('story-pga-parent');
+    expect(changed.has(singleton!.story_id)).toBe(true);
+  });
 });

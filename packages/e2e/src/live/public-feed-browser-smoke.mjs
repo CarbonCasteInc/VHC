@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
 import { chromium } from '@playwright/test';
-import { createClient, readNewsLatestIndex, readNewsStory, readTopicLatestSynthesis } from '@vh/gun-client';
+import {
+  createClient,
+  readAggregateVoterRows,
+  readAggregatesWithRelayRestFallback as readAggregates,
+  readNewsLatestIndex,
+  readNewsStory,
+  readTopicLatestSynthesis,
+} from '@vh/gun-client';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import { readFileSync } from 'node:fs';
 import { mkdir, rm, symlink, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -14,6 +22,11 @@ const DEFAULT_MIN_HEADLINES = 4;
 const DEFAULT_READY_TIMEOUT_MS = 12 * 60_000;
 const DEFAULT_ANALYSIS_TIMEOUT_MS = 120_000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
+const DEFAULT_POSTED_COMMENT_QUERY_TIMEOUT_MS = 5_000;
+const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
+const DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS = 120_000;
+const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function normalizeUrl(value) {
   const trimmed = String(value ?? '').trim();
@@ -38,6 +51,87 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function boolEnv(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return /^(1|true|yes|on)$/i.test(String(value).trim());
+}
+
+function parseDelimitedHosts(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return [];
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.flatMap((item) => parseDelimitedHosts(item));
+      }
+    } catch {
+      return [];
+    }
+  }
+  return raw
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function hostnameFromUrl(value) {
+  try {
+    return new URL(String(value)).hostname;
+  } catch {
+    return '';
+  }
+}
+
+function normalizePublicHostname(value) {
+  const host = hostnameFromUrl(value) || String(value ?? '').trim();
+  return host.toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+function publicSmokeBrowserHostnames({ baseUrl, gunPeerUrl, env = process.env }) {
+  const hosts = [
+    hostnameFromUrl(baseUrl),
+    hostnameFromUrl(gunPeerUrl),
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_SMOKE_IPV4_HOSTS),
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_PUBLIC_WSS_PEERS),
+    ...parseDelimitedHosts(env.VH_MESH_PUBLIC_WSS_PEERS),
+  ]
+    .map(normalizePublicHostname)
+    .filter((host) => host && !LOCAL_HOSTNAMES.has(host));
+  return [...new Set(hosts)].sort();
+}
+
+async function buildChromiumHostResolverRules(hostnames, lookupImpl = dnsLookup) {
+  const rules = [];
+  for (const hostname of hostnames) {
+    const result = await lookupImpl(hostname, { family: 4 });
+    const address = typeof result === 'string' ? result : result?.address;
+    if (!address) continue;
+    rules.push(`MAP ${hostname} ${address}`);
+  }
+  return rules.length ? `--host-resolver-rules=${rules.join(',')}` : '';
+}
+
+function parseChromiumArgs(value) {
+  return String(value ?? '')
+    .split(/\s+/)
+    .map((arg) => arg.trim())
+    .filter(Boolean);
+}
+
+async function launchPublicFeedBrowser({ env, baseUrl, gunPeerUrl, chromiumLauncher = chromium }) {
+  const args = parseChromiumArgs(env.VH_PUBLIC_FEED_SMOKE_CHROMIUM_ARGS);
+  if (boolEnv(env.VH_PUBLIC_FEED_SMOKE_FORCE_IPV4, false)) {
+    const hostnames = publicSmokeBrowserHostnames({ baseUrl, gunPeerUrl, env });
+    const resolverRules = await buildChromiumHostResolverRules(hostnames);
+    if (resolverRules) args.push(resolverRules);
+  }
+  return chromiumLauncher.launch({
+    headless: env.VH_PUBLIC_FEED_SMOKE_HEADLESS !== 'false',
+    args,
+  });
+}
+
 function resolveArtifactDir(env = process.env, repoRoot = DEFAULT_REPO_ROOT) {
   const explicit = env.VH_PUBLIC_FEED_SMOKE_ARTIFACT_DIR?.trim();
   if (explicit) return explicit;
@@ -51,6 +145,48 @@ function cssAttr(value) {
 function parseVoteCount(text) {
   const match = String(text ?? '').match(/[+-]\s*(\d+)/);
   return match ? Number.parseInt(match[1], 10) : 0;
+}
+
+function parseSynthesisIdFromPointId(pointId) {
+  const match = String(pointId ?? '').match(/^synth-point:(.+):\d+:(?:frame|reframe)$/);
+  return match?.[1] ?? null;
+}
+
+function minimumPublicAgreeAfterVote(publicBefore, localBeforeAgree) {
+  const publicAgree = Number(publicBefore?.agree);
+  if (Number.isFinite(publicAgree) && publicAgree >= 0) {
+    return Math.floor(publicAgree) + 1;
+  }
+  return Math.max(0, Number.isFinite(localBeforeAgree) ? Math.floor(localBeforeAgree) : 0) + 1;
+}
+
+function summarizePublicAgreeVoterRows(rows) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const agreeRows = safeRows.filter((row) => row?.node?.agreement === 1);
+  return {
+    totalRows: safeRows.length,
+    agreeRows: agreeRows.length,
+    agreeVoterIds: agreeRows.map((row) => String(row.voter_id)).filter(Boolean).sort(),
+  };
+}
+
+function publicAgreeVoterRowsAfterVote(beforeRows, afterRows) {
+  const before = summarizePublicAgreeVoterRows(beforeRows);
+  const after = summarizePublicAgreeVoterRows(afterRows);
+  const beforeAgreeVoters = new Set(before.agreeVoterIds);
+  const newAgreeVoterIds = after.agreeVoterIds.filter((voterId) => !beforeAgreeVoters.has(voterId));
+  if (newAgreeVoterIds.length === 0) {
+    return null;
+  }
+
+  return {
+    beforeTotalRows: before.totalRows,
+    afterTotalRows: after.totalRows,
+    beforeAgreeRows: before.agreeRows,
+    afterAgreeRows: after.agreeRows,
+    newAgreeRows: newAgreeVoterIds.length,
+    newAgreeVoterIds,
+  };
 }
 
 function readFixtureConst(source, name) {
@@ -180,7 +316,7 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
         .sort((left, right) => right[1] - left[1]);
       if (entries.length < minHeadlines) return null;
       const stories = [];
-      for (const [storyId, updatedAt] of entries.slice(0, Math.max(minHeadlines, 16))) {
+      for (const [storyId, updatedAt] of entries.slice(0, Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT))) {
         const story = await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
         if (story) {
           const synthesis = story.topic_id
@@ -196,6 +332,9 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
             updatedAt,
             headline: story.headline,
             sourceCount: story.sources?.length ?? 0,
+            sourceLabels: (story.sources ?? [])
+              .map((source) => source.publisher || source.source || source.url)
+              .filter(Boolean),
             acceptedSynthesisReady: Boolean(synthesis?.facts_summary?.trim() && (synthesis.frames?.length ?? 0) > 0),
             synthesisId: synthesis?.synthesis_id ?? null,
           });
@@ -205,9 +344,45 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
       return {
         latestIndexCount: entries.length,
         storyReadbackCount: stories.length,
-        topStories: stories.slice(0, 8),
+        topStories: stories,
       };
     }, { timeoutMs, intervalMs: 2_000 });
+  } finally {
+    await Promise.race([
+      client.shutdown(),
+      new Promise((resolve) => setTimeout(resolve, 1_000)),
+    ]).catch(() => {});
+  }
+}
+
+async function readPublicPointAggregate({ gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
+  const client = createClient({
+    peers: [gunPeerUrl],
+    requireSession: false,
+    gunLocalStorage: false,
+    gunRadisk: false,
+  });
+  client.markSessionReady();
+  try {
+    return await readAggregates(client, topicId, synthesisId, epoch, pointId);
+  } finally {
+    await Promise.race([
+      client.shutdown(),
+      new Promise((resolve) => setTimeout(resolve, 1_000)),
+    ]).catch(() => {});
+  }
+}
+
+async function readPublicPointVoterRows({ gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
+  const client = createClient({
+    peers: [gunPeerUrl],
+    requireSession: false,
+    gunLocalStorage: false,
+    gunRadisk: false,
+  });
+  client.markSessionReady();
+  try {
+    return await readAggregateVoterRows(client, topicId, synthesisId, epoch, pointId);
   } finally {
     await Promise.race([
       client.shutdown(),
@@ -276,6 +451,19 @@ async function visibleCards(page) {
     .filter((row) => row && row.topicId && row.storyId && row.headline));
 }
 
+function readbackStoryToVisibleCard(row) {
+  return {
+    topicId: row.topicId,
+    storyId: row.storyId,
+    headline: row.headline,
+    meta: `Updated ${new Date(row.updatedAt).toISOString()}`,
+    hotness: 0,
+    sourceLabels: row.sourceLabels?.length
+      ? row.sourceLabels
+      : Array.from({ length: row.sourceCount }, (_, index) => `source-${index + 1}`),
+  };
+}
+
 async function clickFeedRefresh(page) {
   const refreshButton = page.getByTestId('feed-refresh-button');
   if (!(await refreshButton.count().catch(() => 0))) return false;
@@ -290,6 +478,32 @@ async function waitForHeadlines(page, minHeadlines, timeoutMs) {
     if (rows.length >= minHeadlines) return rows;
     await clickFeedRefresh(page);
     await page.evaluate(() => window.scrollBy(0, Math.max(400, window.innerHeight))).catch(() => {});
+    await page.waitForTimeout(300).catch(() => {});
+    return null;
+  }, { timeoutMs, intervalMs: 1_000 });
+}
+
+function findVisibleStoryRow(rows, targetRow) {
+  return rows.find((row) => row.storyId === targetRow.storyId)
+    ?? rows.find((row) => row.topicId === targetRow.topicId)
+    ?? null;
+}
+
+async function waitForTargetStoryCard(page, row, timeoutMs) {
+  return waitFor('public-feed-target-story-card', async () => {
+    if (await headlineLocator(page, row).isVisible().catch(() => false)) {
+      return row;
+    }
+
+    const rows = await visibleCards(page);
+    const visibleRow = findVisibleStoryRow(rows, row);
+    if (visibleRow) {
+      return visibleRow;
+    }
+
+    await refreshLatest(page, 120, DEFAULT_REFRESH_TIMEOUT_MS).catch(() => null);
+    await clickFeedRefresh(page);
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
     await page.waitForTimeout(300).catch(() => {});
     return null;
   }, { timeoutMs, intervalMs: 1_000 });
@@ -312,6 +526,9 @@ async function ensureIdentity(page, baseUrl, label) {
   }
   const createButton = page.getByTestId('create-identity-btn');
   await createButton.waitFor({ state: 'visible', timeout: 30_000 });
+  await waitFor('identity-create-ready', async () =>
+    (await createButton.isEnabled().catch(() => false)) ? true : null,
+  { timeoutMs: 60_000, intervalMs: 500 });
   const suffix = `${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 1000)}`;
   const username = `${label}${suffix}`.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24);
   const handle = username.toLowerCase().slice(0, 24);
@@ -336,7 +553,9 @@ async function openStory(page, row) {
     return card;
   }
   await headline.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
-  await headline.click().catch(async (error) => {
+  const toggle = card.getByTestId(`news-card-toggle-${row.topicId}`).first();
+  const target = await toggle.isVisible().catch(() => false) ? toggle : headline;
+  await target.click().catch(async (error) => {
     if (await back.isVisible().catch(() => false)) return;
     await headline.evaluate((element) => {
       if (element instanceof HTMLElement) {
@@ -355,15 +574,72 @@ async function closeStory(card, row) {
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
-async function waitForSynthesis(card, row, timeoutMs) {
+async function clickVisibleControl(locator, label, timeout = 15_000) {
+  await locator.scrollIntoViewIfNeeded({ timeout }).catch(() => {});
+  await locator.evaluate((element) => {
+    if (element instanceof HTMLElement) {
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
+  }).catch(() => {});
+  try {
+    await locator.click({ timeout });
+    return;
+  } catch (error) {
+    await locator.evaluate((element) => {
+      if (element instanceof HTMLElement) {
+        element.click();
+      }
+    }).catch(() => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${label}-click-failed:${message}`);
+    });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+
+function firstTestId(scope, testId) {
+  const locator = scope.getByTestId(testId);
+  return typeof locator.first === 'function' ? locator.first() : locator;
+}
+
+function isAcceptedSynthesisText(summaryText, voteButtons) {
+  return summaryText.length > 20
+    && !/\bpending\b/i.test(summaryText)
+    && voteButtons > 0;
+}
+
+async function synthesisScopeCandidates(page, card, row) {
+  const scopes = [card];
+  if (page) {
+    const storySuffix = String(row.storyId ?? '').replace(/^story-/, '');
+    scopes.push(page.getByTestId(`news-card-${row.topicId}`).first());
+    scopes.push(page.getByTestId(`feed-item-story-${storySuffix}`).first());
+    scopes.push(page);
+  }
+  return scopes;
+}
+
+async function readVisibleSynthesis(scope, row) {
+  const detail = firstTestId(scope, `news-card-detail-${row.topicId}`);
+  const root = await detail.count().catch(() => 0) > 0 ? detail : scope;
+  const summary = firstTestId(root, `news-card-summary-${row.topicId}`);
+  const summaryText = trimText(await summary.textContent(locatorTimeout()).catch(() => ''), 2_000);
+  const basis = trimText(await firstTestId(root, `news-card-summary-basis-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''));
+  const provenance = trimText(await firstTestId(root, `news-card-synthesis-provenance-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''), 2_000);
+  const voteButtons = await root.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
+  if (isAcceptedSynthesisText(summaryText, voteButtons)) {
+    return { summaryText, basis, provenance, voteButtonCount: voteButtons };
+  }
+  return null;
+}
+
+async function waitForSynthesis(page, card, row, timeoutMs) {
   return waitFor('accepted-synthesis-visible', async () => {
-    const summary = card.getByTestId(`news-card-summary-${row.topicId}`);
-    const summaryText = trimText(await summary.textContent(locatorTimeout()).catch(() => ''), 2_000);
-    const basis = trimText(await card.getByTestId(`news-card-summary-basis-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''));
-    const provenance = trimText(await card.getByTestId(`news-card-synthesis-provenance-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''), 2_000);
-    const voteButtons = await card.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
-    if (summaryText.length > 20 && !/pending/i.test(summaryText) && voteButtons > 0) {
-      return { summaryText, basis, provenance, voteButtonCount: voteButtons };
+    for (const scope of await synthesisScopeCandidates(page, card, row)) {
+      const synthesis = await readVisibleSynthesis(scope, row);
+      if (synthesis) {
+        return synthesis;
+      }
     }
     return null;
   }, { timeoutMs, intervalMs: 750 });
@@ -396,7 +672,7 @@ async function openStoryWithAcceptedSynthesis(page, candidateRows, analysisTimeo
       continue;
     }
     try {
-      const synthesis = await waitForSynthesis(card, row, perCandidateTimeoutMs);
+      const synthesis = await waitForSynthesis(page, card, row, perCandidateTimeoutMs);
       return { row, card, synthesis, rejectedCandidates };
     } catch (error) {
       rejectedCandidates.push({
@@ -431,8 +707,36 @@ async function firstVoteTarget(card) {
   };
 }
 
-async function voteAgree(card) {
+async function voteAgree(card, row, gunPeerUrl) {
   const target = await firstVoteTarget(card);
+  const durablePointId = target.canonicalPointId || target.pointId;
+  const synthesisId = parseSynthesisIdFromPointId(durablePointId);
+  const publicBefore = synthesisId
+    ? await withTimeout(
+      'public-aggregate-before-read',
+      readPublicPointAggregate({
+        gunPeerUrl,
+        topicId: row.topicId,
+        synthesisId,
+        epoch: 0,
+        pointId: durablePointId,
+      }),
+      15_000,
+    ).catch(() => null)
+    : null;
+  const publicRowsBefore = synthesisId
+    ? await withTimeout(
+      'public-voter-rows-before-read',
+      readPublicPointVoterRows({
+        gunPeerUrl,
+        topicId: row.topicId,
+        synthesisId,
+        epoch: 0,
+        pointId: durablePointId,
+      }),
+      15_000,
+    ).catch(() => [])
+    : [];
   await target.agree.click();
   await target.agree.waitFor({ state: 'visible', timeout: 10_000 });
   await waitFor('point-stance-write-readback', async () => {
@@ -442,24 +746,89 @@ async function voteAgree(card) {
       ? { ...target, afterAgree: count, afterDisagree: parseVoteCount(await target.disagree.textContent(locatorTimeout()).catch(() => '')) }
       : null;
   }, { timeoutMs: 45_000, intervalMs: 500 });
+  const minimumPublicAgree = minimumPublicAgreeAfterVote(publicBefore, target.beforeAgree);
+  const publicVoteProof = synthesisId
+    ? await waitFor('public-vote-readback', async () => {
+      const aggregate = await withTimeout(
+        'public-aggregate-after-read',
+        readPublicPointAggregate({
+          gunPeerUrl,
+          topicId: row.topicId,
+          synthesisId,
+          epoch: 0,
+          pointId: durablePointId,
+        }),
+        15_000,
+      ).catch(() => null);
+      if (aggregate && aggregate.agree >= minimumPublicAgree) {
+        return {
+          source: 'aggregate',
+          aggregate,
+          voterRows: null,
+        };
+      }
+
+      const rows = await withTimeout(
+        'public-voter-rows-after-read',
+        readPublicPointVoterRows({
+          gunPeerUrl,
+          topicId: row.topicId,
+          synthesisId,
+          epoch: 0,
+          pointId: durablePointId,
+        }),
+        15_000,
+      ).catch(() => []);
+      const voterRows = publicAgreeVoterRowsAfterVote(publicRowsBefore, rows);
+      return voterRows
+        ? {
+          source: 'voter_rows',
+          aggregate,
+          voterRows,
+        }
+        : null;
+    }, { timeoutMs: 120_000, intervalMs: 3_000 })
+    : null;
+  const publicAggregate = publicVoteProof?.aggregate ?? null;
+  const afterAgree = Math.max(
+    publicVoteProof?.voterRows?.afterAgreeRows ?? 0,
+    publicAggregate?.agree ?? 0,
+    parseVoteCount(await target.agree.textContent(locatorTimeout()).catch(() => '')),
+  );
   return {
     pointId: target.pointId,
     canonicalPointId: target.canonicalPointId,
     beforeAgree: target.beforeAgree,
     beforeDisagree: target.beforeDisagree,
-    afterAgree: parseVoteCount(await target.agree.textContent(locatorTimeout()).catch(() => '')),
+    afterAgree,
     afterDisagree: parseVoteCount(await target.disagree.textContent(locatorTimeout()).catch(() => '')),
+    publicAggregate,
+    publicVoterRows: publicVoteProof?.voterRows ?? null,
+    publicVoteProofSource: publicVoteProof?.source ?? null,
   };
+}
+
+async function firstVisibleLocator(locator) {
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      return candidate;
+    }
+  }
+  return count > 0 ? locator.first() : null;
 }
 
 async function findAgreeButtonByCanonical(card, canonicalPointId, fallbackPointId) {
   if (canonicalPointId) {
     const byCanonical = card.locator(
       `[data-testid^="cell-vote-agree-"][data-canonical-point-id=${cssAttr(canonicalPointId)}]`,
-    ).first();
-    if (await byCanonical.count().catch(() => 0)) return byCanonical;
+    );
+    const visibleCanonical = await firstVisibleLocator(byCanonical);
+    if (visibleCanonical) return visibleCanonical;
   }
-  return card.getByTestId(`cell-vote-agree-${fallbackPointId}`).first();
+  const byFallback = card.getByTestId(`cell-vote-agree-${fallbackPointId}`);
+  return (await firstVisibleLocator(byFallback)) ?? byFallback.first();
 }
 
 async function ensureStoryThread(page, row) {
@@ -467,12 +836,27 @@ async function ensureStoryThread(page, row) {
   const section = page.getByTestId(`${sectionId}-discussion`);
   await section.waitFor({ state: 'visible', timeout: 30_000 });
   const composeToggle = page.getByTestId(`${sectionId}-discussion-compose-toggle`);
-  if (await composeToggle.isVisible().catch(() => false)) {
+  const newThreadToggle = page.getByTestId(`${sectionId}-discussion-new-thread-toggle`);
+  const action = await waitFor('story-thread-action-ready', async () => {
+    if (await composeToggle.isVisible().catch(() => false)) {
+      return 'reply';
+    }
+    if (await newThreadToggle.isVisible().catch(() => false)) {
+      return 'new-thread';
+    }
+    return null;
+  }, { timeoutMs: 30_000, intervalMs: 500 });
+  if (action === 'reply') {
     return { sectionId, createdThread: false };
   }
-  const newThreadToggle = page.getByTestId(`${sectionId}-discussion-new-thread-toggle`);
-  await newThreadToggle.waitFor({ state: 'visible', timeout: 30_000 });
-  await newThreadToggle.click();
+  try {
+    await clickVisibleControl(newThreadToggle, 'story-thread-new-thread');
+  } catch (error) {
+    if (await composeToggle.isVisible().catch(() => false)) {
+      return { sectionId, createdThread: false };
+    }
+    throw error;
+  }
   const trustGate = page.getByTestId(`${sectionId}-discussion-new-thread-trust-gate`);
   const threadContent = page.getByTestId('thread-content');
   try {
@@ -487,14 +871,14 @@ async function ensureStoryThread(page, row) {
   }
   const content = `Launch smoke thread for ${row.storyId} at ${new Date().toISOString()}`;
   await threadContent.fill(content);
-  await page.getByTestId('submit-thread-btn').click();
+  await clickVisibleControl(page.getByTestId('submit-thread-btn'), 'story-thread-submit');
   await page.getByTestId(`${sectionId}-thread-head`).waitFor({ state: 'visible', timeout: 45_000 });
   await composeToggle.waitFor({ state: 'visible', timeout: 30_000 });
   return { sectionId, createdThread: true, threadSeedContent: content };
 }
 
 async function postedCommentVisible(page, body) {
-  return page.evaluate((expected) => {
+  const query = Promise.resolve().then(() => page.evaluate((expected) => {
     const nodes = Array.from(document.querySelectorAll('[data-testid^="comment-"]'));
     return nodes.some((node) => {
       const testId = node.getAttribute('data-testid') ?? '';
@@ -508,15 +892,17 @@ async function postedCommentVisible(page, body) {
       if (!/^comment-[0-9a-f][0-9a-f-]{7,}/i.test(testId)) return false;
       return (node.textContent ?? '').includes(expected);
     });
-  }, body).catch(() => false);
+  }, body));
+  return Boolean(await withTimeout('posted-comment-visible-query', query, DEFAULT_POSTED_COMMENT_QUERY_TIMEOUT_MS)
+    .catch(() => false));
 }
 
-async function createStoryComment(page, row) {
+async function createStoryComment(page, row, commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS) {
   const thread = await ensureStoryThread(page, row);
-  await page.getByTestId(`${thread.sectionId}-discussion-compose-toggle`).click();
+  await clickVisibleControl(page.getByTestId(`${thread.sectionId}-discussion-compose-toggle`), 'story-comment-compose');
   const body = `Launch smoke reply ${Date.now()} ${Math.floor(Math.random() * 1000)}`;
   await page.getByTestId('comment-composer').fill(body);
-  await page.getByTestId('submit-comment-btn').click();
+  await clickVisibleControl(page.getByTestId('submit-comment-btn'), 'story-comment-submit');
   await waitFor('story-comment-submit-complete', async () => {
     const composerError = page.getByTestId('comment-composer-error');
     if (await composerError.isVisible().catch(() => false)) {
@@ -528,20 +914,78 @@ async function createStoryComment(page, row) {
   }, { timeoutMs: 90_000, intervalMs: 500 });
   await waitFor('story-comment-visible', async () =>
     (await postedCommentVisible(page, body)) ? true : null,
-  { timeoutMs: 45_000, intervalMs: 500 });
+  { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
   const countText = trimText(await page.getByTestId(`${thread.sectionId}-discussion-count`).textContent().catch(() => ''));
   return { ...thread, body, countText };
 }
 
-async function verifyReloadPersistence(page, baseUrl, row, voteProof, commentBody, analysisTimeoutMs, progress = () => {}) {
+async function reloadStoryDetailForNextStep(page, baseUrl, row, analysisTimeoutMs, progress = () => {}) {
+  progress('post-vote-detail-reload-start', { storyId: row.storyId });
+  await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+  const pageScopedSynthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)
+    .catch((error) => {
+      progress('post-vote-detail-route-scope-wait-failed', {
+        storyId: row.storyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+  if (pageScopedSynthesis) {
+    progress('post-vote-detail-route-scope-visible', { storyId: row.storyId });
+    progress('post-vote-detail-reload-complete', { storyId: row.storyId });
+    return { row, card: page };
+  }
+  let routedRow;
+  try {
+    routedRow = await waitForTargetStoryCard(page, row, 120_000);
+  } catch (error) {
+    progress('post-vote-detail-route-fallback', {
+      storyId: row.storyId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+    routedRow = await waitForTargetStoryCard(page, row, 120_000);
+  }
+  const card = await openStory(page, routedRow);
+  await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+  progress('post-vote-detail-reload-complete', { storyId: routedRow.storyId });
+  return { row: routedRow, card };
+}
+
+async function verifyReloadPersistence(
+  page,
+  baseUrl,
+  row,
+  voteProof,
+  commentBody,
+  analysisTimeoutMs,
+  commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS,
+  progress = () => {},
+) {
   progress('reload-start', { storyId: row.storyId });
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 90_000 });
   progress('reload-domcontentloaded', { url: page.url() || baseUrl });
-  await waitForHeadlines(page, 1, 90_000);
-  progress('reload-headlines-visible');
-  const card = await openStory(page, row);
-  progress('reload-story-open');
-  await waitForSynthesis(card, row, analysisTimeoutMs);
+  let routedRow = row;
+  let card = page;
+  let synthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)
+    .catch((error) => {
+      progress('reload-detail-scope-wait-failed', {
+        storyId: row.storyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+  if (synthesis) {
+    progress('reload-detail-scope-visible', { storyId: row.storyId });
+  } else {
+    routedRow = await waitForTargetStoryCard(page, row, 90_000);
+    progress('reload-target-story-visible');
+    card = await openStory(page, routedRow);
+    progress('reload-story-open');
+    synthesis = await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+  }
   progress('reload-synthesis-visible');
   const agree = await findAgreeButtonByCanonical(card, voteProof.canonicalPointId, voteProof.pointId);
   await waitFor('reload-vote-persistence', async () =>
@@ -550,7 +994,7 @@ async function verifyReloadPersistence(page, baseUrl, row, voteProof, commentBod
   progress('reload-vote-visible');
   await waitFor('reload-comment-persistence', async () =>
     (await postedCommentVisible(page, commentBody)) ? true : null,
-  { timeoutMs: 45_000, intervalMs: 500 });
+  { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
   progress('reload-comment-visible');
   return {
     votePressed: await agree.getAttribute('aria-pressed', locatorTimeout()),
@@ -559,37 +1003,124 @@ async function verifyReloadPersistence(page, baseUrl, row, voteProof, commentBod
   };
 }
 
-async function verifySecondBrowser({ browser, baseUrl, gunPeerUrl, row, voteProof, commentBody, analysisTimeoutMs, progress = () => {} }) {
+async function verifySecondBrowser({
+  browser,
+  baseUrl,
+  gunPeerUrl,
+  row,
+  voteProof,
+  commentBody,
+  analysisTimeoutMs,
+  commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS,
+  secondBrowserVoteVisibilityTimeoutMs = DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
+  progress = () => {},
+}) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   await addConsumerInitScript(context, gunPeerUrl);
   const page = await context.newPage();
   page.setDefaultTimeout(10_000);
+  let lastVoteDiagnostics = null;
   try {
     progress('second-browser-start', { storyId: row.storyId });
-    await gotoFeed(page, baseUrl, 1, 120_000);
-    progress('second-browser-feed-visible');
+    const identity = await ensureIdentity(page, baseUrl, 'launchsmokepeer');
+    progress('second-browser-identity-complete', identity);
     await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
     await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
-    await waitForHeadlines(page, 1, 120_000);
-    progress('second-browser-detail-route-visible');
-    const card = await openStory(page, row);
-    progress('second-browser-story-open');
-    await waitForSynthesis(card, row, analysisTimeoutMs);
+    let routedRow = row;
+    let card = page;
+    try {
+      routedRow = await waitForTargetStoryCard(page, row, 120_000);
+      progress('second-browser-detail-route-visible');
+      card = await openStory(page, routedRow);
+      progress('second-browser-story-open');
+      await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+    } catch (directError) {
+      progress('second-browser-detail-route-retry-feed', {
+        storyId: row.storyId,
+        error: directError instanceof Error ? directError.message : String(directError),
+      });
+      try {
+        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+        await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+        await waitForHeadlines(page, 1, 90_000);
+        routedRow = await waitForTargetStoryCard(page, row, 120_000);
+        progress('second-browser-feed-route-visible');
+        card = await openStory(page, routedRow);
+        progress('second-browser-feed-story-open');
+        await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+      } catch (feedError) {
+        progress('second-browser-detail-scope-fallback', {
+          storyId: row.storyId,
+          error: feedError instanceof Error ? feedError.message : String(feedError),
+        });
+        await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+        await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+        routedRow = row;
+        card = page;
+        await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+      }
+    }
     progress('second-browser-synthesis-visible');
-    const agree = await findAgreeButtonByCanonical(card, voteProof.canonicalPointId, voteProof.pointId);
+    let lastVoteReopenAt = 0;
     const voteCount = await waitFor('second-browser-vote-visibility', async () => {
-    const count = parseVoteCount(await agree.textContent(locatorTimeout()).catch(() => ''));
-    return count >= voteProof.afterAgree ? count : null;
-  }, { timeoutMs: 45_000, intervalMs: 500 });
+      const agree = await findAgreeButtonByCanonical(page, voteProof.canonicalPointId, voteProof.pointId);
+      await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});
+      const count = parseVoteCount(await agree.textContent(locatorTimeout()).catch(() => ''));
+      lastVoteDiagnostics = { domCount: count, expectedCount: voteProof.afterAgree };
+      if (count >= voteProof.afterAgree) {
+        return count;
+      }
+
+      const durablePointId = voteProof.canonicalPointId || voteProof.pointId;
+      const synthesisId = parseSynthesisIdFromPointId(durablePointId);
+      const now = Date.now();
+      if (synthesisId && now - lastVoteReopenAt >= 15_000) {
+        const publicAggregate = await withTimeout(
+          'second-browser-public-aggregate-read',
+          readPublicPointAggregate({
+            gunPeerUrl,
+            topicId: row.topicId,
+            synthesisId,
+            epoch: 0,
+            pointId: durablePointId,
+          }),
+          15_000,
+        ).catch(() => null);
+        lastVoteDiagnostics = {
+          ...lastVoteDiagnostics,
+          publicAggregate,
+        };
+        if (publicAggregate?.agree >= voteProof.afterAgree) {
+          lastVoteReopenAt = now;
+          progress('second-browser-vote-public-ready-reopen', {
+            voteCount: publicAggregate.agree,
+            expectedCount: voteProof.afterAgree,
+          });
+          await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+          await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+          routedRow = await waitForTargetStoryCard(page, row, 120_000);
+          card = await openStory(page, routedRow);
+          await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+        }
+      }
+
+      return null;
+    }, { timeoutMs: secondBrowserVoteVisibilityTimeoutMs, intervalMs: 500 });
     progress('second-browser-vote-visible', { voteCount });
     await waitFor('second-browser-comment-visibility', async () =>
       (await postedCommentVisible(page, commentBody)) ? true : null,
-    { timeoutMs: 45_000, intervalMs: 500 });
+    { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
     progress('second-browser-comment-visible');
     return {
       voteCount,
       commentVisible: true,
     };
+  } catch (error) {
+    progress('second-browser-diagnostics', {
+      error: error instanceof Error ? error.message : String(error),
+      lastVoteDiagnostics,
+    });
+    throw error;
   } finally {
     await context.close().catch(() => {});
   }
@@ -598,13 +1129,22 @@ async function verifySecondBrowser({ browser, baseUrl, gunPeerUrl, row, voteProo
 async function runPublicFeedBrowserSmoke({
   repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
-  launchBrowser = () => chromium.launch({ headless: env.VH_PUBLIC_FEED_SMOKE_HEADLESS !== 'false' }),
+  launchBrowser,
 } = {}) {
   const baseUrl = normalizeUrl(env.VH_PUBLIC_FEED_APP_URL || env.VH_LIVE_BASE_URL || DEFAULT_BASE_URL);
   const gunPeerUrl = normalizeGunPeer(env.VH_PUBLIC_FEED_GUN_PEER_URL || env.VITE_GUN_PEERS?.replace(/^\[?"?|"?\]?$/g, '') || DEFAULT_GUN_PEER_URL);
+  const launchBrowserFn = launchBrowser ?? (() => launchPublicFeedBrowser({ env, baseUrl, gunPeerUrl }));
   const minHeadlines = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_MIN_HEADLINES, DEFAULT_MIN_HEADLINES);
   const readyTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
   const analysisTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS, DEFAULT_ANALYSIS_TIMEOUT_MS);
+  const commentVisibilityTimeoutMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_SMOKE_COMMENT_VISIBILITY_TIMEOUT_MS,
+    DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS,
+  );
+  const secondBrowserVoteVisibilityTimeoutMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_SMOKE_SECOND_BROWSER_VOTE_TIMEOUT_MS,
+    DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
+  );
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const logs = [];
   const progress = (step, details = {}) => {
@@ -631,7 +1171,15 @@ async function runPublicFeedBrowserSmoke({
     generatedAt: new Date().toISOString(),
     artifactDir,
     artifactPaths: { summaryPath, logsPath, screenshots },
-    config: { baseUrl, gunPeerUrl, minHeadlines, readyTimeoutMs, analysisTimeoutMs },
+    config: {
+      baseUrl,
+      gunPeerUrl,
+      minHeadlines,
+      readyTimeoutMs,
+      analysisTimeoutMs,
+      commentVisibilityTimeoutMs,
+      secondBrowserVoteVisibilityTimeoutMs,
+    },
     status: 'fail',
     checks: {},
   };
@@ -643,7 +1191,7 @@ async function runPublicFeedBrowserSmoke({
       timeoutMs: readyTimeoutMs,
       systemWriterPin: loadSystemWriterPin(repoRoot, env),
     });
-    browser = await launchBrowser();
+    browser = await launchBrowserFn();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
     await addConsumerInitScript(context, gunPeerUrl);
     const page = await context.newPage();
@@ -681,28 +1229,67 @@ async function runPublicFeedBrowserSmoke({
         .filter((story) => story.acceptedSynthesisReady)
         .map((story) => story.storyId),
     );
-    const detailCandidates = [
-      ...topCards.filter((card) => synthesisReadyStoryIds.has(card.storyId)),
-      ...topCards.filter((card) => !synthesisReadyStoryIds.has(card.storyId)),
+    const synthesisReadyReadbackRows = gunReadback.topStories
+      .filter((story) => story.acceptedSynthesisReady && story.topicId && story.storyId && story.headline)
+      .map(readbackStoryToVisibleCard);
+    const synthesisReadyCards = topCards.filter((card) => synthesisReadyStoryIds.has(card.storyId));
+    let detailCandidates = synthesisReadyCards.length > 0 ? synthesisReadyCards : [
+      ...synthesisReadyReadbackRows,
+      ...topCards,
     ];
     progress('detail-candidates', {
       ready: detailCandidates.filter((card) => synthesisReadyStoryIds.has(card.storyId)).length,
       total: detailCandidates.length,
     });
+    const routeFocus = synthesisReadyCards[0] ?? synthesisReadyReadbackRows[0];
+    if (routeFocus) {
+      await page.goto(storyDetailUrl(baseUrl, routeFocus.storyId), {
+        waitUntil: 'domcontentloaded',
+        timeout: 90_000,
+      });
+      await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+      const routedReadyCard = await waitForTargetStoryCard(page, routeFocus, 120_000);
+      if (routedReadyCard) {
+        const routedCards = await visibleCards(page);
+        detailCandidates = [
+          routedReadyCard,
+          ...routedCards.filter((card) => card.storyId !== routedReadyCard.storyId && synthesisReadyStoryIds.has(card.storyId)),
+          ...synthesisReadyReadbackRows.filter((card) => card.storyId !== routedReadyCard.storyId),
+        ];
+      }
+      progress('detail-route-focus', {
+        storyId: routeFocus.storyId,
+        routed: Boolean(routedReadyCard),
+      });
+    }
     const detail = await openStoryWithAcceptedSynthesis(page, detailCandidates, analysisTimeoutMs);
     const target = detail.row;
     const card = detail.card;
     const synthesis = detail.synthesis;
     await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
     progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
-    const voteProof = await voteAgree(card);
+    const voteProof = await voteAgree(card, target, gunPeerUrl);
     progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
-    const comment = await createStoryComment(page, target);
+    await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
+    const comment = await withTimeout(
+      'story-comment-overall',
+      createStoryComment(page, target, commentVisibilityTimeoutMs),
+      Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 60_000)),
+    );
     await page.screenshot(viewportScreenshotOptions(screenshots.afterComment));
     progress('comment-screenshot', { threadId: comment.sectionId, body: comment.body });
     const reload = await withTimeout(
       'reload-persistence-overall',
-      verifyReloadPersistence(page, baseUrl, target, voteProof, comment.body, analysisTimeoutMs, progress),
+      verifyReloadPersistence(
+        page,
+        baseUrl,
+        target,
+        voteProof,
+        comment.body,
+        analysisTimeoutMs,
+        commentVisibilityTimeoutMs,
+        progress,
+      ),
       Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
     );
     await page.screenshot(viewportScreenshotOptions(screenshots.reloadPersistence));
@@ -717,9 +1304,17 @@ async function runPublicFeedBrowserSmoke({
         voteProof,
         commentBody: comment.body,
         analysisTimeoutMs,
+        commentVisibilityTimeoutMs,
+        secondBrowserVoteVisibilityTimeoutMs,
         progress,
       }),
-      Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
+      Math.max(
+        180_000,
+        Math.min(
+          720_000,
+          analysisTimeoutMs + secondBrowserVoteVisibilityTimeoutMs + commentVisibilityTimeoutMs + 30_000,
+        ),
+      ),
     );
     progress('second-browser-complete');
 
@@ -798,14 +1393,27 @@ async function main() {
 
 export const publicFeedBrowserSmokeInternal = {
   cssAttr,
+  boolEnv,
+  buildChromiumHostResolverRules,
   normalizeGunPeer,
   normalizeUrl,
+  normalizePublicHostname,
+  parseChromiumArgs,
+  parseDelimitedHosts,
+  minimumPublicAgreeAfterVote,
+  publicAgreeVoterRowsAfterVote,
+  publicSmokeBrowserHostnames,
+  firstVisibleLocator,
+  parseSynthesisIdFromPointId,
   parsePositiveInt,
   parseVoteCount,
+  DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
   postedCommentVisible,
   readFixtureConst,
   refreshLatest,
+  findVisibleStoryRow,
   resolveArtifactDir,
+  isAcceptedSynthesisText,
   loadSystemWriterPin,
   storyDetailUrl,
   viewportScreenshotOptions,
@@ -815,8 +1423,13 @@ export const publicFeedBrowserSmokeInternal = {
 export { runPublicFeedBrowserSmoke };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error('[vh:public-feed-smoke] failed', error);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      // Gun can leave relay sockets/timers alive after all evidence is written.
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('[vh:public-feed-smoke] failed', error);
+      process.exit(1);
+    });
 }

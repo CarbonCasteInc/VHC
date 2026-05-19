@@ -217,6 +217,251 @@ describe('runStoryClusterRemoteContract', () => {
     expect(transitBundle?.sources.map((source) => source.source_id)).toEqual(['metro-a']);
   });
 
+  it('upgrades a public singleton when later San Diego mosque shooting coverage arrives', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'guardian-us',
+        publisher: 'The Guardian',
+        url: 'https://example.com/guardian-mosque',
+        canonicalUrl: 'https://example.com/guardian-mosque',
+        title: 'Five people, including two suspects, killed in shooting at San Diego’s largest mosque',
+        publishedAt: 1_779_186_385_000,
+        summary: 'Teenage suspects died from self-inflicted gunshot wounds as officials investigated the shooting at the Islamic Center of San Diego as a hate crime.',
+        url_hash: 'guardian-mosque',
+        entity_keys: ['mosque', 'shooting', 'diego', 'hate', 'crime'],
+      }],
+    }, { clock: () => 1_779_186_400_000, store });
+    const firstStoryId = first.bundles[0]?.story_id;
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'bbc-us-canada',
+        publisher: 'BBC',
+        url: 'https://example.com/bbc-mosque',
+        canonicalUrl: 'https://example.com/bbc-mosque',
+        title: 'Teen suspects fatally shoot three in suspected hate crime at San Diego mosque',
+        publishedAt: 1_779_174_475_000,
+        summary: 'Investigators said the alleged attackers were aged 17 and 18 and left a note containing generalized hate rhetoric.',
+        url_hash: 'bbc-mosque',
+        entity_keys: ['teen', 'suspects', 'shoot', 'hate', 'crime', 'mosque', 'diego'],
+      }],
+    }, { clock: () => 1_779_186_500_000, store });
+
+    const upgraded = second.bundles.find((bundle) => bundle.story_id === firstStoryId);
+    expect(upgraded?.sources.map((source) => source.source_id).sort()).toEqual(['bbc-us-canada', 'guardian-us']);
+  });
+
+  it('keeps cross-fetch public-health outbreak response singletons separate without a concrete shared action', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'cbs-politics',
+        publisher: 'CBS',
+        url: 'https://example.com/cbs-ebola',
+        canonicalUrl: 'https://example.com/cbs-ebola',
+        title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+        publishedAt: 1_779_183_061_000,
+        summary: 'The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+        url_hash: 'cbs-ebola',
+        entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'travel', 'restrictions'],
+      }],
+    }, { clock: () => 1_779_183_100_000, store });
+    const firstStoryId = first.bundles[0]?.story_id;
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'channelnewsasia-latest',
+        publisher: 'CNA',
+        url: 'https://example.com/cna-ebola',
+        canonicalUrl: 'https://example.com/cna-ebola',
+        title: 'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+        publishedAt: 1_779_188_400_000,
+        summary: 'Health advisories were put in place at all points of entry for travelers after the Ebola outbreak in DR Congo and Uganda.',
+        url_hash: 'cna-ebola',
+        entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'singapore', 'health', 'measures'],
+      }],
+    }, { clock: () => 1_779_188_500_000, store });
+
+    const originalSingleton = second.bundles.find((bundle) => bundle.story_id === firstStoryId);
+    const cnaSingleton = second.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'channelnewsasia-latest'));
+    expect(originalSingleton?.sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
+    expect(cnaSingleton?.sources.map((source) => source.source_id)).toEqual(['channelnewsasia-latest']);
+    expect(second.bundles.some((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'cbs-politics') &&
+      bundle.sources.some((source) => source.source_id === 'channelnewsasia-latest'))).toBe(false);
+  });
+
+  it('upgrades a public singleton when later matching Ebola travel-restriction coverage arrives', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'cbs-politics',
+        publisher: 'CBS',
+        url: 'https://example.com/cbs-ebola',
+        canonicalUrl: 'https://example.com/cbs-ebola',
+        title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+        publishedAt: 1_779_183_061_000,
+        summary: 'The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+        url_hash: 'cbs-ebola',
+        entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'travel', 'restrictions'],
+      }],
+    }, { clock: () => 1_779_183_100_000, store });
+    const firstStoryId = first.bundles[0]?.story_id;
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [{
+        sourceId: 'ap-health',
+        publisher: 'AP',
+        url: 'https://example.com/ap-ebola-travel',
+        canonicalUrl: 'https://example.com/ap-ebola-travel',
+        title: 'United States adds Ebola travel restrictions after Congo and Uganda outbreak',
+        publishedAt: 1_779_183_461_000,
+        summary: 'U.S. officials restricted travelers after the Ebola outbreak in Congo and Uganda.',
+        url_hash: 'ap-ebola-travel',
+        entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'travel', 'restrictions'],
+      }],
+    }, { clock: () => 1_779_183_500_000, store });
+
+    const upgraded = second.bundles.find((bundle) => bundle.story_id === firstStoryId);
+    expect(upgraded?.sources.map((source) => source.source_id).sort()).toEqual(['ap-health', 'cbs-politics']);
+  });
+
+  it('bundles same-batch public-live San Diego mosque shooting coverage', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [
+        {
+          sourceId: 'npr-news',
+          publisher: 'NPR',
+          url: 'https://example.com/npr-mosque',
+          canonicalUrl: 'https://example.com/npr-mosque',
+          title: 'California mosque shooting leaves 5 dead. And, judge dismisses Trump’s IRS lawsuit',
+          publishedAt: 1_779_190_418_000,
+          summary: 'San Diego authorities are investigating a deadly shooting at a mosque as a hate crime.',
+          url_hash: 'npr-mosque',
+          entity_keys: ['california', 'mosque', 'shooting', 'san_diego'],
+        },
+        {
+          sourceId: 'bbc-general',
+          publisher: 'BBC',
+          url: 'https://example.com/bbc-mosque',
+          canonicalUrl: 'https://example.com/bbc-mosque',
+          title: 'Father-of-8 security guard hailed as hero in San Diego mosque shooting',
+          publishedAt: 1_779_193_848_000,
+          summary: 'Amin Abdullah, one of three men killed in the attack, is said to have saved lives in the shooting.',
+          url_hash: 'bbc-mosque',
+          entity_keys: ['san_diego', 'mosque', 'shooting', 'killed'],
+        },
+      ],
+    }, { clock: () => 1_779_194_000_000, store: new MemoryClusterStore() });
+
+    const mosqueBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'npr-news'));
+    expect(mosqueBundle?.sources.map((source) => source.source_id).sort()).toEqual(['bbc-general', 'npr-news']);
+  });
+
+  it('publishes same-batch public-health outbreak responses as singletons when concrete actions differ', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [
+        {
+          sourceId: 'cbs-politics',
+          publisher: 'CBS',
+          url: 'https://example.com/cbs-ebola',
+          canonicalUrl: 'https://example.com/cbs-ebola',
+          title: 'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+          publishedAt: 1_779_183_061_000,
+          summary: 'The administration restricted some travelers who had been in Congo, South Sudan or Uganda amid the Ebola outbreak.',
+          url_hash: 'cbs-ebola',
+          entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'travel', 'restrictions'],
+        },
+        {
+          sourceId: 'bbc-general',
+          publisher: 'BBC',
+          url: 'https://example.com/bbc-ebola',
+          canonicalUrl: 'https://example.com/bbc-ebola',
+          title: "'Ebola has tortured us': Fear as outbreak spreads faster than first thought",
+          publishedAt: 1_779_193_447_000,
+          summary: 'Hundreds of cases are suspected in central Africa but experts fear the actual number may be much higher.',
+          url_hash: 'bbc-ebola',
+          entity_keys: ['ebola', 'outbreak', 'central_africa'],
+        },
+        {
+          sourceId: 'channelnewsasia-latest',
+          publisher: 'CNA',
+          url: 'https://example.com/cna-ebola',
+          canonicalUrl: 'https://example.com/cna-ebola',
+          title: 'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+          publishedAt: 1_779_188_400_000,
+          summary: 'Health advisories were put in place at all points of entry for travelers after the Ebola outbreak in DR Congo and Uganda.',
+          url_hash: 'cna-ebola',
+          entity_keys: ['ebola', 'outbreak', 'congo', 'uganda', 'singapore', 'health', 'measures'],
+        },
+      ],
+    }, { clock: () => 1_779_194_000_000, store: new MemoryClusterStore() });
+
+    const travelBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'cbs-politics'));
+    const broadBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'bbc-general'));
+    const healthBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'channelnewsasia-latest'));
+    expect(travelBundle?.sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
+    expect(broadBundle?.sources.map((source) => source.source_id)).toEqual(['bbc-general']);
+    expect(healthBundle?.sources.map((source) => source.source_id)).toEqual(['channelnewsasia-latest']);
+    expect(response.bundles.some((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'cbs-politics') &&
+      bundle.sources.some((source) => source.source_id === 'channelnewsasia-latest'))).toBe(false);
+  });
+
+  it('publishes same-batch Supreme Court stories as singletons when legal issues differ', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-public-live',
+      items: [
+        {
+          sourceId: 'ap-politics',
+          publisher: 'AP',
+          url: 'https://example.com/native-voting-rights',
+          canonicalUrl: 'https://example.com/native-voting-rights',
+          title: 'Supreme Court sends closely watched Native American voting rights decision back to lower court',
+          publishedAt: 1_779_201_800_000,
+          summary: 'The justices sent a Native American voting rights dispute back to a lower court.',
+          url_hash: 'native-voting-rights',
+          entity_keys: ['supreme_court', 'court', 'native_american_voting_rights', 'voting_rights', 'native_american'],
+        },
+        {
+          sourceId: 'scotusblog-main',
+          publisher: 'SCOTUSblog',
+          url: 'https://example.com/sex-discrimination-case',
+          canonicalUrl: 'https://example.com/sex-discrimination-case',
+          title: 'Court to hear sex discrimination case case next term',
+          publishedAt: 1_779_201_900_000,
+          summary: 'The Supreme Court agreed to hear a sex discrimination case next term. Plus, the court sent two Voting Rights Act cases back to lower courts.',
+          url_hash: 'sex-discrimination-case',
+          entity_keys: ['supreme_court', 'court', 'sex_discrimination', 'sex_discrimination_case', 'voting_rights'],
+        },
+      ],
+    }, { clock: () => 1_779_202_000_000, store: new MemoryClusterStore() });
+
+    const votingRightsBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'ap-politics'));
+    const sexDiscriminationBundle = response.bundles.find((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'scotusblog-main'));
+    expect(votingRightsBundle?.sources.map((source) => source.source_id)).toEqual(['ap-politics']);
+    expect(sexDiscriminationBundle?.sources.map((source) => source.source_id)).toEqual(['scotusblog-main']);
+    expect(response.bundles.some((bundle) =>
+      bundle.sources.some((source) => source.source_id === 'ap-politics') &&
+      bundle.sources.some((source) => source.source_id === 'scotusblog-main'))).toBe(false);
+  });
+
   it('projects same-publisher derivative assets into secondary assets only', async () => {
     const response = await runStoryClusterRemoteContract({
       topic_id: 'topic-assets',
