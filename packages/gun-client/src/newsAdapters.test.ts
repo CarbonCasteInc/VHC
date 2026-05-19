@@ -33,6 +33,8 @@ import {
   readNewsHotIndex,
   readNewsIngestionLease,
   readNewsLatestIndex,
+  readNewsLatestIndexViaRelayRest,
+  readNewsLatestIndexWithRelayRestFallback,
   readNewsRemoval,
   readNewsStory,
   readNewsStoryViaRelayRest,
@@ -847,6 +849,117 @@ describe('newsAdapters', () => {
       await expect(readNewsStoryViaRelayRest(client, 'story-123')).resolves.toEqual(STORY);
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndex validates relay REST fallback records with the pinned system writer', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-a', 123.9);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: { 'story-a': record },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({ 'story-a': 123 });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndex relay REST fallback rejects unpinned records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-a', 123);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const readerWithoutPin = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: { 'story-a': record },
+    }), { status: 200 })));
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexViaRelayRest(readerWithoutPin)).resolves.toEqual({});
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndexWithRelayRestFallback merges validated REST records when direct root is partial', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-direct', 100);
+    const directRecord = expectSystemLatestIndexRecord(mesh.writes.at(-1)?.value, 'story-direct', 100);
+    await writeNewsLatestIndexEntry(client, 'story-relay', 200);
+    const relayRecord = expectSystemLatestIndexRecord(mesh.writes.at(-1)?.value, 'story-relay', 200);
+    mesh.setRead('news/index/latest', { 'story-direct': directRecord });
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: { 'story-relay': relayRecord },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexWithRelayRestFallback(client)).resolves.toEqual({
+        'story-direct': 100,
+        'story-relay': 200,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {

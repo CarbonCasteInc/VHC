@@ -17,8 +17,9 @@ vi.mock('@vh/gun-client', () => ({
   hasForbiddenNewsPayloadFields: hasForbiddenNewsPayloadFieldsMock,
   readLatestStoryIds: readLatestStoryIdsMock,
   readNewsHotIndex: readNewsHotIndexMock,
-  readNewsLatestIndex: readNewsLatestIndexMock,
+  readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock,
+  readNewsStoryViaRelayRest: readNewsStoryMock,
   readNewsStoryWithRelayRestFallback: readNewsStoryMock,
   readNewsStoryline: readNewsStorylineMock,
 }));
@@ -743,6 +744,48 @@ describe('news store', () => {
     expect(store.getState().error).toBeNull();
   });
 
+  it('refreshLatest keeps later singleton stories when newest indexed records are temporarily unreadable', async () => {
+    const client = { id: 'client-public-index-with-cold-records' };
+    readNewsLatestIndexMock.mockResolvedValue({
+      'story-cold-a': 500,
+      'story-cold-b': 400,
+      'story-singleton-1': 300,
+      'story-singleton-2': 200,
+      'story-singleton-3': 100,
+    });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) => {
+      if (storyId.startsWith('story-cold-')) {
+        return null;
+      }
+      return story({
+        story_id: storyId,
+        headline: `Current public singleton ${storyId}`,
+        cluster_window_end: Number(storyId.slice(-1)) * 100,
+      });
+    });
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(5);
+
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual([
+      'story-singleton-1',
+      'story-singleton-2',
+      'story-singleton-3',
+    ]);
+    expect(store.getState().latestIndex).toEqual({
+      'story-cold-a': 500,
+      'story-cold-b': 400,
+      'story-singleton-1': 300,
+      'story-singleton-2': 200,
+      'story-singleton-3': 100,
+    });
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+  });
+
   it('refreshLatest keeps latest stories when the optional hot index is corrupt', async () => {
     const client = { id: 'client-corrupt-hot-index' };
     readNewsLatestIndexMock.mockResolvedValue({ s1: 300, s2: 200 });
@@ -760,6 +803,38 @@ describe('news store', () => {
     expect(store.getState().hotIndex).toEqual({});
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest keeps latest stories when the optional hot index stalls', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_NEWS_OPTIONAL_INDEX_TIMEOUT_MS', '100');
+    vi.stubEnv('VITE_NEWS_REFRESH_TIMEOUT_MS', '5000');
+    vi.resetModules();
+
+    try {
+      const client = { id: 'client-stalled-hot-index' };
+      readNewsLatestIndexMock.mockResolvedValue({ s1: 300, s2: 200 });
+      readNewsHotIndexMock.mockReturnValue(new Promise(() => undefined));
+      readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+        story({ story_id: storyId, created_at: Number(storyId.slice(1)) }));
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => client as never });
+
+      const refresh = store.getState().refreshLatest(2);
+      await vi.advanceTimersByTimeAsync(5_001);
+      await expect(refresh).resolves.toBeUndefined();
+
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s1', 's2']);
+      expect(store.getState().latestIndex).toEqual({ s1: 300, s2: 200 });
+      expect(store.getState().hotIndex).toEqual({});
+      expect(store.getState().loading).toBe(false);
+      expect(store.getState().error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it('refreshLatest preserves the existing feed when a transient public index read is empty', async () => {

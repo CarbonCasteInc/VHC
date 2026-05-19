@@ -57,6 +57,24 @@ function buildCsp(connectSrc) {
   ].join('; ');
 }
 
+function escapeHtmlAttribute(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function rewriteCspMeta(html, csp) {
+  const escapedCsp = escapeHtmlAttribute(csp);
+  const cspMeta = `<meta http-equiv="Content-Security-Policy" content="${escapedCsp}" />`;
+  const cspMetaPattern = /<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>/i;
+  if (cspMetaPattern.test(html)) {
+    return html.replace(cspMetaPattern, cspMeta);
+  }
+  return html.replace(/<head([^>]*)>/i, `<head$1>\n    ${cspMeta}`);
+}
+
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -69,6 +87,18 @@ function applySecurityHeaders(res, csp) {
   res.setHeader('content-security-policy', csp);
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('referrer-policy', 'same-origin');
+}
+
+function isClientDisconnectError(error) {
+  if (!error || typeof error !== 'object') return false;
+  const code = error.code;
+  return code === 'ERR_STREAM_PREMATURE_CLOSE'
+    || code === 'ECONNRESET'
+    || code === 'EPIPE';
+}
+
+function responseWritable(res) {
+  return !res.destroyed && !res.writableEnded;
 }
 
 function safeStaticPath(staticDir, pathname) {
@@ -96,13 +126,18 @@ function isRelayProxyRoute(pathname) {
     || pathname === '/vh/forum/comments'
     || pathname === '/vh/topics/synthesis'
     || pathname === '/vh/news/story'
+    || pathname === '/vh/news/latest-index'
     || pathname === '/vh/aggregates/point'
     || pathname === '/vh/aggregates/voter'
     || pathname === '/vh/aggregates/point-snapshot';
 }
 
 function isRelayProxyMethodAllowed(pathname, method) {
-  if (pathname === '/vh/news/story' || pathname === '/vh/aggregates/point') {
+  if (
+    pathname === '/vh/news/story'
+    || pathname === '/vh/news/latest-index'
+    || pathname === '/vh/aggregates/point'
+  ) {
     return method === 'GET';
   }
   if (pathname === '/vh/topics/synthesis') {
@@ -145,8 +180,14 @@ async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
       res.end();
       return;
     }
-    await pipeline(response.body, res);
+    try {
+      await pipeline(response.body, res);
+    } catch (error) {
+      if (isClientDisconnectError(error)) return;
+      throw error;
+    }
   } catch (error) {
+    if (isClientDisconnectError(error) || !responseWritable(res)) return;
     sendJson(res, 502, {
       ok: false,
       error: error instanceof Error && error.name === 'AbortError'
@@ -166,7 +207,22 @@ async function serveFile(req, res, filePath, csp, immutable = false) {
   }
   const stats = statSync(filePath);
   const contentType = MIME_TYPES.get(extname(filePath).toLowerCase()) || 'application/octet-stream';
+  const isHtml = contentType.startsWith('text/html');
   applySecurityHeaders(res, csp);
+  if (isHtml) {
+    const body = rewriteCspMeta(await readFile(filePath, 'utf8'), csp);
+    res.writeHead(200, {
+      'content-type': contentType,
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-cache, must-revalidate',
+    });
+    if (method === 'HEAD') {
+      res.end();
+      return;
+    }
+    res.end(body);
+    return;
+  }
   res.writeHead(200, {
     'content-type': contentType,
     'content-length': stats.size,
@@ -178,7 +234,12 @@ async function serveFile(req, res, filePath, csp, immutable = false) {
     res.end();
     return;
   }
-  await pipeline(createReadStream(filePath), res);
+  try {
+    await pipeline(createReadStream(filePath), res);
+  } catch (error) {
+    if (isClientDisconnectError(error)) return;
+    throw error;
+  }
 }
 
 export function createPublicBetaOriginHandler(options) {
@@ -251,7 +312,13 @@ export function createPublicBetaOriginHandler(options) {
 export function startPublicBetaOriginServer(options) {
   const host = options.host || DEFAULT_HOST;
   const port = Number(options.port || DEFAULT_PORT);
-  const server = createServer(createPublicBetaOriginHandler(options));
+  const handler = createPublicBetaOriginHandler(options);
+  const server = createServer((req, res) => {
+    handler(req, res).catch((error) => {
+      if (isClientDisconnectError(error) || !responseWritable(res)) return;
+      sendJson(res, 500, { ok: false, error: 'Origin request failed' });
+    });
+  });
   return new Promise((resolvePromise, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {

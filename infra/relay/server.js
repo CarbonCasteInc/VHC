@@ -77,6 +77,11 @@ function numberEnv(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
 function csvEnv(name) {
   return String(process.env[name] || '')
     .split(',')
@@ -898,14 +903,19 @@ async function readThreadBack(threadChain, threadId) {
 
 async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
-  const direct = stripGunMetadata(await readOnce(latestChain));
+  const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(latestChain, synthesisTimeoutMs),
+    readOnce(latestChain.get('__topic_synthesis_json'), synthesisTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
   const envelope = direct && typeof direct === 'object'
     ? parseTopicSynthesisEnvelope(direct.__topic_synthesis_json)
     : null;
   if (envelope?.topic_id === topicId && envelope?.synthesis_id === synthesisId) {
     return envelope;
   }
-  const scalar = parseTopicSynthesisEnvelope(await readOnce(latestChain.get('__topic_synthesis_json')));
+  const scalar = parseTopicSynthesisEnvelope(scalarRaw);
   if (scalar?.topic_id === topicId && scalar?.synthesis_id === synthesisId) {
     return scalar;
   }
@@ -914,7 +924,12 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
 
 async function readTopicLatestSynthesisRecord(gun, topicId) {
   const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
-  const direct = stripGunMetadata(await readOnce(latestChain));
+  const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(latestChain, synthesisTimeoutMs),
+    readOnce(latestChain.get('__topic_synthesis_json'), synthesisTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
   const envelope = direct && typeof direct === 'object'
     ? parseTopicSynthesisEnvelope(direct.__topic_synthesis_json)
     : null;
@@ -924,7 +939,7 @@ async function readTopicLatestSynthesisRecord(gun, topicId) {
       synthesis: envelope,
     };
   }
-  const scalar = parseTopicSynthesisEnvelope(await readOnce(latestChain.get('__topic_synthesis_json')));
+  const scalar = parseTopicSynthesisEnvelope(scalarRaw);
   if (scalar?.topic_id === topicId) {
     return {
       record: { __topic_synthesis_json: JSON.stringify(scalar) },
@@ -946,7 +961,12 @@ function parseStoryBundleEnvelope(value) {
 
 async function readNewsStoryRecord(gun, storyId) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
-  const direct = stripGunMetadata(await readOnce(storyChain));
+  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(storyChain, storyTimeoutMs),
+    readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
   const envelope = direct && typeof direct === 'object'
     ? parseStoryBundleEnvelope(direct.__story_bundle_json)
     : null;
@@ -956,7 +976,7 @@ async function readNewsStoryRecord(gun, storyId) {
       story: envelope,
     };
   }
-  const scalar = parseStoryBundleEnvelope(await readOnce(storyChain.get('__story_bundle_json')));
+  const scalar = parseStoryBundleEnvelope(scalarRaw);
   if (scalar?.story_id === storyId) {
     return {
       record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
@@ -964,6 +984,111 @@ async function readNewsStoryRecord(gun, storyId) {
     };
   }
   return null;
+}
+
+function indexEntryPriority(root, storyId) {
+  const direct = root && typeof root === 'object' ? root[storyId] : null;
+  if (typeof direct === 'number' && Number.isFinite(direct)) {
+    return direct;
+  }
+  if (direct && typeof direct === 'object') {
+    for (const key of ['latest_activity_at', 'cluster_window_end', 'created_at']) {
+      const value = Number(direct[key]);
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+  }
+  const fieldState = root && typeof root === 'object' && root._ && typeof root._ === 'object'
+    ? root._['>']
+    : null;
+  const stateValue = fieldState && typeof fieldState === 'object'
+    ? Number(fieldState[storyId])
+    : Number.NaN;
+  return Number.isFinite(stateValue) ? stateValue : 0;
+}
+
+function extractIndexChildKeys(value) {
+  if (!value || typeof value !== 'object') return [];
+  const keys = new Set();
+  for (const key of Object.keys(value)) {
+    if (key !== '_') keys.add(key);
+  }
+  const fieldState = value._ && typeof value._ === 'object' ? value._['>'] : null;
+  if (fieldState && typeof fieldState === 'object') {
+    for (const key of Object.keys(fieldState)) {
+      if (key !== '_') keys.add(key);
+    }
+  }
+  return [...keys].sort((a, b) => indexEntryPriority(value, b) - indexEntryPriority(value, a) || a.localeCompare(b));
+}
+
+function gunLinkSoul(value) {
+  if (!value || typeof value !== 'object') return null;
+  const soul = value['#'];
+  return typeof soul === 'string' && soul.trim() ? soul.trim() : null;
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }));
+  return results;
+}
+
+async function readLinkedGunRecord(gun, value, timeoutMs) {
+  const soul = gunLinkSoul(value);
+  if (!soul) return value;
+  const linked = stripGunMetadata(await readOnce(gun.get(soul), timeoutMs));
+  return linked !== null && linked !== undefined ? linked : value;
+}
+
+async function readNewsLatestIndexRecords(gun, options = {}) {
+  const indexChain = gun.get('vh').get('news').get('index').get('latest');
+  const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000);
+  const childTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750);
+  const maxRecords = Math.min(
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
+    positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
+  );
+  const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
+  const rawRoot = await readOnce(indexChain, rootTimeoutMs);
+  const sourceKeys = extractIndexChildKeys(rawRoot);
+  const keys = sourceKeys.slice(0, maxRecords);
+  const records = {};
+  const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
+    const direct = rawRoot && typeof rawRoot === 'object' && storyId in rawRoot
+      ? stripGunMetadata(rawRoot[storyId])
+      : null;
+    const child = await readLinkedGunRecord(
+      gun,
+      stripGunMetadata(await readOnce(indexChain.get(storyId), childTimeoutMs)),
+      childTimeoutMs,
+    );
+    if (child !== null && child !== undefined) {
+      return [storyId, child];
+    }
+    if (direct !== null && direct !== undefined) {
+      return [storyId, await readLinkedGunRecord(gun, direct, childTimeoutMs)];
+    }
+    return null;
+  });
+  for (const entry of entries) {
+    if (entry) records[entry[0]] = entry[1];
+  }
+  return {
+    root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
+    sourceKeyCount: sourceKeys.length,
+    truncated: sourceKeys.length > keys.length,
+    records,
+  };
 }
 
 function parseAggregatePointSnapshot(value, context) {
@@ -1918,6 +2043,31 @@ const server = http.createServer((req, res) => {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
           story_id: storyId,
+        });
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/latest-index') {
+    const limit = parsedUrl.searchParams.get('limit');
+    const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
+      || parsedUrl.searchParams.get('include_root') === 'true';
+    void readNewsLatestIndexRecords(gun, { limit, includeRoot })
+      .then((result) => {
+        const payload = {
+          ok: true,
+          record_count: Object.keys(result.records).length,
+          source_key_count: result.sourceKeyCount,
+          truncated: result.truncated,
+          records: result.records,
+        };
+        if (result.root) payload.root = result.root;
+        sendJson(res, 200, payload);
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
         });
       });
     return;

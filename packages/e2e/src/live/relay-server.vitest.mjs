@@ -143,6 +143,7 @@ async function startRelay(children, tempDirs, env = {}) {
       GUN_HOST: '127.0.0.1',
       GUN_PORT: String(port),
       GUN_FILE: path.join(gunDir, 'data'),
+      VH_RELAY_PEERS: '',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -190,6 +191,17 @@ function readGunOnce(node, timeoutMs = 5_000) {
       resolve(data ?? null);
     });
   });
+}
+
+async function putGunValueAndWaitForReadback(node, value, timeoutMs = 5_000) {
+  node.put(value);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await readGunOnce(node, 500) === value) {
+      return;
+    }
+  }
+  throw new Error('gun-put-readback-timeout');
 }
 
 describe('infra relay server', () => {
@@ -390,6 +402,55 @@ describe('infra relay server', () => {
         }),
       });
   });
+
+  it('serves scalar-only topic synthesis records without waiting for a missing parent node', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '800',
+    });
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: 'topic-scalar-only',
+      synthesis_id: 'synthesis-scalar-only',
+      epoch: 1,
+      created_at: '2026-05-02T00:00:00.000Z',
+      facts_summary: 'Scalar-only topic synthesis remains available through the relay REST fallback.',
+      frames: [],
+      provenance: {
+        candidate_ids: [],
+        provider_mix: {},
+      },
+      warnings: [],
+    };
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('topics').get(synthesis.topic_id).get('latest').get('__topic_synthesis_json'),
+      JSON.stringify(synthesis),
+    );
+    await expect(readGunOnce(
+      gun.get('vh').get('topics').get(synthesis.topic_id).get('latest').get('__topic_synthesis_json'),
+    )).resolves.toBe(JSON.stringify(synthesis));
+
+    const startedAt = Date.now();
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis?topic_id=${synthesis.topic_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          topic_id: synthesis.topic_id,
+          synthesis_id: synthesis.synthesis_id,
+          synthesis,
+          record: expect.objectContaining({
+            __topic_synthesis_json: JSON.stringify(synthesis),
+          }),
+        }),
+      });
+    expect(Date.now() - startedAt).toBeLessThan(800);
+    gun.off();
+  }, 15_000);
 
   it('preserves LUMA aggregate voter envelopes written through the relay fallback', async () => {
     const { port } = await startRelay(children, tempDirs);
@@ -683,7 +744,94 @@ describe('infra relay server', () => {
           story_id: 'story-missing',
         }),
       });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          record_count: 0,
+          records: {},
+        }),
+      });
   });
+
+  it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',
+    });
+
+    const bounded = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`);
+    expect(bounded).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: expect.any(Number),
+        source_key_count: expect.any(Number),
+        truncated: expect.any(Boolean),
+        records: expect.any(Object),
+      }),
+    });
+    expect(bounded.body.record_count).toBeLessThanOrEqual(2);
+    expect(bounded.body).not.toHaveProperty('root');
+
+    const limited = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=1`);
+    expect(limited).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        record_count: expect.any(Number),
+        records: expect.any(Object),
+      }),
+    });
+    expect(limited.body.record_count).toBeLessThanOrEqual(1);
+
+    const withRoot = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=1&include_root=true`);
+    expect(withRoot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        root: expect.any(Object),
+      }),
+    });
+  });
+
+  it('serves scalar-only news story records without waiting for a missing parent node', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
+    });
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const story = {
+      story_id: 'story-scalar-only',
+      topic_id: 'topic-scalar-only',
+      headline: 'Scalar-only relay story',
+    };
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+      JSON.stringify(story),
+    );
+    await expect(readGunOnce(
+      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+    )).resolves.toBe(JSON.stringify(story));
+
+    const startedAt = Date.now();
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: story.story_id,
+          story,
+          record: expect.objectContaining({
+            __story_bundle_json: JSON.stringify(story),
+          }),
+        }),
+      });
+    expect(Date.now() - startedAt).toBeLessThan(800);
+    gun.off();
+  }, 15_000);
 
   it('preserves signed forum comment envelopes written through the relay fallback', async () => {
     const { port } = await startRelay(children, tempDirs);

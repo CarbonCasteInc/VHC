@@ -1056,6 +1056,35 @@ describe('useSentimentState', () => {
     expect(aggregatePayload).not.toHaveProperty('nullifier');
   });
 
+  it('does not let encrypted outbox latency block public aggregate projection', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('abababababababababababababababababababababababababababababababab');
+    vi.spyOn(GunClient, 'writeSentimentEvent').mockImplementation(() => new Promise(() => {}));
+    const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('projected-outbox-pending'),
+    });
+
+    await waitForMockCall(writeVoterSpy, ([client, topicId, synthesisId, epoch, voterId]) => (
+      client === fakeClient
+      && topicId === TOPIC
+      && synthesisId === 'synth-9'
+      && epoch === 4
+      && voterId === 'abababababababababababababababababababababababababababababababab'
+    ));
+  });
+
   it('logs successful voter-node readback payload after aggregate write', async () => {
     const fakeClient = {
       gun: { user: () => ({}) },

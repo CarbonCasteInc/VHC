@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startPublicBetaOriginServer } from '../../../../tools/scripts/public-beta-origin-server.mjs';
 
 const cleanup = [];
+const PUBLIC_CSP_CONNECT_SRC = "'self' https://venn.carboncaste.io https://gun-a.carboncaste.io https://gun-b.carboncaste.io https://gun-c.carboncaste.io wss://gun-a.carboncaste.io wss://gun-b.carboncaste.io wss://gun-c.carboncaste.io";
 
 afterEach(async () => {
   while (cleanup.length > 0) {
@@ -28,7 +30,10 @@ function listen(server) {
 async function makeStaticRoot() {
   const root = await mkdtemp(join(tmpdir(), 'vh-origin-test-'));
   await mkdir(join(root, 'assets'));
-  await writeFile(join(root, 'index.html'), '<!doctype html><title>Venn</title><main id="root"></main>');
+  await writeFile(
+    join(root, 'index.html'),
+    '<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="connect-src localhost:*"></head><body><main id="root"></main></body></html>',
+  );
   await writeFile(join(root, 'assets', 'app.js'), 'console.log("vh");');
   await writeFile(join(root, 'mesh-peer-config.json'), JSON.stringify({ payload: { peers: [] } }));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -52,15 +57,18 @@ describe('public beta origin server', () => {
     const origin = await startOrigin({
       staticDir,
       peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
-      cspConnectSrc: "'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
     });
 
     const root = await fetch(`${origin}/`);
+    const rootHtml = await root.text();
     expect(root.status).toBe(200);
     expect(root.headers.get('content-security-policy')).toContain(
-      "connect-src 'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      `connect-src ${PUBLIC_CSP_CONNECT_SRC}`,
     );
-    expect(await root.text()).toContain('<main id="root">');
+    expect(rootHtml).toContain('<main id="root">');
+    expect(rootHtml).toContain(`connect-src ${PUBLIC_CSP_CONNECT_SRC}`);
+    expect(rootHtml).not.toContain('localhost:*');
 
     const asset = await fetch(`${origin}/assets/app.js`);
     expect(asset.status).toBe(200);
@@ -98,7 +106,7 @@ describe('public beta origin server', () => {
       staticDir,
       peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
       analysisTarget: upstreamUrl,
-      cspConnectSrc: "'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
     });
 
     const health = await fetch(`${origin}/api/analyze/health`);
@@ -139,7 +147,7 @@ describe('public beta origin server', () => {
       staticDir,
       peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
       relayTarget: relayUrl,
-      cspConnectSrc: "'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
     });
 
     const response = await fetch(`${origin}/vh/forum/comment`, {
@@ -190,6 +198,13 @@ describe('public beta origin server', () => {
       url: '/vh/news/story?story_id=story-1',
     });
 
+    const latestIndexRead = await fetch(`${origin}/vh/news/latest-index`);
+    expect(latestIndexRead.status).toBe(200);
+    expect(relayRequests.at(-1)).toMatchObject({
+      method: 'GET',
+      url: '/vh/news/latest-index',
+    });
+
     const aggregateRead = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
     expect(aggregateRead.status).toBe(200);
     expect(relayRequests.at(-1)).toMatchObject({
@@ -203,12 +218,43 @@ describe('public beta origin server', () => {
     expect(forbiddenCommentsPost.status).toBe(405);
     const forbiddenStoryPost = await fetch(`${origin}/vh/news/story`, { method: 'POST' });
     expect(forbiddenStoryPost.status).toBe(405);
+    const forbiddenLatestIndexPost = await fetch(`${origin}/vh/news/latest-index`, { method: 'POST' });
+    expect(forbiddenLatestIndexPost.status).toBe(405);
     const forbiddenAggregatePost = await fetch(`${origin}/vh/aggregates/point`, { method: 'POST' });
     expect(forbiddenAggregatePost.status).toBe(405);
 
     const root = await fetch(`${origin}/`);
     expect(root.headers.get('content-security-policy')).toContain(
-      "connect-src 'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      `connect-src ${PUBLIC_CSP_CONNECT_SRC}`,
     );
+  });
+
+  it('survives a client disconnect while streaming a static response', async () => {
+    const staticDir = await makeStaticRoot();
+    const largeBody = `<!doctype html><title>Venn</title><main>${'x'.repeat(512_000)}</main>`;
+    await writeFile(join(staticDir, 'index.html'), largeBody);
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+    const { hostname, port } = new URL(origin);
+
+    await new Promise((resolve, reject) => {
+      const socket = connect(Number(port), hostname);
+      socket.once('error', reject);
+      socket.once('connect', () => {
+        socket.write('GET / HTTP/1.1\r\nHost: vh-public-origin.local\r\nConnection: close\r\n\r\n');
+      });
+      socket.once('data', () => {
+        socket.destroy();
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const health = await fetch(`${origin}/healthz`);
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({ ok: true, service: 'vh-public-beta-origin' });
   });
 });

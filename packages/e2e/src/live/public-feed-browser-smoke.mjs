@@ -26,6 +26,8 @@ const DEFAULT_POSTED_COMMENT_QUERY_TIMEOUT_MS = 5_000;
 const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
+const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
+const DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT = 32;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function normalizeUrl(value) {
@@ -355,6 +357,112 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
   }
 }
 
+function latestIndexRecordTimestamp(record) {
+  const candidates = [
+    record?.latest_activity_at,
+    record?.updated_at,
+    record?.published_at,
+    record?._systemIssuedAt,
+  ];
+  for (const candidate of candidates) {
+    const timestamp = Number(candidate);
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return 0;
+}
+
+function sourceLabel(source) {
+  return String(source?.publisher || source?.source_id || source?.source || source?.url || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function storySourceLabels(story) {
+  const sources = Array.isArray(story?.sources)
+    ? story.sources
+    : Array.isArray(story?.primary_sources)
+      ? story.primary_sources
+      : [];
+  return sources.map(sourceLabel).filter(Boolean);
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json') {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`${label}-http-${response.status}:${text.slice(0, 240)}`);
+    }
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${label}-json-parse:${error instanceof Error ? error.message : String(error)}:${text.slice(0, 240)}`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function acceptedSynthesisReady(synthesis) {
+  return Boolean(String(synthesis?.facts_summary ?? '').trim() && (synthesis?.frames?.length ?? 0) > 0);
+}
+
+async function readPublicRelaySynthesisCandidates({
+  baseUrl,
+  indexLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT,
+  scanLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT,
+  timeoutMs = 15_000,
+} = {}) {
+  const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
+  const indexUrl = new URL('/vh/news/latest-index', root);
+  indexUrl.searchParams.set('limit', String(indexLimit));
+  const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index');
+  const records = Object.values(index?.records ?? {})
+    .filter((record) => record && typeof record === 'object')
+    .sort((left, right) => latestIndexRecordTimestamp(right) - latestIndexRecordTimestamp(left));
+  const topStories = [];
+  for (const record of records.slice(0, scanLimit)) {
+    const storyId = String(record.story_id || record.storyId || '').trim();
+    if (!storyId) continue;
+    const storyUrl = new URL('/vh/news/story', root);
+    storyUrl.searchParams.set('story_id', storyId);
+    const storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story')
+      .catch(() => null);
+    const story = storyPayload?.story;
+    if (!story?.story_id || !story?.topic_id || !story?.headline) continue;
+    const synthesisUrl = new URL('/vh/topics/synthesis', root);
+    synthesisUrl.searchParams.set('topic_id', story.topic_id);
+    const synthesisPayload = await fetchJsonWithTimeout(
+      synthesisUrl.href,
+      timeoutMs,
+      'public-relay-topic-synthesis',
+    ).catch(() => null);
+    const synthesis = synthesisPayload?.synthesis;
+    if (!acceptedSynthesisReady(synthesis)) continue;
+    const labels = storySourceLabels(story);
+    topStories.push({
+      storyId: story.story_id,
+      topicId: story.topic_id,
+      updatedAt: latestIndexRecordTimestamp(record) || Number(story.cluster_window_end) || Date.now(),
+      headline: story.headline,
+      sourceCount: labels.length,
+      sourceLabels: labels,
+      acceptedSynthesisReady: true,
+      synthesisId: synthesis.synthesis_id ?? null,
+    });
+  }
+  return {
+    latestIndexCount: records.length,
+    storyReadbackCount: topStories.length,
+    topStories,
+  };
+}
+
 async function readPublicPointAggregate({ gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
   const client = createClient({
     peers: [gunPeerUrl],
@@ -451,6 +559,28 @@ async function visibleCards(page) {
     .filter((row) => row && row.topicId && row.storyId && row.headline));
 }
 
+async function summarizeFeedState(page) {
+  return page.evaluate(() => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    return {
+      href: window.location.href,
+      visibleCardCount: document.querySelectorAll('article[data-testid^="news-card-"]').length,
+      bodyExcerpt: (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 240),
+      store: store
+        ? {
+          latestIndexCount: Array.isArray(store.latestIndex) ? store.latestIndex.length : null,
+          storyCount: store.storiesById && typeof store.storiesById === 'object'
+            ? Object.keys(store.storiesById).length
+            : null,
+          loading: Boolean(store.loading),
+          error: store.error ? String(store.error).slice(0, 240) : null,
+          peerCount: Array.isArray(store.peerConfig?.peers) ? store.peerConfig.peers.length : null,
+        }
+        : null,
+    };
+  });
+}
+
 function readbackStoryToVisibleCard(row) {
   return {
     topicId: row.topicId,
@@ -472,10 +602,26 @@ async function clickFeedRefresh(page) {
   return true;
 }
 
-async function waitForHeadlines(page, minHeadlines, timeoutMs) {
+async function waitForHeadlines(page, minHeadlines, timeoutMs, progress = () => {}) {
+  const startedAt = Date.now();
+  let lastProgressAt = 0;
   return waitFor('public-feed-headlines', async () => {
     const rows = await visibleCards(page);
     if (rows.length >= minHeadlines) return rows;
+    const now = Date.now();
+    if (now - lastProgressAt >= 15_000) {
+      lastProgressAt = now;
+      const diagnostics = await withTimeout('headline-wait-diagnostics', summarizeFeedState(page), 3_000)
+        .catch((error) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      progress('headline-wait-diagnostics', {
+        elapsedMs: now - startedAt,
+        rows: rows.length,
+        minHeadlines,
+        diagnostics,
+      });
+    }
     await clickFeedRefresh(page);
     await page.evaluate(() => window.scrollBy(0, Math.max(400, window.innerHeight))).catch(() => {});
     await page.waitForTimeout(300).catch(() => {});
@@ -509,10 +655,10 @@ async function waitForTargetStoryCard(page, row, timeoutMs) {
   }, { timeoutMs, intervalMs: 1_000 });
 }
 
-async function gotoFeed(page, baseUrl, minHeadlines, timeoutMs) {
+async function gotoFeed(page, baseUrl, minHeadlines, timeoutMs, progress = () => {}) {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
-  return waitForHeadlines(page, minHeadlines, timeoutMs);
+  return waitForHeadlines(page, minHeadlines, timeoutMs, progress);
 }
 
 async function ensureIdentity(page, baseUrl, label) {
@@ -1042,7 +1188,7 @@ async function verifySecondBrowser({
       try {
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
         await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
-        await waitForHeadlines(page, 1, 90_000);
+        await waitForHeadlines(page, 1, 90_000, progress);
         routedRow = await waitForTargetStoryCard(page, row, 120_000);
         progress('second-browser-feed-route-visible');
         card = await openStory(page, routedRow);
@@ -1191,6 +1337,19 @@ async function runPublicFeedBrowserSmoke({
       timeoutMs: readyTimeoutMs,
       systemWriterPin: loadSystemWriterPin(repoRoot, env),
     });
+    const publicRelaySynthesisReadback = await readPublicRelaySynthesisCandidates({
+      baseUrl,
+      timeoutMs: Math.min(15_000, Math.max(5_000, Math.floor(readyTimeoutMs / 24))),
+    }).catch((error) => {
+      progress('public-relay-synthesis-readback-unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { latestIndexCount: 0, storyReadbackCount: 0, topStories: [] };
+    });
+    progress('public-relay-synthesis-readback', {
+      latestIndexCount: publicRelaySynthesisReadback.latestIndexCount,
+      storyReadbackCount: publicRelaySynthesisReadback.storyReadbackCount,
+    });
     browser = await launchBrowserFn();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
     await addConsumerInitScript(context, gunPeerUrl);
@@ -1202,7 +1361,8 @@ async function runPublicFeedBrowserSmoke({
     progress('identity-start');
     const identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
     progress('identity-complete', identity);
-    const initialCards = await gotoFeed(page, baseUrl, minHeadlines, readyTimeoutMs);
+    progress('initial-feed-wait-start', { minHeadlines });
+    const initialCards = await gotoFeed(page, baseUrl, minHeadlines, readyTimeoutMs, progress);
     await page.screenshot(viewportScreenshotOptions(screenshots.initialFeed));
     progress('initial-feed-screenshot', { count: initialCards.length });
     const cardsWithSources = initialCards.filter((card) => card.sourceLabels.length > 0);
@@ -1211,7 +1371,7 @@ async function runPublicFeedBrowserSmoke({
     if (cardsWithTimestamps.length < minHeadlines) throw new Error(`timestamps-missing:${cardsWithTimestamps.length}/${minHeadlines}`);
 
     await clickFeedRefresh(page);
-    const afterRefreshCards = await waitForHeadlines(page, minHeadlines, 60_000);
+    const afterRefreshCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
     await page.screenshot(viewportScreenshotOptions(screenshots.afterRefresh));
     progress('refresh-screenshot', { count: afterRefreshCards.length });
 
@@ -1223,7 +1383,7 @@ async function runPublicFeedBrowserSmoke({
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
 
     await page.evaluate(() => window.scrollTo(0, 0));
-    const topCards = await waitForHeadlines(page, minHeadlines, 60_000);
+    const topCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
     const synthesisReadyStoryIds = new Set(
       gunReadback.topStories
         .filter((story) => story.acceptedSynthesisReady)
@@ -1232,16 +1392,21 @@ async function runPublicFeedBrowserSmoke({
     const synthesisReadyReadbackRows = gunReadback.topStories
       .filter((story) => story.acceptedSynthesisReady && story.topicId && story.storyId && story.headline)
       .map(readbackStoryToVisibleCard);
+    const publicRelaySynthesisReadyRows = publicRelaySynthesisReadback.topStories
+      .filter((story) => story.acceptedSynthesisReady && story.topicId && story.storyId && story.headline)
+      .map(readbackStoryToVisibleCard);
     const synthesisReadyCards = topCards.filter((card) => synthesisReadyStoryIds.has(card.storyId));
     let detailCandidates = synthesisReadyCards.length > 0 ? synthesisReadyCards : [
+      ...publicRelaySynthesisReadyRows,
       ...synthesisReadyReadbackRows,
       ...topCards,
     ];
     progress('detail-candidates', {
       ready: detailCandidates.filter((card) => synthesisReadyStoryIds.has(card.storyId)).length,
+      publicRelayReady: publicRelaySynthesisReadyRows.length,
       total: detailCandidates.length,
     });
-    const routeFocus = synthesisReadyCards[0] ?? synthesisReadyReadbackRows[0];
+    const routeFocus = synthesisReadyCards[0] ?? publicRelaySynthesisReadyRows[0] ?? synthesisReadyReadbackRows[0];
     if (routeFocus) {
       await page.goto(storyDetailUrl(baseUrl, routeFocus.storyId), {
         waitUntil: 'domcontentloaded',
@@ -1324,6 +1489,7 @@ async function runPublicFeedBrowserSmoke({
       status: 'pass',
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
+        publicRelaySynthesisReadback,
         identityCreation: identity,
         currentPublicHeadlinesVisible: {
           count: initialCards.length,
@@ -1415,6 +1581,7 @@ export const publicFeedBrowserSmokeInternal = {
   resolveArtifactDir,
   isAcceptedSynthesisText,
   loadSystemWriterPin,
+  readPublicRelaySynthesisCandidates,
   storyDetailUrl,
   viewportScreenshotOptions,
   withTimeout,

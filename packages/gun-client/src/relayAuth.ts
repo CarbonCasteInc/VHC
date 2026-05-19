@@ -23,6 +23,21 @@ export function createRelayDaemonAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function base64UrlEncodeUtf8(value: string): string {
+  const maybeBuffer = (globalThis as unknown as {
+    Buffer?: { from(value: string, encoding: string): { toString(encoding: string): string } };
+  }).Buffer;
+  if (maybeBuffer) {
+    return maybeBuffer.from(value, 'utf8').toString('base64url');
+  }
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 export async function createRelayUserSignatureHeaders(
   path: string,
   body: unknown,
@@ -39,10 +54,7 @@ export async function createRelayUserSignatureHeaders(
   if (typeof signature !== 'string' || !signature.trim()) {
     return {};
   }
-  const maybeBuffer = (globalThis as unknown as { Buffer?: { from(value: string, encoding: string): { toString(encoding: string): string } } }).Buffer;
-  const encodedSignature = maybeBuffer
-    ? maybeBuffer.from(signature, 'utf8').toString('base64url')
-    : btoa(signature).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  const encodedSignature = base64UrlEncodeUtf8(signature);
   return {
     'x-vh-relay-device-pub': pair.pub,
     'x-vh-relay-signature': encodedSignature,

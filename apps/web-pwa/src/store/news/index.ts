@@ -1,8 +1,8 @@
 import { create, type StoreApi } from 'zustand';
 import {
   readNewsHotIndex,
-  readNewsLatestIndex,
-  readNewsStory,
+  readNewsLatestIndexWithRelayRestFallback,
+  readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
   type VennClient,
 } from '@vh/gun-client';
@@ -78,6 +78,24 @@ const NEWS_REFRESH_TIMEOUT_MS = readNewsStoreNumber(
   1_000,
 );
 
+const NEWS_OPTIONAL_INDEX_TIMEOUT_MS = readNewsStoreNumber(
+  ['VITE_NEWS_OPTIONAL_INDEX_TIMEOUT_MS', 'VH_NEWS_OPTIONAL_INDEX_TIMEOUT_MS'],
+  3_000,
+  250,
+);
+
+const NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS = readNewsStoreNumber(
+  ['VITE_NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS', 'VH_NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS'],
+  5_000,
+  250,
+);
+
+const NEWS_REFRESH_STORY_LIST_TIMEOUT_MS = readNewsStoreNumber(
+  ['VITE_NEWS_REFRESH_STORY_LIST_TIMEOUT_MS', 'VH_NEWS_REFRESH_STORY_LIST_TIMEOUT_MS'],
+  Math.max(2_000, NEWS_REFRESH_TIMEOUT_MS - NEWS_OPTIONAL_INDEX_TIMEOUT_MS - NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS - 1_000),
+  500,
+);
+
 const NEWS_REFRESH_STORY_READ_CONCURRENCY = readNewsStoreNumber(
   ['VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY', 'VH_NEWS_REFRESH_STORY_READ_CONCURRENCY'],
   8,
@@ -106,6 +124,26 @@ async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
           () => reject(new Error(`News refresh timed out after ${NEWS_REFRESH_TIMEOUT_MS}ms`)),
           NEWS_REFRESH_TIMEOUT_MS,
         );
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+async function withOptionalNewsTimeout<T>(
+  work: Promise<T>,
+  fallback: T,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work.catch(() => fallback),
+      new Promise<T>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(fallback), timeoutMs);
       }),
     ]);
   } finally {
@@ -150,13 +188,49 @@ async function readLatestStoriesBounded(
   client: VennClient,
   storyIds: readonly string[],
 ): Promise<Array<StoryBundle | null>> {
-  return mapWithConcurrency(storyIds, NEWS_REFRESH_STORY_READ_CONCURRENCY, async (storyId) => {
-    try {
-      return await readNewsStory(client, storyId);
-    } catch {
-      return null;
+  if (storyIds.length === 0) {
+    return [];
+  }
+
+  const results = new Array<StoryBundle | null>(storyIds.length);
+  let nextIndex = 0;
+  let timedOut = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const workerCount = Math.max(
+    1,
+    Math.min(Math.floor(NEWS_REFRESH_STORY_READ_CONCURRENCY), storyIds.length),
+  );
+  const workers = Promise.all(Array.from({ length: workerCount }, async () => {
+    while (!timedOut && nextIndex < storyIds.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      try {
+        results[currentIndex] = await readConfiguredStoryByIdRelayFirst(
+          client,
+          storyIds[currentIndex]!,
+        );
+      } catch {
+        results[currentIndex] = null;
+      }
     }
-  });
+  }));
+
+  try {
+    await Promise.race([
+      workers,
+      new Promise<void>((resolve) => {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, NEWS_REFRESH_STORY_LIST_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+  return results;
 }
 
 async function readConfiguredStoryById(
@@ -180,6 +254,21 @@ async function readConfiguredStoryById(
     }
   }
   return null;
+}
+
+async function readConfiguredStoryByIdRelayFirst(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  try {
+    const relayed = parseStory(await readNewsStoryViaRelayRest(client, storyId));
+    if (relayed) {
+      return isStoryFromConfiguredSources(relayed) ? relayed : null;
+    }
+  } catch {
+    // Fall back to the slower Gun-first path below.
+  }
+  return readConfiguredStoryById(client, storyId, { attempts: 1 });
 }
 
 function hasIndexEntries(index: Record<string, number>): boolean {
@@ -422,7 +511,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       try {
         let story = await readConfiguredStoryById(client, normalizedStoryId, { attempts: 1 });
         if (!story) {
-          const latestIndex: Record<string, number> = await readNewsLatestIndex(client)
+          const latestIndex: Record<string, number> = await readNewsLatestIndexWithRelayRestFallback(client)
             .then(sanitizeLatestIndex)
             .catch(() => ({}));
           const indexedTimestamp = latestIndex[normalizedStoryId];
@@ -469,10 +558,8 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       try {
         const { filteredStories, hotIndex, latestIndex, storylines } =
           await withNewsRefreshTimeout((async () => {
-            const nextLatestIndex = await readNewsLatestIndex(client).then(sanitizeLatestIndex);
-            const nextHotIndex = await readNewsHotIndex(client)
-              .then(sanitizeHotIndex)
-              .catch(() => ({}));
+            const nextLatestIndex = await readNewsLatestIndexWithRelayRestFallback(client)
+              .then(sanitizeLatestIndex);
 
             const currentState = get();
             const shouldPreserveExistingFeed =
@@ -482,7 +569,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             if (shouldPreserveExistingFeed) {
               return {
                 filteredStories: [...currentState.stories],
-                hotIndex: hasIndexEntries(nextHotIndex) ? nextHotIndex : { ...currentState.hotIndex },
+                hotIndex: { ...currentState.hotIndex },
                 latestIndex: { ...currentState.latestIndex },
                 storylines: Object.values(currentState.storylinesById),
               };
@@ -492,7 +579,18 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             const stories = await readLatestStoriesBounded(client, storyIds);
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
-            const nextStorylines = await loadStorylinesForStories(client, nextFilteredStories);
+            const [nextHotIndex, nextStorylines] = await Promise.all([
+              withOptionalNewsTimeout(
+                readNewsHotIndex(client).then(sanitizeHotIndex),
+                {},
+                NEWS_OPTIONAL_INDEX_TIMEOUT_MS,
+              ),
+              withOptionalNewsTimeout(
+                loadStorylinesForStories(client, nextFilteredStories),
+                [],
+                NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS,
+              ),
+            ]);
 
             return {
               filteredStories: nextFilteredStories,

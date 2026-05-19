@@ -112,8 +112,94 @@ describe('public feed browser smoke helpers', () => {
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
 
     expect(source).toContain('const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;');
+    expect(source).toContain('const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;');
+    expect(source).toContain('readPublicRelaySynthesisCandidates({');
     expect(source).toContain('topStories: stories,');
     expect(source).not.toContain('topStories: stories.slice(0, 8)');
+  });
+
+  it('discovers accepted public synthesis candidates through the deployed relay REST shape', async () => {
+    const calls = [];
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      calls.push(href);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-singleton': { story_id: 'story-singleton', latest_activity_at: 20 },
+              'story-bundled': { story_id: 'story-bundled', latest_activity_at: 10 },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-singleton')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-singleton',
+              topic_id: 'topic-singleton',
+              headline: 'One valid singleton story',
+              sources: [{ publisher: 'one-source' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-bundled')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-bundled',
+              topic_id: 'topic-bundled',
+              headline: 'Bundled story with accepted synthesis',
+              sources: [{ publisher: 'source-a' }, { publisher: 'source-b' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis') && href.includes('topic-bundled')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            synthesis: {
+              synthesis_id: 'news-bundle:story-bundled:abc',
+              facts_summary: 'Accepted synthesis with enough context.',
+              frames: [{ point_id: 'frame-1' }],
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({ synthesis: { facts_summary: '', frames: [] } }),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 4,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 2,
+        storyReadbackCount: 1,
+        topStories: [{
+          storyId: 'story-bundled',
+          topicId: 'topic-bundled',
+          headline: 'Bundled story with accepted synthesis',
+          sourceCount: 2,
+          acceptedSynthesisReady: true,
+          synthesisId: 'news-bundle:story-bundled:abc',
+        }],
+      });
+      expect(calls.some((href) => href === 'https://venn.example/vh/news/story?story_id=story-bundled')).toBe(true);
+      expect(calls.some((href) => href === 'https://venn.example/vh/topics/synthesis?topic_id=topic-bundled')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('uses a release-shaped timeout for second-browser public vote convergence', async () => {
@@ -233,6 +319,14 @@ describe('public feed browser smoke helpers', () => {
     };
 
     await expect(internal.refreshLatest(page, 12, 5)).resolves.toEqual({ status: 'timeout' });
+  });
+
+  it('reports public headline wait diagnostics while strict peer hydration catches up', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain("progress('initial-feed-wait-start'");
+    expect(source).toContain("progress('headline-wait-diagnostics'");
+    expect(source).toContain('summarizeFeedState(page)');
   });
 
   it('bounds direct Gun reads used by release proof collection', async () => {

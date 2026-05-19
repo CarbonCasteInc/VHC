@@ -84,6 +84,11 @@ const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
   10_000,
 );
+const RELAY_REST_INDEX_LIMIT = readGunTimeoutMs(
+  ['VITE_VH_NEWS_RELAY_REST_INDEX_LIMIT', 'VH_NEWS_RELAY_REST_INDEX_LIMIT'],
+  80,
+  4,
+);
 const ROOT_INDEX_SETTLE_MS = 150;
 
 export interface SystemWriterStoryBundleRecord extends Record<string, unknown>, SystemWriterRecordFields {
@@ -1201,6 +1206,86 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
     ),
     ...index,
   };
+}
+
+/**
+ * Read latest-index records through the relay's same-origin REST fallback.
+ *
+ * Browsers can occasionally observe an empty or partial Gun root while the
+ * public relay has persisted child records. The returned records are still
+ * validated locally with the pinned system-writer key before becoming index
+ * evidence.
+ */
+export async function readNewsLatestIndexViaRelayRest(client: VennClient): Promise<NewsLatestIndex> {
+  const peer = client.config.peers[0];
+  if (!peer || typeof fetch !== 'function') {
+    return {};
+  }
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/news/latest-index?limit=${encodeURIComponent(String(RELAY_REST_INDEX_LIMIT))}`,
+  );
+  if (!endpoint) {
+    return {};
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return {};
+    }
+    const payload = await response.json() as { records?: unknown; index?: unknown };
+    const records = isRecord(payload.records)
+      ? payload.records
+      : isRecord(payload.index)
+        ? payload.index
+        : null;
+    if (!records) {
+      return {};
+    }
+
+    const index: NewsLatestIndex = {};
+    for (const [storyId, value] of Object.entries(records)) {
+      try {
+        const timestamp = await parseLatestIndexEntry(client, storyId, value);
+        if (timestamp !== null) {
+          index[storyId] = timestamp;
+        }
+      } catch {
+        // Keep the public feed partial: one bad persisted row must not hide
+        // later valid singleton stories or bundles from the same signed index.
+      }
+    }
+    return index;
+  } catch {
+    return {};
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readNewsLatestIndexWithRelayRestFallback(client: VennClient): Promise<NewsLatestIndex> {
+  const direct = await timeoutAsNull(
+    readNewsLatestIndex(client),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
+  const relayed = await timeoutAsNull(
+    readNewsLatestIndexViaRelayRest(client),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
+  if (relayed && Object.keys(relayed).length > 0) {
+    return {
+      ...(direct ?? {}),
+      ...relayed,
+    };
+  }
+  return direct ?? {};
 }
 
 /**
