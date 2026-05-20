@@ -318,6 +318,91 @@ describe('public beta origin server', () => {
     expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
   });
 
+  it('fans public news and synthesis read fallbacks across configured relay targets', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayRequests = [];
+    const relayUrls = [];
+    for (let index = 0; index < 3; index += 1) {
+      const relay = createServer(async (req, res) => {
+        relayRequests.push({
+          index,
+          method: req.method,
+          url: req.url,
+        });
+        if (index === 0) {
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (req.url?.startsWith('/vh/news/latest-index')) {
+          const records = index === 1
+            ? { 'story-a': { timestamp: 1 } }
+            : { 'story-a': { timestamp: 1 }, 'story-b': { timestamp: 2 } };
+          res.end(JSON.stringify({ ok: true, relay_index: index, records }));
+          return;
+        }
+        if (req.url?.startsWith('/vh/news/story')) {
+          res.end(JSON.stringify({
+            ok: true,
+            relay_index: index,
+            record: { story_id: `story-from-relay-${index}` },
+          }));
+          return;
+        }
+        if (req.url?.startsWith('/vh/topics/synthesis')) {
+          res.end(JSON.stringify({
+            ok: true,
+            relay_index: index,
+            record: { topic_id: `topic-from-relay-${index}` },
+          }));
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      relayFanoutTimeoutMs: 25,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=80`);
+    expect(latestIndex.status).toBe(200);
+    expect(await latestIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 2,
+      records: {
+        'story-a': { timestamp: 1 },
+        'story-b': { timestamp: 2 },
+      },
+    });
+
+    const story = await fetch(`${origin}/vh/news/story?story_id=story-a`);
+    expect(story.status).toBe(200);
+    expect(await story.json()).toMatchObject({
+      ok: true,
+      relay_index: 1,
+      record: { story_id: 'story-from-relay-1' },
+    });
+
+    const synthesis = await fetch(`${origin}/vh/topics/synthesis?topic_id=topic-a`);
+    expect(synthesis.status).toBe(200);
+    expect(await synthesis.json()).toMatchObject({
+      ok: true,
+      relay_index: 1,
+      record: { topic_id: 'topic-from-relay-1' },
+    });
+
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index'))).toHaveLength(3);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story'))).toHaveLength(3);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis'))).toHaveLength(3);
+  });
+
   it('fans forum comment reads and writes across configured public relay targets', async () => {
     const staticDir = await makeStaticRoot();
     const relayRequests = [];

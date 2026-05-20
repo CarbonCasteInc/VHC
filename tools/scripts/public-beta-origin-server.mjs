@@ -9,6 +9,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
+const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 5_000;
 const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
@@ -20,6 +21,11 @@ const FORUM_FANOUT_WRITE_PATHS = new Set([
 const FORUM_FANOUT_READ_PATHS = new Set([
   '/vh/forum/thread',
   '/vh/forum/comments',
+]);
+const NEWS_FANOUT_READ_PATHS = new Set([
+  '/vh/news/latest-index',
+  '/vh/news/story',
+  '/vh/topics/synthesis',
 ]);
 
 const MIME_TYPES = new Map([
@@ -333,6 +339,36 @@ function selectBestForumRead(results, pathname) {
   return best?.result ?? results.find((result) => result.ok) ?? results[0] ?? null;
 }
 
+function relayRecordScore(payload, pathname) {
+  if (!payload?.ok) return -1;
+  if (pathname === '/vh/news/latest-index') {
+    const records = payload.records && typeof payload.records === 'object'
+      ? payload.records
+      : payload.index && typeof payload.index === 'object'
+        ? payload.index
+        : null;
+    return records ? Object.keys(records).length : -1;
+  }
+  if (pathname === '/vh/news/story' || pathname === '/vh/topics/synthesis') {
+    return payload.record && typeof payload.record === 'object' ? 1 : -1;
+  }
+  return -1;
+}
+
+function selectBestNewsRead(results, pathname) {
+  let best = null;
+  for (const result of results) {
+    if (!result.ok || result.status < 200 || result.status >= 300) continue;
+    const payload = jsonFromRelayResult(result);
+    const score = relayRecordScore(payload, pathname);
+    if (score < 0) continue;
+    if (!best || score > best.score) {
+      best = { result, score };
+    }
+  }
+  return best?.result ?? results.find((result) => result.ok) ?? results[0] ?? null;
+}
+
 function writeRelayResult(res, result) {
   if (!result) {
     sendJson(res, 502, { ok: false, error: 'Upstream request failed' });
@@ -353,6 +389,8 @@ async function proxyRelayFanout(req, res, relayTargets, timeoutMs) {
     selected = selectBestAggregateRead(results);
   } else if (method === 'GET' && FORUM_FANOUT_READ_PATHS.has(pathname)) {
     selected = selectBestForumRead(results, pathname);
+  } else if (method === 'GET' && NEWS_FANOUT_READ_PATHS.has(pathname)) {
+    selected = selectBestNewsRead(results, pathname);
   } else {
     selected = selectBestAggregateWrite(results);
   }
@@ -461,6 +499,10 @@ export function createPublicBetaOriginHandler(options) {
   const csp = buildCsp(options.cspConnectSrc);
   const proxyTimeoutMs = options.proxyTimeoutMs || DEFAULT_PROXY_TIMEOUT_MS;
   const relayProxyTimeoutMs = options.relayProxyTimeoutMs || Math.min(proxyTimeoutMs, DEFAULT_RELAY_PROXY_TIMEOUT_MS);
+  const relayFanoutTimeoutMs = Math.min(
+    relayProxyTimeoutMs,
+    options.relayFanoutTimeoutMs || DEFAULT_RELAY_FANOUT_TIMEOUT_MS,
+  );
 
   return async function publicBetaOriginHandler(req, res) {
     const parsed = new URL(req.url || '/', 'http://vh-public-origin.local');
@@ -510,12 +552,13 @@ export function createPublicBetaOriginHandler(options) {
         relayTargets.length > 1
         && (
           (pathname === '/vh/aggregates/point' && (req.method || 'GET') === 'GET')
+          || (NEWS_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
           || (AGGREGATE_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
           || (FORUM_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
           || (FORUM_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
         )
       ) {
-        await proxyRelayFanout(req, res, relayTargets, relayProxyTimeoutMs);
+        await proxyRelayFanout(req, res, relayTargets, relayFanoutTimeoutMs);
         return;
       }
       await proxyRequest(req, res, relayTarget, relayProxyTimeoutMs);
