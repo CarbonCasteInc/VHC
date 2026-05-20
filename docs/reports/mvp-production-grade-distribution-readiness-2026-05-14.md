@@ -1,10 +1,10 @@
 # MVP Production-Grade Distribution Readiness
 
 Date: 2026-05-14
-Updated at: 2026-05-20T02:55:00Z
+Updated at: 2026-05-20T05:17:46Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
-Engineering evidence commit before this documentation update: `0a394a97c86e8950cff739c03bb3bfa5c139991e`
+Engineering evidence commit before this documentation update: `1ecc2c147886363c6f7126504ad1ad678b7061a5`
 Launch control packet: `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`
 Node: `v20.20.2`
 pnpm: `9.7.1`
@@ -35,9 +35,9 @@ The production-grade distribution blockers for the implemented Web PWA public-be
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 | Headline soak release evidence | `pass`; latest execution promotable | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
 | Public feed browser smoke | `pass` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
-| Public WSS peer config proof | pass with no failures | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779245639941-54195d30/mesh-production-readiness-report.json` |
-| Mesh production readiness | `release_ready`; no release blockers | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
-| Production app canary | `pass` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
+| Public WSS peer config proof | pass with no failures | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779251379133-ccf4a5df/mesh-production-readiness-report.json` |
+| Mesh production readiness | `release_ready`; no release blockers; run `mesh-production-readiness-20260520T042904Z-9b4b102f` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
+| Production app canary | `pass`; run `production-app-canary-20260520T051025Z-3fa65f1f` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 | Public app edge | `HTTP/2 200` | `curl -I https://venn.carboncaste.io` |
 | Public peer health | `HTTP/2 200` for `gun-a/b/c.carboncaste.io/healthz` | curl evidence |
 

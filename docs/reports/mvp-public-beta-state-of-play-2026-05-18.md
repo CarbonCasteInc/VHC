@@ -1,11 +1,11 @@
 # MVP Public Beta State Of Play
 
 Date: 2026-05-18
-Updated at: 2026-05-20T02:55:00Z
+Updated at: 2026-05-20T05:17:46Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Target PR: `#630`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
-Engineering evidence commit before this documentation update: `0a394a97c86e8950cff739c03bb3bfa5c139991e`
+Engineering evidence commit before this documentation update: `1ecc2c147886363c6f7126504ad1ad678b7061a5`
 
 ## Current Decision
 
@@ -37,12 +37,12 @@ This is a bounded public-beta clearance. It does not claim LUMA Silver, verified
 | Analysis relay health | `200 OK`; upstream `reachable`; model `gpt-5-nano` | `curl -i https://venn.carboncaste.io/api/analyze/health` |
 | Signed peer config | `public-beta-fallback-wss-v1`; peers exactly `gun-a/b/c.carboncaste.io`; minimum `3`; quorum `2`; signed by public key `YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w` | `https://venn.carboncaste.io/mesh-peer-config.json` |
 | Public peer health | `HTTP/2 200` for `gun-a`, `gun-b`, and `gun-c` `/healthz` | curl evidence |
-| Public WSS proof | pass with no failures against fallback peers | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779245639941-54195d30/mesh-production-readiness-report.json` |
+| Public WSS proof | pass with no failures against fallback peers | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779251379133-ccf4a5df/mesh-production-readiness-report.json` |
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 | Latest headline soak | promotable; 5/5 pass; 30 sampled stories; 74 audited pairs; 30 corroborated bundles; 0 related-topic-only pairs | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
-| Public feed browser smoke | pass; 14 current public headlines visible; source labels, timestamps, detail, synthesis, identity, stance, comments, reload persistence, and second-browser visibility covered | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
-| Mesh production readiness | `release_ready`; no release blockers; clean commit-sensitive evidence | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
-| Production app canary | `pass`; real downstream observations recorded | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
+| Public feed browser smoke | pass; 15 current public headlines visible; source labels, timestamps, detail, synthesis, identity, stance, comments, reload persistence, and second-browser visibility covered | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
+| Mesh production readiness | `release_ready`; no release blockers; clean commit-sensitive evidence for `1ecc2c147886363c6f7126504ad1ad678b7061a5` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
+| Production app canary | `pass`; real downstream observations recorded; run `production-app-canary-20260520T051025Z-3fa65f1f` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 | Relay daemon token rotation | rotated after earlier evidence-log exposure; tokens stored outside git with mode `600`; values were not printed | A6 `/home/humble/.config/vhc/public-beta-relay-daemon-token-v2.env`; Mac mini `~/.config/vhc/public-beta-relay-daemon-token-v2.env` |
 
 ## StoryCluster Semantics

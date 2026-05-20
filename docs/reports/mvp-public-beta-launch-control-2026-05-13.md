@@ -1,7 +1,7 @@
 # MVP Public Beta Launch Control Packet
 
 Date: 2026-05-13
-Updated at: 2026-05-20T02:55:00Z
+Updated at: 2026-05-20T05:17:46Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
@@ -33,12 +33,12 @@ Presence-only verification found `OPENAI_API_KEY` and `ANALYSIS_RELAY_API_KEY`. 
 | Public analysis health | `200 OK`; upstream `reachable`; model `gpt-5-nano` | `curl -i https://venn.carboncaste.io/api/analyze/health` |
 | Signed public peer config | pass; config `public-beta-fallback-wss-v1`, minimum `3`, quorum `2`, exact peer order | `https://venn.carboncaste.io/mesh-peer-config.json` |
 | Public peer health | `HTTP/2 200` for `gun-a/b/c.carboncaste.io/healthz` | curl evidence |
-| Public WSS proof | pass with no failures | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779245639941-54195d30/mesh-production-readiness-report.json` |
+| Public WSS proof | pass with no failures | `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779251379133-ccf4a5df/mesh-production-readiness-report.json` |
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 | StoryCluster headline soak | promotable; 5/5 pass; 30 sampled stories; 74 audited pairs; 30 corroborated bundles; 0 related-topic-only pairs | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
 | Public Web PWA feed smoke | `pass`; public headlines, source labels, timestamps, refresh, scroll, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
-| Mesh production-readiness aggregate | `release_ready`; no release blockers | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
-| Production app canary | `pass`; real downstream observations recorded | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
+| Mesh production-readiness aggregate | `release_ready`; no release blockers; run `mesh-production-readiness-20260520T042904Z-9b4b102f` | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
+| Production app canary | `pass`; real downstream observations recorded; run `production-app-canary-20260520T051025Z-3fa65f1f` | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 | Relay daemon-token rotation | pass; tokens rotated after earlier evidence-log exposure, stored outside git with mode `600`, not printed | A6 `/home/humble/.config/vhc/public-beta-relay-daemon-token-v2.env`; Mac mini `~/.config/vhc/public-beta-relay-daemon-token-v2.env` |
 
 ## Signed Peer Config
