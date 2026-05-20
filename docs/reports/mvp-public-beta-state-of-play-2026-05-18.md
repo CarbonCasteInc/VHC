@@ -1,7 +1,7 @@
 # MVP Public Beta State Of Play
 
 Date: 2026-05-18
-Updated at: 2026-05-20T14:58:35Z
+Updated at: 2026-05-20T15:29:19Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Target PR: `#630`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
@@ -39,7 +39,7 @@ This is a bounded public-beta clearance. It does not claim LUMA Silver, verified
 | Public peer health | `HTTP/2 200` for `gun-a`, `gun-b`, and `gun-c` `/healthz` | curl evidence |
 | Public WSS proof | pass with no failures against fallback peers | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
-| Latest headline soak | promotable; 5/5 pass; 30 sampled stories; 74 audited pairs; 30 corroborated bundles; 0 related-topic-only pairs | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
+| Latest headline soak | promotable; 3/3 pass; 6 sampled stories; 33 audited pairs; 6 corroborated bundles; 0 related-topic-only pairs | `.tmp/daemon-feed-semantic-soak/1779290237733/semantic-soak-summary.json` |
 | Public feed browser smoke | pass; 15 current public headlines visible; source labels, timestamps, detail, synthesis, identity, public app-origin stance readback, comments, reload persistence, and second-browser visibility covered | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
 | Mesh production readiness | `release_ready`; no release blockers; final evidence is rerun against the current PR head | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | Production app canary | `pass`; real downstream observations recorded; final evidence is rerun against the current PR head | `.tmp/production-app-canary/latest/production-app-canary-report.json` |

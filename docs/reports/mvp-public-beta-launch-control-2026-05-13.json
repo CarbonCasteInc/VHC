@@ -2,7 +2,7 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-20T14:58:35Z",
+  "updated_at": "2026-05-20T15:29:19Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "engineering_evidence_commit_before_docs": "final PR head; commit-sensitive evidence is rerun after this documentation update",
@@ -100,18 +100,18 @@
     "storycluster": {
       "status": "release_ready",
       "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json",
-      "headline_soak_summary_path": ".tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json",
+      "headline_soak_summary_path": ".tmp/daemon-feed-semantic-soak/1779290237733/semantic-soak-summary.json",
       "latest_headline_soak": {
         "strict_soak_pass": true,
         "readiness_status": "promotable",
-        "pass_count": 5,
+        "pass_count": 3,
         "fail_count": 0,
-        "sampled_stories": 30,
-        "audited_pairs": 74,
-        "corroborated_bundles": 30,
+        "sampled_stories": 6,
+        "audited_pairs": 33,
+        "corroborated_bundles": 6,
         "related_topic_only_pairs": 0,
-        "average_audited_pairs_per_sampled_story": 2.5214285714285714,
-        "average_unique_source_count": 9
+        "average_audited_pairs_per_sampled_story": 5.5,
+        "average_unique_source_count": 7
       },
       "singleton_policy": "Singleton stories are valid feed items when genuinely one-off; continuity telemetry records retained topics, singleton-to-corroborated transitions, later attachments, and bundle growth without rejecting legitimate singleton supply."
     },

@@ -1,7 +1,7 @@
 # MVP Production-Grade Distribution Readiness
 
 Date: 2026-05-14
-Updated at: 2026-05-20T14:58:35Z
+Updated at: 2026-05-20T15:29:19Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Commit-sensitive evidence is rerun from the final PR head after this documentation update.
@@ -33,7 +33,7 @@ The production-grade distribution blockers for the implemented Web PWA public-be
 | Gate | Status | Artifact |
 | --- | --- | --- |
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
-| Headline soak release evidence | `pass`; latest execution promotable | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
+| Headline soak release evidence | `pass`; latest execution promotable | `.tmp/daemon-feed-semantic-soak/1779290237733/semantic-soak-summary.json` |
 | Public feed browser smoke | `pass` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
 | Public WSS peer config proof | pass with no failures | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | Mesh production readiness | `release_ready`; no release blockers; final evidence is rerun against the current PR head | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
@@ -45,13 +45,13 @@ The production-grade distribution blockers for the implemented Web PWA public-be
 
 The latest headline soak is promotable:
 
-- 5 runs, 5 passes, 0 failures.
-- 30 sampled stories.
-- 74 audited pairs.
-- 30 corroborated bundles.
+- 3 runs, 3 passes, 0 failures.
+- 6 sampled stories.
+- 33 audited pairs.
+- 6 corroborated bundles.
 - 0 related-topic-only pairs.
-- Average audited pairs per sampled story: `2.5214285714285714`.
-- Average unique source count: `9`.
+- Average audited pairs per sampled story: `5.5`.
+- Average unique source count: `7`.
 
 Singleton stories remain valid and are not penalized merely for being one-off public events. The release gate proves that overlapping stories bundle accurately when overlap exists, while continuity telemetry records retained topics, singleton-to-corroborated transitions, later attachments, and bundle growth across runs.
 
