@@ -418,6 +418,7 @@ describe('public feed browser smoke helpers', () => {
   it('recovers second-browser target routing through the feed before using page scope', async () => {
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
 
+    expect(source).toContain("progress('second-browser-detail-route-scope-visible'");
     expect(source).toContain("progress('second-browser-detail-route-retry-feed'");
     expect(source).toContain("progress('second-browser-feed-route-visible'");
     expect(source).toContain("progress('second-browser-detail-scope-fallback'");
@@ -426,9 +427,13 @@ describe('public feed browser smoke helpers', () => {
   it('re-resolves second-browser vote controls from page scope while aggregates hydrate', async () => {
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
 
-    expect(source).toContain('const agree = await findAgreeButtonByCanonical(page, voteProof.canonicalPointId, voteProof.pointId);');
+    expect(source).toContain('async function visibleAgreeVoteCount(scope, voteProof)');
+    expect(source).toContain('const agree = await findAgreeButtonByCanonical(scope, voteProof.canonicalPointId, voteProof.pointId);');
     expect(source).toContain('await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});');
+    expect(source).toContain('const { count } = await visibleAgreeVoteCount(page, voteProof);');
     expect(source).toContain("progress('second-browser-vote-public-ready-reopen'");
+    expect(source).toContain("progress('second-browser-vote-reopen-detail-scope-visible'");
+    expect(source).toContain("progress('second-browser-vote-reopen-feed-route-failed'");
     expect(source).toContain("progress('second-browser-diagnostics'");
     expect(source).not.toContain("const agree = await findAgreeButtonByCanonical(card, voteProof.canonicalPointId, voteProof.pointId);\n    const voteCount = await waitFor('second-browser-vote-visibility'");
   });

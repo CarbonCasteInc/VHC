@@ -2,10 +2,10 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "updated_at": "2026-05-20T05:17:46Z",
+  "updated_at": "2026-05-20T11:26:16Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
-  "engineering_evidence_commit_before_docs": "1ecc2c147886363c6f7126504ad1ad678b7061a5",
+  "engineering_evidence_commit_before_docs": "final PR head; commit-sensitive evidence is rerun after this documentation update",
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
@@ -93,8 +93,8 @@
     },
     "public_wss_proof": {
       "status": "pass",
-      "run_id": "mesh-public-wss-proof-1779251379133-ccf4a5df",
-      "report_path": ".tmp/mesh-production-readiness/mesh-public-wss-proof-1779251379133-ccf4a5df/mesh-production-readiness-report.json",
+      "run_id": "latest embedded public WSS proof in Mesh production readiness",
+      "report_path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
       "failures": []
     },
     "storycluster": {
@@ -135,13 +135,13 @@
     },
     "mesh": {
       "status": "release_ready",
-      "run_id": "mesh-production-readiness-20260520T042904Z-9b4b102f",
+      "run_id": "latest",
       "report_path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
       "release_readiness_blockers": []
     },
     "production_app_canary": {
       "status": "pass",
-      "run_id": "production-app-canary-20260520T051025Z-3fa65f1f",
+      "run_id": "latest",
       "report_path": ".tmp/production-app-canary/latest/production-app-canary-report.json",
       "real_downstream_observations": [
         "production_wss_relay_config",

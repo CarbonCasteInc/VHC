@@ -947,7 +947,7 @@ describe('newsAdapters', () => {
     }
   });
 
-  it('readNewsLatestIndexWithRelayRestFallback merges validated REST records when direct root is partial', async () => {
+  it('readNewsLatestIndexWithRelayRestFallback prefers validated REST records before scanning the direct root', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const hooks = await createRealSystemWriterHooks();
@@ -977,7 +977,6 @@ describe('newsAdapters', () => {
 
     try {
       await expect(readNewsLatestIndexWithRelayRestFallback(client)).resolves.toEqual({
-        'story-direct': 100,
         'story-relay': 200,
       });
       expect(fetchMock).toHaveBeenCalledWith(

@@ -1043,6 +1043,15 @@ async function findAgreeButtonByCanonical(card, canonicalPointId, fallbackPointI
   return (await firstVisibleLocator(byFallback)) ?? byFallback.first();
 }
 
+async function visibleAgreeVoteCount(scope, voteProof) {
+  const agree = await findAgreeButtonByCanonical(scope, voteProof.canonicalPointId, voteProof.pointId);
+  await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});
+  return {
+    agree,
+    count: parseVoteCount(await agree.textContent(locatorTimeout()).catch(() => '')),
+  };
+}
+
 function storyThreadVisibilityTimeoutMs(commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS) {
   return Math.max(
     45_000,
@@ -1276,11 +1285,23 @@ async function verifySecondBrowser({
     let routedRow = row;
     let card = page;
     try {
-      routedRow = await waitForTargetStoryCard(page, row, 120_000);
-      progress('second-browser-detail-route-visible');
-      card = await openStory(page, routedRow);
-      progress('second-browser-story-open');
-      await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+      const detailScopeSynthesis = await waitForSynthesis(page, page, row, Math.min(30_000, analysisTimeoutMs))
+        .catch((error) => {
+          progress('second-browser-detail-route-scope-wait-failed', {
+            storyId: row.storyId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
+      if (detailScopeSynthesis) {
+        progress('second-browser-detail-route-scope-visible', { storyId: row.storyId });
+      } else {
+        routedRow = await waitForTargetStoryCard(page, row, 60_000);
+        progress('second-browser-detail-route-visible');
+        card = await openStory(page, routedRow);
+        progress('second-browser-story-open');
+        await waitForSynthesis(page, card, routedRow, Math.min(60_000, analysisTimeoutMs));
+      }
     } catch (directError) {
       progress('second-browser-detail-route-retry-feed', {
         storyId: row.storyId,
@@ -1290,11 +1311,11 @@ async function verifySecondBrowser({
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
         await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
         await waitForHeadlines(page, 1, 90_000, progress);
-        routedRow = await waitForTargetStoryCard(page, row, 120_000);
+        routedRow = await waitForTargetStoryCard(page, row, 60_000);
         progress('second-browser-feed-route-visible');
         card = await openStory(page, routedRow);
         progress('second-browser-feed-story-open');
-        await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+        await waitForSynthesis(page, card, routedRow, Math.min(60_000, analysisTimeoutMs));
       } catch (feedError) {
         progress('second-browser-detail-scope-fallback', {
           storyId: row.storyId,
@@ -1313,9 +1334,7 @@ async function verifySecondBrowser({
     progress('second-browser-synthesis-visible');
     let lastVoteReopenAt = 0;
     const voteCount = await waitFor('second-browser-vote-visibility', async () => {
-      const agree = await findAgreeButtonByCanonical(page, voteProof.canonicalPointId, voteProof.pointId);
-      await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});
-      const count = parseVoteCount(await agree.textContent(locatorTimeout()).catch(() => ''));
+      const { count } = await visibleAgreeVoteCount(page, voteProof);
       lastVoteDiagnostics = { domCount: count, expectedCount: voteProof.afterAgree };
       if (count >= voteProof.afterAgree) {
         return count;
@@ -1351,9 +1370,43 @@ async function verifySecondBrowser({
             progress,
           });
           await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
-          routedRow = await waitForTargetStoryCard(page, row, 120_000);
-          card = await openStory(page, routedRow);
-          await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
+          const detailScopeSynthesis = await waitForSynthesis(page, page, row, Math.min(20_000, analysisTimeoutMs))
+            .catch((error) => {
+              progress('second-browser-vote-reopen-detail-scope-failed', {
+                storyId: row.storyId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            });
+          if (detailScopeSynthesis) {
+            progress('second-browser-vote-reopen-detail-scope-visible', { storyId: row.storyId });
+            card = page;
+            routedRow = row;
+            const reopened = await visibleAgreeVoteCount(page, voteProof).catch(() => null);
+            lastVoteDiagnostics = {
+              ...lastVoteDiagnostics,
+              publicAggregate,
+              reopenedDomCount: reopened?.count ?? null,
+            };
+            if (reopened && reopened.count >= voteProof.afterAgree) {
+              return reopened.count;
+            }
+          } else {
+            try {
+              await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+              await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+              await waitForHeadlines(page, 1, 30_000, progress);
+              routedRow = await waitForTargetStoryCard(page, row, 30_000);
+              progress('second-browser-vote-reopen-feed-route-visible');
+              card = await openStory(page, routedRow);
+              await waitForSynthesis(page, card, routedRow, Math.min(30_000, analysisTimeoutMs));
+            } catch (error) {
+              progress('second-browser-vote-reopen-feed-route-failed', {
+                storyId: row.storyId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
         }
       }
 

@@ -1273,21 +1273,17 @@ export async function readNewsLatestIndexViaRelayRest(client: VennClient): Promi
 }
 
 export async function readNewsLatestIndexWithRelayRestFallback(client: VennClient): Promise<NewsLatestIndex> {
-  const direct = await timeoutAsNull(
-    readNewsLatestIndex(client),
-    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
-  );
   const relayed = await timeoutAsNull(
     readNewsLatestIndexViaRelayRest(client),
     RELAY_REST_READ_TIMEOUT_MS + 1_000,
   );
   if (relayed && Object.keys(relayed).length > 0) {
-    return {
-      /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; relay-only merge behavior is otherwise identical. */
-      ...(direct ?? {}),
-      ...relayed,
-    };
+    return relayed;
   }
+  const direct = await timeoutAsNull(
+    readNewsLatestIndex(client),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
   /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; empty fallback is defensive. */
   return direct ?? {};
 }
