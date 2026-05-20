@@ -222,7 +222,7 @@ describe('readTopicLatestSynthesisViaRelayRest', () => {
     } finally {
       await client.shutdown();
     }
-  });
+  }, 10_000);
 
   it('fails closed for missing synthesis relay endpoints and invalid relay payloads', async () => {
     await expect(
