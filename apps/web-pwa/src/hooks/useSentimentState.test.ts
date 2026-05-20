@@ -1003,6 +1003,13 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
 
     expect(writeEventSpy).toHaveBeenCalledWith(
       fakeClient,
@@ -1739,7 +1746,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+    const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-timeout',
       event: {} as never,
       ack: {
@@ -1759,7 +1766,13 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-timeout'),
     });
 
-    await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
     await vi.runAllTimersAsync();
     await flushProjection();
     await waitForMockCall(warnSpy, ([label, payload]) => (
@@ -1854,7 +1867,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+    const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-unacked',
       event: {} as never,
       ack: {
@@ -1874,7 +1887,13 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-unacked'),
     });
 
-    await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
     await vi.runAllTimersAsync();
     await flushProjection();
     await waitForMockCall(warnSpy, ([label, payload]) => (

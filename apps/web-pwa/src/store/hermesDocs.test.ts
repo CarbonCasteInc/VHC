@@ -80,6 +80,11 @@ function createRuntimeClientRecorder() {
   return { client, writes };
 }
 
+function parseJsonScalar(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  return JSON.parse(value);
+}
+
 beforeEach(() => {
   counter = 0;
   useDiscoveryStore.getState().reset();
@@ -320,17 +325,27 @@ describe('hermesDocs store – publishArticle', () => {
 
     const published = store.getState().getDraft(doc!.id)!;
     const expectedThreadId = `article-thread-${doc!.id}`;
+    const expectedThreadPath = `vh/forum/threads/${expectedThreadId}`;
     const expectedPostPath = `vh/forum/threads/${expectedThreadId}/posts/post-${published.publishedArticleId}`;
+    const threadWrite = writes.get(expectedThreadPath) as Record<string, unknown> | undefined;
+    const postWrite = writes.get(expectedPostPath) as Record<string, unknown> | undefined;
 
-    expect(writes.get(`vh/forum/threads/${expectedThreadId}`)).toEqual(
+    expect(threadWrite).toEqual(
       expect.objectContaining({
         id: expectedThreadId,
         schemaVersion: 'hermes-thread-v1',
         _writerKind: 'luma',
+      }),
+    );
+    expect(parseJsonScalar(threadWrite?.signedWriteEnvelope)).toEqual(
+      expect.objectContaining({ audience: 'vh-forum-thread' }),
+    );
+    expect(parseJsonScalar(threadWrite?.__thread_json)).toEqual(
+      expect.objectContaining({
         signedWriteEnvelope: expect.objectContaining({ audience: 'vh-forum-thread' }),
       }),
     );
-    expect(writes.get(expectedPostPath)).toEqual(
+    expect(postWrite).toEqual(
       expect.objectContaining({
         schemaVersion: 'hermes-post-v1',
         _writerKind: 'luma',
@@ -338,8 +353,10 @@ describe('hermesDocs store – publishArticle', () => {
         type: 'article',
         articleRefId: published.publishedArticleId,
         author: expect.stringMatching(/^[0-9a-f]{64}$/),
-        signedWriteEnvelope: expect.objectContaining({ audience: 'vh-forum-post' }),
       }),
+    );
+    expect(parseJsonScalar(postWrite?.signedWriteEnvelope)).toEqual(
+      expect.objectContaining({ audience: 'vh-forum-post' }),
     );
     expect(useDiscoveryStore.getState().items).toContainEqual(
       expect.objectContaining({

@@ -153,30 +153,6 @@ async function withOptionalNewsTimeout<T>(
   }
 }
 
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) {
-    return [];
-  }
-
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(Math.floor(concurrency), items.length));
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (nextIndex < items.length) {
-      const currentIndex = nextIndex;
-      nextIndex += 1;
-      results[currentIndex] = await worker(items[currentIndex]!);
-    }
-  }));
-
-  return results;
-}
-
 function delay(ms: number): Promise<void> {
   if (ms <= 0) {
     return Promise.resolve();
@@ -209,6 +185,7 @@ async function readLatestStoriesBounded(
           client,
           storyIds[currentIndex]!,
         );
+      /* v8 ignore next 3 -- readConfiguredStoryByIdRelayFirst fails closed for normal read/validation errors. */
       } catch {
         results[currentIndex] = null;
       }
@@ -539,6 +516,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
 
         await mirrorCurrentStories();
         return true;
+      /* v8 ignore next 3 -- direct story hydration guards its own read paths; this protects unexpected store-side failures. */
       } catch {
         return false;
       }

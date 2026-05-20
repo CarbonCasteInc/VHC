@@ -369,6 +369,19 @@ describe('newsRuntime', () => {
     expect(__internal.isPublicationEligibleBundle(weakTopicOnly)).toBe(false);
   });
 
+  it('rejects genuinely weak two-source bundles below the publication confidence floor', () => {
+    const weakSingletonPair = storyBundle('weak-two-source-pair', {
+      sourceCount: 2,
+      confidenceScore: 0.31,
+      titles: [
+        'City council approves a late-night zoning extension',
+        'Central bank minutes show inflation concerns eased last month',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakSingletonPair)).toBe(false);
+  });
+
   it('keeps recent two-source bundles with shared normalized title anchors', () => {
     const diplomacyEpisode = storyBundle('diplomacy-episode', {
       sourceCount: 2,

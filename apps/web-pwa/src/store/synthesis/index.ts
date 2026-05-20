@@ -66,6 +66,7 @@ function withReadTimeout<T>(work: Promise<T>, timeoutMs: number, label: string):
   return new Promise<T>((resolve, reject) => {
     let settled = false;
     const timeout = globalThis.setTimeout(() => {
+      /* v8 ignore next 3 -- defensive for timers firing after an already-settled read. */
       if (settled) {
         return;
       }
@@ -74,6 +75,7 @@ function withReadTimeout<T>(work: Promise<T>, timeoutMs: number, label: string):
     }, timeoutMs);
     work.then(
       (value) => {
+        /* v8 ignore next 3 -- defensive for late promise resolution after timeout rejection. */
         if (settled) {
           return;
         }
@@ -82,6 +84,7 @@ function withReadTimeout<T>(work: Promise<T>, timeoutMs: number, label: string):
         resolve(value);
       },
       (error: unknown) => {
+        /* v8 ignore next 3 -- defensive for late promise rejection after timeout rejection. */
         if (settled) {
           return;
         }

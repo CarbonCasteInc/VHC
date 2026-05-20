@@ -464,6 +464,38 @@ describe('synthesis store', () => {
     expect(store.getState().getTopicState('topic-1').loading).toBe(false);
   });
 
+  it('refreshTopic preserves the latest-read error when correction hydration also fails', async () => {
+    readTopicLatestSynthesisMock.mockRejectedValue(new Error('latest unavailable'));
+    readTopicLatestSynthesisCorrectionMock.mockRejectedValue(new Error('correction unavailable'));
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis).toBeNull();
+    expect(topic.error).toBe('latest unavailable');
+    expect(topic.loading).toBe(false);
+  });
+
+  it('refreshTopic preserves an existing synthesis across transient latest-read errors', async () => {
+    readTopicLatestSynthesisMock.mockRejectedValue(new Error('temporary synthesis read failure'));
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+    store.getState().setTopicSynthesis('topic-1', synthesis({ epoch: 7, synthesis_id: 'synth-7' }));
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis?.synthesis_id).toBe('synth-7');
+    expect(topic.epoch).toBe(7);
+    expect(topic.error).toBeNull();
+    expect(topic.loading).toBe(false);
+  });
+
   it('refreshTopic uses fallback error message for non-Error failures', async () => {
     readTopicLatestSynthesisMock.mockRejectedValue('boom-string');
 

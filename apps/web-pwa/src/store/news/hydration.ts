@@ -72,6 +72,7 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
 /* c8 ignore stop */
 
 function carriesProtocolIndexFields(value: unknown): boolean {
+  /* v8 ignore next 3 -- callers guard object-ness before checking protocol fields. */
   if (!value || typeof value !== 'object') {
     return false;
   }
