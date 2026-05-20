@@ -206,6 +206,136 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS).toBe(120_000);
   });
 
+  it('fills identity fields before waiting for the dashboard create button', async () => {
+    const calls = [];
+    let username = '';
+    let handle = '';
+    const createButton = {
+      waitFor: vi.fn(async () => calls.push('button-visible')),
+      isEnabled: vi.fn(async () => {
+        calls.push('button-enabled-check');
+        return Boolean(username && handle);
+      }),
+      click: vi.fn(async () => calls.push('button-click')),
+    };
+    const welcome = {
+      visible: false,
+      isVisible: vi.fn(async () => welcome.visible),
+      waitFor: vi.fn(async () => {
+        calls.push('welcome-visible');
+        welcome.visible = true;
+      }),
+      textContent: vi.fn(async () => 'Welcome, launchsmokepeer123'),
+    };
+    const page = {
+      goto: vi.fn(async () => calls.push('goto')),
+      getByTestId: vi.fn((testId) => {
+        if (testId === 'user-link') {
+          return {
+            waitFor: vi.fn(async () => calls.push('user-visible')),
+            click: vi.fn(async () => calls.push('user-click')),
+          };
+        }
+        if (testId === 'welcome-msg') return welcome;
+        if (testId === 'create-identity-btn') return createButton;
+        throw new Error(`unexpected-testid:${testId}`);
+      }),
+      waitForURL: vi.fn(async () => calls.push('dashboard-url')),
+      fill: vi.fn(async (selector, value) => {
+        calls.push(`fill:${selector}`);
+        if (selector.includes('username')) username = value;
+        if (selector.includes('handle')) handle = value;
+      }),
+    };
+
+    await expect(internal.ensureIdentity(page, 'https://venn.example/', 'launchsmokepeer'))
+      .resolves
+      .toMatchObject({ created: true });
+
+    expect(username).toMatch(/^launchsmokepeer/);
+    expect(handle).toBe(username.toLowerCase());
+    expect(calls.indexOf('fill:input[placeholder="Choose a username"]')).toBeLessThan(
+      calls.indexOf('button-enabled-check'),
+    );
+    expect(calls.indexOf('fill:input[placeholder="Choose a handle (letters, numbers, _)"]')).toBeLessThan(
+      calls.indexOf('button-enabled-check'),
+    );
+  });
+
+  it('uses the release comment visibility window for story thread durability', async () => {
+    expect(internal.storyThreadVisibilityTimeoutMs(12_000)).toBe(45_000);
+    expect(internal.storyThreadVisibilityTimeoutMs(123_000)).toBe(123_000);
+  });
+
+  it('waits for story thread creation on the release durability window', async () => {
+    const state = {
+      visible: {
+        'news-card-topic-1-discussion': true,
+        'news-card-topic-1-discussion-compose-toggle': false,
+        'news-card-topic-1-discussion-new-thread-toggle': true,
+        'thread-content': true,
+        'thread-form-error': false,
+        'news-card-topic-1-thread-head': false,
+      },
+      waits: [],
+      fills: {},
+    };
+    const locators = new Map();
+    const locator = (testId) => {
+      if (!locators.has(testId)) {
+        locators.set(testId, {
+          testId,
+          waitFor: vi.fn(async (options) => {
+            state.waits.push({ testId, options });
+            if (!state.visible[testId]) throw new Error(`${testId}-not-visible`);
+          }),
+          isVisible: vi.fn(async () => Boolean(state.visible[testId])),
+          scrollIntoViewIfNeeded: vi.fn(async () => {}),
+          evaluate: vi.fn(async () => {}),
+          click: vi.fn(async () => {
+            if (testId === 'submit-thread-btn') {
+              state.visible['news-card-topic-1-thread-head'] = true;
+              state.visible['news-card-topic-1-discussion-compose-toggle'] = true;
+            }
+          }),
+          fill: vi.fn(async (value) => {
+            state.fills[testId] = value;
+          }),
+          textContent: vi.fn(async () => ''),
+        });
+      }
+      return locators.get(testId);
+    };
+    const page = { getByTestId: locator };
+
+    await expect(internal.ensureStoryThread(
+      page,
+      { storyId: 'story-1', topicId: 'topic-1' },
+      123_000,
+    )).resolves.toMatchObject({
+      sectionId: 'news-card-topic-1',
+      createdThread: true,
+    });
+
+    expect(state.fills['thread-content']).toContain('Launch smoke thread for story-1');
+    expect(state.waits).toContainEqual({
+      testId: 'news-card-topic-1-discussion-compose-toggle',
+      options: { state: 'visible', timeout: 30_000 },
+    });
+    expect(locators.get('news-card-topic-1-thread-head').isVisible).toHaveBeenCalled();
+  });
+
+  it('surfaces story thread form errors instead of timing out silently', async () => {
+    const locator = (testId) => ({
+      isVisible: vi.fn(async () => testId === 'thread-form-error'),
+      textContent: vi.fn(async () => 'thread-write-not-durable:news-story:story-1'),
+    });
+
+    await expect(internal.waitForStoryThreadHead({ getByTestId: locator }, 'news-card-topic-1', 1_000))
+      .rejects
+      .toThrow('story-thread-create-error:thread-write-not-durable:news-story:story-1');
+  });
+
   it('prefers visible vote controls when duplicate canonical point controls exist', async () => {
     const calls = [];
     const makeCandidate = (label, visible) => ({
@@ -250,6 +380,8 @@ describe('public feed browser smoke helpers', () => {
 
     expect(source).toContain("progress('post-vote-detail-route-scope-visible'");
     expect(source).toContain("progress('reload-detail-scope-visible'");
+    expect(source).toContain("progress('reload-detail-route-retry-feed'");
+    expect(source).toContain("progress('reload-feed-route-visible'");
     expect(source).toContain('const pageScopedSynthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)');
     expect(source).toContain('let synthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)');
     expect(source).toContain('return { row, card: page };');

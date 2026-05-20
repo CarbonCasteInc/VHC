@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
+const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
 
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -165,6 +166,13 @@ async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
   const targetUrl = new URL(req.url || '/', targetBaseUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abortForClientClose = () => {
+    if (!res.writableEnded) {
+      controller.abort();
+    }
+  };
+  req.once('aborted', abortForClientClose);
+  res.once('close', abortForClientClose);
   try {
     const method = req.method || 'GET';
     const response = await fetch(targetUrl, {
@@ -196,6 +204,8 @@ async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
     });
   } finally {
     clearTimeout(timeout);
+    req.off('aborted', abortForClientClose);
+    res.off('close', abortForClientClose);
   }
 }
 
@@ -249,6 +259,7 @@ export function createPublicBetaOriginHandler(options) {
   const relayTarget = options.relayTarget ? new URL(options.relayTarget) : null;
   const csp = buildCsp(options.cspConnectSrc);
   const proxyTimeoutMs = options.proxyTimeoutMs || DEFAULT_PROXY_TIMEOUT_MS;
+  const relayProxyTimeoutMs = options.relayProxyTimeoutMs || Math.min(proxyTimeoutMs, DEFAULT_RELAY_PROXY_TIMEOUT_MS);
 
   return async function publicBetaOriginHandler(req, res) {
     const parsed = new URL(req.url || '/', 'http://vh-public-origin.local');
@@ -293,7 +304,7 @@ export function createPublicBetaOriginHandler(options) {
         sendJson(res, 503, { error: 'Relay proxy not configured' });
         return;
       }
-      await proxyRequest(req, res, relayTarget, proxyTimeoutMs);
+      await proxyRequest(req, res, relayTarget, relayProxyTimeoutMs);
       return;
     }
 
@@ -341,6 +352,7 @@ async function main() {
     relayTarget: process.env.VH_PUBLIC_ORIGIN_RELAY_TARGET || '',
     cspConnectSrc: process.env.VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC || "'self'",
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
+    relayProxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS || DEFAULT_RELAY_PROXY_TIMEOUT_MS),
   });
   const address = server.address();
   const label = typeof address === 'object' && address

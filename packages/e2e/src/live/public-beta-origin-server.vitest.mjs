@@ -229,6 +229,33 @@ describe('public beta origin server', () => {
     );
   });
 
+  it('bounds relay proxy calls so browser-aborted readbacks do not saturate the public origin', async () => {
+    const staticDir = await makeStaticRoot();
+    const relay = createServer((_req, _res) => {
+      // Intentionally hold the response open; the origin should apply its
+      // relay-specific timeout instead of keeping the Cloudflare stream alive.
+    });
+    const relayUrl = await listen(relay);
+    cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTarget: relayUrl,
+      relayProxyTimeoutMs: 25,
+      proxyTimeoutMs: 60_000,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const startedAt = Date.now();
+    const response = await fetch(`${origin}/vh/forum/comments?thread_id=thread-1`);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ ok: false, error: 'Upstream request timed out' });
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
+
   it('survives a client disconnect while streaming a static response', async () => {
     const staticDir = await makeStaticRoot();
     const largeBody = `<!doctype html><title>Venn</title><main>${'x'.repeat(512_000)}</main>`;

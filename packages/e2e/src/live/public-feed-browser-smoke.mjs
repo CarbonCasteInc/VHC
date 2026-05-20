@@ -672,14 +672,14 @@ async function ensureIdentity(page, baseUrl, label) {
   }
   const createButton = page.getByTestId('create-identity-btn');
   await createButton.waitFor({ state: 'visible', timeout: 30_000 });
-  await waitFor('identity-create-ready', async () =>
-    (await createButton.isEnabled().catch(() => false)) ? true : null,
-  { timeoutMs: 60_000, intervalMs: 500 });
   const suffix = `${Date.now().toString().slice(-7)}${Math.floor(Math.random() * 1000)}`;
   const username = `${label}${suffix}`.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24);
   const handle = username.toLowerCase().slice(0, 24);
   await page.fill('input[placeholder="Choose a username"]', username);
   await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', handle);
+  await waitFor('identity-create-ready', async () =>
+    (await createButton.isEnabled().catch(() => false)) ? true : null,
+  { timeoutMs: 60_000, intervalMs: 500 });
   await createButton.click();
   await welcome.waitFor({ state: 'visible', timeout: 45_000 });
   return { created: true, username, handle, label: trimText(await welcome.textContent()) };
@@ -977,7 +977,32 @@ async function findAgreeButtonByCanonical(card, canonicalPointId, fallbackPointI
   return (await firstVisibleLocator(byFallback)) ?? byFallback.first();
 }
 
-async function ensureStoryThread(page, row) {
+function storyThreadVisibilityTimeoutMs(commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS) {
+  return Math.max(
+    45_000,
+    parsePositiveInt(commentVisibilityTimeoutMs, DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS),
+  );
+}
+
+async function waitForStoryThreadHead(page, sectionId, timeoutMs) {
+  const threadHead = page.getByTestId(`${sectionId}-thread-head`);
+  const formError = page.getByTestId('thread-form-error');
+  const result = await waitFor('story-thread-head-visible', async () => {
+    if (await threadHead.isVisible().catch(() => false)) {
+      return { status: 'visible' };
+    }
+    if (await formError.isVisible().catch(() => false)) {
+      const message = trimText(await formError.textContent(locatorTimeout()).catch(() => ''), 1_000);
+      return { status: 'error', message };
+    }
+    return null;
+  }, { timeoutMs, intervalMs: 500 });
+  if (result.status === 'error') {
+    throw new Error(`story-thread-create-error:${result.message || 'unknown'}`);
+  }
+}
+
+async function ensureStoryThread(page, row, commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS) {
   const sectionId = `news-card-${row.topicId}`;
   const section = page.getByTestId(`${sectionId}-discussion`);
   await section.waitFor({ state: 'visible', timeout: 30_000 });
@@ -1018,7 +1043,7 @@ async function ensureStoryThread(page, row) {
   const content = `Launch smoke thread for ${row.storyId} at ${new Date().toISOString()}`;
   await threadContent.fill(content);
   await clickVisibleControl(page.getByTestId('submit-thread-btn'), 'story-thread-submit');
-  await page.getByTestId(`${sectionId}-thread-head`).waitFor({ state: 'visible', timeout: 45_000 });
+  await waitForStoryThreadHead(page, sectionId, storyThreadVisibilityTimeoutMs(commentVisibilityTimeoutMs));
   await composeToggle.waitFor({ state: 'visible', timeout: 30_000 });
   return { sectionId, createdThread: true, threadSeedContent: content };
 }
@@ -1044,7 +1069,7 @@ async function postedCommentVisible(page, body) {
 }
 
 async function createStoryComment(page, row, commentVisibilityTimeoutMs = DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS) {
-  const thread = await ensureStoryThread(page, row);
+  const thread = await ensureStoryThread(page, row, commentVisibilityTimeoutMs);
   await clickVisibleControl(page.getByTestId(`${thread.sectionId}-discussion-compose-toggle`), 'story-comment-compose');
   const body = `Launch smoke reply ${Date.now()} ${Math.floor(Math.random() * 1000)}`;
   await page.getByTestId('comment-composer').fill(body);
@@ -1126,8 +1151,12 @@ async function verifyReloadPersistence(
   if (synthesis) {
     progress('reload-detail-scope-visible', { storyId: row.storyId });
   } else {
+    progress('reload-detail-route-retry-feed', { storyId: row.storyId });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+    await waitForHeadlines(page, 1, 90_000, progress);
     routedRow = await waitForTargetStoryCard(page, row, 90_000);
-    progress('reload-target-story-visible');
+    progress('reload-feed-route-visible');
     card = await openStory(page, routedRow);
     progress('reload-story-open');
     synthesis = await waitForSynthesis(page, card, routedRow, analysisTimeoutMs);
@@ -1575,6 +1604,8 @@ export const publicFeedBrowserSmokeInternal = {
   parseVoteCount,
   DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
   postedCommentVisible,
+  ensureStoryThread,
+  ensureIdentity,
   readFixtureConst,
   refreshLatest,
   findVisibleStoryRow,
@@ -1582,8 +1613,10 @@ export const publicFeedBrowserSmokeInternal = {
   isAcceptedSynthesisText,
   loadSystemWriterPin,
   readPublicRelaySynthesisCandidates,
+  storyThreadVisibilityTimeoutMs,
   storyDetailUrl,
   viewportScreenshotOptions,
+  waitForStoryThreadHead,
   withTimeout,
 };
 
