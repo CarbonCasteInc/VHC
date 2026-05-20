@@ -1,7 +1,7 @@
 # MVP Public Beta Launch Control Packet
 
 Date: 2026-05-13
-Updated at: 2026-05-20T11:26:16Z
+Updated at: 2026-05-20T14:58:35Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
@@ -36,7 +36,7 @@ Presence-only verification found `OPENAI_API_KEY` and `ANALYSIS_RELAY_API_KEY`. 
 | Public WSS proof | pass with no failures | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | StoryCluster production readiness | `release_ready` | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` |
 | StoryCluster headline soak | promotable; 5/5 pass; 30 sampled stories; 74 audited pairs; 30 corroborated bundles; 0 related-topic-only pairs | `.tmp/daemon-feed-semantic-soak/1779240135591/semantic-soak-summary.json` |
-| Public Web PWA feed smoke | `pass`; public headlines, source labels, timestamps, refresh, scroll, detail, accepted synthesis, identity, stance, comments, reload persistence, and second-browser visibility | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
+| Public Web PWA feed smoke | `pass`; public headlines, source labels, timestamps, refresh, scroll, detail, accepted synthesis, identity, stance readback through the public app-origin aggregate fanout, comments, reload persistence, and second-browser visibility | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` |
 | Mesh production-readiness aggregate | `release_ready`; no release blockers; final evidence is rerun against the current PR head | `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json` |
 | Production app canary | `pass`; real downstream observations recorded; final evidence is rerun against the current PR head | `.tmp/production-app-canary/latest/production-app-canary-report.json` |
 | Relay daemon-token rotation | pass; tokens rotated after earlier evidence-log exposure, stored outside git with mode `600`, not printed | A6 `/home/humble/.config/vhc/public-beta-relay-daemon-token-v2.env`; Mac mini `~/.config/vhc/public-beta-relay-daemon-token-v2.env` |

@@ -1,7 +1,7 @@
 {
   "schema_version": "mvp-production-grade-distribution-readiness-v1",
   "date": "2026-05-14",
-  "updated_at": "2026-05-20T11:26:16Z",
+  "updated_at": "2026-05-20T14:58:35Z",
   "branch": "coord/mvp-production-grade-distribution-ready-v1",
   "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
   "engineering_evidence_commit_before_docs": "final PR head; commit-sensitive evidence is rerun after this documentation update",
@@ -113,7 +113,7 @@
       "story detail opens",
       "accepted analysis/synthesis visible",
       "identity creation works",
-      "point stance write/readback works",
+      "point stance write/readback works through the public app-origin aggregate fanout",
       "story comments work",
       "reload persistence works",
       "second-browser visibility works"

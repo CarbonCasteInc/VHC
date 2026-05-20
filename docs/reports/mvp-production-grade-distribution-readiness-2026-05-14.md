@@ -1,7 +1,7 @@
 # MVP Production-Grade Distribution Readiness
 
 Date: 2026-05-14
-Updated at: 2026-05-20T11:26:16Z
+Updated at: 2026-05-20T14:58:35Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Commit-sensitive evidence is rerun from the final PR head after this documentation update.
@@ -66,7 +66,7 @@ The signed peer config is:
 - minimum peer count `3`
 - quorum required `2`
 
-The production app canary observed the deployed public app, exact WSS relay config, public `/api/analyze`, news synthesis publication, point stance write/readback, and story thread/comment behavior. The public feed browser smoke also verified reload persistence and second-browser visibility.
+The production app canary observed the deployed public app, exact WSS relay config, public `/api/analyze`, news synthesis publication, point stance write/readback through the public app-origin aggregate fanout, and story thread/comment behavior. The public feed browser smoke also verified reload persistence and second-browser visibility.
 
 ## Launch Control
 
