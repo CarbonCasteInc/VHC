@@ -119,6 +119,48 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, beforeRows)).toBeNull();
   });
 
+  it('reads public aggregate proof through the deployed app origin fanout shape', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      expect(String(url)).toBe(
+        'https://venn.example/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1',
+      );
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          ok: true,
+          aggregate: {
+            point_id: 'point-1',
+            agree: 5,
+            disagree: 1,
+            participants: 6,
+            weight: 6,
+          },
+          row_count: 6,
+        }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(internal.readPublicPointAggregateViaOrigin({
+        baseUrl: 'https://venn.example/',
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+        timeoutMs: 100,
+      })).resolves.toEqual({
+        point_id: 'point-1',
+        agree: 5,
+        disagree: 1,
+        participants: 6,
+        weight: 6,
+        row_count: 6,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('treats a changed existing public voter row as a new agree readback', () => {
     const beforeRows = [
       { voter_id: 'voter-a', node: { agreement: -1 } },

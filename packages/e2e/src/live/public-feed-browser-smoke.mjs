@@ -474,6 +474,45 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json')
   }
 }
 
+function parsePublicPointAggregatePayload(payload, pointId) {
+  const aggregate = payload?.aggregate;
+  if (!aggregate || typeof aggregate !== 'object' || aggregate.point_id !== pointId) {
+    return null;
+  }
+  const agree = Number(aggregate.agree);
+  const disagree = Number(aggregate.disagree);
+  const participants = Number(aggregate.participants);
+  const weight = Number(aggregate.weight);
+  const rowCount = Number(payload?.row_count);
+  return {
+    point_id: pointId,
+    agree: Number.isFinite(agree) ? agree : 0,
+    disagree: Number.isFinite(disagree) ? disagree : 0,
+    participants: Number.isFinite(participants) ? participants : 0,
+    weight: Number.isFinite(weight) ? weight : 0,
+    row_count: Number.isFinite(rowCount) ? rowCount : null,
+  };
+}
+
+async function readPublicPointAggregateViaOrigin({
+  baseUrl,
+  topicId,
+  synthesisId,
+  epoch,
+  pointId,
+  timeoutMs = 15_000,
+}) {
+  if (!baseUrl) return null;
+  const url = new URL('/vh/aggregates/point', normalizeUrl(baseUrl));
+  url.searchParams.set('topic_id', topicId);
+  url.searchParams.set('synthesis_id', synthesisId);
+  url.searchParams.set('epoch', String(epoch));
+  url.searchParams.set('point_id', pointId);
+  const payload = await fetchJsonWithTimeout(url.href, timeoutMs, 'public-origin-point-aggregate');
+  if (payload?.ok !== true) return null;
+  return parsePublicPointAggregatePayload(payload, pointId);
+}
+
 function acceptedSynthesisReady(synthesis) {
   return Boolean(String(synthesis?.facts_summary ?? '').trim() && (synthesis?.frames?.length ?? 0) > 0);
 }
@@ -529,7 +568,18 @@ async function readPublicRelaySynthesisCandidates({
   };
 }
 
-async function readPublicPointAggregate({ gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
+async function readPublicPointAggregate({ baseUrl, gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
+  const originAggregate = await readPublicPointAggregateViaOrigin({
+    baseUrl,
+    topicId,
+    synthesisId,
+    epoch,
+    pointId,
+  }).catch(() => null);
+  if (originAggregate && (originAggregate.participants > 0 || originAggregate.agree > 0 || originAggregate.disagree > 0)) {
+    return { ...originAggregate, publicReadPath: 'origin_relay_fanout' };
+  }
+
   const client = createClient({
     peers: [gunPeerUrl],
     requireSession: false,
@@ -538,7 +588,7 @@ async function readPublicPointAggregate({ gunPeerUrl, topicId, synthesisId, epoc
   });
   client.markSessionReady();
   try {
-    return await readAggregates(client, topicId, synthesisId, epoch, pointId);
+    return await readAggregates(client, topicId, synthesisId, epoch, pointId) ?? originAggregate;
   } finally {
     await Promise.race([
       client.shutdown(),
@@ -919,7 +969,7 @@ async function firstVoteTarget(card) {
   };
 }
 
-async function voteAgree(card, row, gunPeerUrl) {
+async function voteAgree(card, row, gunPeerUrl, baseUrl) {
   const target = await firstVoteTarget(card);
   const durablePointId = target.canonicalPointId || target.pointId;
   const synthesisId = parseSynthesisIdFromPointId(durablePointId);
@@ -927,6 +977,7 @@ async function voteAgree(card, row, gunPeerUrl) {
     ? await withTimeout(
       'public-aggregate-before-read',
       readPublicPointAggregate({
+        baseUrl,
         gunPeerUrl,
         topicId: row.topicId,
         synthesisId,
@@ -964,6 +1015,7 @@ async function voteAgree(card, row, gunPeerUrl) {
       const aggregate = await withTimeout(
         'public-aggregate-after-read',
         readPublicPointAggregate({
+          baseUrl,
           gunPeerUrl,
           topicId: row.topicId,
           synthesisId,
@@ -1347,6 +1399,7 @@ async function verifySecondBrowser({
         const publicAggregate = await withTimeout(
           'second-browser-public-aggregate-read',
           readPublicPointAggregate({
+            baseUrl,
             gunPeerUrl,
             topicId: row.topicId,
             synthesisId,
@@ -1622,7 +1675,7 @@ async function runPublicFeedBrowserSmoke({
     const synthesis = detail.synthesis;
     await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
     progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
-    const voteProof = await voteAgree(card, target, gunPeerUrl);
+    const voteProof = await voteAgree(card, target, gunPeerUrl, baseUrl);
     progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
     await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
     const comment = await withTimeout(
@@ -1772,6 +1825,8 @@ export const publicFeedBrowserSmokeInternal = {
   resolveArtifactDir,
   isAcceptedSynthesisText,
   loadSystemWriterPin,
+  parsePublicPointAggregatePayload,
+  readPublicPointAggregateViaOrigin,
   readPublicRelaySynthesisCandidates,
   storyThreadVisibilityTimeoutMs,
   storyDetailUrl,
