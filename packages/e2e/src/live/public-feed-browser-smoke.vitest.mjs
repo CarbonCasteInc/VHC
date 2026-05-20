@@ -14,6 +14,64 @@ describe('public feed browser smoke helpers', () => {
       .toBe('https://venn.example/feed?mode=latest&detail=news%3Astory-1');
   });
 
+  it('retries Chromium aborted app-route navigations with commit wait', async () => {
+    const calls = [];
+    let currentUrl = 'https://venn.example/';
+    const page = {
+      goto: vi.fn(async (url, options) => {
+        calls.push({ url, options });
+        if (options.waitUntil === 'domcontentloaded') {
+          throw new Error('page.goto: net::ERR_ABORTED; maybe frame was detached?');
+        }
+        currentUrl = url;
+      }),
+      url: vi.fn(() => currentUrl),
+    };
+
+    await expect(internal.navigateToAppRoute(
+      page,
+      'https://venn.example/?detail=news%3Astory-1',
+      { label: 'test-route' },
+    )).resolves.toMatchObject({
+      ok: true,
+      aborted: false,
+      reachedTarget: true,
+      waitUntil: 'commit',
+    });
+
+    expect(calls.map((call) => call.options.waitUntil)).toEqual(['domcontentloaded', 'commit']);
+  });
+
+  it('allows optional app-route focus to fall back after aborted navigation', async () => {
+    const progress = vi.fn();
+    const page = {
+      goto: vi.fn(async () => {
+        throw new Error('page.goto: net::ERR_ABORTED; maybe frame was detached?');
+      }),
+      url: vi.fn(() => 'https://venn.example/'),
+    };
+
+    await expect(internal.navigateToAppRoute(
+      page,
+      'https://venn.example/?detail=news%3Astory-1',
+      { label: 'detail-route-focus', optional: true, progress },
+    )).resolves.toMatchObject({
+      ok: false,
+      aborted: true,
+      reachedTarget: false,
+      url: 'https://venn.example/',
+    });
+
+    expect(progress).toHaveBeenCalledWith(
+      'detail-route-focus-navigation-aborted',
+      expect.objectContaining({ waitUntil: 'domcontentloaded' }),
+    );
+    expect(progress).toHaveBeenCalledWith(
+      'detail-route-focus-navigation-aborted',
+      expect.objectContaining({ waitUntil: 'commit' }),
+    );
+  });
+
   it('quotes test ids safely for CSS attribute selectors', () => {
     expect(internal.cssAttr('news-card-headline-topic:with/slash')).toBe('"news-card-headline-topic:with/slash"');
     expect(internal.cssAttr('story "quoted"')).toBe('"story \\"quoted\\""');

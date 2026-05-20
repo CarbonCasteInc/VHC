@@ -48,6 +48,72 @@ function storyDetailUrl(baseUrl, storyId) {
   return url.href;
 }
 
+function urlsMatch(left, right) {
+  if (!left || !right) return false;
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    leftUrl.hash = '';
+    rightUrl.hash = '';
+    return leftUrl.href === rightUrl.href;
+  } catch {
+    return left === right;
+  }
+}
+
+function isNavigationAbortError(error) {
+  const message = error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error);
+  return /net::ERR_ABORTED/i.test(message) || /frame was detached/i.test(message);
+}
+
+async function navigateToAppRoute(
+  page,
+  url,
+  {
+    label = 'app-route',
+    progress = () => {},
+    optional = false,
+    timeout = 90_000,
+  } = {},
+) {
+  let lastAbortError = null;
+  for (const waitUntil of ['domcontentloaded', 'commit']) {
+    try {
+      await page.goto(url, { waitUntil, timeout });
+      return { ok: true, aborted: false, reachedTarget: true, waitUntil, url };
+    } catch (error) {
+      if (!isNavigationAbortError(error)) {
+        throw error;
+      }
+      lastAbortError = error;
+      const currentUrl = typeof page.url === 'function' ? page.url() : '';
+      progress(`${label}-navigation-aborted`, {
+        waitUntil,
+        targetUrl: url,
+        currentUrl,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (urlsMatch(currentUrl, url)) {
+        return { ok: true, aborted: true, reachedTarget: true, waitUntil, url: currentUrl };
+      }
+    }
+  }
+
+  const currentUrl = typeof page.url === 'function' ? page.url() : '';
+  if (optional) {
+    return {
+      ok: false,
+      aborted: true,
+      reachedTarget: urlsMatch(currentUrl, url),
+      waitUntil: null,
+      url: currentUrl,
+      error: lastAbortError instanceof Error ? lastAbortError.message : String(lastAbortError),
+    };
+  }
+
+  throw lastAbortError ?? new Error(`${label}-navigation-failed`);
+}
+
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -1092,7 +1158,10 @@ async function createStoryComment(page, row, commentVisibilityTimeoutMs = DEFAUL
 
 async function reloadStoryDetailForNextStep(page, baseUrl, row, analysisTimeoutMs, progress = () => {}) {
   progress('post-vote-detail-reload-start', { storyId: row.storyId });
-  await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await navigateToAppRoute(page, storyDetailUrl(baseUrl, row.storyId), {
+    label: 'post-vote-detail-route',
+    progress,
+  });
   await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
   const pageScopedSynthesis = await waitForSynthesis(page, page, row, analysisTimeoutMs)
     .catch((error) => {
@@ -1199,7 +1268,10 @@ async function verifySecondBrowser({
     progress('second-browser-start', { storyId: row.storyId });
     const identity = await ensureIdentity(page, baseUrl, 'launchsmokepeer');
     progress('second-browser-identity-complete', identity);
-    await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await navigateToAppRoute(page, storyDetailUrl(baseUrl, row.storyId), {
+      label: 'second-browser-detail-route',
+      progress,
+    });
     await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
     let routedRow = row;
     let card = page;
@@ -1228,7 +1300,10 @@ async function verifySecondBrowser({
           storyId: row.storyId,
           error: feedError instanceof Error ? feedError.message : String(feedError),
         });
-        await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+        await navigateToAppRoute(page, storyDetailUrl(baseUrl, row.storyId), {
+          label: 'second-browser-detail-scope-route',
+          progress,
+        });
         await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
         routedRow = row;
         card = page;
@@ -1271,7 +1346,10 @@ async function verifySecondBrowser({
             voteCount: publicAggregate.agree,
             expectedCount: voteProof.afterAgree,
           });
-          await page.goto(storyDetailUrl(baseUrl, row.storyId), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+          await navigateToAppRoute(page, storyDetailUrl(baseUrl, row.storyId), {
+            label: 'second-browser-vote-reopen-route',
+            progress,
+          });
           await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
           routedRow = await waitForTargetStoryCard(page, row, 120_000);
           card = await openStory(page, routedRow);
@@ -1437,19 +1515,29 @@ async function runPublicFeedBrowserSmoke({
     });
     const routeFocus = synthesisReadyCards[0] ?? publicRelaySynthesisReadyRows[0] ?? synthesisReadyReadbackRows[0];
     if (routeFocus) {
-      await page.goto(storyDetailUrl(baseUrl, routeFocus.storyId), {
-        waitUntil: 'domcontentloaded',
-        timeout: 90_000,
+      const navigation = await navigateToAppRoute(page, storyDetailUrl(baseUrl, routeFocus.storyId), {
+        label: 'detail-route-focus',
+        progress,
+        optional: true,
       });
-      await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
-      const routedReadyCard = await waitForTargetStoryCard(page, routeFocus, 120_000);
-      if (routedReadyCard) {
-        const routedCards = await visibleCards(page);
-        detailCandidates = [
-          routedReadyCard,
-          ...routedCards.filter((card) => card.storyId !== routedReadyCard.storyId && synthesisReadyStoryIds.has(card.storyId)),
-          ...synthesisReadyReadbackRows.filter((card) => card.storyId !== routedReadyCard.storyId),
-        ];
+      let routedReadyCard = null;
+      if (navigation.reachedTarget) {
+        await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+        routedReadyCard = await waitForTargetStoryCard(page, routeFocus, 120_000);
+        if (routedReadyCard) {
+          const routedCards = await visibleCards(page);
+          detailCandidates = [
+            routedReadyCard,
+            ...routedCards.filter((card) => card.storyId !== routedReadyCard.storyId && synthesisReadyStoryIds.has(card.storyId)),
+            ...synthesisReadyReadbackRows.filter((card) => card.storyId !== routedReadyCard.storyId),
+          ];
+        }
+      } else {
+        progress('detail-route-focus-skipped', {
+          storyId: routeFocus.storyId,
+          currentUrl: navigation.url,
+          reason: 'navigation-aborted-before-target',
+        });
       }
       progress('detail-route-focus', {
         storyId: routeFocus.storyId,
@@ -1615,6 +1703,8 @@ export const publicFeedBrowserSmokeInternal = {
   readPublicRelaySynthesisCandidates,
   storyThreadVisibilityTimeoutMs,
   storyDetailUrl,
+  isNavigationAbortError,
+  navigateToAppRoute,
   viewportScreenshotOptions,
   waitForStoryThreadHead,
   withTimeout,
