@@ -9,6 +9,10 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
+const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
+  '/vh/aggregates/voter',
+  '/vh/aggregates/point-snapshot',
+]);
 
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -153,6 +157,43 @@ function isRelayProxyMethodAllowed(pathname, method) {
   return method === 'POST';
 }
 
+function parseRelayTargets(value) {
+  if (!value) return [];
+  const rawValues = Array.isArray(value)
+    ? value
+    : (() => {
+      const text = String(value).trim();
+      if (!text) return [];
+      if (text.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(text);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return text.split(',');
+    })();
+  const targets = [];
+  const seen = new Set();
+  for (const raw of rawValues) {
+    const text = String(raw || '').trim();
+    if (!text) continue;
+    try {
+      const url = new URL(text);
+      const normalized = url.href.replace(/\/+$/, '');
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        targets.push(new URL(normalized));
+      }
+    } catch {
+      // Ignore malformed relay fanout entries; health/config surfaces expose
+      // whether a usable primary target was configured.
+    }
+  }
+  return targets;
+}
+
 function filteredProxyHeaders(headers) {
   const next = {};
   for (const [key, value] of Object.entries(headers)) {
@@ -160,6 +201,125 @@ function filteredProxyHeaders(headers) {
     if (value !== undefined) next[key] = value;
   }
   return next;
+}
+
+async function readRequestBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function fetchRelayTarget(req, targetBaseUrl, timeoutMs, body = undefined) {
+  const targetUrl = new URL(req.url || '/', targetBaseUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const method = req.method || 'GET';
+    const response = await fetch(targetUrl, {
+      method,
+      headers: filteredProxyHeaders(req.headers),
+      body: method === 'GET' || method === 'HEAD' ? undefined : body,
+      redirect: 'manual',
+      signal: controller.signal,
+    });
+    const responseBody = Buffer.from(await response.arrayBuffer());
+    return {
+      ok: true,
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: responseBody,
+      target: targetBaseUrl.href,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 502,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: Buffer.from(JSON.stringify({
+        ok: false,
+        error: error instanceof Error && error.name === 'AbortError'
+          ? 'Upstream request timed out'
+          : 'Upstream request failed',
+      })),
+      target: targetBaseUrl.href,
+      error,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function jsonFromRelayResult(result) {
+  if (!result?.body || result.body.length === 0) return null;
+  try {
+    return JSON.parse(result.body.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function aggregateScore(payload) {
+  const aggregate = payload?.aggregate;
+  if (!aggregate || typeof aggregate !== 'object') return -1;
+  const participants = Number(aggregate.participants);
+  const weight = Number(aggregate.weight);
+  const agree = Number(aggregate.agree);
+  const disagree = Number(aggregate.disagree);
+  const rowCount = Number(payload.row_count);
+  return [
+    Number.isFinite(participants) ? participants : 0,
+    Number.isFinite(weight) ? weight : 0,
+    Number.isFinite(rowCount) ? rowCount : 0,
+    Number.isFinite(agree) ? agree : 0,
+    Number.isFinite(disagree) ? disagree : 0,
+  ].reduce((score, value, index) => score + Math.max(0, value) / (index + 1), 0);
+}
+
+function selectBestAggregateRead(results) {
+  let best = null;
+  for (const result of results) {
+    if (!result.ok || result.status < 200 || result.status >= 300) continue;
+    const payload = jsonFromRelayResult(result);
+    if (!payload?.ok || !payload.aggregate) continue;
+    const score = aggregateScore(payload);
+    if (!best || score > best.score) {
+      best = { result, score };
+    }
+  }
+  return best?.result ?? null;
+}
+
+function selectBestAggregateWrite(results) {
+  const success = results.find((result) => {
+    if (!result.ok || result.status < 200 || result.status >= 300) return false;
+    const payload = jsonFromRelayResult(result);
+    return payload?.ok === true;
+  });
+  if (success) return success;
+  return results.find((result) => result.ok) ?? results[0] ?? null;
+}
+
+function writeRelayResult(res, result) {
+  if (!result) {
+    sendJson(res, 502, { ok: false, error: 'Upstream request failed' });
+    return;
+  }
+  res.writeHead(result.status, result.headers);
+  res.end(result.body);
+}
+
+async function proxyAggregateFanout(req, res, relayTargets, timeoutMs) {
+  const pathname = new URL(req.url || '/', 'http://vh-public-origin.local').pathname;
+  const method = req.method || 'GET';
+  const body = method === 'GET' || method === 'HEAD' ? undefined : await readRequestBody(req);
+  const results = await Promise.all(relayTargets.map((target) =>
+    fetchRelayTarget(req, target, timeoutMs, body)));
+  const selected = method === 'GET' && pathname === '/vh/aggregates/point'
+    ? selectBestAggregateRead(results)
+    : selectBestAggregateWrite(results);
+  writeRelayResult(res, selected);
 }
 
 async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
@@ -256,7 +416,11 @@ export function createPublicBetaOriginHandler(options) {
   const staticDir = resolve(options.staticDir);
   const peerConfigPath = resolve(options.peerConfigPath);
   const analysisTarget = options.analysisTarget ? new URL(options.analysisTarget) : null;
-  const relayTarget = options.relayTarget ? new URL(options.relayTarget) : null;
+  const relayTargets = parseRelayTargets(options.relayTargets);
+  if (relayTargets.length === 0 && options.relayTarget) {
+    relayTargets.push(...parseRelayTargets([options.relayTarget]));
+  }
+  const relayTarget = relayTargets[0] ?? null;
   const csp = buildCsp(options.cspConnectSrc);
   const proxyTimeoutMs = options.proxyTimeoutMs || DEFAULT_PROXY_TIMEOUT_MS;
   const relayProxyTimeoutMs = options.relayProxyTimeoutMs || Math.min(proxyTimeoutMs, DEFAULT_RELAY_PROXY_TIMEOUT_MS);
@@ -273,6 +437,7 @@ export function createPublicBetaOriginHandler(options) {
         peer_config_present: existsSync(peerConfigPath),
         analysis_proxy_configured: Boolean(analysisTarget),
         relay_proxy_configured: Boolean(relayTarget),
+        relay_proxy_target_count: relayTargets.length,
       });
       return;
     }
@@ -302,6 +467,16 @@ export function createPublicBetaOriginHandler(options) {
       }
       if (!relayTarget) {
         sendJson(res, 503, { error: 'Relay proxy not configured' });
+        return;
+      }
+      if (
+        relayTargets.length > 1
+        && (
+          (pathname === '/vh/aggregates/point' && (req.method || 'GET') === 'GET')
+          || (AGGREGATE_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
+        )
+      ) {
+        await proxyAggregateFanout(req, res, relayTargets, relayProxyTimeoutMs);
         return;
       }
       await proxyRequest(req, res, relayTarget, relayProxyTimeoutMs);
@@ -350,6 +525,7 @@ async function main() {
     peerConfigPath,
     analysisTarget: process.env.VH_PUBLIC_ORIGIN_ANALYSIS_TARGET || '',
     relayTarget: process.env.VH_PUBLIC_ORIGIN_RELAY_TARGET || '',
+    relayTargets: process.env.VH_PUBLIC_ORIGIN_RELAY_TARGETS || process.env.VH_PUBLIC_ORIGIN_RELAY_TARGET || '',
     cspConnectSrc: process.env.VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC || "'self'",
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
     relayProxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS || DEFAULT_RELAY_PROXY_TIMEOUT_MS),

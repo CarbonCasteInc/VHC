@@ -229,6 +229,95 @@ describe('public beta origin server', () => {
     );
   });
 
+  it('fans aggregate reads and writes across configured public relay targets', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayRequests = [];
+    const relayUrls = [];
+    const aggregateParticipants = [1, 9, 3];
+    for (let index = 0; index < aggregateParticipants.length; index += 1) {
+      const relay = createServer(async (req, res) => {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        relayRequests.push({
+          index,
+          method: req.method,
+          url: req.url,
+          headers: req.headers,
+          body: Buffer.concat(chunks).toString('utf8'),
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (req.method === 'GET' && req.url?.startsWith('/vh/aggregates/point')) {
+          const participants = aggregateParticipants[index];
+          res.end(JSON.stringify({
+            ok: true,
+            aggregate: {
+              point_id: 'point-1',
+              agree: participants,
+              disagree: 0,
+              weight: participants,
+              participants,
+            },
+            row_count: participants,
+          }));
+          return;
+        }
+        res.end(JSON.stringify({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 0,
+          voter_id: 'voter-1',
+          point_id: 'point-1',
+          relay_index: index,
+        }));
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const aggregateRead = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
+    expect(aggregateRead.status).toBe(200);
+    expect(await aggregateRead.json()).toMatchObject({
+      ok: true,
+      aggregate: {
+        point_id: 'point-1',
+        agree: 9,
+        participants: 9,
+      },
+      row_count: 9,
+    });
+    expect(relayRequests.filter((request) => request.method === 'GET')).toHaveLength(3);
+
+    const writeBody = JSON.stringify({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 0,
+      voter_id: 'voter-1',
+      node: { point_id: 'point-1', agreement: 1, weight: 1, updated_at: new Date(0).toISOString() },
+    });
+    const aggregateWrite = await fetch(`${origin}/vh/aggregates/voter`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-vh-relay-device-pub': 'device-pub',
+      },
+      body: writeBody,
+    });
+    expect(aggregateWrite.status).toBe(200);
+    expect(await aggregateWrite.json()).toMatchObject({ ok: true, voter_id: 'voter-1', point_id: 'point-1' });
+    const writeRequests = relayRequests.filter((request) => request.method === 'POST');
+    expect(writeRequests).toHaveLength(3);
+    expect(writeRequests.map((request) => request.body)).toEqual([writeBody, writeBody, writeBody]);
+    expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
+  });
+
   it('bounds relay proxy calls so browser-aborted readbacks do not saturate the public origin', async () => {
     const staticDir = await makeStaticRoot();
     const relay = createServer((_req, _res) => {
