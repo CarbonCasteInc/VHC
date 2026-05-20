@@ -13,6 +13,14 @@ const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
 ]);
+const FORUM_FANOUT_WRITE_PATHS = new Set([
+  '/vh/forum/thread',
+  '/vh/forum/comment',
+]);
+const FORUM_FANOUT_READ_PATHS = new Set([
+  '/vh/forum/thread',
+  '/vh/forum/comments',
+]);
 
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -301,6 +309,30 @@ function selectBestAggregateWrite(results) {
   return results.find((result) => result.ok) ?? results[0] ?? null;
 }
 
+function forumCommentsScore(payload) {
+  if (!payload?.ok || !Array.isArray(payload.comments)) return -1;
+  return payload.comments.length;
+}
+
+function selectBestForumRead(results, pathname) {
+  let best = null;
+  for (const result of results) {
+    if (!result.ok || result.status < 200 || result.status >= 300) continue;
+    const payload = jsonFromRelayResult(result);
+    let score = -1;
+    if (pathname === '/vh/forum/comments') {
+      score = forumCommentsScore(payload);
+    } else if (pathname === '/vh/forum/thread') {
+      score = payload?.ok === true && payload.thread ? 1 : 0;
+    }
+    if (score < 0) continue;
+    if (!best || score > best.score) {
+      best = { result, score };
+    }
+  }
+  return best?.result ?? results.find((result) => result.ok) ?? results[0] ?? null;
+}
+
 function writeRelayResult(res, result) {
   if (!result) {
     sendJson(res, 502, { ok: false, error: 'Upstream request failed' });
@@ -310,15 +342,20 @@ function writeRelayResult(res, result) {
   res.end(result.body);
 }
 
-async function proxyAggregateFanout(req, res, relayTargets, timeoutMs) {
+async function proxyRelayFanout(req, res, relayTargets, timeoutMs) {
   const pathname = new URL(req.url || '/', 'http://vh-public-origin.local').pathname;
   const method = req.method || 'GET';
   const body = method === 'GET' || method === 'HEAD' ? undefined : await readRequestBody(req);
   const results = await Promise.all(relayTargets.map((target) =>
     fetchRelayTarget(req, target, timeoutMs, body)));
-  const selected = method === 'GET' && pathname === '/vh/aggregates/point'
-    ? selectBestAggregateRead(results)
-    : selectBestAggregateWrite(results);
+  let selected = null;
+  if (method === 'GET' && pathname === '/vh/aggregates/point') {
+    selected = selectBestAggregateRead(results);
+  } else if (method === 'GET' && FORUM_FANOUT_READ_PATHS.has(pathname)) {
+    selected = selectBestForumRead(results, pathname);
+  } else {
+    selected = selectBestAggregateWrite(results);
+  }
   writeRelayResult(res, selected);
 }
 
@@ -474,9 +511,11 @@ export function createPublicBetaOriginHandler(options) {
         && (
           (pathname === '/vh/aggregates/point' && (req.method || 'GET') === 'GET')
           || (AGGREGATE_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
+          || (FORUM_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
+          || (FORUM_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
         )
       ) {
-        await proxyAggregateFanout(req, res, relayTargets, relayProxyTimeoutMs);
+        await proxyRelayFanout(req, res, relayTargets, relayProxyTimeoutMs);
         return;
       }
       await proxyRequest(req, res, relayTarget, relayProxyTimeoutMs);

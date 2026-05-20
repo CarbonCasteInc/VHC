@@ -431,6 +431,7 @@ describe('public feed browser smoke helpers', () => {
     expect(source).toContain('const agree = await findAgreeButtonByCanonical(scope, voteProof.canonicalPointId, voteProof.pointId);');
     expect(source).toContain('await agree.scrollIntoViewIfNeeded({ timeout: 1_000 }).catch(() => {});');
     expect(source).toContain('const { count } = await visibleAgreeVoteCount(page, voteProof);');
+    expect(source).toContain("progress('second-browser-vote-public-ready-current-detail'");
     expect(source).toContain("progress('second-browser-vote-public-ready-reopen'");
     expect(source).toContain("progress('second-browser-vote-reopen-detail-scope-visible'");
     expect(source).toContain("progress('second-browser-vote-reopen-feed-route-failed'");

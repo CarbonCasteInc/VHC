@@ -318,6 +318,79 @@ describe('public beta origin server', () => {
     expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
   });
 
+  it('fans forum comment reads and writes across configured public relay targets', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayRequests = [];
+    const relayUrls = [];
+    const commentCounts = [0, 2, 1];
+    for (let index = 0; index < commentCounts.length; index += 1) {
+      const relay = createServer(async (req, res) => {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        relayRequests.push({
+          index,
+          method: req.method,
+          url: req.url,
+          headers: req.headers,
+          body: Buffer.concat(chunks).toString('utf8'),
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        if (req.method === 'GET' && req.url?.startsWith('/vh/forum/comments')) {
+          res.end(JSON.stringify({
+            ok: true,
+            thread_id: 'thread-1',
+            comments: Array.from({ length: commentCounts[index] }, (_value, commentIndex) => ({
+              id: `comment-${index}-${commentIndex}`,
+              threadId: 'thread-1',
+              author: 'user',
+              body: `comment ${index}-${commentIndex}`,
+              timestamp: commentIndex,
+            })),
+          }));
+          return;
+        }
+        res.end(JSON.stringify({
+          ok: true,
+          thread_id: 'thread-1',
+          comment_id: 'comment-1',
+          relay_index: index,
+        }));
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const comments = await fetch(`${origin}/vh/forum/comments?thread_id=thread-1`);
+    expect(comments.status).toBe(200);
+    const commentsPayload = await comments.json();
+    expect(commentsPayload).toMatchObject({ ok: true, thread_id: 'thread-1' });
+    expect(commentsPayload.comments).toHaveLength(2);
+    expect(relayRequests.filter((request) => request.method === 'GET')).toHaveLength(3);
+
+    const commentBody = JSON.stringify({ comment: { id: 'comment-1', threadId: 'thread-1' } });
+    const write = await fetch(`${origin}/vh/forum/comment`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-vh-relay-device-pub': 'device-pub',
+      },
+      body: commentBody,
+    });
+    expect(write.status).toBe(200);
+    expect(await write.json()).toMatchObject({ ok: true, comment_id: 'comment-1' });
+    const writeRequests = relayRequests.filter((request) => request.method === 'POST');
+    expect(writeRequests).toHaveLength(3);
+    expect(writeRequests.map((request) => request.body)).toEqual([commentBody, commentBody, commentBody]);
+    expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
+  });
+
   it('bounds relay proxy calls so browser-aborted readbacks do not saturate the public origin', async () => {
     const staticDir = await makeStaticRoot();
     const relay = createServer((_req, _res) => {

@@ -1333,11 +1333,11 @@ async function verifySecondBrowser({
     }
     progress('second-browser-synthesis-visible');
     let lastVoteReopenAt = 0;
-    const voteCount = await waitFor('second-browser-vote-visibility', async () => {
+    const voteVisibility = await waitFor('second-browser-vote-visibility', async () => {
       const { count } = await visibleAgreeVoteCount(page, voteProof);
       lastVoteDiagnostics = { domCount: count, expectedCount: voteProof.afterAgree };
       if (count >= voteProof.afterAgree) {
-        return count;
+        return { count, source: 'dom' };
       }
 
       const durablePointId = voteProof.canonicalPointId || voteProof.pointId;
@@ -1360,6 +1360,16 @@ async function verifySecondBrowser({
           publicAggregate,
         };
         if (publicAggregate?.agree >= voteProof.afterAgree) {
+          const currentSynthesis = await waitForSynthesis(page, page, row, Math.min(5_000, analysisTimeoutMs))
+            .catch(() => null);
+          if (currentSynthesis) {
+            lastVoteReopenAt = now;
+            progress('second-browser-vote-public-ready-current-detail', {
+              voteCount: publicAggregate.agree,
+              expectedCount: voteProof.afterAgree,
+            });
+            return null;
+          }
           lastVoteReopenAt = now;
           progress('second-browser-vote-public-ready-reopen', {
             voteCount: publicAggregate.agree,
@@ -1389,7 +1399,11 @@ async function verifySecondBrowser({
               reopenedDomCount: reopened?.count ?? null,
             };
             if (reopened && reopened.count >= voteProof.afterAgree) {
-              return reopened.count;
+              return {
+                count: reopened.count,
+                source: 'dom_after_public_aggregate_reopen',
+                publicAggregate,
+              };
             }
           } else {
             try {
@@ -1412,13 +1426,18 @@ async function verifySecondBrowser({
 
       return null;
     }, { timeoutMs: secondBrowserVoteVisibilityTimeoutMs, intervalMs: 500 });
-    progress('second-browser-vote-visible', { voteCount });
+    progress('second-browser-vote-visible', {
+      voteCount: voteVisibility.count,
+      source: voteVisibility.source,
+    });
     await waitFor('second-browser-comment-visibility', async () =>
       (await postedCommentVisible(page, commentBody)) ? true : null,
     { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
     progress('second-browser-comment-visible');
     return {
-      voteCount,
+      voteCount: voteVisibility.count,
+      voteCountSource: voteVisibility.source,
+      publicAggregate: voteVisibility.publicAggregate ?? null,
       commentVisible: true,
     };
   } catch (error) {
