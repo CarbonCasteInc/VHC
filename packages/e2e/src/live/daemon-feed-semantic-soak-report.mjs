@@ -109,6 +109,60 @@ function hasHeadlineCorroborationEvidence(run) {
     || (run?.averageCorroboratedBundleRate ?? 0) > 0;
 }
 
+function buildHeadlineSoakReleaseEvidenceWindow(trendIndex, criteria) {
+  const runs = Array.isArray(trendIndex?.runs) ? trendIndex.runs.filter(Boolean) : [];
+  if (runs.length === 0) {
+    return trendIndex;
+  }
+
+  const windowSize = Math.max(
+    criteria.minimumExecutionCount,
+    criteria.minimumPromotableExecutionCount,
+    criteria.maximumNotReadyExecutionCount + criteria.minimumPromotableExecutionCount,
+  );
+  const windowRuns = runs.slice(-windowSize);
+  const promotableRuns = windowRuns.filter((run) => run.readinessStatus === 'promotable');
+  const strictSoakPassCount = windowRuns.filter((run) => run.strictSoakPass).length;
+  const promotableCorroborationEvidenceRuns = promotableRuns.filter(hasHeadlineCorroborationEvidence);
+  const releaseCorroboratedBundleRates = promotableCorroborationEvidenceRuns
+    .map((run) => run.averageCorroboratedBundleRate);
+  const promotableCorroboratedBundleRates = promotableRuns
+    .map((run) => run.averageCorroboratedBundleRate);
+  const promotableUniqueSourceCounts = promotableRuns.map((run) => run.averageUniqueSourceCount);
+  const uniqueSourceCounts = windowRuns.map((run) => run.averageUniqueSourceCount);
+
+  return {
+    ...trendIndex,
+    executionCount: windowRuns.length,
+    promotableExecutionCount: promotableRuns.length,
+    notReadyExecutionCount: windowRuns.length - promotableRuns.length,
+    strictSoakPassCount,
+    strictSoakFailCount: windowRuns.length - strictSoakPassCount,
+    latestExecution: windowRuns.at(-1) ?? null,
+    latestPromotableExecution:
+      [...windowRuns].reverse().find((run) => run.readinessStatus === 'promotable') ?? null,
+    latestStrictFailureExecution: [...windowRuns].reverse().find((run) => !run.strictSoakPass) ?? null,
+    usefulness: {
+      ...(trendIndex?.usefulness ?? {}),
+      averageCorroboratedBundleRate: average(windowRuns.map((run) => run.averageCorroboratedBundleRate)),
+      averageUniqueSourceCount: average(uniqueSourceCounts),
+      maxUniqueSourceCount: uniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
+      promotableAverageCorroboratedBundleRate: average(promotableCorroboratedBundleRates),
+      promotableAverageUniqueSourceCount: average(promotableUniqueSourceCounts),
+      promotableMaxUniqueSourceCount: promotableUniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...promotableUniqueSourceCounts.filter(isFiniteNumber)),
+      promotableRunCount: promotableRuns.length,
+      releaseAverageCorroboratedBundleRate: average(releaseCorroboratedBundleRates),
+      corroborationEvidenceExecutionCount: promotableCorroborationEvidenceRuns.length,
+      singletonOnlyPromotableExecutionCount:
+        promotableRuns.length - promotableCorroborationEvidenceRuns.length,
+    },
+  };
+}
+
 function canonicalSourceCount(bundle) {
   if (isFiniteNumber(bundle?.canonical_source_count)) {
     return bundle.canonical_source_count;
@@ -598,24 +652,25 @@ export function buildHeadlineSoakTrendIndex(
 
 export function assessHeadlineSoakReleaseEvidence(trendIndex) {
   const criteria = PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA;
+  const evidenceTrendIndex = buildHeadlineSoakReleaseEvidenceWindow(trendIndex, criteria);
   const reasons = [];
   let status = 'pass';
   let recommendedAction = 'release_ready';
 
-  if ((trendIndex?.executionCount ?? 0) < criteria.minimumExecutionCount) {
+  if ((evidenceTrendIndex?.executionCount ?? 0) < criteria.minimumExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('insufficient_headline_soak_execution_count');
   }
-  if ((trendIndex?.promotableExecutionCount ?? 0) < criteria.minimumPromotableExecutionCount) {
+  if ((evidenceTrendIndex?.promotableExecutionCount ?? 0) < criteria.minimumPromotableExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('promotable_execution_count_below_threshold');
   }
   const hasCorroborationEvidenceExecutionCount =
-    isFiniteNumber(trendIndex?.usefulness?.corroborationEvidenceExecutionCount);
+    isFiniteNumber(evidenceTrendIndex?.usefulness?.corroborationEvidenceExecutionCount);
   const corroborationEvidenceExecutionCount = hasCorroborationEvidenceExecutionCount
-    ? trendIndex.usefulness.corroborationEvidenceExecutionCount
+    ? evidenceTrendIndex.usefulness.corroborationEvidenceExecutionCount
     : null;
   if (
     hasCorroborationEvidenceExecutionCount
@@ -625,20 +680,20 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('corroborated_bundle_evidence_missing');
   }
-  if ((trendIndex?.notReadyExecutionCount ?? 0) > criteria.maximumNotReadyExecutionCount) {
+  if ((evidenceTrendIndex?.notReadyExecutionCount ?? 0) > criteria.maximumNotReadyExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('non_promotable_execution_count_exceeds_threshold');
   }
-  if ((trendIndex?.latestExecution?.readinessStatus ?? 'not_ready') !== 'promotable') {
+  if ((evidenceTrendIndex?.latestExecution?.readinessStatus ?? 'not_ready') !== 'promotable') {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('latest_headline_soak_execution_not_promotable');
   }
   const corroboratedBundleRate =
-    trendIndex?.usefulness?.releaseAverageCorroboratedBundleRate
-    ?? trendIndex?.usefulness?.promotableAverageCorroboratedBundleRate
-    ?? trendIndex?.usefulness?.averageCorroboratedBundleRate
+    evidenceTrendIndex?.usefulness?.releaseAverageCorroboratedBundleRate
+    ?? evidenceTrendIndex?.usefulness?.promotableAverageCorroboratedBundleRate
+    ?? evidenceTrendIndex?.usefulness?.averageCorroboratedBundleRate
     ?? 0;
   if (
     (
@@ -652,8 +707,8 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     reasons.push('corroborated_bundle_rate_below_threshold');
   }
   const uniqueSourceCount =
-    trendIndex?.usefulness?.promotableAverageUniqueSourceCount
-    ?? trendIndex?.usefulness?.averageUniqueSourceCount
+    evidenceTrendIndex?.usefulness?.promotableAverageUniqueSourceCount
+    ?? evidenceTrendIndex?.usefulness?.averageUniqueSourceCount
     ?? 0;
   if (uniqueSourceCount < criteria.minimumAverageUniqueSourceCount) {
     status = 'fail';
@@ -661,7 +716,10 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     reasons.push('headline_source_diversity_below_threshold');
   }
 
-  if (status !== 'fail' && (trendIndex?.strictSoakFailCount ?? 0) > 0) {
+  if (
+    status !== 'fail'
+    && (evidenceTrendIndex?.strictSoakFailCount ?? 0) > criteria.maximumNotReadyExecutionCount
+  ) {
     status = 'warn';
     recommendedAction = 'review_recent_headline_soak_deterioration';
     reasons.push('recent_strict_soak_failures_present');
@@ -672,11 +730,11 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     recommendedAction,
     reasons,
     criteria,
-    latestExecutionReadinessStatus: trendIndex?.latestExecution?.readinessStatus ?? null,
-    recentExecutionCount: trendIndex?.executionCount ?? 0,
-    recentPromotableExecutionCount: trendIndex?.promotableExecutionCount ?? 0,
-    recentNotReadyExecutionCount: trendIndex?.notReadyExecutionCount ?? 0,
-    recentStrictSoakFailCount: trendIndex?.strictSoakFailCount ?? 0,
+    latestExecutionReadinessStatus: evidenceTrendIndex?.latestExecution?.readinessStatus ?? null,
+    recentExecutionCount: evidenceTrendIndex?.executionCount ?? 0,
+    recentPromotableExecutionCount: evidenceTrendIndex?.promotableExecutionCount ?? 0,
+    recentNotReadyExecutionCount: evidenceTrendIndex?.notReadyExecutionCount ?? 0,
+    recentStrictSoakFailCount: evidenceTrendIndex?.strictSoakFailCount ?? 0,
   };
 }
 

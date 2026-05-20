@@ -400,8 +400,10 @@ export function buildProductionReadinessDecision({
   let recommendedAction = 'release_ready';
 
   const normalizedCorrectnessStatus = parseCorrectnessStatus(correctnessStatus);
-  const headlineSoakReleaseEvidence = headlineSoakTrend?.releaseEvidence
-    ?? (headlineSoakTrend ? assessHeadlineSoakReleaseEvidence(headlineSoakTrend) : null);
+  const headlineSoakReleaseEvidence = Array.isArray(headlineSoakTrend?.runs)
+    ? assessHeadlineSoakReleaseEvidence(headlineSoakTrend)
+    : headlineSoakTrend?.releaseEvidence
+      ?? (headlineSoakTrend ? assessHeadlineSoakReleaseEvidence(headlineSoakTrend) : null);
   const sourceHealthReleaseStatus =
     sourceHealthReport?.releaseEvidence?.status
     ?? sourceHealthTrend?.releaseEvidence?.status

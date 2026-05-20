@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   assessArtifactFreshness,
@@ -13,15 +15,17 @@ function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+
 describe('storycluster-production-readiness', () => {
   it('defaults repo-rooted artifact paths to the workspace root instead of the package cwd', () => {
     const rule = buildProductionReadinessRule();
 
-    expect(rule.correctnessGate.repoRoot).toBe('/Users/bldt/Desktop/VHC/VHC');
-    expect(rule.correctnessGate.latestStatusPath).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json');
-    expect(rule.sourceHealthTrend.latestReportPath).toBe('/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json');
-    expect(rule.headlineSoakTrend.latestTrendPath).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
-    expect(rule.headlineSoakTrend.legacyTrendPath).toBe('/Users/bldt/Desktop/VHC/VHC/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
+    expect(rule.correctnessGate.repoRoot).toBe(repoRoot);
+    expect(rule.correctnessGate.latestStatusPath).toBe(`${repoRoot}/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json`);
+    expect(rule.sourceHealthTrend.latestReportPath).toBe(`${repoRoot}/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`);
+    expect(rule.headlineSoakTrend.latestTrendPath).toBe(`${repoRoot}/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json`);
+    expect(rule.headlineSoakTrend.legacyTrendPath).toBe(`${repoRoot}/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json`);
   });
 
   it('uses generatedAt first and falls back to mtime for freshness checks', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   readRetainedSourceEvidenceSnapshot,
   readSemanticAuditStoreSnapshot,
+  refreshNewsStoreLatest,
 } from './browserNewsStore';
 
 function makeStory(overrides = {}) {
@@ -164,5 +165,28 @@ describe('browserNewsStore retained source evidence snapshot', () => {
       visible_story_ids: ['story-1', 'story-2'],
       top_auditable_story_ids: ['story-1'],
     });
+  });
+
+  it('bounds refreshLatest so a stuck store refresh cannot hang the live gate', async () => {
+    const page = {
+      evaluate: async (fn, arg) => {
+        const previousWindow = globalThis.window;
+        globalThis.window = {
+          setTimeout,
+          __VH_NEWS_STORE__: {
+            getState: () => ({
+              refreshLatest: async () => new Promise(() => {}),
+            }),
+          },
+        };
+        try {
+          return await fn(arg);
+        } finally {
+          globalThis.window = previousWindow;
+        }
+      },
+    };
+
+    await expect(refreshNewsStoreLatest(page, 120, 5)).rejects.toThrow('news-store-refresh-timeout');
   });
 });

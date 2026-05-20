@@ -148,6 +148,10 @@ function extractClusterCaptureStoryIds(capture: unknown): string[] {
   return [...storyIds].sort();
 }
 
+function requiresDomHeadlineReadiness(): boolean {
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true';
+}
+
 async function attachSemanticAuditArtifacts(
   testInfo: {
     attach: (name: string, options: { body: string; contentType: string }) => Promise<void>;
@@ -216,10 +220,12 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         waitUntil: 'domcontentloaded',
         timeout: NAV_TIMEOUT_MS,
       });
-      await waitForHeadlines(page);
-      await captureDaemonFirstFeedSemanticAuditSnapshots(page);
       const clusterCapture = await waitForDaemonClusterCaptureEvidence();
       const clusterCaptureBundles = extractClusterCaptureBundles(clusterCapture.capture);
+      if (requiresDomHeadlineReadiness()) {
+        await waitForHeadlines(page);
+      }
+      await captureDaemonFirstFeedSemanticAuditSnapshots(page);
       const openAI = resolveSemanticAuditOpenAIConfig(process.env);
 
       const report = await runDaemonFirstFeedSemanticAudit(page, {

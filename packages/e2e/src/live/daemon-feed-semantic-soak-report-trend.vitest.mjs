@@ -44,6 +44,46 @@ function makeResult(overrides = {}) {
   };
 }
 
+function makeHeadlineExecution(overrides = {}) {
+  return {
+    artifactDir: `/tmp/artifacts/${overrides.id ?? 'execution'}`,
+    generatedAt: '2026-05-20T00:00:00.000Z',
+    strictSoakPass: true,
+    readinessStatus: 'promotable',
+    promotionBlockingReasons: [],
+    runCount: 3,
+    passCount: 3,
+    failCount: 0,
+    totalSampledStories: 6,
+    totalAuditedPairs: 12,
+    totalRelatedTopicOnlyPairs: 0,
+    repeatedStoryCount: 1,
+    totalBundledStories: 6,
+    totalCorroboratedBundles: 6,
+    totalSingletonBundles: 0,
+    averageSampleFillRate: 1,
+    averageAuditedPairsPerSampledStory: 2,
+    averageCorroboratedBundleRate: 1,
+    averageUniqueSourceCount: 3,
+    maxUniqueSourceCount: 4,
+    classifications: {
+      pass: 3,
+      semantic_contamination: 0,
+      bundle_starvation: 0,
+      insufficient_auditable_supply: 0,
+      artifact_missing: 0,
+      report_parse_error: 0,
+      runner_failure: 0,
+    },
+    artifactPaths: {
+      summaryPath: '/tmp/summary.json',
+      trendPath: '/tmp/trend.json',
+      indexPath: '/tmp/index.json',
+    },
+    ...overrides,
+  };
+}
+
 describe('daemon-feed-semantic-soak-report trend output', () => {
   it('builds a trend summary with density, streaks, and diagnostic paths', () => {
     const trend = buildSoakTrend([
@@ -571,8 +611,8 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
 
     expect(assessHeadlineSoakReleaseEvidence({
       executionCount: 4,
-      promotableExecutionCount: 4,
-      notReadyExecutionCount: 0,
+      promotableExecutionCount: 3,
+      notReadyExecutionCount: 1,
       strictSoakFailCount: 1,
       latestExecution: {
         readinessStatus: 'promotable',
@@ -582,14 +622,14 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         averageUniqueSourceCount: 3,
       },
     })).toEqual({
-      status: 'warn',
-      recommendedAction: 'review_recent_headline_soak_deterioration',
-      reasons: ['recent_strict_soak_failures_present'],
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
       criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
       latestExecutionReadinessStatus: 'promotable',
       recentExecutionCount: 4,
-      recentPromotableExecutionCount: 4,
-      recentNotReadyExecutionCount: 0,
+      recentPromotableExecutionCount: 3,
+      recentNotReadyExecutionCount: 1,
       recentStrictSoakFailCount: 1,
     });
 
@@ -627,7 +667,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       executionCount: 4,
       promotableExecutionCount: 3,
       notReadyExecutionCount: 1,
-      strictSoakFailCount: 1,
+      strictSoakFailCount: 2,
       latestExecution: {
         readinessStatus: 'promotable',
       },
@@ -646,7 +686,59 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       recentExecutionCount: 4,
       recentPromotableExecutionCount: 3,
       recentNotReadyExecutionCount: 1,
-      recentStrictSoakFailCount: 1,
+      recentStrictSoakFailCount: 2,
+    });
+  });
+
+  it('evaluates release evidence over the trailing launch window while retaining older trend history', () => {
+    const oldFailure = makeHeadlineExecution({
+      id: 'old-failure',
+      strictSoakPass: false,
+      readinessStatus: 'not_ready',
+      promotionBlockingReasons: ['semantic_contamination_present'],
+      passCount: 2,
+      failCount: 1,
+    });
+    const olderFailure = makeHeadlineExecution({
+      id: 'older-failure',
+      strictSoakPass: false,
+      readinessStatus: 'not_ready',
+      promotionBlockingReasons: ['insufficient_audited_pair_density'],
+      passCount: 0,
+      failCount: 3,
+      totalSampledStories: 0,
+      totalAuditedPairs: 0,
+      averageSampleFillRate: 0,
+      averageAuditedPairsPerSampledStory: 0,
+      averageCorroboratedBundleRate: 0,
+    });
+    const trailingLaunchWindow = [
+      makeHeadlineExecution({ id: 'fresh-1' }),
+      makeHeadlineExecution({ id: 'fresh-2', averageUniqueSourceCount: 4 }),
+      makeHeadlineExecution({ id: 'fresh-3', averageUniqueSourceCount: 5 }),
+      makeHeadlineExecution({ id: 'fresh-4', averageUniqueSourceCount: 6 }),
+    ];
+
+    const trendIndex = buildHeadlineSoakTrendIndex([
+      oldFailure,
+      olderFailure,
+      ...trailingLaunchWindow,
+    ], {
+      artifactRoot: '/tmp/artifacts',
+      latestArtifactDir: '/tmp/artifacts/fresh-4',
+      lookbackExecutionCount: 20,
+      lookbackHours: 168,
+    });
+
+    expect(trendIndex.executionCount).toBe(6);
+    expect(trendIndex.notReadyExecutionCount).toBe(2);
+    expect(trendIndex.runs).toHaveLength(6);
+    expect(trendIndex.releaseEvidence).toMatchObject({
+      status: 'pass',
+      recentExecutionCount: 4,
+      recentPromotableExecutionCount: 4,
+      recentNotReadyExecutionCount: 0,
+      recentStrictSoakFailCount: 0,
     });
   });
 });

@@ -12,6 +12,8 @@ export interface AuditableBundleDiagnostics {
   readonly topAuditableStoryIds: ReadonlyArray<string>;
 }
 
+const DEFAULT_REFRESH_TIMEOUT_MS = 30_000;
+
 async function readStoreStories(
   page: Page,
 ): Promise<LiveSemanticAuditBundleLike[]> {
@@ -77,13 +79,28 @@ export async function readVisibleAuditableBundles(
   return readAuditableBundles(page, { restrictToDomStoryIds: true });
 }
 
-export async function refreshNewsStoreLatest(page: Page, limit: number): Promise<void> {
-  await page.evaluate(async (refreshLimit: number) => {
+export async function refreshNewsStoreLatest(
+  page: Page,
+  limit: number,
+  timeoutMs = DEFAULT_REFRESH_TIMEOUT_MS,
+): Promise<void> {
+  await page.evaluate(async (
+    { refreshLimit, refreshTimeoutMs }: { refreshLimit: number; refreshTimeoutMs: number },
+  ) => {
     const newsStore = (window as {
       __VH_NEWS_STORE__?: { getState?: () => { refreshLatest?: (limit?: number) => Promise<void> } };
     }).__VH_NEWS_STORE__;
-    await newsStore?.getState?.().refreshLatest?.(refreshLimit);
-  }, limit);
+    const refresh = newsStore?.getState?.().refreshLatest;
+    if (!refresh) {
+      return;
+    }
+    await Promise.race([
+      refresh(refreshLimit),
+      new Promise((_, reject) => {
+        window.setTimeout(() => reject(new Error('news-store-refresh-timeout')), refreshTimeoutMs);
+      }),
+    ]);
+  }, { refreshLimit: limit, refreshTimeoutMs: timeoutMs });
 }
 
 export async function readAuditableBundleDiagnostics(
