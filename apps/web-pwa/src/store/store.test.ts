@@ -7,6 +7,7 @@ import {
   resolveGunPeers,
   resolveGunPeerTopologySync,
   resolveGunLocalStorage,
+  resolveClientSystemWriterPin,
 } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
@@ -14,6 +15,7 @@ import * as storeModule from './index';
 const mockWrite = vi.fn();
 const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), markReady: vi.fn(), ready: true };
 const mockPublishDirectory = vi.fn();
+const mockBootstrapFeedBridges = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
 
@@ -61,6 +63,10 @@ vi.mock('./synthesis/commentRuntime', () => ({
   bootstrapSynthesisCommentRuntime: vi.fn(),
 }));
 
+vi.mock('./feedBridge', () => ({
+  bootstrapFeedBridges: (...args: unknown[]) => mockBootstrapFeedBridges(...args),
+}));
+
 class MemoryStorage {
   #store = new Map<string, string>();
   getItem(key: string) {
@@ -81,6 +87,7 @@ beforeEach(() => {
   vi.unstubAllGlobals();
   (globalThis as any).localStorage = new MemoryStorage();
   delete (globalThis as any).__VH_GUN_PEERS__;
+  delete (globalThis as any).__VH_DISABLE_FEED_BRIDGES__;
   vi.unstubAllEnvs();
   vaultStore = null;
   mockWrite.mockReset();
@@ -89,6 +96,7 @@ beforeEach(() => {
   mockHydration.markReady.mockClear();
   mockHydration.ready = true;
   mockPublishDirectory.mockReset();
+  mockBootstrapFeedBridges.mockReset();
   mockGunAuth.mockClear();
   mockGunUser.is = null;
   (createClient as unknown as Mock).mockClear();
@@ -122,6 +130,30 @@ describe('useAppStore', () => {
 
     (globalThis as any).__VH_GUN_PEERS__ = [];
     expect(resolveGunPeers('127.0.0.1')).toEqual([]);
+  });
+
+  it('allows production builds to pin the launch news system writer explicitly', () => {
+    vi.stubEnv('VITE_NEWS_SYSTEM_WRITER_PIN_JSON', JSON.stringify({
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [
+        {
+          id: 'vh-public-beta-news-system-writer-v1',
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: 'public-beta-writer-material',
+          },
+        },
+      ],
+    }));
+
+    expect(resolveClientSystemWriterPin().writers[0]).toMatchObject({
+      id: 'vh-public-beta-news-system-writer-v1',
+      publicKey: { material: 'public-beta-writer-material' },
+    });
   });
 
   it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
@@ -198,6 +230,23 @@ describe('useAppStore', () => {
     expect(state.client).toBeTruthy();
     expect(mockHydration.prepare).toHaveBeenCalled();
     expect(state.identityStatus === 'idle' || state.identityStatus === 'ready').toBe(true);
+  });
+
+  it('init suppresses browser feed bridges when daemon-first audits set the bridge kill switch', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
+    (globalThis as any).__VH_DISABLE_FEED_BRIDGES__ = true;
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
+  });
+
+  it('init still starts browser feed bridges when enabled outside daemon-first isolation', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
   });
 
   it('marks the hydration barrier ready when init continues after timeout', async () => {
@@ -320,12 +369,14 @@ describe('useAppStore', () => {
     expect(mockPublishDirectory).not.toHaveBeenCalled();
   });
 
-  it('createIdentity falls back when randomUUID is missing and surfaces write errors', async () => {
+  it('createIdentity falls back when randomUUID is missing and keeps local profile when mesh profile write fails', async () => {
     vi.stubGlobal('crypto', {} as any);
     await useAppStore.getState().init();
     mockWrite.mockRejectedValueOnce(new Error('fail'));
-    await expect(useAppStore.getState().createIdentity('bob')).rejects.toThrow('fail');
-    expect(useAppStore.getState().identityStatus).toBe('error');
+    await expect(useAppStore.getState().createIdentity('bob')).resolves.toBeUndefined();
+    expect(useAppStore.getState().profile?.username).toBe('bob');
+    expect(useAppStore.getState().identityStatus).toBe('ready');
+    expect((globalThis as any).localStorage.getItem('vh_profile')).toContain('bob');
     vi.unstubAllGlobals();
   });
 

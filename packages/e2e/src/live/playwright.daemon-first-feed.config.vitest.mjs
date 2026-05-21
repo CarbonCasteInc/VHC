@@ -27,6 +27,14 @@ async function loadConfig(runId, envOverrides = {}) {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL,
     ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS,
+    VITE_VH_GUN_LOCAL_STORAGE: process.env.VITE_VH_GUN_LOCAL_STORAGE,
+    VITE_VH_GUN_READ_TIMEOUT_MS: process.env.VITE_VH_GUN_READ_TIMEOUT_MS,
+    VITE_NEWS_REFRESH_TIMEOUT_MS: process.env.VITE_NEWS_REFRESH_TIMEOUT_MS,
+    VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY: process.env.VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY,
+    VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY: process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY,
+    VITE_VH_NEWS_HYDRATION_INDEX_LIMIT: process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT,
+    VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX: process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX,
+    VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX: process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX,
   };
   applyEnv({
     VH_DAEMON_FEED_RUN_ID: runId,
@@ -42,6 +50,14 @@ async function loadConfig(runId, envOverrides = {}) {
     OPENAI_API_KEY: undefined,
     ANALYSIS_RELAY_MODEL: undefined,
     ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: undefined,
+    VITE_VH_GUN_LOCAL_STORAGE: undefined,
+    VITE_VH_GUN_READ_TIMEOUT_MS: undefined,
+    VITE_NEWS_REFRESH_TIMEOUT_MS: undefined,
+    VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY: undefined,
+    VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY: undefined,
+    VITE_VH_NEWS_HYDRATION_INDEX_LIMIT: undefined,
+    VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX: undefined,
+    VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX: undefined,
     ...envOverrides,
   });
   const configUrl = `${pathToFileURL(path.resolve(process.cwd(), 'playwright.daemon-first-feed.config.ts')).href}?runId=${runId}`;
@@ -88,20 +104,45 @@ describe('playwright.daemon-first-feed.config', () => {
 
   it('passes custom source ids through to the web app env, including smoke-only sources', async () => {
     const config = await loadConfig('run-source-check', {
-      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,nbc-politics,pbs-politics',
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,latimes-california,ap-politics',
     });
     const entries = config.webServer;
     const appServer = entries[entries.length - 1];
     const sourceIds = JSON.parse(appServer.env.VITE_NEWS_FEED_SOURCES).map((source) => source.id);
 
-    expect(sourceIds).toEqual(['guardian-us', 'nbc-politics', 'pbs-politics']);
+    expect(sourceIds).toEqual(['guardian-us', 'latimes-california', 'ap-politics']);
+  });
+
+  it('disables browser feed bridges by default for isolated daemon-first evidence', async () => {
+    const config = await loadConfig('run-bridge-default-check', {
+      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_SYNTHESIS_BRIDGE_ENABLED: 'true',
+      VITE_LINKED_SOCIAL_ENABLED: 'true',
+      VH_DAEMON_FEED_BRIDGES_ENABLED: '',
+    });
+    const appServer = config.webServer.at(-1);
+
+    expect(appServer.env.VITE_NEWS_BRIDGE_ENABLED).toBe('false');
+    expect(appServer.env.VITE_SYNTHESIS_BRIDGE_ENABLED).toBe('false');
+    expect(appServer.env.VITE_LINKED_SOCIAL_ENABLED).toBe('false');
+  });
+
+  it('allows daemon-first bridge diagnostics to opt in explicitly', async () => {
+    const config = await loadConfig('run-bridge-opt-in-check', {
+      VH_DAEMON_FEED_BRIDGES_ENABLED: 'true',
+    });
+    const appServer = config.webServer.at(-1);
+
+    expect(appServer.env.VITE_NEWS_BRIDGE_ENABLED).toBe('true');
+    expect(appServer.env.VITE_SYNTHESIS_BRIDGE_ENABLED).toBe('true');
+    expect(appServer.env.VITE_LINKED_SOCIAL_ENABLED).toBe('true');
   });
 
   it('passes the E2E system-writer public pin override to the web app only', async () => {
     const config = await loadConfig('run-system-writer-pin-check');
     const entries = config.webServer;
     const appServer = entries[entries.length - 1];
-    const pin = JSON.parse(appServer.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON);
+    const pin = JSON.parse(appServer.env.VITE_NEWS_SYSTEM_WRITER_PIN_JSON);
 
     expect(pin).toMatchObject({
       pinVersion: 1,
@@ -109,6 +150,7 @@ describe('playwright.daemon-first-feed.config', () => {
       signatureSuite: 'jcs-ed25519-sha256-v1',
     });
     expect(pin.writers[0].id).toBe('vh-e2e-news-daemon-system-writer-v1');
+    expect(appServer.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON).toBe(appServer.env.VITE_NEWS_SYSTEM_WRITER_PIN_JSON);
   });
 
   it('propagates analysis relay model and timeout overrides when the live relay is enabled', async () => {
@@ -126,6 +168,58 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(appServer.env.ANALYSIS_RELAY_API_KEY).toBe('test-openai-key');
     expect(appServer.env.ANALYSIS_RELAY_MODEL).toBe('gpt-test');
     expect(appServer.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS).toBe('32100');
+  });
+
+  it('propagates bounded news refresh settings to the web app server', async () => {
+    const config = await loadConfig('run-news-refresh-check', {
+      VITE_NEWS_REFRESH_TIMEOUT_MS: '120000',
+      VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY: '8',
+      VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY: '4',
+      VITE_VH_NEWS_HYDRATION_INDEX_LIMIT: '120',
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX: 'false',
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX: 'false',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.VITE_VH_GUN_LOCAL_STORAGE).toBe('false');
+    expect(appServer.env.VITE_VH_GUN_READ_TIMEOUT_MS).toBe('10000');
+    expect(appServer.env.VITE_NEWS_REFRESH_TIMEOUT_MS).toBe('120000');
+    expect(appServer.env.VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY).toBe('8');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY).toBe('4');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT).toBe('120');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX).toBe('false');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX).toBe('false');
+  });
+
+  it('defaults the daemon-first browser refresh window above the signed-index validation floor', async () => {
+    const config = await loadConfig('run-news-refresh-default-check', {});
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.VITE_NEWS_REFRESH_TIMEOUT_MS).toBe('120000');
+    expect(appServer.env.VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY).toBe('8');
+  });
+
+  it('defaults live hydration subscriptions off for audit harnesses', async () => {
+    const config = await loadConfig('run-news-hydration-subscription-default-check', {});
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX).toBe('false');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX).toBe('false');
+  });
+
+  it('allows explicit live hydration subscription overrides for debugging', async () => {
+    const config = await loadConfig('run-news-hydration-subscription-override-check', {
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX: 'true',
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX: 'true',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX).toBe('true');
+    expect(appServer.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX).toBe('true');
   });
 
   it('writes per-service startup logs into the run artifact directory', async () => {
@@ -150,8 +244,23 @@ describe('playwright.daemon-first-feed.config', () => {
 
     expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
     expect(entries[0].command).toContain('webserver-relay.log');
+    expect(entries[0].command).toContain('--preserve-relay-server');
     expect(entries[0].command).toContain('GUN_HOST=127.0.0.1');
+    expect(entries[0].command).toContain('GUN_RADISK=false');
+    expect(entries[0].command).toContain('VH_RELAY_WS_BYTES_PER_SEC=25000000');
     expect(entries[1].command).toContain('webserver-web-pwa.log');
+    expect(entries[1].command).toContain('--force');
+  });
+
+  it('allows explicit relay byte ceiling override for local release soaks', async () => {
+    const config = await loadConfig('run-relay-byte-ceiling-check', {
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
+      VH_RELAY_WS_BYTES_PER_SEC: '7000000',
+    });
+    const entries = config.webServer;
+
+    expect(entries[0].command).toContain('webserver-relay.log');
+    expect(entries[0].command).toContain('VH_RELAY_WS_BYTES_PER_SEC=7000000');
   });
 
   it('skips relay webServer startup when the soak wrapper manages relay lifecycle', async () => {
@@ -186,5 +295,17 @@ describe('playwright.daemon-first-feed.config', () => {
     const entries = config.webServer;
 
     expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
+  });
+
+  it('allows explicit Gun localStorage override for non-release debugging', async () => {
+    const config = await loadConfig('run-gun-local-storage-check', {
+      VITE_VH_GUN_LOCAL_STORAGE: 'true',
+      VITE_VH_GUN_READ_TIMEOUT_MS: '2500',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.VITE_VH_GUN_LOCAL_STORAGE).toBe('true');
+    expect(appServer.env.VITE_VH_GUN_READ_TIMEOUT_MS).toBe('2500');
   });
 });

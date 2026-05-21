@@ -6,6 +6,11 @@ package-lock.json
 
 # Testing
 coverage/
+.coverage-diff/
+.tmp/
+packages/e2e/.tmp/
+services/news-aggregator/.tmp/
+tools/scripts/vh/data/
 *.lcov
 .nyc_output
 

@@ -100,6 +100,7 @@ describe('newsRuntime stale cleanup', () => {
       ...BASE_CONFIG,
       writeStoryBundle,
       removeStoryBundle,
+      pruneStaleBundles: true,
       onError,
       pollIntervalMs: 10,
       runOnStart: true,

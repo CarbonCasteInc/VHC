@@ -98,11 +98,19 @@ for (const token of [
   'validateAggregateVoterNodeRecord',
   'verifySignedWriteEnvelope',
   'AggregateVoterNodeV1Schema.safeParse',
-  'allowLumaV1: false',
+  'options: { readonly allowLumaV1: boolean } = { allowLumaV1: true }',
+  '!options.allowLumaV1 && isAggregateVoterNodeV1(params.node)',
+  '}, { allowLumaV1: true });',
   'Aggregate voter LUMA metadata does not match public path'
 ]) {
   requireToken(aggregateAdaptersSource, token, 'aggregate adapters');
 }
+
+requireToken(
+  read('packages/gun-client/src/aggregateAdapters.test.ts'),
+  'writeVoterNode relays LUMA v1 nodes without downgrading the signed payload',
+  'aggregate adapter tests',
+);
 
 for (const token of [
   "'vh-aggregate-voter'",

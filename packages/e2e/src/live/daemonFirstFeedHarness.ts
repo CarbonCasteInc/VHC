@@ -31,6 +31,7 @@ export const LIVE_BASE_URL = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2
 export const STORYCLUSTER_PORT = Number(process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ?? '4310');
 export const STORYCLUSTER_TOKEN = process.env.VH_DAEMON_FEED_STORYCLUSTER_TOKEN ?? 'vh-daemon-feed-token';
 export const RUN_ID = process.env.VH_DAEMON_FEED_RUN_ID ?? `manual-${process.pid}`;
+const DEFAULT_NEWS_DAEMON_HOLDER_ID = `vh-e2e-news-daemon:${RUN_ID}`;
 export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333';
 const configuredSharedRelayUrl = process.env.VH_DAEMON_FEED_SHARED_RELAY_URL?.trim();
 export const GUN_PEER_URL = configuredSharedRelayUrl
@@ -43,7 +44,7 @@ const DEFAULT_FEED_READY_TIMEOUT_MS = 240_000;
 const FEED_READY_TIMEOUT_BUFFER_MS = 60_000;
 export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
 const FIXTURE_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
-const DEFAULT_NEWS_POLL_INTERVAL_MS = '15000';
+const DEFAULT_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
 const FIXTURE_MAX_ITEMS_PER_SOURCE = '5';
 const FIXTURE_MAX_ITEMS_TOTAL = '30';
 const LIVE_MAX_ITEMS_PER_SOURCE = '3';
@@ -101,6 +102,7 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
       window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
       window.__VH_TEST_SESSION = false;
       window.__VH_EXPOSE_NEWS_STORE__ = true;
+      window.__VH_DISABLE_FEED_BRIDGES__ = true;
       window.__VH_GUN_PEERS__ = [${JSON.stringify(GUN_PEER_URL)}];
     `,
   });
@@ -145,7 +147,34 @@ function resolveMinimumAuditableStories(): number {
     }
   }
 
-  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 1 : 0;
+  return 0;
+}
+
+function resolveNewsRuntimePruneStaleBundles(): string {
+  const configured = process.env.VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES?.trim();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 'true' : 'false';
+}
+
+function resolveNewsDaemonGunRadisk(): string {
+  const configured = process.env.VH_NEWS_DAEMON_GUN_RADISK?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 'true' : 'false';
+}
+
+function resolveDaemonFeedBridgeEnabled(): string {
+  const configured = process.env.VH_DAEMON_FEED_BRIDGES_ENABLED?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return 'false';
 }
 
 function resolveStoryClusterRemoteTimeoutMs(): string {
@@ -189,6 +218,12 @@ function resolveFeedReadyTimeoutMs(): number {
   return Math.max(DEFAULT_FEED_READY_TIMEOUT_MS, derivedTimeoutMs);
 }
 
+function resolveStoryClusterStateDir(root = repoRootDir()): string {
+  return process.env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR?.trim()
+    || process.env.VH_STORYCLUSTER_STATE_DIR?.trim()
+    || path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`);
+}
+
 function resolveStoryclusterRemoteConfig() {
   const configuredSharedStoryclusterUrl = process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL?.trim();
   const endpointUrl = configuredSharedStoryclusterUrl
@@ -219,9 +254,13 @@ export const daemonFirstFeedHarnessInternal = {
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
   resolveMinimumAuditableStories,
+  resolveNewsRuntimePruneStaleBundles,
+  resolveNewsDaemonGunRadisk,
+  resolveDaemonFeedBridgeEnabled,
   resolveStoryClusterRemoteTimeoutMs,
   resolveStoryClusterOpenAITimeoutMs,
   resolveFeedReadyTimeoutMs,
+  resolveStoryClusterStateDir,
   resolveStoryclusterRemoteConfig,
 };
 
@@ -248,7 +287,7 @@ function commonEnv(): NodeJS.ProcessEnv {
         }
       : {}),
     VH_STORYCLUSTER_ESM_LOADER_PATH: esmLoaderPath,
-    VH_STORYCLUSTER_STATE_DIR: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`),
+    VH_STORYCLUSTER_STATE_DIR: resolveStoryClusterStateDir(root),
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: storyClusterOpenAITimeoutMs,
@@ -258,13 +297,21 @@ function commonEnv(): NodeJS.ProcessEnv {
     VITE_NEWS_POLL_INTERVAL_MS: resolveNewsPollIntervalMs(),
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
+    VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES: resolveNewsRuntimePruneStaleBundles(),
+    VH_NEWS_DAEMON_GUN_RADISK: resolveNewsDaemonGunRadisk(),
+    VITE_NEWS_BRIDGE_ENABLED: resolveDaemonFeedBridgeEnabled(),
+    VITE_SYNTHESIS_BRIDGE_ENABLED: resolveDaemonFeedBridgeEnabled(),
+    VITE_LINKED_SOCIAL_ENABLED: resolveDaemonFeedBridgeEnabled(),
     VH_STORYCLUSTER_REMOTE_URL: storyclusterRemote.endpointUrl,
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: storyclusterRemote.healthUrl,
     VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: storyClusterRemoteTimeoutMs,
     VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: storyclusterRemote.authToken,
     VH_STORYCLUSTER_REMOTE_AUTH_HEADER: storyclusterRemote.authHeader,
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: storyclusterRemote.authScheme,
-    VH_NEWS_DAEMON_HOLDER_ID: 'vh-e2e-news-daemon',
+    VH_NEWS_DAEMON_HOLDER_ID:
+      process.env.VH_NEWS_DAEMON_HOLDER_ID?.trim() || DEFAULT_NEWS_DAEMON_HOLDER_ID,
+    VH_NEWS_INGESTION_LEASE_SCOPE:
+      process.env.VH_NEWS_INGESTION_LEASE_SCOPE?.trim() || RUN_ID,
     VH_NEWS_SYSTEM_WRITER_ID: E2E_SYSTEM_WRITER_ID,
     VH_NEWS_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
     VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL: E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL,

@@ -251,13 +251,17 @@ export function readExecutionBundleSnapshot(
   const topicsById = new Map();
   for (const runNumber of runNumbers) {
     const auditPath = auditsByRun.get(runNumber);
+    let auditBundleCount = 0;
     if (auditPath && exists(auditPath)) {
       try {
         const audit = readJson(auditPath, readFile);
         for (const bundle of audit?.bundles ?? []) {
           absorbAuditBundle(topicsById, bundle);
+          auditBundleCount += 1;
         }
-        continue;
+        if (auditBundleCount > 0) {
+          continue;
+        }
       } catch {
         // fall through to failure snapshot if present
       }

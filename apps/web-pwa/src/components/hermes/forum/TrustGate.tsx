@@ -1,6 +1,7 @@
 import React from 'react';
 import { TRUST_MINIMUM } from '@vh/data-model';
 import { useIdentity } from '../../../hooks/useIdentity';
+import { getPublishedIdentity } from '../../../store/identityProvider';
 
 interface Props {
   children: React.ReactNode;
@@ -9,7 +10,8 @@ interface Props {
 
 export const TrustGate: React.FC<Props> = ({ children, fallback }) => {
   const { identity } = useIdentity();
-  const trustScore = identity?.session?.trustScore ?? 0;
+  const publishedIdentity = identity ? null : getPublishedIdentity();
+  const trustScore = identity?.session?.trustScore ?? publishedIdentity?.session?.trustScore ?? 0;
   if (trustScore < TRUST_MINIMUM) {
     return (
       <>

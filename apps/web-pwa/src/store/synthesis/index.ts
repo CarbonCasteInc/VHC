@@ -8,7 +8,7 @@ import {
 import {
   hasForbiddenSynthesisPayloadFields,
   readTopicLatestSynthesisCorrection,
-  readTopicLatestSynthesis,
+  readTopicLatestSynthesisWithRelayRestFallback,
   type VennClient
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
@@ -31,6 +31,8 @@ type InternalDeps = SynthesisDeps & {
 const INITIAL_STATE: Pick<SynthesisState, 'topics'> = {
   topics: {}
 };
+const SYNTHESIS_REFRESH_READ_TIMEOUT_MS = readPositiveIntEnv('VITE_VH_SYNTHESIS_REFRESH_READ_TIMEOUT_MS', 20_000);
+const SYNTHESIS_REFRESH_CORRECTION_TIMEOUT_MS = readPositiveIntEnv('VITE_VH_SYNTHESIS_REFRESH_CORRECTION_TIMEOUT_MS', 10_000);
 
 function createEmptyTopicState(topicId: string): SynthesisTopicState {
   return {
@@ -48,6 +50,50 @@ function createEmptyTopicState(topicId: string): SynthesisTopicState {
 function normalizeTopicId(topicId: string): string | null {
   const normalized = topicId.trim();
   return normalized ? normalized : null;
+}
+
+/* v8 ignore start -- environment-source branching is runtime-host defensive; behavior is covered via refreshTopic callers. */
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[name]
+    ?? (typeof process !== 'undefined' ? process.env?.[name] : undefined);
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+/* v8 ignore stop */
+
+function withReadTimeout<T>(work: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      /* v8 ignore next 3 -- defensive for timers firing after an already-settled read. */
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        /* v8 ignore next 3 -- defensive for late promise resolution after timeout rejection. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        /* v8 ignore next 3 -- defensive for late promise rejection after timeout rejection. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }
 
 function parseSynthesis(value: unknown): TopicSynthesisV2 | null {
@@ -109,7 +155,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
     enabled: true,
     hydrateTopic: hydrateSynthesisStore,
     releaseTopic: releaseSynthesisHydration,
-    readLatest: readTopicLatestSynthesis,
+    readLatest: readTopicLatestSynthesisWithRelayRestFallback,
     readLatestCorrection: readTopicLatestSynthesisCorrection
   };
 
@@ -234,37 +280,72 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       get().setTopicLoading(normalizedTopicId, true);
       get().setTopicError(normalizedTopicId, null);
 
+      let latest: TopicSynthesisV2 | null = null;
+      let latestError: unknown = null;
       try {
-        const [latest, latestCorrection] = await Promise.all([
+        latest = await withReadTimeout(
           deps.readLatest(client, normalizedTopicId),
-          deps.readLatestCorrection(client, normalizedTopicId)
-        ]);
+          SYNTHESIS_REFRESH_READ_TIMEOUT_MS,
+          'synthesis latest read',
+        );
         const validatedLatest = latest === null ? null : parseSynthesis(latest);
-        const validatedCorrection = latestCorrection === null ? null : parseCorrection(latestCorrection);
         const topicLatest = validatedLatest?.topic_id === normalizedTopicId ? validatedLatest : null;
-        const topicCorrection = validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null;
 
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
             const nextSynthesis = topicLatest ?? current.synthesis;
-            const nextCorrection = topicCorrection ?? current.correction;
             return {
               ...current,
               synthesis: nextSynthesis,
               epoch: nextSynthesis?.epoch ?? null,
-              correction: nextCorrection,
-              effectiveStatus: resolveEffectiveStatus(nextSynthesis, nextCorrection),
               loading: false,
+              effectiveStatus: resolveEffectiveStatus(nextSynthesis, current.correction),
               error: null
             };
           })
         }));
       } catch (error: unknown) {
+        latestError = error;
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
             ...current,
             loading: false,
-            error: error instanceof Error ? error.message : 'Failed to refresh synthesis topic'
+            error: current.synthesis
+              ? null
+              : error instanceof Error ? error.message : 'Failed to refresh synthesis topic'
+          }))
+        }));
+      }
+
+      try {
+        const latestCorrection = await withReadTimeout(
+          deps.readLatestCorrection(client, normalizedTopicId),
+          SYNTHESIS_REFRESH_CORRECTION_TIMEOUT_MS,
+          'synthesis correction read',
+        );
+        const validatedCorrection = latestCorrection === null ? null : parseCorrection(latestCorrection);
+        const topicCorrection = validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null;
+
+        set((state) => ({
+          topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
+            const nextCorrection = topicCorrection ?? current.correction;
+            return {
+              ...current,
+              correction: nextCorrection,
+              effectiveStatus: resolveEffectiveStatus(current.synthesis, nextCorrection),
+              loading: false,
+              error: latestError && !current.synthesis
+                ? current.error
+                : null
+            };
+          })
+        }));
+      } catch {
+        set((state) => ({
+          topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
+            ...current,
+            loading: false,
+            error: latestError && !current.synthesis ? current.error : null
           }))
         }));
       }

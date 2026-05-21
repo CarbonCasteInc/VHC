@@ -1,5 +1,5 @@
 import Gun from 'gun';
-import 'gun/sea';
+import 'gun/sea.js';
 import type { IGunInstance } from 'gun';
 import { waitForRemote, type ChainAck, type ChainLike, type ChainWithGet } from './chain';
 import { createStorageAdapter } from './storage/adapter';
@@ -114,7 +114,11 @@ export function createClient(config: VennClientConfig = {}): VennClient {
     gunConfig.radisk = config.gunRadisk ?? (nodeGunFile !== false && nodeGunFile !== undefined);
     gunConfig.axe = false;
   } else {
-    gunConfig.localStorage = resolveBrowserGunLocalStorage(config);
+    const browserLocalStorage = resolveBrowserGunLocalStorage(config);
+    gunConfig.localStorage = browserLocalStorage;
+    if (!browserLocalStorage) {
+      gunConfig.radisk = false;
+    }
   }
   if (gunFileOption !== undefined) {
     gunConfig.file = gunFileOption;
@@ -220,9 +224,10 @@ export * from './sentimentAdapters';
 export * from './bridgeAdapters';
 export * from './durableWrite';
 export * from './relayAuth';
+export * from './relayRestFallback';
 export * from './systemWriter';
 export type { ChainWithGet } from './chain';
-export { default as SEA } from 'gun/sea';
+export { default as SEA } from 'gun/sea.js';
 export const __internal = {
   normalizePeers,
   resolveNodeGunFile,

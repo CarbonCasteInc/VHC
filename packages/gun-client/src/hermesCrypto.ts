@@ -1,4 +1,4 @@
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import type { HermesPayload } from '@vh/types';
 
 export async function deriveSharedSecret(

@@ -2,196 +2,220 @@
   "schema_version": "mvp-public-beta-launch-control-v1",
   "date": "2026-05-13",
   "created_at": "2026-05-13T01:51:53Z",
-  "branch": "coord/mvp-public-beta-launch-control-v1",
-  "release_control_commit": "9eb58154a321ee202095cfdb7d02fce67fb4cab3",
-  "release_control_base": "origin/main after PR #627 merge",
-  "rc_packet_path": "docs/reports/mvp-public-beta-release-candidate-2026-05-12.md",
-  "node": "v20.20.0",
+  "updated_at": "2026-05-20T15:29:19Z",
+  "branch": "coord/mvp-production-grade-distribution-ready-v1",
+  "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
+  "engineering_evidence_commit_before_docs": "final PR head; commit-sensitive evidence is rerun after this documentation update",
+  "node": "v20.20.2",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
-  "verification_timing": "The deterministic MVP/LUMA/Mesh evidence matrix was rerun on the clean release-control commit before this docs-only launch-control packet was added. After the packet edit, the docs/diff checks were rerun against the branch diff.",
-  "final_status": "hold_external_approval_pending",
-  "status_reason": "Engineering evidence passed, but release-owner approval, external/legal disposition, launch-copy approval, support/private-escalation ownership, and rollback ownership are pending.",
+  "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
+  "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md",
+  "final_status": "go_for_public_beta_launch",
+  "status_reason": "StoryCluster is release_ready, public Web PWA feed smoke passes, Mesh production readiness is release_ready with real public WSS proof against gun-a/b/c.carboncaste.io, production app canary passes with real downstream observations, public analysis health is reachable with upstream reachable, and operator approval/ownership fields are recorded. The proof excludes nested gun-a/b/c.venn.carboncaste.io because Cloudflare Free Universal SSL does not cover those names.",
+  "release_env": {
+    "path": "/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local",
+    "secret_handling": "presence verified only; secrets were not printed or committed",
+    "present_keys": [
+      "OPENAI_API_KEY",
+      "ANALYSIS_RELAY_API_KEY"
+    ]
+  },
+  "infrastructure": {
+    "dns_authority": "Cloudflare",
+    "tunnel": {
+      "host": "A6 ccibootstrap via ssh humble",
+      "name": "vhc-a6-public-beta",
+      "id": "1479d29e-4a0a-4e53-9aaf-b9984672ff9e",
+      "token_path": "/home/humble/.config/vhc/cloudflared.env",
+      "token_printed": false
+    },
+    "tls_path": "Cloudflare edge TLS through Tunnel",
+    "router_forwarding_required": false,
+    "origins": {
+      "web_pwa": "A6 http://127.0.0.1:8080",
+      "gun_a": "A6 http://127.0.0.1:8765",
+      "gun_b": "A6 http://127.0.0.1:8766",
+      "gun_c": "Mac mini http://192.168.1.56:8767"
+    },
+    "public_urls": {
+      "app": "https://venn.carboncaste.io",
+      "peers": [
+        "wss://gun-a.carboncaste.io/gun",
+        "wss://gun-b.carboncaste.io/gun",
+        "wss://gun-c.carboncaste.io/gun"
+      ]
+    },
+    "excluded_nested_peer_names": [
+      "wss://gun-a.venn.carboncaste.io/gun",
+      "wss://gun-b.venn.carboncaste.io/gun",
+      "wss://gun-c.venn.carboncaste.io/gun"
+    ],
+    "excluded_nested_peer_reason": "Cloudflare Free Universal SSL does not cover nested *.venn.carboncaste.io names."
+  },
+  "signed_peer_config": {
+    "url": "https://venn.carboncaste.io/mesh-peer-config.json",
+    "config_id": "public-beta-fallback-wss-v1",
+    "public_verification_key": "YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w",
+    "peers": [
+      "wss://gun-a.carboncaste.io/gun",
+      "wss://gun-b.carboncaste.io/gun",
+      "wss://gun-c.carboncaste.io/gun"
+    ],
+    "minimum_peer_count": 3,
+    "quorum_required": 2,
+    "csp_connect_src": "'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io wss://gun-b.carboncaste.io wss://gun-c.carboncaste.io"
+  },
   "evidence": {
-    "public_beta_launch_closeout": {
-      "command": "pnpm check:public-beta-launch-closeout",
+    "public_app_origin": {
       "status": "pass",
-      "path": "docs/ops/public-beta-launch-readiness-closeout.md"
+      "probe": "curl -I https://venn.carboncaste.io",
+      "observed": "HTTP/2 200; built Web PWA served with exact fallback-peer CSP"
     },
-    "mvp_release_gates": {
-      "command": "pnpm check:mvp-release-gates",
+    "analysis_relay_health": {
       "status": "pass",
-      "gate_count": 14,
-      "pass_count": 14,
-      "failing_gates": [],
-      "path": ".tmp/mvp-release-gates/latest/mvp-release-gates-report.json"
+      "probe": "curl -i https://venn.carboncaste.io/api/analyze/health",
+      "observed": {
+        "http_status": 200,
+        "ok": true,
+        "model": "gpt-5-nano",
+        "upstream": "reachable"
+      }
     },
-    "mvp_closeout": {
-      "command": "pnpm check:mvp-closeout",
+    "public_peer_health": {
       "status": "pass",
-      "blockers": [],
-      "path": ".tmp/mvp-closeout/latest/mvp-closeout-report.json"
-    },
-    "launch_content_snapshot": {
-      "command": "pnpm check:launch-content-snapshot",
-      "status": "pass",
-      "path": ".tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json"
-    },
-    "public_beta_compliance": {
-      "command": "pnpm check:public-beta-compliance",
-      "status": "pass"
-    },
-    "luma_mvp_readiness": {
-      "command": "pnpm check:luma:mvp-production-readiness",
-      "status": "pass",
-      "profile": "public-beta",
-      "blockers": [],
-      "path": ".tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json"
-    },
-    "source_health": {
-      "command": "pnpm check:news-sources:health",
-      "readiness_status": "ready",
-      "release_evidence_status": "pass",
-      "recent_window_run_count": 5,
-      "recent_ready_run_count": 5,
-      "recent_review_run_count": 0,
-      "recent_blocked_run_count": 0,
-      "keep_source_count": 28,
-      "watch_source_count": 0,
-      "remove_source_count": 0,
-      "reason_counts": {},
-      "path": "services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json"
-    },
-    "mesh_luma_gated_write_coverage": {
-      "command": "pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e",
-      "status": "pass",
-      "schema_epoch": "post_luma_m0b",
-      "luma_profile": "e2e",
-      "failures": [],
-      "path": ".tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json"
-    },
-    "mesh_production_readiness": {
-      "command": "VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness",
-      "command_exit": 0,
-      "status": "review_required",
-      "schema_epoch": "post_luma_m0b",
-      "luma_profile": "none",
-      "blockers": [
-        "public-wss-deployment-proof",
-        "required-write-class-sample-floors"
+      "probes": [
+        "curl -I https://gun-a.carboncaste.io/healthz",
+        "curl -I https://gun-b.carboncaste.io/healthz",
+        "curl -I https://gun-c.carboncaste.io/healthz"
       ],
-      "canonical_soak": {
-        "full_duration_satisfied": true,
-        "soak_gate": "pass",
-        "terminal_failures": 0,
-        "duplicate_canonical_writes": 0,
-        "repair_events": 0
+      "observed": "HTTP/2 200 for all three fallback peer health endpoints"
+    },
+    "public_wss_proof": {
+      "status": "pass",
+      "run_id": "latest embedded public WSS proof in Mesh production readiness",
+      "report_path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+      "failures": []
+    },
+    "storycluster": {
+      "status": "release_ready",
+      "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json",
+      "headline_soak_summary_path": ".tmp/daemon-feed-semantic-soak/1779290237733/semantic-soak-summary.json",
+      "latest_headline_soak": {
+        "strict_soak_pass": true,
+        "readiness_status": "promotable",
+        "pass_count": 3,
+        "fail_count": 0,
+        "sampled_stories": 6,
+        "audited_pairs": 33,
+        "corroborated_bundles": 6,
+        "related_topic_only_pairs": 0,
+        "average_audited_pairs_per_sampled_story": 5.5,
+        "average_unique_source_count": 7
       },
-      "path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json"
+      "singleton_policy": "Singleton stories are valid feed items when genuinely one-off; continuity telemetry records retained topics, singleton-to-corroborated transitions, later attachments, and bundle growth without rejecting legitimate singleton supply."
+    },
+    "public_feed_browser_smoke": {
+      "status": "pass",
+      "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json",
+      "observed": [
+        "current public headlines visible",
+        "source labels visible",
+        "timestamps visible",
+        "refresh works",
+        "scroll works",
+        "story detail opens",
+        "accepted analysis/synthesis visible",
+        "identity creation works",
+        "point stance write/readback works through the public app-origin aggregate fanout",
+        "story comments work",
+        "reload persistence works",
+        "second-browser visibility works"
+      ]
+    },
+    "mesh": {
+      "status": "release_ready",
+      "run_id": "latest",
+      "report_path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+      "release_readiness_blockers": []
     },
     "production_app_canary": {
-      "command": "pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
-      "expected_exit": 1,
-      "status": "blocked",
-      "reason": "mesh_not_release_ready",
-      "downstream_observation_status": "not_run",
-      "downstream_observation_reason": "prerequisites_blocked",
-      "path": ".tmp/production-app-canary/latest/production-app-canary-report.json"
+      "status": "pass",
+      "run_id": "latest",
+      "report_path": ".tmp/production-app-canary/latest/production-app-canary-report.json",
+      "real_downstream_observations": [
+        "production_wss_relay_config",
+        "app_preview_or_deploy_shape",
+        "api_analyze",
+        "news_synthesis_publication",
+        "point_stance_write_readback",
+        "story_thread_create_comment"
+      ]
     },
-    "launch_rehearsal": {
-      "stack_up_command": "pnpm live:stack:up:analysis-stub",
-      "test_command": "pnpm test:live:five-user-engagement",
-      "stack_down_command": "pnpm live:stack:down",
-      "stack_up_status": "pass",
-      "test_status": "pass",
-      "test_duration": "6.2m",
-      "stack_down_status": "pass"
+    "relay_daemon_token_rotation": {
+      "status": "pass",
+      "reason": "rotated after earlier evidence-log exposure",
+      "a6_token_env_path": "/home/humble/.config/vhc/public-beta-relay-daemon-token-v2.env",
+      "mac_token_env_path": "~/.config/vhc/public-beta-relay-daemon-token-v2.env",
+      "mode": "600",
+      "secret_printed": false
     }
   },
   "approvals": {
-    "release_owner": {
-      "name": "pending",
-      "approval_status": "pending",
-      "timestamp": null
-    },
-    "external_legal_approval": {
-      "approval_status": "pending",
-      "approver_reference": "pending",
-      "timestamp": null
-    },
-    "launch_copy_approval": {
-      "approval_status": "pending",
-      "approved_copy_path_or_text": "pending",
-      "timestamp": null
-    },
-    "support_intake_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "public_issue_intake_path": "Web PWA /support surface linked to the VHC public beta GitHub Issue Form"
-    },
-    "private_escalation_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "escalation_channel_reference": "pending"
-    },
-    "rollback_owner": {
-      "name_or_team": "pending",
-      "approval_status": "pending",
-      "rollback_trigger_and_path": "Hold or withdraw public launch copy, keep the Web PWA at the last approved public-beta candidate state, and revert or supersede this launch-control packet if it records an incorrect approval or claim boundary."
-    }
+    "release_owner": "Carbon Caste Inc",
+    "external_legal_disposition": "not_required",
+    "external_legal_rationale": "public beta copy makes no regulated/commercial/legal claims",
+    "launch_copy_approval": "approved",
+    "approved_launch_copy_path": "docs/launch/public-beta-copy.md",
+    "support_intake_owner": "Venn Support",
+    "public_support_intake_path": "GitHub issue form in CarbonCasteInc/VHC",
+    "private_escalation_owner_team": "Venn Core",
+    "private_escalation_channel": "none; single-developer project",
+    "rollback_disposition": "not_required",
+    "rollback_rationale": "fresh launch, no release version, no userbase, no migration"
   },
   "allowed_launch_copy": [
-    "Web PWA MVP public beta candidate for the implemented scope.",
-    "MVP release gates passed.",
-    "Source health passed the complete release evidence window.",
-    "LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer.",
-    "Local analysis-stub five-user feed/detail/stance/thread rehearsal passed.",
-    "Mesh production readiness remains separate and is currently review_required."
+    "Web PWA MVP public beta for the implemented scope.",
+    "Current launch-control status is go_for_public_beta_launch.",
+    "StoryCluster release readiness is green for live headline bundling while preserving legitimate singleton stories.",
+    "Mesh release readiness is green only for the fallback public peers gun-a/b/c.carboncaste.io.",
+    "Production app canary passes with real downstream observations.",
+    "Support intake is the GitHub issue form in CarbonCasteInc/VHC."
   ],
-  "forbidden_launch_copy": [
-    "Mesh release_ready.",
-    "Production app canary pass.",
-    "Downstream production app surfaces observed end to end.",
-    "Full production app readiness.",
-    "Test-group readiness.",
-    "Legal or commercial approval unless explicitly recorded.",
-    "Production-grade live headline freshness unless StoryCluster production readiness separately says release_ready.",
-    "LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, or production attestation.",
-    "Public WSS proof satisfied unless the Mesh report says so.",
-    "Mesh sample floors satisfied unless the Mesh report says so.",
-    "Native App Store or TestFlight readiness.",
-    "Private support desk or SLA unless externally provisioned."
+  "forbidden_claims": [
+    "LUMA Silver",
+    "verified-human identity",
+    "one-human-one-vote",
+    "Sybil resistance",
+    "native App Store readiness",
+    "TestFlight readiness",
+    "legal approval",
+    "commercial approval",
+    "nested gun-a/b/c.venn.carboncaste.io peer TLS validity",
+    "private support desk",
+    "SLA"
   ],
-  "protected_surfaces": {
-    "branch_runtime_changes": "none",
-    "inherited_rc_runtime_fix": "PR #627 includes one tested aggregate readback fix in packages/gun-client/src/aggregateAdapters.ts for nested LUMA signed-write envelope relation pointers.",
-    "unchanged_in_this_branch": [
-      "app runtime",
-      "relay runtime",
-      "Mesh readiness implementation",
-      "production app canary implementation",
-      "LUMA runtime/schema/custody/envelope/signed-write/provider/identifier/identity-vault",
-      "source-health thresholds",
-      "source registry",
-      "aggregate adapter runtime"
-    ]
-  },
+  "explicit_non_claims": [
+    "Legal/external review is not_required, not approved.",
+    "The nested peer names are not part of the MVP proof.",
+    "The launch is scoped to the Web PWA public beta, not native app distribution.",
+    "Public beta support intake is public GitHub issue workflow, not a private help desk."
+  ],
   "go_no_go_logic": {
     "go_for_public_beta_launch": [
-      "deterministic evidence matrix passes",
-      "mvp closeout status is pass",
-      "source health is ready with release evidence pass",
-      "LUMA MVP readiness is pass",
-      "public-beta launch closeout is pass",
-      "launch copy has no forbidden claims",
-      "required human/operator/legal approvals are approved or explicitly not_required",
-      "support intake, private escalation, and rollback owners are assigned"
-    ],
-    "hold_external_approval_pending": [
-      "engineering evidence passes but any required approval, owner, or launch-copy field is pending"
+      "StoryCluster release_ready",
+      "public feed browser smoke pass",
+      "Mesh release_ready with real public WSS proof",
+      "production app canary pass",
+      "public app and analysis health pass",
+      "approval/owner fields recorded"
     ],
     "blocked_engineering_evidence": [
-      "any deterministic release gate fails"
+      "any engineering gate fails, is stale, or is placeholder-only"
+    ],
+    "hold_external_approval_pending": [
+      "engineering green but a required operator field missing"
     ]
-  }
+  },
+  "remaining_blockers": []
 }

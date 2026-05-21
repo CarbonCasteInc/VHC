@@ -123,7 +123,13 @@ describe('analysisRelay budget + error paths', () => {
       { prompt: 'x' },
       { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(statusResponse(500)) },
     );
-    expect(nonOk).toEqual({ status: 502, payload: { error: 'Upstream returned 500' } });
+    expect(nonOk).toEqual({
+      status: 502,
+      payload: {
+        error: 'Upstream returned 500',
+        error_class: 'upstream_5xx',
+      },
+    });
 
     const missingContent = await relayAnalysis(
       { prompt: 'x' },
@@ -224,6 +230,7 @@ describe('analysisRelay budget + error paths', () => {
 
     expect(result.status).toBe(502);
     expect(result.payload.error).toBe('Upstream 429: Rate limit exceeded');
+    expect(result.payload.error_class).toBe('upstream_429_rate_limited');
   });
 
   it('includes upstream string error when response body has string error field', async () => {
@@ -242,6 +249,71 @@ describe('analysisRelay budget + error paths', () => {
 
     expect(result.status).toBe(502);
     expect(result.payload.error).toBe('Upstream 503: Model overloaded');
+    expect(result.payload.error_class).toBe('upstream_5xx');
+  });
+
+  it('redacts API-key-shaped upstream auth errors and classifies invalid keys', async () => {
+    const errorBody = {
+      error: {
+        message: 'Incorrect API key provided: sk-proj-secret_tail****************************************************************wnMA. Rotate it.',
+      },
+    };
+    const errorResponse = {
+      ok: false,
+      status: 401,
+      json: vi.fn().mockResolvedValue(errorBody),
+    } as unknown as Response;
+
+    const result = await relayAnalysis(
+      { prompt: 'auth failure' },
+      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(errorResponse) },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream 401: Incorrect API key provided: sk-[REDACTED]. Rotate it.');
+    expect(result.payload.error).not.toContain('secret_tail');
+    expect(result.payload.error_class).toBe('upstream_401_invalid_api_key');
+  });
+
+  it('classifies non-key upstream auth and status errors', async () => {
+    const cases = [
+      {
+        status: 401,
+        error: { message: 'Tenant is not authorized for this route' },
+        expectedClass: 'upstream_401_invalid_api_key',
+      },
+      {
+        status: 401,
+        error: { message: 'Billing hold' },
+        expectedClass: 'upstream_401_unauthorized',
+      },
+      {
+        status: 403,
+        error: { message: 'Forbidden model' },
+        expectedClass: 'upstream_403_forbidden',
+      },
+      {
+        status: 418,
+        error: { message: 'Teapot' },
+        expectedClass: 'upstream_418',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const errorResponse = {
+        ok: false,
+        status: testCase.status,
+        json: vi.fn().mockResolvedValue({ error: testCase.error }),
+      } as unknown as Response;
+
+      const result = await relayAnalysis(
+        { prompt: `status ${testCase.status}` },
+        { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(errorResponse) },
+      );
+
+      expect(result.status).toBe(502);
+      expect(result.payload.error_class).toBe(testCase.expectedClass);
+    }
   });
 
   it('uses global fetch fallback when fetchImpl is omitted', async () => {

@@ -6,7 +6,7 @@
  * encryption/decryption for Yjs state snapshots.
  */
 
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 
 /** Minimal SEA key-pair shape for owner/device operations. */
 export interface SEAPair {

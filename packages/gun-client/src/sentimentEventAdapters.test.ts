@@ -16,7 +16,7 @@ import {
 const encryptMock = vi.fn();
 const decryptMock = vi.fn();
 
-vi.mock('gun/sea', () => ({
+vi.mock('gun/sea.js', () => ({
   default: {
     encrypt: (...args: unknown[]) => encryptMock(...args),
     decrypt: (...args: unknown[]) => decryptMock(...args),

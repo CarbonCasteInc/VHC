@@ -128,7 +128,9 @@ function artifactDir(runId) {
 
 beforeEach(() => {
   vi.resetModules();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  hasRelatedTopicOnlyPair.mockImplementation((results) =>
+    results.some((result) => result.label === 'related_topic_only'));
   vi.stubGlobal('fetch', fetchMock);
   refreshNewsStoreLatest.mockResolvedValue(undefined);
   readRetainedSourceEvidenceSnapshot.mockResolvedValue(makeRetainedSourceEvidenceSnapshot());
@@ -182,7 +184,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     });
   });
 
-  it('records empty sampled supply without invoking fetch or the classifier', async () => {
+  it('records singleton-only sampled supply without invoking fetch or the classifier', async () => {
     readAuditableBundles.mockResolvedValue([]);
     readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 0 }));
 
@@ -198,14 +200,14 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     expect(report).toMatchObject({
       sampled_story_count: 0,
       supply: {
-        status: 'empty',
+        status: 'singleton_only',
         auditable_count: 0,
-        sample_fill_rate: 0,
-        sample_shortfall: 2,
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
       },
       overall: {
         audited_pair_count: 0,
-        pass: false,
+        pass: true,
       },
     });
   });
@@ -227,7 +229,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     expect(report).toMatchObject({
       sampled_story_count: 0,
       supply: {
-        status: 'empty',
+        status: 'singleton_only',
         auditable_count: 0,
       },
     });
@@ -290,6 +292,104 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
           pairs: [],
         },
       ],
+    });
+  });
+
+  it('excludes non-current auditable bundles when current cluster-capture ids are supplied', async () => {
+    const staleBundle = makeBundle('story-stale');
+    const currentBundle = makeBundle('story-current');
+    const currentPair = makePair(currentBundle);
+    readAuditableBundles.mockResolvedValue([staleBundle, currentBundle]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({
+      auditable_count: 2,
+      top_auditable_story_ids: ['story-stale', 'story-current'],
+    }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-stale') {
+        throw new Error('stale auditable bundle should not be sampled as current evidence');
+      }
+      return [currentPair];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(currentPair.pair_id)]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      allowedStoryIds: ['story-current'],
+      sampleCount: 2,
+      timeoutMs: 0,
+    });
+
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-current']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(classifyCanonicalSourcePairs).toHaveBeenCalledWith([currentPair], {
+      apiKey: 'test-key',
+      baseUrl: undefined,
+      model: undefined,
+    });
+    expect(report).toMatchObject({
+      requested_sample_count: 2,
+      effective_sample_count: 1,
+      sampled_story_count: 1,
+      supply: {
+        status: 'full',
+        release_candidate_count: 1,
+        excluded_non_current_bundle_count: 1,
+        effective_sample_count: 1,
+        requested_sample_fill_rate: 0.5,
+      },
+      overall: {
+        audited_pair_count: 1,
+        related_topic_only_pair_count: 0,
+        pass: true,
+      },
+    });
+  });
+
+  it('audits provided current cluster-capture bundles instead of stale browser-store bundles', async () => {
+    const staleBundle = makeBundle('story-stale');
+    const currentBundle = makeBundle('story-current');
+    const currentPair = makePair(currentBundle);
+    readAuditableBundles.mockResolvedValue([staleBundle]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({
+      story_count: 8,
+      auditable_count: 1,
+      top_auditable_story_ids: ['story-stale'],
+      visible_story_ids: ['story-stale'],
+    }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-stale') {
+        throw new Error('stale browser-store bundle should not be sampled when cluster-capture candidates are supplied');
+      }
+      return [currentPair];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(currentPair.pair_id)]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      candidateBundles: [currentBundle],
+      sampleCount: 2,
+      timeoutMs: 50,
+    });
+
+    expect(readAuditableBundles).not.toHaveBeenCalled();
+    expect(refreshNewsStoreLatest).not.toHaveBeenCalled();
+    expect(nudgeFeed).not.toHaveBeenCalled();
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-current']);
+    expect(report).toMatchObject({
+      sampled_story_count: 1,
+      supply: {
+        story_count: 1,
+        auditable_count: 1,
+        top_auditable_story_ids: ['story-current'],
+        visible_story_ids: [],
+        release_candidate_count: 1,
+      },
+      overall: {
+        audited_pair_count: 1,
+        pass: true,
+      },
     });
   });
 
@@ -360,6 +460,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
   it('keeps insufficient fixture-backed supply as a recorded failure instead of silently promoting it', async () => {
     const bundle = makeBundle('story-1');
     const pair = makePair(bundle);
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
     readAuditableBundles.mockResolvedValue([bundle]);
     readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 1 }));
     buildCanonicalSourcePairs.mockReturnValue([pair]);
@@ -447,6 +548,55 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
         audited_pair_count: 3,
         incomplete_bundle_count: 0,
         article_fetch_failure_count: 0,
+        pass: true,
+      },
+    });
+  });
+
+  it('excludes loopback fixture bundles from non-fixture public semantic samples', async () => {
+    const localBundle = {
+      ...makeBundle('story-local'),
+      sources: makeBundle('story-local').sources.map((source, index) => ({
+        ...source,
+        url: `http://127.0.0.1:8985/article/local-${index}`,
+      })),
+    };
+    const publicBundle = makeBundle('story-public');
+    const pair = makePair(publicBundle);
+    readAuditableBundles.mockResolvedValue([localBundle, publicBundle]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 2 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-local') {
+        throw new Error('local fixture bundle should not be sampled for public release evidence');
+      }
+      return [pair];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(pair.pair_id)]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 0,
+    });
+
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-public']);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(report).toMatchObject({
+      requested_sample_count: 2,
+      effective_sample_count: 1,
+      sampled_story_count: 1,
+      supply: {
+        status: 'full',
+        auditable_count: 2,
+        effective_sample_count: 1,
+        requested_sample_fill_rate: 0.5,
+        release_candidate_count: 1,
+        excluded_local_only_bundle_count: 1,
+      },
+      overall: {
+        article_fetch_failure_count: 0,
+        requested_sample_fill_rate: 0.5,
         pass: true,
       },
     });

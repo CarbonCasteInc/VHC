@@ -17,6 +17,7 @@ import {
   type SystemWriterValidationFailure,
 } from './systemWriter';
 import type { VennClient } from './types';
+import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
@@ -78,6 +79,15 @@ const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
+);
+const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
+  10_000,
+);
+const RELAY_REST_INDEX_LIMIT = readGunTimeoutMs(
+  ['VITE_VH_NEWS_RELAY_REST_INDEX_LIMIT', 'VH_NEWS_RELAY_REST_INDEX_LIMIT'],
+  80,
+  4,
 );
 const ROOT_INDEX_SETTLE_MS = 150;
 
@@ -185,8 +195,27 @@ function hotIndexEntryPath(storyId: string): string {
   return `vh/news/index/hot/${storyId}/`;
 }
 
-function ingestionLeasePath(): string {
-  return 'vh/news/runtime/lease/ingester/';
+function sanitizeLeaseScope(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._:-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized.length > 0 ? normalized.slice(0, 160) : null;
+}
+
+function resolveNewsIngestionLeaseScope(client: VennClient): string | null {
+  return sanitizeLeaseScope(client.config.newsIngestionLeaseScope);
+}
+
+function ingestionLeasePath(client: VennClient): string {
+  const scope = resolveNewsIngestionLeaseScope(client);
+  return scope
+    ? `vh/news/runtime/lease/ingester/${scope}/`
+    : 'vh/news/runtime/lease/ingester/';
 }
 
 function removalPath(urlHash: string): string {
@@ -329,6 +358,16 @@ async function readIndexedEntries(
     output[entry[0]] = entry[1];
   }
   return output;
+}
+
+function hasMissingIndexChildEntries(
+  raw: unknown,
+  parsedIndex: Readonly<Record<string, number>>,
+  blockedStoryIds: ReadonlySet<string>,
+): boolean {
+  return extractIndexChildKeys(raw).some((storyId) =>
+    !blockedStoryIds.has(storyId) && parsedIndex[storyId] === undefined,
+  );
 }
 
 const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
@@ -908,13 +947,15 @@ function parseNewsIngestionLease(value: unknown): NewsIngestionLease | null {
  * Chain for `vh/news/runtime/lease/ingester`.
  */
 export function getNewsIngestionLeaseChain(client: VennClient): ChainWithGet<NewsIngestionLease> {
+  const scope = resolveNewsIngestionLeaseScope(client);
   const chain = client.mesh
     .get('news')
     .get('runtime')
     .get('lease')
-    .get('ingester') as unknown as ChainWithGet<NewsIngestionLease>;
+    .get('ingester');
+  const scopedChain = (scope ? chain.get(scope) : chain) as unknown as ChainWithGet<NewsIngestionLease>;
 
-  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, ingestionLeasePath());
+  return createGuardedChain(scopedChain, client.hydrationBarrier, client.topologyGuard, ingestionLeasePath(client));
 }
 
 /**
@@ -973,6 +1014,109 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   } catch {
     return null;
   }
+}
+
+/* v8 ignore start -- bounded async race helper; callers cover outcomes while stale settlement branches are host-scheduler defensive. */
+function timeoutAsNull<T>(work: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      /* v8 ignore next 3 -- defensive for timers firing after an already-settled read. */
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        /* v8 ignore next 2 -- defensive for late promise resolution after timeout fallback. */
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        /* v8 ignore next 2 -- defensive for late promise rejection after timeout fallback. */
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+/* v8 ignore stop */
+
+/**
+ * Read a StoryBundle through the relay's same-origin REST fallback.
+ *
+ * This keeps direct story routes usable when a browser's Gun live subscription
+ * lags behind the persisted public mesh.
+ */
+export async function readNewsStoryViaRelayRest(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  const normalizedStoryId = storyId.trim();
+  const peer = client.config.peers[0];
+  if (!normalizedStoryId || !peer || typeof fetch !== 'function') {
+    return null;
+  }
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/news/story?story_id=${encodeURIComponent(normalizedStoryId)}`,
+  );
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { record?: unknown };
+    const parsed = await parseStoryBundleFromStoredRecord(client, normalizedStoryId, payload.record);
+    if (!parsed) {
+      return null;
+    }
+    try {
+      await assertCanonicalNewsTopicId(parsed);
+      return parsed;
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readNewsStoryWithRelayRestFallback(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  const normalizedStoryId = storyId.trim();
+  if (!normalizedStoryId) {
+    return null;
+  }
+  const direct = await timeoutAsNull(
+    readNewsStory(client, normalizedStoryId),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
+  if (direct) {
+    return direct;
+  }
+  return timeoutAsNull(
+    readNewsStoryViaRelayRest(client, normalizedStoryId),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
 }
 
 /**
@@ -1055,15 +1199,93 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
       index[storyId] = timestamp;
     }
   }
-  if (Object.keys(index).length > 0) {
+  if (!hasMissingIndexChildEntries(raw, index, blockedStoryIds)) {
     return index;
   }
-  return readIndexedEntries(
-    latestChain,
-    raw,
-    (storyId, value) => parseLatestIndexEntry(client, storyId, value),
-    blockedStoryIds,
+  return {
+    ...await readIndexedEntries(
+      latestChain,
+      raw,
+      (storyId, value) => parseLatestIndexEntry(client, storyId, value),
+      blockedStoryIds,
+    ),
+    ...index,
+  };
+}
+
+/**
+ * Read latest-index records through the relay's same-origin REST fallback.
+ *
+ * Browsers can occasionally observe an empty or partial Gun root while the
+ * public relay has persisted child records. The returned records are still
+ * validated locally with the pinned system-writer key before becoming index
+ * evidence.
+ */
+export async function readNewsLatestIndexViaRelayRest(client: VennClient): Promise<NewsLatestIndex> {
+  const peer = client.config.peers[0];
+  if (!peer || typeof fetch !== 'function') {
+    return {};
+  }
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/news/latest-index?limit=${encodeURIComponent(String(RELAY_REST_INDEX_LIMIT))}`,
   );
+  if (!endpoint) {
+    return {};
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return {};
+    }
+    const payload = await response.json() as { records?: unknown; index?: unknown };
+    const records = isRecord(payload.records)
+      ? payload.records
+      : isRecord(payload.index)
+        ? payload.index
+        : null;
+    if (!records) {
+      return {};
+    }
+
+    const index: NewsLatestIndex = {};
+    for (const [storyId, value] of Object.entries(records)) {
+      try {
+        const timestamp = await parseLatestIndexEntry(client, storyId, value);
+        if (timestamp !== null) {
+          index[storyId] = timestamp;
+        }
+      } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+    }
+    return index;
+  } catch {
+    return {};
+  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readNewsLatestIndexWithRelayRestFallback(client: VennClient): Promise<NewsLatestIndex> {
+  const relayed = await timeoutAsNull(
+    readNewsLatestIndexViaRelayRest(client),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
+  if (relayed && Object.keys(relayed).length > 0) {
+    return relayed;
+  }
+  const direct = await timeoutAsNull(
+    readNewsLatestIndex(client),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
+  /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; empty fallback is defensive. */
+  return direct ?? {};
 }
 
 /**
@@ -1093,15 +1315,18 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
       index[storyId] = hotness;
     }
   }
-  if (Object.keys(index).length > 0) {
+  if (!hasMissingIndexChildEntries(raw, index, blockedStoryIds)) {
     return index;
   }
-  return readIndexedEntries(
-    hotChain,
-    raw,
-    (storyId, value) => parseHotIndexEntry(client, storyId, value),
-    blockedStoryIds,
-  );
+  return {
+    ...await readIndexedEntries(
+      hotChain,
+      raw,
+      (storyId, value) => parseHotIndexEntry(client, storyId, value),
+      blockedStoryIds,
+    ),
+    ...index,
+  };
 }
 
 /**

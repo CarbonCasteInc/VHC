@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import { decryptMessagePayload, deriveSharedSecret, encryptMessagePayload } from './hermesCrypto';
 
 describe('hermesCrypto helpers', () => {

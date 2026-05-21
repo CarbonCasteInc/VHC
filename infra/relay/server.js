@@ -19,6 +19,7 @@ function resolveGun() {
 }
 
 const { Gun, gunRequire } = resolveGun();
+const SEA = gunRequire('gun/sea');
 const seaShim = gunRequire('gun/sea/shim');
 
 // Provide required internal utilities that the WS adapter depends on.
@@ -55,6 +56,11 @@ const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
+const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
+const AGGREGATE_PUBLIC_PROTOCOL_VERSION = 'luma-public-v1';
+const AGGREGATE_VOTER_WRITER_KIND = 'luma';
+const AGGREGATE_VOTER_AUTHOR_SCHEME = 'voter-v1';
+const AGGREGATE_VOTER_AUDIENCE = 'vh-aggregate-voter';
 const ROUTE_KIND = {
   USER: 'user',
   DAEMON: 'daemon',
@@ -69,6 +75,11 @@ function boolEnv(name, fallback = false) {
 function numberEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function csvEnv(name) {
@@ -105,13 +116,16 @@ const allowedOrigins = csvEnv('VH_RELAY_ALLOWED_ORIGINS');
 const allowAnyOrigin = allowedOrigins.length === 0 || allowedOrigins.includes('*');
 const bodyLimitBytes = numberEnv('VH_RELAY_HTTP_BODY_LIMIT_BYTES', 1_000_000);
 const httpRateLimitPerMinute = numberEnv('VH_RELAY_HTTP_RATE_LIMIT_PER_MIN', 1_200);
-const wsBytesPerSecondLimit = numberEnv('VH_RELAY_WS_BYTES_PER_SEC', 1_000_000);
+const wsBytesPerSecondLimit = numberEnv('VH_RELAY_WS_BYTES_PER_SEC', 10_000_000);
 const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000);
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const aggregatePointReadCacheTtlMs = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_TTL_MS', 5_000);
+const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_MAX_ENTRIES', 1_000);
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
+const aggregatePointReadCache = new Map();
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -264,6 +278,26 @@ function decodeSignatureHeader(value) {
   }
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function signatureMessageMatchesCanonical(message, canonical) {
+  try {
+    const expected = JSON.parse(canonical);
+    const actual = typeof message === 'string' ? JSON.parse(message) : message;
+    return stableJson(actual) === stableJson(expected);
+  } catch {
+    return message === canonical;
+  }
+}
+
 function cleanupSeenUserNonces(now = Date.now()) {
   for (const [key, expiresAt] of seenUserNonces) {
     if (expiresAt <= now) seenUserNonces.delete(key);
@@ -370,6 +404,15 @@ async function verifyUserSignature(req, pathname, body) {
 
 async function verifySeaSignature(signature, devicePub, canonical) {
   try {
+    const verifiedMessage = await SEA.verify(signature, devicePub);
+    if (signatureMessageMatchesCanonical(verifiedMessage, canonical)) {
+      return true;
+    }
+  } catch {
+    // Fall through to the local shim verifier for runtimes where SEA.verify is unavailable.
+  }
+
+  try {
     const parsed = JSON.parse(signature.startsWith('SEA') ? signature.slice(3) : signature);
     const message = parsed?.m;
     const signatureValue = parsed?.s;
@@ -379,7 +422,7 @@ async function verifySeaSignature(signature, devicePub, canonical) {
         : message && typeof message === 'object'
           ? JSON.stringify(message)
           : '';
-    if (messageCanonical !== canonical || typeof signatureValue !== 'string') {
+    if (!signatureMessageMatchesCanonical(messageCanonical, canonical) || typeof signatureValue !== 'string') {
       return false;
     }
     const [x, y] = String(devicePub).split('.');
@@ -435,6 +478,17 @@ function dirSizeBytes(target) {
   }
 }
 
+function openFileDescriptorCount() {
+  for (const fdDir of ['/proc/self/fd', '/dev/fd']) {
+    try {
+      return fs.readdirSync(fdDir).length;
+    } catch {
+      // Try the next platform-specific descriptor directory.
+    }
+  }
+  return null;
+}
+
 function metricsText() {
   const lines = [];
   const add = (name, value, labels = {}) => {
@@ -459,8 +513,12 @@ function metricsText() {
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
   const memory = process.memoryUsage();
+  const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
   add('vh_relay_process_heap_used_bytes', memory.heapUsed);
+  if (Number.isFinite(openFds)) {
+    add('vh_relay_process_open_fds', openFds);
+  }
   add('vh_relay_event_loop_lag_p95_ms', Math.round(eventLoopDelay.percentile(95) / 1e6));
   for (const [status, count] of metrics.httpResponses) {
     add('vh_relay_http_responses_total', count, { status });
@@ -577,6 +635,27 @@ function linkNode(graph, soul, field, childSoul, state) {
   graph[soul] = stateNode(graph[soul], field, state, { '#': childSoul }, soul);
 }
 
+function isPlainRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isGunScalar(value) {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+function writeScalarFields(graph, soul, state, value) {
+  for (const [key, raw] of Object.entries(value)) {
+    if (raw === undefined || key === '_') continue;
+    if (!isGunScalar(raw)) continue;
+    graph[soul] = stateNode(graph[soul], key, state, raw, soul);
+  }
+}
+
 function buildThreadGraph(thread) {
   const state = Gun.state();
   const threadSoul = `vh/forum/threads/${thread.id}`;
@@ -591,7 +670,7 @@ function buildThreadGraph(thread) {
   return graph;
 }
 
-function buildCommentGraph(comment) {
+function buildCommentGraph(comment, existingCommentIds = []) {
   const state = Gun.state();
   const threadSoul = `vh/forum/threads/${comment.threadId}`;
   const commentsSoul = `${threadSoul}/comments`;
@@ -611,7 +690,7 @@ function buildCommentGraph(comment) {
   const indexCurrent = {
     schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
     threadId: comment.threadId,
-    idsJson: JSON.stringify([comment.id]),
+    idsJson: JSON.stringify(Array.from(new Set([...existingCommentIds, comment.id]))),
     updatedAt,
   };
   const encodedComment = {
@@ -634,6 +713,15 @@ function buildCommentGraph(comment) {
 
   for (const [key, value] of Object.entries(encodedComment)) {
     if (value === undefined) continue;
+    if (
+      key !== COMMENT_JSON_FIELD &&
+      value !== null &&
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+    ) {
+      continue;
+    }
     graph[commentSoul] = stateNode(graph[commentSoul], key, state, value, commentSoul);
   }
   for (const [key, value] of Object.entries(indexEntry)) {
@@ -694,6 +782,10 @@ function buildAggregateVoterGraph(write) {
   const votersSoul = `${epochSoul}/voters`;
   const voterSoul = `${votersSoul}/${write.voter_id}`;
   const pointSoul = `${voterSoul}/${write.node.point_id}`;
+  const envelope = isPlainRecord(write.node.signedWriteEnvelope) ? write.node.signedWriteEnvelope : null;
+  const envelopeSoul = `${pointSoul}/signedWriteEnvelope`;
+  const envelopePayloadSoul = `${envelopeSoul}/payload`;
+  const envelopeSessionRefSoul = `${envelopeSoul}/sessionRef`;
   const graph = {};
 
   linkNode(graph, 'vh', 'aggregates', 'vh/aggregates', state);
@@ -707,9 +799,25 @@ function buildAggregateVoterGraph(write) {
   linkNode(graph, votersSoul, write.voter_id, voterSoul, state);
   linkNode(graph, voterSoul, write.node.point_id, pointSoul, state);
 
-  for (const [key, value] of Object.entries(write.node)) {
-    if (value === undefined) continue;
-    graph[pointSoul] = stateNode(graph[pointSoul], key, state, value, pointSoul);
+  writeScalarFields(graph, pointSoul, state, write.node);
+
+  if (envelope) {
+    linkNode(graph, pointSoul, 'signedWriteEnvelope', envelopeSoul, state);
+    for (const [key, value] of Object.entries(envelope)) {
+      if (key === 'payload' && isPlainRecord(value)) {
+        linkNode(graph, envelopeSoul, 'payload', envelopePayloadSoul, state);
+        writeScalarFields(graph, envelopePayloadSoul, state, value);
+        continue;
+      }
+      if (key === 'sessionRef' && isPlainRecord(value)) {
+        linkNode(graph, envelopeSoul, 'sessionRef', envelopeSessionRefSoul, state);
+        writeScalarFields(graph, envelopeSessionRefSoul, state, value);
+        continue;
+      }
+      if (isGunScalar(value)) {
+        graph[envelopeSoul] = stateNode(graph[envelopeSoul], key, state, value, envelopeSoul);
+      }
+    }
   }
 
   return graph;
@@ -795,18 +903,614 @@ async function readThreadBack(threadChain, threadId) {
 
 async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
-  const direct = stripGunMetadata(await readOnce(latestChain));
+  const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(latestChain, synthesisTimeoutMs),
+    readOnce(latestChain.get('__topic_synthesis_json'), synthesisTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
   const envelope = direct && typeof direct === 'object'
     ? parseTopicSynthesisEnvelope(direct.__topic_synthesis_json)
     : null;
   if (envelope?.topic_id === topicId && envelope?.synthesis_id === synthesisId) {
     return envelope;
   }
-  const scalar = parseTopicSynthesisEnvelope(await readOnce(latestChain.get('__topic_synthesis_json')));
+  const scalar = parseTopicSynthesisEnvelope(scalarRaw);
   if (scalar?.topic_id === topicId && scalar?.synthesis_id === synthesisId) {
     return scalar;
   }
   return null;
+}
+
+async function readTopicLatestSynthesisRecord(gun, topicId) {
+  const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
+  const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(latestChain, synthesisTimeoutMs),
+    readOnce(latestChain.get('__topic_synthesis_json'), synthesisTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
+  const envelope = direct && typeof direct === 'object'
+    ? parseTopicSynthesisEnvelope(direct.__topic_synthesis_json)
+    : null;
+  if (envelope?.topic_id === topicId) {
+    return {
+      record: direct,
+      synthesis: envelope,
+    };
+  }
+  const scalar = parseTopicSynthesisEnvelope(scalarRaw);
+  if (scalar?.topic_id === topicId) {
+    return {
+      record: { __topic_synthesis_json: JSON.stringify(scalar) },
+      synthesis: scalar,
+    };
+  }
+  return null;
+}
+
+function parseStoryBundleEnvelope(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readNewsStoryRecord(gun, storyId) {
+  const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
+  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const [directRaw, scalarRaw] = await Promise.all([
+    readOnce(storyChain, storyTimeoutMs),
+    readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs),
+  ]);
+  const direct = stripGunMetadata(directRaw);
+  const envelope = direct && typeof direct === 'object'
+    ? parseStoryBundleEnvelope(direct.__story_bundle_json)
+    : null;
+  if (envelope?.story_id === storyId) {
+    return {
+      record: direct,
+      story: envelope,
+    };
+  }
+  const scalar = parseStoryBundleEnvelope(scalarRaw);
+  if (scalar?.story_id === storyId) {
+    return {
+      record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
+      story: scalar,
+    };
+  }
+  return null;
+}
+
+function indexEntryPriority(root, storyId) {
+  const direct = root && typeof root === 'object' ? root[storyId] : null;
+  if (typeof direct === 'number' && Number.isFinite(direct)) {
+    return direct;
+  }
+  if (direct && typeof direct === 'object') {
+    for (const key of ['latest_activity_at', 'cluster_window_end', 'created_at']) {
+      const value = Number(direct[key]);
+      if (Number.isFinite(value)) {
+        return value;
+      }
+    }
+  }
+  const fieldState = root && typeof root === 'object' && root._ && typeof root._ === 'object'
+    ? root._['>']
+    : null;
+  const stateValue = fieldState && typeof fieldState === 'object'
+    ? Number(fieldState[storyId])
+    : Number.NaN;
+  return Number.isFinite(stateValue) ? stateValue : 0;
+}
+
+function extractIndexChildKeys(value) {
+  if (!value || typeof value !== 'object') return [];
+  const keys = new Set();
+  for (const key of Object.keys(value)) {
+    if (key !== '_') keys.add(key);
+  }
+  const fieldState = value._ && typeof value._ === 'object' ? value._['>'] : null;
+  if (fieldState && typeof fieldState === 'object') {
+    for (const key of Object.keys(fieldState)) {
+      if (key !== '_') keys.add(key);
+    }
+  }
+  return [...keys].sort((a, b) => indexEntryPriority(value, b) - indexEntryPriority(value, a) || a.localeCompare(b));
+}
+
+function gunLinkSoul(value) {
+  if (!value || typeof value !== 'object') return null;
+  const soul = value['#'];
+  return typeof soul === 'string' && soul.trim() ? soul.trim() : null;
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }));
+  return results;
+}
+
+async function readLinkedGunRecord(gun, value, timeoutMs) {
+  const soul = gunLinkSoul(value);
+  if (!soul) return value;
+  const linked = stripGunMetadata(await readOnce(gun.get(soul), timeoutMs));
+  return linked !== null && linked !== undefined ? linked : value;
+}
+
+async function readNewsLatestIndexRecords(gun, options = {}) {
+  const indexChain = gun.get('vh').get('news').get('index').get('latest');
+  const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000);
+  const childTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750);
+  const maxRecords = Math.min(
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
+    positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
+  );
+  const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
+  const rawRoot = await readOnce(indexChain, rootTimeoutMs);
+  const sourceKeys = extractIndexChildKeys(rawRoot);
+  const keys = sourceKeys.slice(0, maxRecords);
+  const records = {};
+  const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
+    const direct = rawRoot && typeof rawRoot === 'object' && storyId in rawRoot
+      ? stripGunMetadata(rawRoot[storyId])
+      : null;
+    const child = await readLinkedGunRecord(
+      gun,
+      stripGunMetadata(await readOnce(indexChain.get(storyId), childTimeoutMs)),
+      childTimeoutMs,
+    );
+    if (child !== null && child !== undefined) {
+      return [storyId, child];
+    }
+    if (direct !== null && direct !== undefined) {
+      return [storyId, await readLinkedGunRecord(gun, direct, childTimeoutMs)];
+    }
+    return null;
+  });
+  for (const entry of entries) {
+    if (entry) records[entry[0]] = entry[1];
+  }
+  return {
+    root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
+    sourceKeyCount: sourceKeys.length,
+    truncated: sourceKeys.length > keys.length,
+    records,
+  };
+}
+
+function parseAggregatePointSnapshot(value, context) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  const sourceWindow = stripGunMetadata(clean.source_window);
+  const snapshot = {
+    schema_version: clean.schema_version,
+    topic_id: clean.topic_id,
+    synthesis_id: clean.synthesis_id,
+    epoch: clean.epoch,
+    point_id: clean.point_id,
+    agree: clean.agree,
+    disagree: clean.disagree,
+    weight: clean.weight,
+    participants: clean.participants,
+    version: clean.version,
+    computed_at: clean.computed_at,
+    source_window: sourceWindow,
+  };
+  if (
+    snapshot.schema_version !== 'point-aggregate-snapshot-v1' ||
+    snapshot.topic_id !== context.topicId ||
+    snapshot.synthesis_id !== context.synthesisId ||
+    snapshot.epoch !== context.epoch ||
+    snapshot.point_id !== context.pointId ||
+    !Number.isFinite(snapshot.agree) ||
+    !Number.isFinite(snapshot.disagree) ||
+    !Number.isFinite(snapshot.weight) ||
+    !Number.isFinite(snapshot.participants) ||
+    !Number.isFinite(snapshot.version) ||
+    !Number.isFinite(snapshot.computed_at) ||
+    !snapshot.source_window ||
+    typeof snapshot.source_window !== 'object' ||
+    !Number.isFinite(snapshot.source_window.from_seq) ||
+    !Number.isFinite(snapshot.source_window.to_seq)
+  ) {
+    return null;
+  }
+  return {
+    ...snapshot,
+    agree: Math.max(0, Math.floor(snapshot.agree)),
+    disagree: Math.max(0, Math.floor(snapshot.disagree)),
+    participants: Math.max(0, Math.floor(snapshot.participants)),
+    version: Math.max(0, Math.floor(snapshot.version)),
+    computed_at: Math.max(0, Math.floor(snapshot.computed_at)),
+    source_window: {
+      from_seq: Math.max(0, Math.floor(snapshot.source_window.from_seq)),
+      to_seq: Math.max(0, Math.floor(snapshot.source_window.to_seq)),
+    },
+  };
+}
+
+function parseAggregateVoterNodeForRead(value, context, voterId) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  if (clean.point_id !== context.pointId) return null;
+  if (clean.topic_id !== undefined && clean.topic_id !== context.topicId) return null;
+  if (clean.synthesis_id !== undefined && clean.synthesis_id !== context.synthesisId) return null;
+  if (clean.epoch !== undefined && clean.epoch !== context.epoch) return null;
+  if (clean.voter_id !== undefined && clean.voter_id !== voterId) return null;
+  if (![ -1, 0, 1 ].includes(clean.agreement)) return null;
+  if (!Number.isFinite(clean.weight) || clean.weight < 0) return null;
+  if (typeof clean.updated_at !== 'string' || !clean.updated_at.trim()) return null;
+  return {
+    point_id: clean.point_id,
+    agreement: clean.agreement,
+    weight: clean.weight,
+    updated_at: clean.updated_at,
+  };
+}
+
+function parseAggregateVoterRow(voterId, voterPayload, context) {
+  if (typeof voterId !== 'string' || !voterId.trim() || voterId === '_') return null;
+  const voterRecord = stripGunMetadata(voterPayload);
+  if (!voterRecord || typeof voterRecord !== 'object') return null;
+  const node = parseAggregateVoterNodeForRead(voterRecord[context.pointId], context, voterId);
+  if (!node) return null;
+  const updatedAtMs = Date.parse(node.updated_at);
+  return {
+    voter_id: voterId,
+    node,
+    updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
+  };
+}
+
+function mergeAggregateRowsByVoter(rows) {
+  const byVoter = new Map();
+  for (const row of rows) {
+    if (!row) continue;
+    const existing = byVoter.get(row.voter_id);
+    if (!existing || row.updated_at_ms >= existing.updated_at_ms) {
+      byVoter.set(row.voter_id, row);
+    }
+  }
+  return [...byVoter.values()];
+}
+
+async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 750) {
+  return new Promise((resolve) => {
+    const mapped = votersChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const ids = new Set();
+    const callback = (_value, key) => {
+      if (typeof key === 'string' && key.trim() && key !== '_') {
+        ids.add(key);
+      }
+    };
+    mapped.once(callback);
+    setTimeout(() => {
+      try {
+        mapped.off?.(callback);
+      } catch {
+        // Best-effort Gun map cleanup.
+      }
+      resolve([...ids]);
+    }, timeoutMs);
+  });
+}
+
+async function readAggregateVoterRows(gun, context) {
+  const votersChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
+    .get('syntheses').get(context.synthesisId)
+    .get('epochs').get(String(context.epoch))
+    .get('voters');
+  const raw = stripGunMetadata(await readOnce(votersChain, 750));
+  const rootRows = [];
+  const voterIds = new Set();
+  if (raw && typeof raw === 'object') {
+    for (const [voterId, voterPayload] of Object.entries(raw)) {
+      if (voterId === '_') continue;
+      voterIds.add(voterId);
+      const row = parseAggregateVoterRow(voterId, voterPayload, context);
+      if (row) rootRows.push(row);
+    }
+  }
+  for (const voterId of await readAggregateVoterIdsViaMap(votersChain)) {
+    voterIds.add(voterId);
+  }
+  const leafRows = await Promise.all([...voterIds].map(async (voterId) => {
+    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 750);
+    const node = parseAggregateVoterNodeForRead(direct, context, voterId);
+    if (!node) return null;
+    const updatedAtMs = Date.parse(node.updated_at);
+    return {
+      voter_id: voterId,
+      node,
+      updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
+    };
+  }));
+  return mergeAggregateRowsByVoter([...rootRows, ...leafRows]);
+}
+
+async function readAggregatePointSnapshot(gun, context) {
+  const pointChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
+    .get('syntheses').get(context.synthesisId)
+    .get('epochs').get(String(context.epoch))
+    .get('points').get(context.pointId);
+  const direct = stripGunMetadata(await readOnce(pointChain, 750));
+  let snapshot = parseAggregatePointSnapshot(direct, context);
+  if (!snapshot && direct && typeof direct === 'object') {
+    const sourceWindow = stripGunMetadata(await readOnce(pointChain.get('source_window'), 750));
+    snapshot = parseAggregatePointSnapshot({ ...direct, source_window: sourceWindow }, context);
+  }
+  return snapshot;
+}
+
+function summarizeAggregateRows(pointId, rows) {
+  let agree = 0;
+  let disagree = 0;
+  let weight = 0;
+  let participants = 0;
+  for (const row of rows) {
+    if (row.node.agreement === 1) {
+      agree += 1;
+      weight += row.node.weight;
+      participants += 1;
+    } else if (row.node.agreement === -1) {
+      disagree += 1;
+      weight += row.node.weight;
+      participants += 1;
+    }
+  }
+  return { point_id: pointId, agree, disagree, weight, participants };
+}
+
+function snapshotAggregate(snapshot) {
+  return snapshot ? {
+    point_id: snapshot.point_id,
+    agree: snapshot.agree,
+    disagree: snapshot.disagree,
+    weight: snapshot.weight,
+    participants: snapshot.participants,
+  } : null;
+}
+
+function aggregatePointReadCacheKey(context) {
+  return [
+    context.topicId,
+    context.synthesisId,
+    String(context.epoch),
+    context.pointId,
+  ].join('\u001f');
+}
+
+function readAggregatePointCache(context) {
+  if (aggregatePointReadCacheTtlMs <= 0) return null;
+  const key = aggregatePointReadCacheKey(context);
+  const cached = aggregatePointReadCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.cached_at > aggregatePointReadCacheTtlMs) {
+    aggregatePointReadCache.delete(key);
+    return null;
+  }
+  return {
+    ...cached.result,
+    cached: true,
+  };
+}
+
+function writeAggregatePointCache(result) {
+  if (aggregatePointReadCacheTtlMs <= 0) return;
+  const key = aggregatePointReadCacheKey(result.context);
+  aggregatePointReadCache.set(key, {
+    cached_at: Date.now(),
+    result,
+  });
+  while (aggregatePointReadCache.size > aggregatePointReadCacheMaxEntries) {
+    const staleKey = aggregatePointReadCache.keys().next().value;
+    if (!staleKey) break;
+    aggregatePointReadCache.delete(staleKey);
+  }
+}
+
+function invalidateAggregatePointCache(params) {
+  try {
+    const context = {
+      topicId: normalizeRequiredString(params.topicId ?? params.topic_id, 'topic-id'),
+      synthesisId: normalizeRequiredString(params.synthesisId ?? params.synthesis_id, 'synthesis-id'),
+      epoch: normalizeFiniteNonNegativeInteger(params.epoch, 'epoch'),
+      pointId: normalizeRequiredString(params.pointId ?? params.point_id, 'point-id'),
+    };
+    aggregatePointReadCache.delete(aggregatePointReadCacheKey(context));
+  } catch {
+    // Ignore malformed invalidation hints; write validation reports those.
+  }
+}
+
+async function readAggregatePoint(gun, params) {
+  const context = {
+    topicId: normalizeRequiredString(params.topicId, 'topic-id'),
+    synthesisId: normalizeRequiredString(params.synthesisId, 'synthesis-id'),
+    epoch: normalizeFiniteNonNegativeInteger(params.epoch, 'epoch'),
+    pointId: normalizeRequiredString(params.pointId, 'point-id'),
+  };
+  const cached = readAggregatePointCache(context);
+  if (cached) return cached;
+
+  const [snapshot, rows] = await Promise.all([
+    readAggregatePointSnapshot(gun, context),
+    readAggregateVoterRows(gun, context),
+  ]);
+  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
+  const materialized = snapshotAggregate(snapshot);
+  const aggregate = !materialized ||
+    rowAggregate.participants > materialized.participants ||
+    rowAggregate.weight > materialized.weight
+    ? rowAggregate
+    : materialized;
+  const result = {
+    context,
+    aggregate,
+    snapshot,
+    row_count: rows.length,
+    cached: false,
+  };
+  writeAggregatePointCache(result);
+  return result;
+}
+
+function parseCommentEnvelope(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCommentIndex(value, threadId) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return [];
+  if (clean.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || clean.threadId !== threadId) return [];
+  if (typeof clean.idsJson !== 'string') return [];
+  try {
+    const parsed = JSON.parse(clean.idsJson);
+    return Array.isArray(parsed)
+      ? parsed.filter((id) => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseCommentIndexEntry(value, threadId, key) {
+  const clean = stripGunMetadata(value);
+  if (!clean || typeof clean !== 'object') return null;
+  if (clean.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || clean.threadId !== threadId) return null;
+  if (typeof clean.commentId !== 'string' || clean.commentId.trim().length === 0) return null;
+  if (key && key !== clean.commentId) return null;
+  return clean.commentId;
+}
+
+async function readCommentIndexEntrySnapshot(entriesChain, threadId, timeoutMs = 1_000) {
+  return new Promise((resolve) => {
+    const mapped = entriesChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const ids = new Set();
+    mapped.once((data, key) => {
+      const commentId = parseCommentIndexEntry(data, threadId, key);
+      if (commentId) ids.add(commentId);
+    });
+    setTimeout(() => resolve([...ids]), timeoutMs);
+  });
+}
+
+async function readCommentIndexIds(indexRoot, threadId, timeoutMs = 250) {
+  const currentChain = indexRoot.get('current');
+  const current = await readOnce(currentChain, timeoutMs);
+  const scalar = await readOnce(currentChain.get('idsJson'), timeoutMs);
+  const entries = await readCommentIndexEntrySnapshot(indexRoot.get('entries'), threadId, timeoutMs);
+  return Array.from(new Set([
+    ...parseCommentIndex(current, threadId),
+    ...parseCommentIndex({
+      schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
+      threadId,
+      idsJson: scalar,
+    }, threadId),
+    ...entries,
+  ]));
+}
+
+async function readCommentBack(commentChain, threadId, commentId, timeoutMs = 250) {
+  const direct = stripGunMetadata(await readOnce(commentChain, timeoutMs));
+  if (direct && typeof direct === 'object' && direct.id === commentId && direct.threadId === threadId) {
+    return direct;
+  }
+  const envelope = parseCommentEnvelope(await readOnce(commentChain.get(COMMENT_JSON_FIELD), timeoutMs));
+  if (envelope?.id === commentId && envelope?.threadId === threadId) {
+    return envelope;
+  }
+  return null;
+}
+
+function normalizeCommentForRead(comment, threadId, commentId) {
+  if (!comment || typeof comment !== 'object') return null;
+  const envelope = parseCommentEnvelope(comment[COMMENT_JSON_FIELD]);
+  if (
+    envelope &&
+    envelope.id === commentId &&
+    envelope.threadId === threadId
+  ) {
+    return envelope;
+  }
+  return comment.id === commentId && comment.threadId === threadId ? comment : null;
+}
+
+async function pollCommentBack(gun, threadId, commentId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  const threadChain = gun.get('vh').get('forum').get('threads').get(threadId);
+  const commentChain = threadChain.get('comments').get(commentId);
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(threadId));
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readCommentBack(commentChain, threadId, commentId);
+    const indexIds = await readCommentIndexIds(indexRoot, threadId);
+    if (latest && indexIds.includes(commentId)) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
+async function readForumComments(gun, threadId, timeoutMs = 1_000) {
+  const cleanThreadId = typeof threadId === 'string' ? threadId.trim() : '';
+  if (!cleanThreadId) {
+    throw new Error('thread_id-required');
+  }
+  const threadChain = gun.get('vh').get('forum').get('threads').get(cleanThreadId);
+  const commentsChain = threadChain.get('comments');
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(cleanThreadId));
+  const commentIds = await readCommentIndexIds(indexRoot, cleanThreadId, timeoutMs);
+  const comments = [];
+  for (const commentId of commentIds) {
+    const comment = await readCommentBack(commentsChain.get(commentId), cleanThreadId, commentId, timeoutMs);
+    const normalized = normalizeCommentForRead(comment, cleanThreadId, commentId);
+    if (normalized) {
+      comments.push(normalized);
+    }
+  }
+  comments.sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0));
+  return {
+    thread_id: cleanThreadId,
+    comment_ids: commentIds,
+    comments,
+  };
+}
+
+async function readForumThread(gun, threadId, timeoutMs = 1_000) {
+  const cleanThreadId = typeof threadId === 'string' ? threadId.trim() : '';
+  if (!cleanThreadId) {
+    throw new Error('thread_id-required');
+  }
+  const threadChain = gun.get('vh').get('forum').get('threads').get(cleanThreadId);
+  const thread = await readThreadBack(threadChain, cleanThreadId, timeoutMs);
+  return thread && thread.id === cleanThreadId ? thread : null;
 }
 
 function readTopicSynthesisFromGraph(gun, topicId, synthesisId) {
@@ -851,6 +1555,10 @@ function sanitizeComment(value) {
   const clean = {};
   for (const [key, raw] of Object.entries(value)) {
     if (raw === undefined || key === '_' || key === COMMENT_JSON_FIELD) continue;
+    if (key === 'signedWriteEnvelope' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      clean[key] = JSON.parse(JSON.stringify(raw));
+      continue;
+    }
     if (
       raw === null ||
       typeof raw === 'string' ||
@@ -907,6 +1615,70 @@ function normalizeFiniteNonNegativeInteger(value, name) {
   return Math.floor(normalized);
 }
 
+function normalizeLiteralString(value, name, expected) {
+  const normalized = normalizeRequiredString(value, name);
+  if (normalized !== expected) throw new Error(`${name}-invalid`);
+  return normalized;
+}
+
+function normalizeLiteralNumber(value, name, expected) {
+  const normalized = normalizeFiniteNumber(value, name);
+  if (normalized !== expected) throw new Error(`${name}-invalid`);
+  return normalized;
+}
+
+function assertExactObjectKeys(value, allowedKeys, name) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) throw new Error(`${name}-field-invalid`);
+  }
+}
+
+function aggregateVoterEnvelopePayloadMatches(envelopePayload, payload) {
+  for (const [key, value] of Object.entries(payload)) {
+    if (envelopePayload[key] !== value) return false;
+  }
+  return Object.keys(envelopePayload).length === Object.keys(payload).length;
+}
+
+function sanitizeAggregateVoterEnvelope(envelope, payload, voterId) {
+  if (!isPlainRecord(envelope)) {
+    throw new Error('signed-write-envelope-required');
+  }
+  const envelopePayload = envelope.payload;
+  if (!isPlainRecord(envelopePayload)) {
+    throw new Error('signed-write-envelope-payload-required');
+  }
+  if (!aggregateVoterEnvelopePayloadMatches(envelopePayload, payload)) {
+    throw new Error('signed-write-envelope-payload-mismatch');
+  }
+  const sessionRef = envelope.sessionRef;
+  if (!isPlainRecord(sessionRef)) {
+    throw new Error('signed-write-envelope-session-ref-required');
+  }
+
+  return {
+    envelopeVersion: normalizeLiteralNumber(envelope.envelopeVersion, 'signed-envelope-version', 1),
+    signatureSuite: normalizeLiteralString(envelope.signatureSuite, 'signed-envelope-signature-suite', 'jcs-ed25519-sha256-v1'),
+    protocolVersion: normalizeLiteralString(envelope.protocolVersion, 'signed-envelope-protocol-version', 'luma-write-v1'),
+    profile: normalizeRequiredString(envelope.profile, 'signed-envelope-profile'),
+    audience: normalizeLiteralString(envelope.audience, 'signed-envelope-audience', AGGREGATE_VOTER_AUDIENCE),
+    origin: normalizeRequiredString(envelope.origin, 'signed-envelope-origin'),
+    scheme: normalizeLiteralString(envelope.scheme, 'signed-envelope-scheme', AGGREGATE_VOTER_AUTHOR_SCHEME),
+    publicAuthor: normalizeLiteralString(envelope.publicAuthor, 'signed-envelope-public-author', voterId),
+    sessionRef: {
+      tokenHash: normalizeRequiredString(sessionRef.tokenHash, 'signed-envelope-session-token-hash'),
+      envelopeDigest: normalizeRequiredString(sessionRef.envelopeDigest, 'signed-envelope-session-envelope-digest'),
+    },
+    payload,
+    payloadDigest: normalizeRequiredString(envelope.payloadDigest, 'signed-envelope-payload-digest'),
+    sequence: normalizeFiniteNonNegativeInteger(envelope.sequence, 'signed-envelope-sequence'),
+    nonce: normalizeRequiredString(envelope.nonce, 'signed-envelope-nonce'),
+    idempotencyKey: normalizeRequiredString(envelope.idempotencyKey, 'signed-envelope-idempotency-key'),
+    issuedAt: normalizeFiniteNonNegativeInteger(envelope.issuedAt, 'signed-envelope-issued-at'),
+    signature: normalizeRequiredString(envelope.signature, 'signed-envelope-signature'),
+  };
+}
+
 function sanitizeAggregateVoterWrite(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('aggregate-voter-required');
@@ -921,16 +1693,79 @@ function sanitizeAggregateVoterWrite(value) {
     throw new Error('agreement-invalid');
   }
 
+  const topicId = normalizeRequiredString(value.topic_id, 'topic-id');
+  const synthesisId = normalizeRequiredString(value.synthesis_id, 'synthesis-id');
+  const epoch = normalizeFiniteNonNegativeInteger(value.epoch, 'epoch');
+  const voterId = normalizeRequiredString(value.voter_id, 'voter-id');
+  const pointId = normalizeRequiredString(node.point_id, 'point-id');
+  const baseNode = {
+    point_id: pointId,
+    agreement,
+    weight: normalizeFiniteNumber(node.weight, 'weight'),
+    updated_at: normalizeRequiredString(node.updated_at, 'updated-at'),
+  };
+  const isLumaNode =
+    node.schema_version !== undefined ||
+    node._protocolVersion !== undefined ||
+    node._writerKind !== undefined ||
+    node._authorScheme !== undefined ||
+    node.signedWriteEnvelope !== undefined ||
+    node.topic_id !== undefined ||
+    node.synthesis_id !== undefined ||
+    node.epoch !== undefined ||
+    node.voter_id !== undefined;
+
+  if (!isLumaNode) {
+    assertExactObjectKeys(node, new Set(['point_id', 'agreement', 'weight', 'updated_at']), 'aggregate-voter-node');
+    return {
+      topic_id: topicId,
+      synthesis_id: synthesisId,
+      epoch,
+      voter_id: voterId,
+      node: baseNode,
+    };
+  }
+
+  assertExactObjectKeys(
+    node,
+    new Set([
+      'schema_version',
+      '_protocolVersion',
+      '_writerKind',
+      '_authorScheme',
+      'topic_id',
+      'synthesis_id',
+      'epoch',
+      'voter_id',
+      'point_id',
+      'agreement',
+      'weight',
+      'updated_at',
+      'signedWriteEnvelope',
+    ]),
+    'aggregate-voter-luma-node',
+  );
+  const lumaPayload = {
+    schema_version: normalizeLiteralString(node.schema_version, 'schema-version', AGGREGATE_VOTER_NODE_VERSION),
+    _protocolVersion: normalizeLiteralString(node._protocolVersion, 'protocol-version', AGGREGATE_PUBLIC_PROTOCOL_VERSION),
+    _writerKind: normalizeLiteralString(node._writerKind, 'writer-kind', AGGREGATE_VOTER_WRITER_KIND),
+    _authorScheme: normalizeLiteralString(node._authorScheme, 'author-scheme', AGGREGATE_VOTER_AUTHOR_SCHEME),
+    topic_id: normalizeLiteralString(node.topic_id, 'node-topic-id', topicId),
+    synthesis_id: normalizeLiteralString(node.synthesis_id, 'node-synthesis-id', synthesisId),
+    epoch: normalizeLiteralNumber(node.epoch, 'node-epoch', epoch),
+    voter_id: normalizeLiteralString(node.voter_id, 'node-voter-id', voterId),
+    ...baseNode,
+  };
+  const signedWriteEnvelope = sanitizeAggregateVoterEnvelope(node.signedWriteEnvelope, lumaPayload, voterId);
+
   return {
-    topic_id: normalizeRequiredString(value.topic_id, 'topic-id'),
-    synthesis_id: normalizeRequiredString(value.synthesis_id, 'synthesis-id'),
-    epoch: normalizeFiniteNonNegativeInteger(value.epoch, 'epoch'),
-    voter_id: normalizeRequiredString(value.voter_id, 'voter-id'),
+    topic_id: topicId,
+    synthesis_id: synthesisId,
+    epoch,
+    voter_id: voterId,
     node: {
-      point_id: normalizeRequiredString(node.point_id, 'point-id'),
-      agreement,
-      weight: normalizeFiniteNumber(node.weight, 'weight'),
-      updated_at: normalizeRequiredString(node.updated_at, 'updated-at'),
+      ...lumaPayload,
+      signedWriteEnvelope,
     },
   };
 }
@@ -984,8 +1819,14 @@ async function writeForumThread(gun, thread) {
 
 async function writeForumComment(gun, comment) {
   const clean = sanitizeComment(comment);
-  injectGraph(gun, buildCommentGraph(clean));
-  return clean;
+  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(clean.threadId));
+  const existingCommentIds = await readCommentIndexIds(indexRoot, clean.threadId);
+  injectGraph(gun, buildCommentGraph(clean, existingCommentIds));
+  const readback = await pollCommentBack(gun, clean.threadId, clean.id, 5_000);
+  if (!readback) {
+    throw new Error('comment-readback-failed');
+  }
+  return readback;
 }
 
 async function writeTopicSynthesis(gun, synthesis) {
@@ -1147,6 +1988,185 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/vh/topics/synthesis') {
+    const topicId = parsedUrl.searchParams.get('topic_id')?.trim();
+    if (!topicId) {
+      sendJson(res, 400, { ok: false, error: 'topic_id-required' });
+      return;
+    }
+    void readTopicLatestSynthesisRecord(gun, topicId)
+      .then((result) => {
+        if (!result) {
+          sendJson(res, 404, { ok: false, error: 'topic-synthesis-not-found', topic_id: topicId });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          topic_id: result.synthesis.topic_id,
+          synthesis_id: result.synthesis.synthesis_id,
+          synthesis: result.synthesis,
+          record: result.record,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          topic_id: topicId,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/story') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    if (!storyId) {
+      sendJson(res, 400, { ok: false, error: 'story_id-required' });
+      return;
+    }
+    void readNewsStoryRecord(gun, storyId)
+      .then((result) => {
+        if (!result) {
+          sendJson(res, 404, { ok: false, error: 'news-story-not-found', story_id: storyId });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          story_id: result.story.story_id,
+          topic_id: result.story.topic_id,
+          story: result.story,
+          record: result.record,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          story_id: storyId,
+        });
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/latest-index') {
+    const limit = parsedUrl.searchParams.get('limit');
+    const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
+      || parsedUrl.searchParams.get('include_root') === 'true';
+    void readNewsLatestIndexRecords(gun, { limit, includeRoot })
+      .then((result) => {
+        const payload = {
+          ok: true,
+          record_count: Object.keys(result.records).length,
+          source_key_count: result.sourceKeyCount,
+          truncated: result.truncated,
+          records: result.records,
+        };
+        if (result.root) payload.root = result.root;
+        sendJson(res, 200, payload);
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/aggregates/point') {
+    const topicId = parsedUrl.searchParams.get('topic_id')?.trim();
+    const synthesisId = parsedUrl.searchParams.get('synthesis_id')?.trim();
+    const epoch = Number(parsedUrl.searchParams.get('epoch'));
+    const pointId = parsedUrl.searchParams.get('point_id')?.trim();
+    void readAggregatePoint(gun, { topicId, synthesisId, epoch, pointId })
+      .then((result) => {
+        sendJson(res, 200, {
+          ok: true,
+          topic_id: result.context.topicId,
+          synthesis_id: result.context.synthesisId,
+          epoch: result.context.epoch,
+          point_id: result.context.pointId,
+          aggregate: result.aggregate,
+          snapshot: result.snapshot,
+          row_count: result.row_count,
+          cached: Boolean(result.cached),
+        });
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const status = message.includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: message,
+          topic_id: topicId ?? null,
+          synthesis_id: synthesisId ?? null,
+          epoch: Number.isFinite(epoch) ? epoch : null,
+          point_id: pointId ?? null,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/forum/comments') {
+    const threadId = parsedUrl.searchParams.get('thread_id')?.trim();
+    if (!threadId) {
+      sendJson(res, 400, { ok: false, error: 'thread_id-required' });
+      return;
+    }
+    void readForumComments(gun, threadId)
+      .then((result) => {
+        sendJson(res, 200, {
+          ok: true,
+          thread_id: result.thread_id,
+          comment_ids: result.comment_ids,
+          count: result.comments.length,
+          comments: result.comments,
+        });
+      })
+      .catch((error) => {
+        const status = String(error?.message || '').includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          thread_id: threadId,
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/forum/thread') {
+    const threadId = parsedUrl.searchParams.get('thread_id')?.trim();
+    if (!threadId) {
+      sendJson(res, 400, { ok: false, error: 'thread_id-required' });
+      return;
+    }
+    void readForumThread(gun, threadId)
+      .then((thread) => {
+        if (!thread) {
+          sendJson(res, 404, {
+            ok: false,
+            error: 'thread-not-found',
+            thread_id: threadId,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          thread_id: threadId,
+          thread,
+        });
+      })
+      .catch((error) => {
+        const status = String(error?.message || '').includes('required') ? 400 : 502;
+        sendJson(res, status, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          thread_id: threadId,
+        });
+      });
+    return;
+  }
+
   if (req.method === 'POST' && pathname === '/vh/forum/thread') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const thread = await writeForumThread(gun, body.thread);
@@ -1180,6 +2200,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && pathname === '/vh/aggregates/voter') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const write = await writeAggregateVoter(gun, body);
+      invalidateAggregatePointCache({
+        topicId: write.topic_id,
+        synthesisId: write.synthesis_id,
+        epoch: write.epoch,
+        pointId: write.node.point_id,
+      });
       return {
         topic_id: write.topic_id,
         synthesis_id: write.synthesis_id,
@@ -1194,6 +2220,12 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && pathname === '/vh/aggregates/point-snapshot') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
       const snapshot = await writeAggregatePointSnapshot(gun, body.snapshot);
+      invalidateAggregatePointCache({
+        topicId: snapshot.topic_id,
+        synthesisId: snapshot.synthesis_id,
+        epoch: snapshot.epoch,
+        pointId: snapshot.point_id,
+      });
       return {
         topic_id: snapshot.topic_id,
         synthesis_id: snapshot.synthesis_id,

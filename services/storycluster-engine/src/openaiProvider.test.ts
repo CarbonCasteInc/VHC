@@ -213,6 +213,57 @@ describe('OpenAIStoryClusterProvider', () => {
     ]);
   });
 
+  it('runs chunked document analysis concurrently while preserving output order', async () => {
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_CHUNK_CONCURRENCY', '2');
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async (_url: string, init?: RequestInit) => {
+        activeRequests += 1;
+        maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+        const body = JSON.parse(String(init?.body));
+        const userPayload = JSON.parse(String(body.messages?.[1]?.content ?? '{}'));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        activeRequests -= 1;
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                documents: userPayload.documents.map((item: { doc_id: string }) => ({
+                  doc_id: item.doc_id,
+                  doc_type: 'hard_news',
+                  entities: [],
+                  linked_entities: [],
+                  locations: [],
+                  temporal_iso: null,
+                  trigger: null,
+                  event_tuple: null,
+                })),
+              }),
+            },
+          }],
+        });
+      },
+    });
+
+    const documents = await provider.analyzeDocuments(Array.from({ length: 13 }, (_, index) => ({
+      doc_id: `doc-${index}`,
+      title: `Story ${index}`,
+      summary: 'Summary',
+      publisher: 'Desk',
+      language: 'en',
+      text: `Story ${index}. Summary`,
+      published_at: 100 + index,
+      entity_hints: [],
+    })));
+
+    expect(maxActiveRequests).toBe(2);
+    expect(documents.map((document) => document.doc_id)).toEqual(
+      Array.from({ length: 13 }, (_, index) => `doc-${index}`),
+    );
+  });
+
   it('normalizes pair judgements and summary output', async () => {
     const fetchFn = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

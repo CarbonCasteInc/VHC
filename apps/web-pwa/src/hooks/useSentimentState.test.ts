@@ -1003,6 +1003,13 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
 
     expect(writeEventSpy).toHaveBeenCalledWith(
       fakeClient,
@@ -1054,6 +1061,35 @@ describe('useSentimentState', () => {
     const aggregatePayload = writeVoterSpy.mock.calls.at(-1)?.[5] as Record<string, unknown>;
     expect(aggregatePayload).not.toHaveProperty('constituency_proof');
     expect(aggregatePayload).not.toHaveProperty('nullifier');
+  });
+
+  it('does not let encrypted outbox latency block public aggregate projection', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('abababababababababababababababababababababababababababababababab');
+    vi.spyOn(GunClient, 'writeSentimentEvent').mockImplementation(() => new Promise(() => {}));
+    const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('projected-outbox-pending'),
+    });
+
+    await waitForMockCall(writeVoterSpy, ([client, topicId, synthesisId, epoch, voterId]) => (
+      client === fakeClient
+      && topicId === TOPIC
+      && synthesisId === 'synth-9'
+      && epoch === 4
+      && voterId === 'abababababababababababababababababababababababababababababababab'
+    ));
   });
 
   it('logs successful voter-node readback payload after aggregate write', async () => {
@@ -1710,7 +1746,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+    const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-timeout',
       event: {} as never,
       ack: {
@@ -1730,7 +1766,13 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-timeout'),
     });
 
-    await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
     await vi.runAllTimersAsync();
     await flushProjection();
     await waitForMockCall(warnSpy, ([label, payload]) => (
@@ -1825,7 +1867,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+    const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-unacked',
       event: {} as never,
       ack: {
@@ -1845,7 +1887,13 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-unacked'),
     });
 
-    await flushProjection();
+    await waitForMockCall(writeEventSpy, ([client, event]) => (
+      client === fakeClient
+      && typeof event === 'object'
+      && event !== null
+      && (event as { topic_id?: unknown }).topic_id === TOPIC
+      && (event as { point_id?: unknown }).point_id === POINT
+    ));
     await vi.runAllTimersAsync();
     await flushProjection();
     await waitForMockCall(warnSpy, ([label, payload]) => (

@@ -12,6 +12,7 @@ import {
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
+import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 import { readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
@@ -84,6 +85,10 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
 const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_SYNTHESIS_PUT_ACK_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_PUT_ACK_TIMEOUT_MS', 'VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
   5_000,
+);
+const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS'],
+  8_000,
 );
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
@@ -604,6 +609,71 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
+/* v8 ignore start -- bounded async race helper; callers cover outcomes while stale settlement branches are host-scheduler defensive. */
+function timeoutAsNull<T>(work: Promise<T | null>, timeoutMs: number): Promise<T | null> {
+  return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      /* v8 ignore next 3 -- defensive for timers firing after an already-settled read. */
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(null);
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        /* v8 ignore next 3 -- defensive for late promise resolution after timeout fallback. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      () => {
+        /* v8 ignore next 3 -- defensive for late promise rejection after timeout fallback. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(null);
+      },
+    );
+  });
+}
+/* v8 ignore stop */
+
+async function firstNonNull<T>(works: readonly Promise<T | null>[]): Promise<T | null> {
+  /* v8 ignore next 3 -- current callers always pass direct and relay reads. */
+  if (works.length === 0) {
+    return null;
+  }
+  return new Promise<T | null>((resolve) => {
+    let settled = false;
+    let remaining = works.length;
+    for (const work of works) {
+      work.then((value) => {
+        /* v8 ignore next 3 -- defensive for slower reads resolving after a winner was selected. */
+        if (settled) {
+          return;
+        }
+        if (value !== null) {
+          settled = true;
+          resolve(value);
+          return;
+        }
+        remaining -= 1;
+        if (remaining === 0) {
+          settled = true;
+          resolve(null);
+        }
+      });
+    }
+  });
+}
+
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   const result = await putWithAckTimeout(chain, value, { timeoutMs: PUT_ACK_TIMEOUT_MS });
   if (result.timedOut) {
@@ -851,6 +921,65 @@ export async function readTopicLatestSynthesisStatus(client: VennClient, topicId
 export async function readTopicLatestSynthesis(client: VennClient, topicId: string): Promise<TopicSynthesisV2 | null> {
   const result = await readTopicLatestSynthesisStatus(client, topicId);
   return result.state === 'valid' ? result.synthesis : null;
+}
+
+export async function readTopicLatestSynthesisViaRelayRest(
+  client: VennClient,
+  topicId: string,
+): Promise<TopicSynthesisV2 | null> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const peer = client.config.peers[0];
+  if (!peer || typeof fetch !== 'function') {
+    return null;
+  }
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/topics/synthesis?topic_id=${encodeURIComponent(normalizedTopicId)}`,
+  );
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { record?: unknown };
+    const result = await parseSynthesisFromStoredRecord(client, {
+      path: topicLatestPath(normalizedTopicId),
+      topicId: normalizedTopicId,
+      data: payload.record,
+    });
+    return result.state === 'valid' ? result.synthesis : null;
+  } catch {
+    return null;
+  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readTopicLatestSynthesisWithRelayRestFallback(
+  client: VennClient,
+  topicId: string,
+): Promise<TopicSynthesisV2 | null> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  return firstNonNull([
+    timeoutAsNull(
+      readTopicLatestSynthesis(client, normalizedTopicId),
+      Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+    ),
+    timeoutAsNull(
+      readTopicLatestSynthesisViaRelayRest(client, normalizedTopicId),
+      RELAY_REST_READ_TIMEOUT_MS + 1_000,
+    ),
+  ]);
 }
 
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {

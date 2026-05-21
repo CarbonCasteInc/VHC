@@ -21,6 +21,7 @@
     "test:live:daemon-feed:semantic-public": "VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-semantic-audit.live.spec.ts",
     "test:live:daemon-feed:publisher-canary": "node --loader ../../tools/node/esm-resolve-loader.mjs ./src/live/daemon-feed-publisher-canary.mjs",
     "test:live:daemon-feed:consumer-smoke": "node --loader ../../tools/node/esm-resolve-loader.mjs ./src/live/daemon-feed-consumer-smoke.mjs",
+    "test:live:public-feed-browser-smoke": "node --loader ../../tools/node/esm-resolve-loader.mjs ./src/live/public-feed-browser-smoke.mjs",
     "test:live:daemon-feed:semantic-soak": "node ./src/live/daemon-feed-semantic-soak.mjs",
     "test:live:daemon-feed:semantic-soak:readiness": "node ./src/live/daemon-feed-semantic-soak-readiness.mjs",
     "test:mesh:browser-canary": "playwright test --config=playwright.mesh-canary.config.ts src/mesh/browser-mesh-canary.spec.ts",

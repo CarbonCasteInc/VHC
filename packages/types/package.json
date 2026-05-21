@@ -9,12 +9,12 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ../../tools/scripts/patch-esm-relative-imports.mjs dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config ../../vitest.config.ts --dir ../../ packages/types/src",
     "lint": "echo 'No lint yet'"

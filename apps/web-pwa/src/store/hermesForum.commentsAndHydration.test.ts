@@ -360,6 +360,54 @@ describe('hermesForum store (comments & hydration)', () => {
     expect(store.getState().threads.has('news-story:other')).toBe(false);
   });
 
+  it('hydrates a deterministic story thread from the relay read fallback when Gun snapshots miss it', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        thread_id: 'news-story:story-relay',
+        thread: {
+          id: 'news-story:story-relay',
+          schemaVersion: 'hermes-thread-v0',
+          title: 'Relay recovered story thread',
+          content: 'Thread metadata recovered from the relay read fallback.',
+          author: 'relay-author',
+          timestamp: 1,
+          tags: ['news'],
+          upvotes: 0,
+          downvotes: 0,
+          score: 0,
+          topicId: 'topic-relay',
+          isHeadline: true,
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const store = createForumStore({
+        resolveClient: () => ({ config: { peers: ['wss://relay.example.test/gun'] } } as any),
+        randomId: () => 'unused',
+        now: () => 1,
+      });
+
+      await expect(store.getState().loadThread('news-story:story-relay')).resolves.toMatchObject({
+        id: 'news-story:story-relay',
+        title: 'Relay recovered story thread',
+        tags: ['news'],
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://relay.example.test/vh/forum/thread?thread_id=news-story%3Astory-relay',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { accept: 'application/json' },
+        })
+      );
+      expect(store.getState().threads.get('news-story:story-relay')?.isHeadline).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('createComment marks substantive comments', async () => {
     setIdentity('commenter');
     const ledgerState = useXpLedger.getState();
@@ -576,6 +624,41 @@ describe('hermesForum store (comments & hydration)', () => {
       expect(commentWrites).toContain('thenable fallback write');
       expect(store.getState().comments.get('thread-thenable')?.map((entry) => entry.id)).toEqual([
         'comment-thenable-fallback'
+      ]);
+      forumSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries comments as scalar fields when Gun returns a never-settling Promise', async () => {
+    vi.useFakeTimers();
+    try {
+      setIdentity('commenter');
+      const ledgerState = useXpLedger.getState();
+      const forumSpy = vi.spyOn(ledgerState, 'applyForumXP').mockImplementation(() => {});
+      commentsChain.put.mockImplementationOnce((value: any) => {
+        commentWrites.push(value);
+        return new Promise(() => {});
+      });
+      const store = createForumStore({
+        resolveClient: () => ({} as any),
+        randomId: () => 'comment-promise-fallback',
+        now: () => 1
+      });
+
+      const pending = store.getState().createComment('thread-promise', 'promise fallback write', 'discuss');
+      await waitForMockCall(commentsChain.put);
+      await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_PUT_ACK_TIMEOUT_MS);
+      await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS);
+      const comment = await pending;
+
+      expect(comment.id).toBe('comment-promise-fallback');
+      expect(commentsChain.get).toHaveBeenCalledWith('comment-promise-fallback');
+      expect(commentsChain.get).toHaveBeenCalledWith('content');
+      expect(commentWrites).toContain('promise fallback write');
+      expect(store.getState().comments.get('thread-promise')?.map((entry) => entry.id)).toEqual([
+        'comment-promise-fallback'
       ]);
       forumSpy.mockRestore();
     } finally {
@@ -1286,6 +1369,54 @@ describe('hermesForum store (comments & hydration)', () => {
     expect(store.getState().comments.get(comment.threadId)?.map((item) => item.id)).toEqual([comment.id]);
   });
 
+  it('hydrates persisted comments from the relay read fallback when Gun snapshots miss them', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        thread_id: 'thread-relay-read',
+        comments: [
+          {
+            schemaVersion: 'hermes-comment-v1',
+            id: 'comment-relay-read',
+            threadId: 'thread-relay-read',
+            parentId: null,
+            content: 'relay read fallback',
+            author: 'author-relay',
+            timestamp: 10,
+            stance: 'discuss',
+            upvotes: 0,
+            downvotes: 0,
+          },
+        ],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const store = createForumStore({
+        resolveClient: () => ({ config: { peers: ['wss://relay.example.test/gun'] } } as any),
+        randomId: () => 'unused',
+        now: () => 1,
+      });
+
+      const comments = await store.getState().loadComments('thread-relay-read');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://relay.example.test/vh/forum/comments?thread_id=thread-relay-read',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { accept: 'application/json' },
+        })
+      );
+      expect(comments.map((comment) => comment.id)).toEqual(['comment-relay-read']);
+      expect(store.getState().comments.get('thread-relay-read')?.map((comment) => comment.id)).toEqual([
+        'comment-relay-read'
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('pulls per-comment index entry snapshots before returning from loadComments', async () => {
     setIdentity('hydrator');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-entry-index-snapshot', now: () => 1 });
@@ -1450,6 +1581,52 @@ describe('hermesForum store (comments & hydration)', () => {
       idsJson: JSON.stringify([comment.id]),
       updatedAt: 2
     });
+    for (let attempt = 0; attempt < 5 && !store.getState().comments.get(comment.threadId); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(commentNode.get).toHaveBeenCalledWith('schemaVersion');
+    expect(commentNode.get).toHaveBeenCalledWith('content');
+    expect(store.getState().comments.get(comment.threadId)?.map((item) => item.id)).toEqual([comment.id]);
+  });
+
+  it('reconstructs mapped comments from scalar fields when whole-node hydration is partial', async () => {
+    setIdentity('hydrator');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-map-scalars', now: () => 1 });
+    const comment = {
+      id: 'comment-from-map-scalars',
+      schemaVersion: 'hermes-comment-v1',
+      threadId: 'news-story:story-mapped-scalar-comment',
+      parentId: null,
+      content: 'mapped comment payload reconstructed from scalar fields',
+      author: 'hydrator',
+      timestamp: 1,
+      stance: 'discuss',
+      upvotes: 0,
+      downvotes: 0
+    };
+    const commentNode = {
+      once: vi.fn((cb: (data: any) => void) => cb({
+        id: comment.id,
+        schemaVersion: comment.schemaVersion,
+        threadId: comment.threadId
+      })),
+      get: vi.fn((field: keyof typeof comment) => ({
+        once: vi.fn((cb: (data: any) => void) => cb(comment[field]))
+      })),
+      put: commentsChain.put
+    };
+    commentsChain.get.mockImplementation((key: string) => (key === comment.id ? commentNode : commentsChain));
+    commentSnapshots.push({
+      key: comment.id,
+      data: {
+        id: comment.id,
+        schemaVersion: comment.schemaVersion,
+        threadId: comment.threadId
+      }
+    });
+
+    await store.getState().loadComments(comment.threadId);
     for (let attempt = 0; attempt < 5 && !store.getState().comments.get(comment.threadId); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }

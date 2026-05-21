@@ -17,8 +17,10 @@ vi.mock('@vh/gun-client', () => ({
   hasForbiddenNewsPayloadFields: hasForbiddenNewsPayloadFieldsMock,
   readLatestStoryIds: readLatestStoryIdsMock,
   readNewsHotIndex: readNewsHotIndexMock,
-  readNewsLatestIndex: readNewsLatestIndexMock,
+  readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock,
+  readNewsStoryViaRelayRest: readNewsStoryMock,
+  readNewsStoryWithRelayRestFallback: readNewsStoryMock,
   readNewsStoryline: readNewsStorylineMock,
 }));
 

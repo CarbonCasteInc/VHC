@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolvePublicSemanticSoakMaxItemsTotal,
   resolvePublicSemanticSoakSourceIds,
   resolvePublicSemanticSoakSpawnEnv,
   runDaemonFeedSemanticSoak,
+  summarizeRun,
 } from './daemon-feed-semantic-soak-core.mjs';
 
 function makeAttachment(name, body) {
@@ -34,6 +36,70 @@ function makeReport(overrides = {}) {
       sample_shortfall: 0,
       pass: false,
     },
+    ...overrides,
+  };
+}
+
+function makeClusterCapture(overrides = {}) {
+  return {
+    schemaVersion: 'daemon-feed-cluster-capture-v1',
+    generatedAt: '2026-03-24T00:00:00.000Z',
+    runId: 'semantic-soak-test',
+    ticks: [{
+      tickSequence: 1,
+      schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+      generatedAt: '2026-03-24T00:00:00.000Z',
+      normalizedItems: [{
+        sourceId: 'guardian-us',
+        publisher: 'guardian-us',
+        url: 'https://example.com/guardian-us',
+        canonicalUrl: 'https://example.com/guardian-us',
+        title: 'Guardian headline',
+        publishedAt: 1,
+        url_hash: 'guardian-us-1',
+        entity_keys: ['guardian'],
+        cluster_text: 'Guardian headline',
+      }],
+      topicCaptures: [{
+        topicId: 'topic-news',
+        items: [{
+          sourceId: 'guardian-us',
+          publisher: 'guardian-us',
+          url: 'https://example.com/guardian-us',
+          canonicalUrl: 'https://example.com/guardian-us',
+          title: 'Guardian headline',
+          publishedAt: 1,
+          url_hash: 'guardian-us-1',
+          entity_keys: ['guardian'],
+          cluster_text: 'Guardian headline',
+        }],
+        result: {
+          bundles: [{
+            schemaVersion: 'story-bundle-v0',
+            story_id: 'story-1',
+            topic_id: 'topic-news',
+            headline: 'Guardian headline',
+            cluster_window_start: 1,
+            cluster_window_end: 1,
+            sources: [{
+              source_id: 'guardian-us',
+              publisher: 'guardian-us',
+              url: 'https://example.com/guardian-us',
+              url_hash: 'guardian-us-1',
+              title: 'Guardian headline',
+            }],
+            cluster_features: {
+              entity_keys: ['guardian'],
+              time_bucket: '2026-03-24T00',
+              semantic_signature: 'sig-1',
+            },
+            provenance_hash: 'guardian-us-prov',
+            created_at: 1,
+          }],
+          storylines: [],
+        },
+      }],
+    }],
     ...overrides,
   };
 }
@@ -144,11 +210,183 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
       'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('3');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('12');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
+    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('50');
+    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('64');
+    expect(env.VH_DAEMON_FEED_READY_TIMEOUT_MS).toBe('900000');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_DAEMON_FEED_MANAGED_STORYCLUSTER).toBe('true');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('caps the default public item total to one remote StoryCluster request', () => {
+    const sourceIds = Array.from({ length: 28 }, (_, index) => `source-${index}`);
+
+    expect(resolvePublicSemanticSoakMaxItemsTotal({}, sourceIds)).toBe('50');
+    expect(resolvePublicSemanticSoakMaxItemsTotal({
+      VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '2',
+      VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST: '24',
+    }, sourceIds)).toBe('24');
+    expect(resolvePublicSemanticSoakMaxItemsTotal({
+      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '112',
+      VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST: '24',
+    }, sourceIds)).toBe('112');
+  });
+
+  it('shares managed StoryCluster state across runs in the same soak artifact by default', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-persistent-state', 4, 180000, {
+      repoRoot: '/repo',
+      artifactDir: '/repo/.tmp/daemon-feed-semantic-soak/123',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR).toBe(
+      '/repo/.tmp/daemon-feed-semantic-soak/123/storycluster-state',
+    );
+    expect(env.VH_STORYCLUSTER_STATE_DIR).toBe(
+      '/repo/.tmp/daemon-feed-semantic-soak/123/storycluster-state',
+    );
+  });
+
+  it('pins managed relay peer env to the run-local relay even when ambient public peers are present', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_GUN_PEERS: '["wss://gun-a.carboncaste.io/gun"]',
+      VITE_GUN_PEERS: '["wss://gun-b.carboncaste.io/gun"]',
+    }, 'run-managed-relay-peers', 4, 180000, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+      portPlan: TEST_PORT_PLAN,
+    });
+
+    expect(env.VH_DAEMON_FEED_MANAGED_RELAY).toBe('true');
+    expect(env.VH_GUN_PEERS).toBe('["http://127.0.0.1:8777/gun"]');
+    expect(env.VITE_GUN_PEERS).toBe('["http://127.0.0.1:8777/gun"]');
+  });
+
+  it('pins shared relay peer env to the shared relay URL', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_SHARED_RELAY_URL: 'http://127.0.0.1:7777',
+      VH_GUN_PEERS: '["wss://gun-a.carboncaste.io/gun"]',
+      VITE_GUN_PEERS: '["wss://gun-b.carboncaste.io/gun"]',
+    }, 'run-shared-relay-peers', 4, 180000, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+      portPlan: TEST_PORT_PLAN,
+    });
+
+    expect(env.VH_DAEMON_FEED_MANAGED_RELAY).toBe('false');
+    expect(env.VH_DAEMON_FEED_SHARED_RELAY_URL).toBe('http://127.0.0.1:7777/gun');
+    expect(env.VH_GUN_PEERS).toBe('["http://127.0.0.1:7777/gun"]');
+    expect(env.VITE_GUN_PEERS).toBe('["http://127.0.0.1:7777/gun"]');
+  });
+
+  it('counts singleton store snapshots in run composition but still requires cluster capture evidence', () => {
+    const result = summarizeRun(
+      {
+        requested_sample_count: 2,
+        effective_sample_count: 0,
+        sampled_story_count: 0,
+        visible_story_ids: ['story-singleton'],
+        supply: { status: 'singleton_only', story_count: 1, auditable_count: 0 },
+        bundles: [],
+        overall: {
+          pass: true,
+          related_topic_only_pair_count: 0,
+          audited_pair_count: 0,
+          sample_fill_rate: 1,
+          sample_shortfall: 0,
+        },
+      },
+      {
+        story_count: 1,
+        auditable_count: 0,
+        stories: [{
+          story_id: 'story-singleton',
+          topic_id: 'topic-singleton',
+          headline: 'Standalone city hall evacuation clears',
+          source_count: 1,
+          primary_source_count: 1,
+        }],
+      },
+      {
+        sources: [{
+          source_id: 'local-daily',
+          publisher: 'Local Daily',
+          url: 'https://example.com/story',
+          url_hash: 'hash-story',
+          title: 'Standalone city hall evacuation clears',
+          observations: [{
+            story_id: 'story-singleton',
+            source_roles: ['primary_source', 'source'],
+          }],
+        }],
+      },
+      null,
+      null,
+      0,
+      '/repo/.tmp/out/run-1.playwright.json',
+      null,
+      '/repo/.tmp/out/run-1.semantic-audit.json',
+      null,
+      '/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json',
+      '/repo/.tmp/out/run-1.retained-source-evidence.json',
+      null,
+      null,
+    );
+
+    expect(result.pass).toBe(false);
+    expect(result.clusterCaptureEvidence.blockingReasons).toContain('daemon_cluster_capture_schema_invalid');
+    expect(result.bundleComposition).toMatchObject({
+      bundledStoryCount: 1,
+      singletonBundleCount: 1,
+      uniqueSourceCount: 1,
+      uniqueSourceIds: ['local-daily'],
+    });
+    expect(result.storyIds).toEqual(['story-singleton']);
+  });
+
+  it('preserves an explicit persistent StoryCluster state directory override', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR: '/repo/.tmp/storycluster-live-state',
+    }, 'run-explicit-persistent-state', 4, 180000, {
+      repoRoot: '/repo',
+      artifactDir: '/repo/.tmp/daemon-feed-semantic-soak/123',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR).toBe('/repo/.tmp/storycluster-live-state');
+    expect(env.VH_STORYCLUSTER_STATE_DIR).toBe('/repo/.tmp/storycluster-live-state');
+  });
+
+  it('preserves explicit public StoryCluster chunk and readiness overrides', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST: '24',
+      VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES: '12',
+      VH_DAEMON_FEED_READY_TIMEOUT_MS: '480000',
+    }, 'run-overrides', 4, 180000, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST).toBe('24');
+    expect(env.VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES).toBe('12');
+    expect(env.VH_DAEMON_FEED_READY_TIMEOUT_MS).toBe('480000');
   });
 
   it('reuses the shared automation-stack storycluster when required', () => {
@@ -241,9 +479,9 @@ describe('runDaemonFeedSemanticSoak', () => {
     ]);
   });
 
-  it('preserves explicit feed source and limit overrides', () => {
+  it('uses the dedicated public-smoke source override and preserves item limits', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({
-      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,fox-latest',
+      VH_DAEMON_FEED_PUBLIC_SMOKE_SOURCE_IDS: 'guardian-us,fox-latest',
       VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '2',
       VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '8',
     }, 'run-2', 2, 1000);
@@ -253,6 +491,33 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('ignores ambient dev source ids and prefers fresh public source-health ranking', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,fox-latest',
+    }, 'run-dev-env', 2, 1000, {
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        keepSourceIds: [
+          'guardian-us',
+          'fox-latest',
+          'bbc-us-canada',
+        ],
+        feedContribution: {
+          sources: [
+            { sourceId: 'bbc-us-canada', corroboratedBundleCount: 8, bundleAppearanceCount: 17, ingestedItemCount: 24 },
+            { sourceId: 'guardian-us', corroboratedBundleCount: 6, bundleAppearanceCount: 10, ingestedItemCount: 33 },
+            { sourceId: 'fox-latest', corroboratedBundleCount: 2, bundleAppearanceCount: 8, ingestedItemCount: 25 },
+          ],
+        },
+      }),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('bbc-us-canada,guardian-us,fox-latest');
   });
 
   it('does not inject smoke-only source defaults for fixture runs', () => {
@@ -284,6 +549,22 @@ describe('runDaemonFeedSemanticSoak', () => {
       'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
+      'nevadaindependent-main',
+      'canarymedia-main',
+      'abc-politics',
+      'huffpost-us',
+      'npr-news',
+      'npr-politics',
+      'pbs-politics',
+      'fox-latest',
+      'nypost-politics',
+      'ap-topnews',
+      'ap-politics',
+      'latimes-california',
+      'bbc-general',
+      'fedsmith-news',
+      'democracydocket-alerts',
+      'bigbendsentinel-border-wall',
     ]);
   });
 
@@ -318,6 +599,22 @@ describe('runDaemonFeedSemanticSoak', () => {
       'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
+      'nevadaindependent-main',
+      'canarymedia-main',
+      'abc-politics',
+      'huffpost-us',
+      'npr-news',
+      'npr-politics',
+      'pbs-politics',
+      'fox-latest',
+      'nypost-politics',
+      'ap-topnews',
+      'ap-politics',
+      'latimes-california',
+      'bbc-general',
+      'fedsmith-news',
+      'democracydocket-alerts',
+      'bigbendsentinel-border-wall',
     ]);
   });
 
@@ -389,8 +686,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     };
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit', runAudit),
-      makeAttachment('daemon-first-feed-retained-source-evidence', {
-        schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+	      makeAttachment('daemon-first-feed-retained-source-evidence', {
+	        schemaVersion: 'daemon-feed-retained-source-evidence-v1',
         generatedAt: '2026-03-22T00:00:00.000Z',
         story_count: 3,
         auditable_count: 1,
@@ -690,10 +987,11 @@ describe('runDaemonFeedSemanticSoak', () => {
             is_dom_visible: true,
             source_roles: ['primary_source', 'source'],
           }],
-        }],
-      }),
-      makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['browser-log'] }),
-    ]);
+	        }],
+	      }),
+	      makeAttachment('daemon-first-feed-cluster-capture', makeClusterCapture()),
+	      makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['browser-log'] }),
+	    ]);
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
@@ -939,17 +1237,18 @@ describe('runDaemonFeedSemanticSoak', () => {
         status: 0,
         stdout: JSON.stringify({
           suites: [{ specs: [{ tests: [{ results: [makePrimaryResult([
-            makeAttachment('daemon-first-feed-semantic-audit', makeReport({
-              overall: {
-                audited_pair_count: 1,
+	            makeAttachment('daemon-first-feed-semantic-audit', makeReport({
+	              overall: {
+	                audited_pair_count: 1,
                 related_topic_only_pair_count: 0,
                 sample_fill_rate: 1,
                 sample_shortfall: 0,
-                pass: true,
-              },
-            })),
-          ])] }] }] }],
-        }),
+	                pass: true,
+	              },
+	            })),
+	            makeAttachment('daemon-first-feed-cluster-capture', makeClusterCapture()),
+	          ])] }] }] }],
+	        }),
         stderr: '',
       };
     });
@@ -1244,9 +1543,10 @@ describe('runDaemonFeedSemanticSoak', () => {
           canonical_sources: [{ source_id: 'guardian-us' }, { source_id: 'cbs-politics' }],
           pairs: [{ label: 'same_incident' }],
           has_related_topic_only_pair: false,
-        }],
-      })),
-    ]);
+	        }],
+	      })),
+	      makeAttachment('daemon-first-feed-cluster-capture', makeClusterCapture()),
+	    ]);
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
@@ -1281,9 +1581,9 @@ describe('runDaemonFeedSemanticSoak', () => {
       resolvePortPlan: resolveTestPortPlan,
       log: vi.fn(),
       errorLog,
-      sleepImpl: vi.fn(),
-        ...makeManagedRelayMocks(),
-    });
+	      sleepImpl: vi.fn(),
+	      ...makeManagedRelayMocks(),
+	    });
 
     expect(result.summary.strictSoakPass).toBe(true);
     expect(result.continuityAnalysis).toBeNull();
@@ -1357,9 +1657,10 @@ describe('runDaemonFeedSemanticSoak', () => {
             is_dom_visible: true,
             source_roles: ['source'],
           }],
-        }],
-      }),
-    ]);
+	        }],
+	      }),
+	      makeAttachment('daemon-first-feed-cluster-capture', makeClusterCapture()),
+	    ]);
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };

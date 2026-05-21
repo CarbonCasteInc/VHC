@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
-    "build:source-health-deps": "pnpm --filter @vh/types build && pnpm --filter @vh/crypto build && pnpm --filter @vh/data-model build && pnpm --filter @vh/gun-client build && pnpm --filter @vh/ai-engine build",
+    "build:source-health-deps": "pnpm --filter @vh/types build && pnpm --filter @vh/crypto build && pnpm --filter @vh/data-model build && pnpm --filter @vh/luma-sdk build && pnpm --filter @vh/gun-client build && pnpm --filter @vh/ai-engine build",
     "report:source-admission": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
     "report:source-health": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
     "report:source-scout": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceCandidateScout.js",

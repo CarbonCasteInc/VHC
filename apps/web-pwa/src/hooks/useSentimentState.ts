@@ -393,11 +393,16 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   const startedAt = Date.now();
   let success = true;
   let timedOut = false;
-  let errorMessage: string | undefined;
   let eventWriteOk = false;
   let voterNodeOk = false;
   let snapshotOk = false;
   let readbackRecovered = false;
+  let eventErrorMessage: string | undefined;
+  let aggregateErrorMessage: string | undefined;
+
+  const combinedErrorMessage = () => [eventErrorMessage, aggregateErrorMessage]
+    .filter((message): message is string => Boolean(message))
+    .join('; ') || undefined;
 
   const finalize = () => {
     logMeshWriteResult({
@@ -406,7 +411,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       success,
       timed_out: timedOut,
       latency_ms: Math.max(0, Date.now() - startedAt),
-      error: errorMessage,
+      error: combinedErrorMessage(),
       event_write_ok: eventWriteOk,
       voter_node_ok: voterNodeOk,
       snapshot_ok: snapshotOk,
@@ -417,7 +422,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   const client = resolveClientFromAppStore();
   if (!client) {
     success = false;
-    errorMessage = 'client-unavailable';
+    eventErrorMessage = 'client-unavailable';
     finalize();
     return;
   }
@@ -427,52 +432,9 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
     typeof (client as { mesh?: { get?: unknown } }).mesh?.get === 'function';
   if (!hasSentimentTransports) {
     success = false;
-    errorMessage = 'sentiment-transport-unavailable';
+    eventErrorMessage = 'sentiment-transport-unavailable';
     finalize();
     return;
-  }
-
-  try {
-    const eventWriteResult = await writeSentimentEvent(client, {
-      topic_id: signal.topic_id,
-      synthesis_id: signal.synthesis_id,
-      epoch: signal.epoch,
-      point_id: signal.point_id,
-      agreement: signal.agreement,
-      weight: signal.weight,
-      constituency_proof: signal.constituency_proof,
-      emitted_at: signal.emitted_at,
-    });
-
-    if (!eventWriteResult.ack.acknowledged) {
-      const readbackRecoveredEvent = await waitForSentimentOutboxReadback(client, {
-        topic_id: signal.topic_id,
-        synthesis_id: signal.synthesis_id,
-        epoch: signal.epoch,
-        analysis_id: signal.analysis_id,
-        point_id: signal.point_id,
-        agreement: signal.agreement,
-        weight: signal.weight,
-        constituency_proof: signal.constituency_proof,
-        emitted_at: signal.emitted_at,
-      });
-      if (readbackRecoveredEvent) {
-        eventWriteOk = true;
-        readbackRecovered = true;
-      } else {
-        success = false;
-        timedOut = eventWriteResult.ack.timedOut;
-        errorMessage = eventWriteResult.ack.timedOut
-          ? 'sentiment-outbox-timeout'
-          : 'sentiment-outbox-not-acknowledged';
-      }
-    } else {
-      eventWriteOk = true;
-    }
-  } catch (error) {
-    success = false;
-    errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn('[vh:sentiment] Failed to write encrypted sentiment event:', error);
   }
 
   try {
@@ -610,9 +572,51 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
     }
   } catch (error) {
     success = false;
-    const nextErrorMessage = error instanceof Error ? error.message : String(error);
-    errorMessage = errorMessage ? `${errorMessage}; ${nextErrorMessage}` : nextErrorMessage;
+    aggregateErrorMessage = error instanceof Error ? error.message : String(error);
     console.warn('[vh:sentiment] Failed to project aggregate voter node:', error);
+  }
+
+  try {
+    const eventWriteResult = await writeSentimentEvent(client, {
+      topic_id: signal.topic_id,
+      synthesis_id: signal.synthesis_id,
+      epoch: signal.epoch,
+      point_id: signal.point_id,
+      agreement: signal.agreement,
+      weight: signal.weight,
+      constituency_proof: signal.constituency_proof,
+      emitted_at: signal.emitted_at,
+    });
+
+    if (!eventWriteResult.ack.acknowledged) {
+      const readbackRecoveredEvent = await waitForSentimentOutboxReadback(client, {
+        topic_id: signal.topic_id,
+        synthesis_id: signal.synthesis_id,
+        epoch: signal.epoch,
+        analysis_id: signal.analysis_id,
+        point_id: signal.point_id,
+        agreement: signal.agreement,
+        weight: signal.weight,
+        constituency_proof: signal.constituency_proof,
+        emitted_at: signal.emitted_at,
+      });
+      if (readbackRecoveredEvent) {
+        eventWriteOk = true;
+        readbackRecovered = true;
+      } else {
+        success = false;
+        timedOut = eventWriteResult.ack.timedOut;
+        eventErrorMessage = eventWriteResult.ack.timedOut
+          ? 'sentiment-outbox-timeout'
+          : 'sentiment-outbox-not-acknowledged';
+      }
+    } else {
+      eventWriteOk = true;
+    }
+  } catch (error) {
+    success = false;
+    eventErrorMessage = error instanceof Error ? error.message : String(error);
+    console.warn('[vh:sentiment] Failed to write encrypted sentiment event:', error);
   }
 
   finalize();

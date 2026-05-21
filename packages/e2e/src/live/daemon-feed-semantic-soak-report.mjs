@@ -69,6 +69,7 @@ export const PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA = Object.freeze({
 export const PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA = Object.freeze({
   minimumExecutionCount: 4,
   minimumPromotableExecutionCount: 2,
+  minimumCorroborationEvidenceExecutionCount: 1,
   maximumNotReadyExecutionCount: 1,
   minimumAverageCorroboratedBundleRate: 0.5,
   minimumAverageUniqueSourceCount: 2,
@@ -99,6 +100,67 @@ function ratio(numerator, denominator) {
     return null;
   }
   return numerator / denominator;
+}
+
+function hasHeadlineCorroborationEvidence(run) {
+  return (run?.totalSampledStories ?? 0) > 0
+    || (run?.totalAuditedPairs ?? 0) > 0
+    || (run?.totalCorroboratedBundles ?? 0) > 0
+    || (run?.averageCorroboratedBundleRate ?? 0) > 0;
+}
+
+function buildHeadlineSoakReleaseEvidenceWindow(trendIndex, criteria) {
+  const runs = Array.isArray(trendIndex?.runs) ? trendIndex.runs.filter(Boolean) : [];
+  if (runs.length === 0) {
+    return trendIndex;
+  }
+
+  const windowSize = Math.max(
+    criteria.minimumExecutionCount,
+    criteria.minimumPromotableExecutionCount,
+    criteria.maximumNotReadyExecutionCount + criteria.minimumPromotableExecutionCount,
+  );
+  const windowRuns = runs.slice(-windowSize);
+  const promotableRuns = windowRuns.filter((run) => run.readinessStatus === 'promotable');
+  const strictSoakPassCount = windowRuns.filter((run) => run.strictSoakPass).length;
+  const promotableCorroborationEvidenceRuns = promotableRuns.filter(hasHeadlineCorroborationEvidence);
+  const releaseCorroboratedBundleRates = promotableCorroborationEvidenceRuns
+    .map((run) => run.averageCorroboratedBundleRate);
+  const promotableCorroboratedBundleRates = promotableRuns
+    .map((run) => run.averageCorroboratedBundleRate);
+  const promotableUniqueSourceCounts = promotableRuns.map((run) => run.averageUniqueSourceCount);
+  const uniqueSourceCounts = windowRuns.map((run) => run.averageUniqueSourceCount);
+
+  return {
+    ...trendIndex,
+    executionCount: windowRuns.length,
+    promotableExecutionCount: promotableRuns.length,
+    notReadyExecutionCount: windowRuns.length - promotableRuns.length,
+    strictSoakPassCount,
+    strictSoakFailCount: windowRuns.length - strictSoakPassCount,
+    latestExecution: windowRuns.at(-1) ?? null,
+    latestPromotableExecution:
+      [...windowRuns].reverse().find((run) => run.readinessStatus === 'promotable') ?? null,
+    latestStrictFailureExecution: [...windowRuns].reverse().find((run) => !run.strictSoakPass) ?? null,
+    usefulness: {
+      ...(trendIndex?.usefulness ?? {}),
+      averageCorroboratedBundleRate: average(windowRuns.map((run) => run.averageCorroboratedBundleRate)),
+      averageUniqueSourceCount: average(uniqueSourceCounts),
+      maxUniqueSourceCount: uniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
+      promotableAverageCorroboratedBundleRate: average(promotableCorroboratedBundleRates),
+      promotableAverageUniqueSourceCount: average(promotableUniqueSourceCounts),
+      promotableMaxUniqueSourceCount: promotableUniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...promotableUniqueSourceCounts.filter(isFiniteNumber)),
+      promotableRunCount: promotableRuns.length,
+      releaseAverageCorroboratedBundleRate: average(releaseCorroboratedBundleRates),
+      corroborationEvidenceExecutionCount: promotableCorroborationEvidenceRuns.length,
+      singletonOnlyPromotableExecutionCount:
+        promotableRuns.length - promotableCorroborationEvidenceRuns.length,
+    },
+  };
 }
 
 function canonicalSourceCount(bundle) {
@@ -177,6 +239,12 @@ export function classifySoakRun(result) {
   if (result.pass) {
     return 'pass';
   }
+  if (
+    result?.clusterCaptureEvidence?.pass === false ||
+    (!result?.clusterCapturePath && result?.auditArtifactState === 'present')
+  ) {
+    return 'artifact_missing';
+  }
   if ((result.relatedTopicOnlyPairCount ?? 0) > 0) {
     return 'semantic_contamination';
   }
@@ -207,7 +275,7 @@ export function buildRunArtifactPaths(result) {
 }
 
 export function summarizeSoakDensity(result) {
-  const requestedSampleCount = result.requestedSampleCount ?? null;
+  const requestedSampleCount = result.effectiveSampleCount ?? result.requestedSampleCount ?? null;
   const sampledStoryCount = result.sampledStoryCount ?? null;
   const auditedPairCount = result.auditedPairCount ?? null;
   const relatedTopicOnlyPairCount = result.relatedTopicOnlyPairCount ?? null;
@@ -217,8 +285,12 @@ export function summarizeSoakDensity(result) {
   return {
     requestedSampleCount,
     sampledStoryCount,
-    sampleFillRate: ratio(sampledStoryCount, requestedSampleCount),
-    sampleShortfall: isFiniteNumber(requestedSampleCount) && isFiniteNumber(sampledStoryCount)
+    sampleFillRate: isFiniteNumber(result.sampleFillRate)
+      ? result.sampleFillRate
+      : ratio(sampledStoryCount, requestedSampleCount),
+    sampleShortfall: isFiniteNumber(result.sampleShortfall)
+      ? result.sampleShortfall
+      : isFiniteNumber(requestedSampleCount) && isFiniteNumber(sampledStoryCount)
       ? Math.max(requestedSampleCount - sampledStoryCount, 0)
       : null,
     auditedPairCount,
@@ -268,7 +340,14 @@ export function assessPromotionReadiness(trend) {
   if ((trend?.density?.averageSampleFillRate ?? 0) < criteria.minimumAverageSampleFillRate) {
     blockingReasons.push('insufficient_sample_fill_rate');
   }
-  if ((trend?.density?.averageAuditedPairsPerSampledStory ?? 0) < criteria.minimumAverageAuditedPairsPerSampledStory) {
+  const singletonOnlyPassTrend =
+    (trend?.totalRuns ?? 0) > 0
+    && (trend?.supply?.singletonOnlyPassCount ?? 0) === (trend?.totalRuns ?? 0)
+    && (trend?.classifications?.pass ?? 0) === (trend?.totalRuns ?? 0);
+  if (
+    (trend?.density?.averageAuditedPairsPerSampledStory ?? 0) < criteria.minimumAverageAuditedPairsPerSampledStory
+    && !singletonOnlyPassTrend
+  ) {
     blockingReasons.push('insufficient_audited_pair_density');
   }
 
@@ -318,6 +397,8 @@ export function buildSoakTrend(results) {
       run: result.run,
       pass: result.pass,
       classification,
+      nominalRequestedSampleCount: result.requestedSampleCount ?? null,
+      effectiveSampleCount: result.effectiveSampleCount ?? result.requestedSampleCount ?? null,
       requestedSampleCount: density.requestedSampleCount,
       sampledStoryCount: density.sampledStoryCount,
       auditedPairCount: density.auditedPairCount,
@@ -334,6 +415,7 @@ export function buildSoakTrend(results) {
       density,
       bundleComposition: result.bundleComposition ?? null,
       repeatedStoryCount: result.repeatedStoryCount ?? null,
+      supplyStatus: result.supplyStatus ?? null,
     };
   });
 
@@ -351,6 +433,9 @@ export function buildSoakTrend(results) {
   const failureAuditableDensities = runs.map((run) => run.density.failureAuditableDensity);
   const corroboratedBundleRates = runs.map((run) => run.bundleComposition?.corroboratedBundleRate);
   const uniqueSourceCounts = runs.map((run) => run.bundleComposition?.uniqueSourceCount);
+  const singletonOnlyPassCount = runs.filter(
+    (run) => run.pass && run.supplyStatus === 'singleton_only',
+  ).length;
 
   const trend = {
     schemaVersion: 'daemon-feed-semantic-soak-trend-v2',
@@ -388,6 +473,12 @@ export function buildSoakTrend(results) {
         ? null
         : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
       averageRepeatedStoryCount: average(runs.map((run) => run.repeatedStoryCount)),
+    },
+    supply: {
+      singletonOnlyPassCount,
+      fullPassCount: runs.filter((run) => run.pass && run.supplyStatus === 'full').length,
+      partialRunCount: runs.filter((run) => run.supplyStatus === 'partial').length,
+      emptyRunCount: runs.filter((run) => run.supplyStatus === 'empty').length,
     },
     longestFailureStreak,
     longestSupplyFailureStreak: longestStarvationStreak,
@@ -506,6 +597,10 @@ export function buildHeadlineSoakTrendIndex(
   const repeatedStoryCounts = recentRuns.map((run) => run.repeatedStoryCount);
   const promotableCorroboratedBundleRates = promotableRuns.map((run) => run.averageCorroboratedBundleRate);
   const promotableUniqueSourceCounts = promotableRuns.map((run) => run.averageUniqueSourceCount);
+  const promotableCorroborationEvidenceRuns = promotableRuns.filter(hasHeadlineCorroborationEvidence);
+  const releaseCorroboratedBundleRates = promotableCorroborationEvidenceRuns
+    .map((run) => run.averageCorroboratedBundleRate);
+  const singletonOnlyPromotableExecutionCount = promotableRuns.length - promotableCorroborationEvidenceRuns.length;
 
   const trendIndex = {
     schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
@@ -541,6 +636,9 @@ export function buildHeadlineSoakTrendIndex(
         ? null
         : Math.max(...promotableUniqueSourceCounts.filter(isFiniteNumber)),
       promotableRunCount: promotableRuns.length,
+      releaseAverageCorroboratedBundleRate: average(releaseCorroboratedBundleRates),
+      corroborationEvidenceExecutionCount: promotableCorroborationEvidenceRuns.length,
+      singletonOnlyPromotableExecutionCount,
       averageRepeatedStoryCount: average(repeatedStoryCounts),
     },
     runs: recentRuns,
@@ -554,42 +652,63 @@ export function buildHeadlineSoakTrendIndex(
 
 export function assessHeadlineSoakReleaseEvidence(trendIndex) {
   const criteria = PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA;
+  const evidenceTrendIndex = buildHeadlineSoakReleaseEvidenceWindow(trendIndex, criteria);
   const reasons = [];
   let status = 'pass';
   let recommendedAction = 'release_ready';
 
-  if ((trendIndex?.executionCount ?? 0) < criteria.minimumExecutionCount) {
+  if ((evidenceTrendIndex?.executionCount ?? 0) < criteria.minimumExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('insufficient_headline_soak_execution_count');
   }
-  if ((trendIndex?.promotableExecutionCount ?? 0) < criteria.minimumPromotableExecutionCount) {
+  if ((evidenceTrendIndex?.promotableExecutionCount ?? 0) < criteria.minimumPromotableExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('promotable_execution_count_below_threshold');
   }
-  if ((trendIndex?.notReadyExecutionCount ?? 0) > criteria.maximumNotReadyExecutionCount) {
+  const hasCorroborationEvidenceExecutionCount =
+    isFiniteNumber(evidenceTrendIndex?.usefulness?.corroborationEvidenceExecutionCount);
+  const corroborationEvidenceExecutionCount = hasCorroborationEvidenceExecutionCount
+    ? evidenceTrendIndex.usefulness.corroborationEvidenceExecutionCount
+    : null;
+  if (
+    hasCorroborationEvidenceExecutionCount
+    && corroborationEvidenceExecutionCount < criteria.minimumCorroborationEvidenceExecutionCount
+  ) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('corroborated_bundle_evidence_missing');
+  }
+  if ((evidenceTrendIndex?.notReadyExecutionCount ?? 0) > criteria.maximumNotReadyExecutionCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('non_promotable_execution_count_exceeds_threshold');
   }
-  if ((trendIndex?.latestExecution?.readinessStatus ?? 'not_ready') !== 'promotable') {
+  if ((evidenceTrendIndex?.latestExecution?.readinessStatus ?? 'not_ready') !== 'promotable') {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('latest_headline_soak_execution_not_promotable');
   }
   const corroboratedBundleRate =
-    trendIndex?.usefulness?.promotableAverageCorroboratedBundleRate
-    ?? trendIndex?.usefulness?.averageCorroboratedBundleRate
+    evidenceTrendIndex?.usefulness?.releaseAverageCorroboratedBundleRate
+    ?? evidenceTrendIndex?.usefulness?.promotableAverageCorroboratedBundleRate
+    ?? evidenceTrendIndex?.usefulness?.averageCorroboratedBundleRate
     ?? 0;
-  if (corroboratedBundleRate < criteria.minimumAverageCorroboratedBundleRate) {
+  if (
+    (
+      !hasCorroborationEvidenceExecutionCount
+      || corroborationEvidenceExecutionCount >= criteria.minimumCorroborationEvidenceExecutionCount
+    )
+    && corroboratedBundleRate < criteria.minimumAverageCorroboratedBundleRate
+  ) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('corroborated_bundle_rate_below_threshold');
   }
   const uniqueSourceCount =
-    trendIndex?.usefulness?.promotableAverageUniqueSourceCount
-    ?? trendIndex?.usefulness?.averageUniqueSourceCount
+    evidenceTrendIndex?.usefulness?.promotableAverageUniqueSourceCount
+    ?? evidenceTrendIndex?.usefulness?.averageUniqueSourceCount
     ?? 0;
   if (uniqueSourceCount < criteria.minimumAverageUniqueSourceCount) {
     status = 'fail';
@@ -597,7 +716,10 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     reasons.push('headline_source_diversity_below_threshold');
   }
 
-  if (status !== 'fail' && (trendIndex?.strictSoakFailCount ?? 0) > 0) {
+  if (
+    status !== 'fail'
+    && (evidenceTrendIndex?.strictSoakFailCount ?? 0) > criteria.maximumNotReadyExecutionCount
+  ) {
     status = 'warn';
     recommendedAction = 'review_recent_headline_soak_deterioration';
     reasons.push('recent_strict_soak_failures_present');
@@ -608,11 +730,11 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     recommendedAction,
     reasons,
     criteria,
-    latestExecutionReadinessStatus: trendIndex?.latestExecution?.readinessStatus ?? null,
-    recentExecutionCount: trendIndex?.executionCount ?? 0,
-    recentPromotableExecutionCount: trendIndex?.promotableExecutionCount ?? 0,
-    recentNotReadyExecutionCount: trendIndex?.notReadyExecutionCount ?? 0,
-    recentStrictSoakFailCount: trendIndex?.strictSoakFailCount ?? 0,
+    latestExecutionReadinessStatus: evidenceTrendIndex?.latestExecution?.readinessStatus ?? null,
+    recentExecutionCount: evidenceTrendIndex?.executionCount ?? 0,
+    recentPromotableExecutionCount: evidenceTrendIndex?.promotableExecutionCount ?? 0,
+    recentNotReadyExecutionCount: evidenceTrendIndex?.notReadyExecutionCount ?? 0,
+    recentStrictSoakFailCount: evidenceTrendIndex?.strictSoakFailCount ?? 0,
   };
 }
 

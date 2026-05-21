@@ -34,6 +34,7 @@ const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
 const SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS = 4_000;
 const runtimeImport = async (modulePath: string): Promise<unknown> => await import(modulePath);
 const RETRIABLE_ARTICLE_TEXT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 async function loadSemanticAuditModule(): Promise<{
   buildCanonicalSourcePairs: (
@@ -88,6 +89,85 @@ export function normalizeSemanticAuditArticleUrlForFetch(targetUrl: string): str
   } catch {
     return targetUrl;
   }
+}
+
+function isLoopbackUrl(targetUrl: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(targetUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function canonicalSourcesForBundle(bundle: LiveSemanticAuditBundleLike): ReadonlyArray<StoryBundleSource> {
+  return bundle.primary_sources ?? bundle.sources;
+}
+
+function isAuditableSemanticBundle(bundle: LiveSemanticAuditBundleLike): boolean {
+  return canonicalSourcesForBundle(bundle).length >= 2;
+}
+
+function isPublicReleaseCandidateBundle(bundle: LiveSemanticAuditBundleLike): boolean {
+  if (process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return true;
+  }
+
+  return canonicalSourcesForBundle(bundle).every((source) => !isLoopbackUrl(source.url));
+}
+
+function filterSemanticAuditCandidateBundles(
+  bundles: readonly LiveSemanticAuditBundleLike[],
+  allowedStoryIds?: ReadonlySet<string>,
+): {
+  readonly candidates: LiveSemanticAuditBundleLike[];
+  readonly excludedLocalOnlyCount: number;
+  readonly excludedNonCurrentCount: number;
+} {
+  const candidates: LiveSemanticAuditBundleLike[] = [];
+  let excludedLocalOnlyCount = 0;
+  let excludedNonCurrentCount = 0;
+
+  for (const bundle of bundles) {
+    if (!isPublicReleaseCandidateBundle(bundle)) {
+      excludedLocalOnlyCount += 1;
+      continue;
+    }
+    if (allowedStoryIds && !allowedStoryIds.has(bundle.story_id)) {
+      excludedNonCurrentCount += 1;
+      continue;
+    }
+    candidates.push(bundle);
+  }
+
+  return { candidates, excludedLocalOnlyCount, excludedNonCurrentCount };
+}
+
+function resolveSemanticAuditSampleTarget(
+  sampleCount: number,
+  candidateCount: number,
+  totalAuditableCount: number,
+  excludedLocalOnlyCount: number,
+  storeStoryCount = 0,
+): number {
+  if (
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true'
+    && excludedLocalOnlyCount > 0
+    && totalAuditableCount >= sampleCount
+    && candidateCount > 0
+  ) {
+    return Math.min(sampleCount, candidateCount);
+  }
+
+  if (
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true'
+    && excludedLocalOnlyCount === 0
+    && storeStoryCount > 0
+    && candidateCount < sampleCount
+  ) {
+    return Math.max(0, Math.min(sampleCount, candidateCount));
+  }
+
+  return sampleCount;
 }
 
 function articleTextUrl(baseUrl: string, targetUrl: string): string {
@@ -241,30 +321,67 @@ async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
   timeoutMs: number,
+  options: {
+    readonly allowedStoryIds?: ReadonlyArray<string>;
+  } = {},
 ): Promise<{
   readonly bundles: ReadonlyArray<LiveSemanticAuditBundleLike>;
   readonly storeSnapshot: SemanticAuditStoreSnapshot;
+  readonly candidateCount: number;
+  readonly excludedLocalOnlyCount: number;
+  readonly excludedNonCurrentCount: number;
 }> {
   const deadline = Date.now() + timeoutMs;
   const progressiveSampling = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true';
+  const allowedStoryIds = options.allowedStoryIds
+    ? new Set(options.allowedStoryIds.filter((storyId) => storyId.trim().length > 0))
+    : undefined;
   const observedByStoryId = new Map<string, LiveSemanticAuditBundleLike>();
   let storeSnapshot = await readSemanticAuditStoreSnapshot(page);
+  let latestCandidateCount = 0;
+  let totalExcludedLocalOnlyCount = 0;
+  let totalExcludedNonCurrentCount = 0;
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
+    const {
+      candidates,
+      excludedLocalOnlyCount,
+      excludedNonCurrentCount,
+    } = filterSemanticAuditCandidateBundles(auditable, allowedStoryIds);
+    latestCandidateCount = candidates.length;
+    totalExcludedLocalOnlyCount += excludedLocalOnlyCount;
+    totalExcludedNonCurrentCount += excludedNonCurrentCount;
     if (progressiveSampling) {
-      mergeObservedBundles(observedByStoryId, auditable);
+      mergeObservedBundles(observedByStoryId, candidates);
     }
     storeSnapshot = await readSemanticAuditStoreSnapshot(page);
-    if (progressiveSampling && observedByStoryId.size >= sampleCount) {
+    const effectiveSampleTarget = resolveSemanticAuditSampleTarget(
+      sampleCount,
+      latestCandidateCount,
+      auditable.length,
+      excludedLocalOnlyCount,
+      storeSnapshot.story_count,
+    );
+    const pollingSampleTarget =
+      progressiveSampling && excludedLocalOnlyCount === 0 && effectiveSampleTarget < sampleCount
+        ? sampleCount
+        : effectiveSampleTarget;
+    if (progressiveSampling && observedByStoryId.size >= pollingSampleTarget) {
       return {
-        bundles: [...observedByStoryId.values()].slice(0, sampleCount),
+        bundles: [...observedByStoryId.values()].slice(0, pollingSampleTarget),
         storeSnapshot,
+        candidateCount: Math.max(latestCandidateCount, observedByStoryId.size),
+        excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
+        excludedNonCurrentCount: totalExcludedNonCurrentCount,
       };
     }
-    if (!progressiveSampling && auditable.length >= sampleCount) {
+    if (!progressiveSampling && candidates.length >= effectiveSampleTarget) {
       return {
-        bundles: auditable.slice(0, sampleCount),
+        bundles: candidates.slice(0, effectiveSampleTarget),
         storeSnapshot,
+        candidateCount: latestCandidateCount,
+        excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
+        excludedNonCurrentCount: totalExcludedNonCurrentCount,
       };
     }
 
@@ -276,16 +393,34 @@ async function waitForSampledBundles(
   }
 
   const auditable = await readAuditableBundles(page);
+  const {
+    candidates,
+    excludedLocalOnlyCount,
+    excludedNonCurrentCount,
+  } = filterSemanticAuditCandidateBundles(auditable, allowedStoryIds);
+  latestCandidateCount = candidates.length;
+  totalExcludedLocalOnlyCount += excludedLocalOnlyCount;
+  totalExcludedNonCurrentCount += excludedNonCurrentCount;
   if (progressiveSampling) {
-    mergeObservedBundles(observedByStoryId, auditable);
+    mergeObservedBundles(observedByStoryId, candidates);
   }
   storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   await persistSemanticAuditFailureSnapshot(storeSnapshot);
+  const effectiveSampleTarget = resolveSemanticAuditSampleTarget(
+    sampleCount,
+    latestCandidateCount,
+    candidates.length + excludedLocalOnlyCount,
+    excludedLocalOnlyCount,
+    storeSnapshot.story_count,
+  );
   return {
     bundles: progressiveSampling
-      ? [...observedByStoryId.values()].slice(0, sampleCount)
-      : auditable.slice(0, sampleCount),
+      ? [...observedByStoryId.values()].slice(0, effectiveSampleTarget)
+      : candidates.slice(0, effectiveSampleTarget),
     storeSnapshot,
+    candidateCount: progressiveSampling ? Math.max(latestCandidateCount, observedByStoryId.size) : latestCandidateCount,
+    excludedLocalOnlyCount: totalExcludedLocalOnlyCount,
+    excludedNonCurrentCount: totalExcludedNonCurrentCount,
   };
 }
 
@@ -293,18 +428,60 @@ export function summarizeSemanticAuditSupply(
   sampleCount: number,
   sampledBundles: readonly LiveSemanticAuditBundleLike[],
   storeSnapshot: SemanticAuditStoreSnapshot,
+  candidateDiagnostics: {
+    readonly candidateCount?: number;
+    readonly excludedLocalOnlyCount?: number;
+    readonly excludedNonCurrentCount?: number;
+    readonly totalAuditableCount?: number;
+  } = {},
 ): SemanticAuditSupplyDiagnostics {
   const sampledStoryCount = sampledBundles.length;
-  return {
-    status: sampledStoryCount >= sampleCount ? 'full' : sampledStoryCount > 0 ? 'partial' : 'empty',
+  const candidateCount = candidateDiagnostics.candidateCount;
+  const effectiveSampleCount = Number.isFinite(candidateCount)
+    ? resolveSemanticAuditSampleTarget(
+      sampleCount,
+      Math.max(0, Math.floor(candidateCount ?? sampleCount)),
+      candidateDiagnostics.totalAuditableCount ?? storeSnapshot.auditable_count,
+      candidateDiagnostics.excludedLocalOnlyCount ?? 0,
+      storeSnapshot.story_count,
+    )
+    : sampleCount;
+  const sampleFillRate = effectiveSampleCount > 0
+    ? sampledStoryCount / effectiveSampleCount
+    : storeSnapshot.story_count > 0 ? 1 : 0;
+  const status =
+    effectiveSampleCount === 0 && storeSnapshot.story_count > 0
+      ? 'singleton_only'
+      : sampledStoryCount >= effectiveSampleCount ? 'full' : sampledStoryCount > 0 ? 'partial' : 'empty';
+  const diagnostics: SemanticAuditSupplyDiagnostics = {
+    status,
     story_count: storeSnapshot.story_count,
     auditable_count: storeSnapshot.auditable_count,
     visible_story_ids: storeSnapshot.visible_story_ids,
     top_story_ids: storeSnapshot.top_story_ids,
     top_auditable_story_ids: storeSnapshot.top_auditable_story_ids,
-    sample_fill_rate: sampledStoryCount / sampleCount,
-    sample_shortfall: Math.max(sampleCount - sampledStoryCount, 0),
+    sample_fill_rate: sampleFillRate,
+    sample_shortfall: Math.max(effectiveSampleCount - sampledStoryCount, 0),
   };
+  if (effectiveSampleCount !== sampleCount) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { effective_sample_count?: number })
+      .effective_sample_count = effectiveSampleCount;
+    (diagnostics as SemanticAuditSupplyDiagnostics & { requested_sample_fill_rate?: number })
+      .requested_sample_fill_rate = sampledStoryCount / sampleCount;
+  }
+  if (Number.isFinite(candidateDiagnostics.candidateCount)) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { release_candidate_count?: number })
+      .release_candidate_count = candidateDiagnostics.candidateCount;
+  }
+  if ((candidateDiagnostics.excludedLocalOnlyCount ?? 0) > 0) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { excluded_local_only_bundle_count?: number })
+      .excluded_local_only_bundle_count = candidateDiagnostics.excludedLocalOnlyCount;
+  }
+  if ((candidateDiagnostics.excludedNonCurrentCount ?? 0) > 0) {
+    (diagnostics as SemanticAuditSupplyDiagnostics & { excluded_non_current_bundle_count?: number })
+      .excluded_non_current_bundle_count = candidateDiagnostics.excludedNonCurrentCount;
+  }
+  return diagnostics;
 }
 
 function groupPairResults(pairs: readonly LiveSemanticAuditPair[], results: readonly LiveSemanticAuditPairResult[]) {
@@ -417,6 +594,8 @@ export function buildDaemonFeedSemanticAuditReport(
   articleFetchFailures: readonly SemanticAuditArticleFetchFailure[] = [],
 ): DaemonFeedSemanticAuditReport {
   const incompleteBundleCount = reports.filter((bundle) => bundle.audit_status === 'incomplete_article_text').length;
+  const effectiveSampleCount = supply.effective_sample_count ?? sampleCount;
+  const auditedPairDensitySatisfied = effectiveSampleCount === 0 || auditedPairCount >= reports.length;
   return {
     schema_version: 'daemon-first-feed-semantic-audit-v3',
     base_url: LIVE_BASE_URL,
@@ -427,6 +606,7 @@ export function buildDaemonFeedSemanticAuditReport(
       uses_fixture_stub: options.openAIUsesFixtureStub === true,
     },
     requested_sample_count: sampleCount,
+    effective_sample_count: effectiveSampleCount,
     sampled_story_count: reports.length,
     visible_story_ids: supply.visible_story_ids,
     supply,
@@ -439,8 +619,215 @@ export function buildDaemonFeedSemanticAuditReport(
       article_fetch_failure_count: articleFetchFailures.length,
       sample_fill_rate: supply.sample_fill_rate,
       sample_shortfall: supply.sample_shortfall,
-      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0 && incompleteBundleCount === 0,
+      ...(typeof supply.requested_sample_fill_rate === 'number'
+        ? { requested_sample_fill_rate: supply.requested_sample_fill_rate }
+        : {}),
+      pass: reports.length >= effectiveSampleCount
+        && auditedPairDensitySatisfied
+        && relatedTopicOnlyPairCount === 0
+        && incompleteBundleCount === 0,
     },
+  };
+}
+
+function buildSemanticAuditStoreSnapshotFromBundles(
+  bundles: readonly LiveSemanticAuditBundleLike[],
+  visibleStoryIds: ReadonlyArray<string> = [],
+): SemanticAuditStoreSnapshot {
+  const visibleStoryIdSet = new Set(visibleStoryIds);
+  const auditableBundles = bundles.filter(isAuditableSemanticBundle);
+
+  return {
+    story_count: bundles.length,
+    auditable_count: auditableBundles.length,
+    visible_story_ids: visibleStoryIds,
+    top_story_ids: bundles.slice(0, 5).map((bundle) => bundle.story_id),
+    top_auditable_story_ids: auditableBundles.slice(0, 5).map((bundle) => bundle.story_id),
+    stories: bundles.map((bundle) => ({
+      story_id: bundle.story_id,
+      topic_id: bundle.topic_id,
+      headline: bundle.headline,
+      source_count: bundle.sources.length,
+      primary_source_count: canonicalSourcesForBundle(bundle).length,
+      secondary_asset_count: bundle.secondary_assets?.length ?? 0,
+      is_auditable: isAuditableSemanticBundle(bundle),
+      is_dom_visible: visibleStoryIdSet.has(bundle.story_id),
+    })),
+  };
+}
+
+async function sampleProvidedSemanticAuditBundles(
+  page: Page,
+  sampleCount: number,
+  bundles: readonly LiveSemanticAuditBundleLike[],
+  options: {
+    readonly allowedStoryIds?: ReadonlyArray<string>;
+  } = {},
+): Promise<{
+  readonly bundles: ReadonlyArray<LiveSemanticAuditBundleLike>;
+  readonly storeSnapshot: SemanticAuditStoreSnapshot;
+  readonly candidateCount: number;
+  readonly excludedLocalOnlyCount: number;
+  readonly excludedNonCurrentCount: number;
+}> {
+  const browserSnapshot = await readSemanticAuditStoreSnapshot(page).catch(() => null);
+  const visibleStoryIds = browserSnapshot?.visible_story_ids
+    .filter((storyId) => bundles.some((bundle) => bundle.story_id === storyId)) ?? [];
+  const currentSnapshot = buildSemanticAuditStoreSnapshotFromBundles(bundles, visibleStoryIds);
+  const allowedStoryIds = options.allowedStoryIds
+    ? new Set(options.allowedStoryIds.filter((storyId) => storyId.trim().length > 0))
+    : undefined;
+  const {
+    candidates,
+    excludedLocalOnlyCount,
+    excludedNonCurrentCount,
+  } = filterSemanticAuditCandidateBundles(bundles.filter(isAuditableSemanticBundle), allowedStoryIds);
+  const effectiveSampleTarget = resolveSemanticAuditSampleTarget(
+    sampleCount,
+    candidates.length,
+    currentSnapshot.auditable_count,
+    excludedLocalOnlyCount,
+    currentSnapshot.story_count,
+  );
+
+  return {
+    bundles: candidates.slice(0, effectiveSampleTarget),
+    storeSnapshot: currentSnapshot,
+    candidateCount: candidates.length,
+    excludedLocalOnlyCount,
+    excludedNonCurrentCount,
+  };
+}
+
+export function assessDaemonFirstFeedSemanticAuditGate(
+  report: DaemonFeedSemanticAuditReport,
+): {
+  readonly pass: boolean;
+  readonly posture: 'auditable_bundle' | 'singleton_only' | 'empty_or_partial';
+  readonly blockingReasons: ReadonlyArray<string>;
+} {
+  const blockingReasons: string[] = [];
+  const supplyStatus = report.supply.status;
+  const posture = supplyStatus === 'singleton_only'
+    ? 'singleton_only'
+    : report.sampled_story_count > 0
+      ? 'auditable_bundle'
+      : 'empty_or_partial';
+
+  if (report.overall.sample_fill_rate <= 0) {
+    blockingReasons.push('sample_fill_rate_zero');
+  }
+  if (report.overall.related_topic_only_pair_count !== 0) {
+    blockingReasons.push('related_topic_only_pairs_present');
+  }
+  if (!report.overall.pass) {
+    blockingReasons.push('semantic_audit_overall_failed');
+  }
+
+  if (supplyStatus === 'singleton_only') {
+    if (report.supply.story_count <= 0) {
+      blockingReasons.push('singleton_story_evidence_missing');
+    }
+    if (report.overall.audited_pair_count !== 0) {
+      blockingReasons.push('singleton_only_report_has_audited_pairs');
+    }
+  } else {
+    if (report.sampled_story_count < 1) {
+      blockingReasons.push('auditable_story_sample_missing');
+    }
+    if (report.overall.audited_pair_count < 1) {
+      blockingReasons.push('audited_pair_evidence_missing');
+    }
+  }
+
+  return {
+    pass: blockingReasons.length === 0,
+    posture,
+    blockingReasons,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function countClusterCaptureEvidence(capture: unknown): {
+  readonly schemaVersion: string | null;
+  readonly tickCount: number;
+  readonly normalizedItemCount: number;
+  readonly topicCaptureCount: number;
+  readonly bundleCount: number;
+} {
+  const record = asRecord(capture);
+  const ticks = Array.isArray(record?.ticks) ? record.ticks : [];
+  let normalizedItemCount = 0;
+  let topicCaptureCount = 0;
+  let bundleCount = 0;
+
+  for (const tick of ticks) {
+    const tickRecord = asRecord(tick);
+    if (!tickRecord) {
+      continue;
+    }
+    normalizedItemCount += Array.isArray(tickRecord.normalizedItems)
+      ? tickRecord.normalizedItems.length
+      : 0;
+    const topicCaptures = Array.isArray(tickRecord.topicCaptures)
+      ? tickRecord.topicCaptures
+      : [];
+    topicCaptureCount += topicCaptures.length;
+    for (const topicCapture of topicCaptures) {
+      const topicRecord = asRecord(topicCapture);
+      const result = asRecord(topicRecord?.result);
+      bundleCount += Array.isArray(result?.bundles) ? result.bundles.length : 0;
+    }
+  }
+
+  return {
+    schemaVersion: typeof record?.schemaVersion === 'string' ? record.schemaVersion : null,
+    tickCount: ticks.length,
+    normalizedItemCount,
+    topicCaptureCount,
+    bundleCount,
+  };
+}
+
+export function assessDaemonFeedClusterCaptureEvidence(capture: unknown): {
+  readonly pass: boolean;
+  readonly blockingReasons: ReadonlyArray<string>;
+  readonly tickCount: number;
+  readonly normalizedItemCount: number;
+  readonly topicCaptureCount: number;
+  readonly bundleCount: number;
+} {
+  const counts = countClusterCaptureEvidence(capture);
+  const blockingReasons: string[] = [];
+
+  if (counts.schemaVersion !== 'daemon-feed-cluster-capture-v1') {
+    blockingReasons.push('daemon_cluster_capture_schema_invalid');
+  }
+  if (counts.tickCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_tick_missing');
+  }
+  if (counts.normalizedItemCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_normalized_items_missing');
+  }
+  if (counts.topicCaptureCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_topic_captures_missing');
+  }
+  if (counts.bundleCount < 1) {
+    blockingReasons.push('daemon_cluster_capture_bundles_missing');
+  }
+
+  return {
+    pass: blockingReasons.length === 0,
+    blockingReasons,
+    tickCount: counts.tickCount,
+    normalizedItemCount: counts.normalizedItemCount,
+    topicCaptureCount: counts.topicCaptureCount,
+    bundleCount: counts.bundleCount,
   };
 }
 
@@ -457,7 +844,19 @@ export async function runDaemonFirstFeedSemanticAudit(
     hasRelatedTopicOnlyPair,
   } = await loadSemanticAuditModule();
 
-  const { bundles: sampledBundles, storeSnapshot } = await waitForSampledBundles(page, sampleCount, timeoutMs);
+  const {
+    bundles: sampledBundles,
+    storeSnapshot,
+    candidateCount,
+    excludedLocalOnlyCount,
+    excludedNonCurrentCount,
+  } = options.candidateBundles
+    ? await sampleProvidedSemanticAuditBundles(page, sampleCount, options.candidateBundles, {
+      allowedStoryIds: options.allowedStoryIds,
+    })
+    : await waitForSampledBundles(page, sampleCount, timeoutMs, {
+      allowedStoryIds: options.allowedStoryIds,
+    });
   const retainedSourceEvidenceSnapshot = await readRetainedSourceEvidenceSnapshot(page);
   await persistRetainedSourceEvidenceSnapshot(retainedSourceEvidenceSnapshot);
   const hydratedBundles = [...sampledBundles];
@@ -588,7 +987,12 @@ export async function runDaemonFirstFeedSemanticAudit(
     reports,
     results.length,
     relatedTopicOnlyPairCount,
-    summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot),
+    summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot, {
+      candidateCount,
+      excludedLocalOnlyCount,
+      excludedNonCurrentCount,
+      totalAuditableCount: storeSnapshot.auditable_count,
+    }),
     options,
     articleFetchFailures,
   );

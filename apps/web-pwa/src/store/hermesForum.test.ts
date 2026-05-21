@@ -345,11 +345,17 @@ describe('hermesForum store', () => {
       author: expectedForumAuthorId
     });
     expect(JSON.stringify(threadWrites[0])).not.toContain(rawNullifier);
-    expect(threadWrites[0]).toMatchObject({
-      author: expectedForumAuthorId,
+    expect(typeof threadWrites[0].signedWriteEnvelope).toBe('string');
+    expect(JSON.parse(threadWrites[0].signedWriteEnvelope)).toMatchObject({
+      publicAuthor: expectedForumAuthorId
+    });
+    expect(JSON.parse(threadWrites[0].__thread_json)).toMatchObject({
       signedWriteEnvelope: expect.objectContaining({
         publicAuthor: expectedForumAuthorId
       })
+    });
+    expect(threadWrites[0]).toMatchObject({
+      author: expectedForumAuthorId
     });
   });
 
@@ -527,7 +533,7 @@ describe('hermesForum store', () => {
     }
   });
 
-  it('createThread starts ack timeout after guarded put preflight resolves', async () => {
+  it('createThread honors ack callbacks from Promise-returning Gun puts', async () => {
     setIdentity('thread-guarded-put');
     threadChain.put.mockImplementation((value: any, cb?: (ack?: { err?: string }) => void) => {
       threadWrites.push(value);
@@ -553,7 +559,7 @@ describe('hermesForum store', () => {
       resolveClient: () => ({} as any),
       randomId: () => 'thread-guarded-put',
       now: () => 1,
-      threadPutAckTimeoutMs: 1,
+      threadPutAckTimeoutMs: 20,
     });
 
     const thread = await store.getState().createThread('title', 'content', ['news']);
@@ -605,7 +611,7 @@ describe('hermesForum store', () => {
       once: vi.fn((cb: (value: unknown) => void) => cb(undefined))
     }));
     const store = createForumStore({
-      resolveClient: () => ({ config: { peers: ['http://127.0.0.1:7777/gun'] } } as any),
+      resolveClient: () => ({ config: { peers: ['wss://relay.example.test/gun'] } } as any),
       randomId: () => 'thread-relay-fallback',
       now: () => 1,
       threadPutAckTimeoutMs: 1,
@@ -616,7 +622,7 @@ describe('hermesForum store', () => {
 
       expect(thread).toMatchObject({ id: 'thread-relay-fallback' });
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://127.0.0.1:7777/vh/forum/thread',
+        'https://relay.example.test/vh/forum/thread',
         expect.objectContaining({
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -959,11 +965,17 @@ describe('hermesForum store', () => {
       author: expectedForumAuthorId
     });
     expect(JSON.stringify(commentWrites[0])).not.toContain(rawNullifier);
-    expect(commentWrites[0]).toMatchObject({
-      author: expectedForumAuthorId,
+    expect(typeof commentWrites[0].signedWriteEnvelope).toBe('string');
+    expect(JSON.parse(commentWrites[0].signedWriteEnvelope)).toMatchObject({
+      publicAuthor: expectedForumAuthorId
+    });
+    expect(JSON.parse(commentWrites[0].__comment_json)).toMatchObject({
       signedWriteEnvelope: expect.objectContaining({
         publicAuthor: expectedForumAuthorId
       })
+    });
+    expect(commentWrites[0]).toMatchObject({
+      author: expectedForumAuthorId
     });
   });
 
@@ -1078,19 +1090,58 @@ describe('hermesForum store', () => {
       get: vi.fn(() => commentNode)
     };
     getForumCommentsChainMock.mockReturnValue(commentsRoot as any);
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        thread_id: 'thread-1',
-        comment_id: 'comment-relay-fallback'
+    let storedComment: any;
+    let currentIndex: any;
+    const indexChain = {
+      get: vi.fn((field: string) => ({
+        once: vi.fn((cb: (value: unknown) => void) => cb(currentIndex?.[field])),
+        put: vi.fn()
+      })),
+      once: vi.fn((cb: (value: unknown) => void) => cb(currentIndex)),
+      put: vi.fn()
+    };
+    const entriesChain = {
+      map: vi.fn(() => ({
+        once: vi.fn()
+      })),
+      get: vi.fn(() => ({
+        once: vi.fn((cb: (value: unknown) => void) => cb(undefined)),
+        put: vi.fn(),
+        get: vi.fn(() => ({ once: vi.fn((cb: (value: unknown) => void) => cb(undefined)), put: vi.fn() }))
+      }))
+    };
+    const indexRoot = {
+      get: vi.fn((key: string) => {
+        if (key === 'current') return indexChain;
+        if (key === 'entries') return entriesChain;
+        return indexChain.get(key);
       })
-    }));
+    };
+    commentNode.once.mockImplementation((cb: (value: unknown) => void) => cb(storedComment));
+    getForumCommentIndexChainMock.mockReturnValue(indexRoot as any);
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { comment?: any };
+      storedComment = { __comment_json: JSON.stringify(body.comment) };
+      currentIndex = {
+        schemaVersion: 'hermes-comment-index-v1',
+        threadId: 'thread-1',
+        idsJson: JSON.stringify(['comment-relay-fallback']),
+        updatedAt: 5
+      };
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          thread_id: 'thread-1',
+          comment_id: 'comment-relay-fallback'
+        })
+      };
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     try {
       const store = createForumStore({
-        resolveClient: () => ({ config: { peers: ['http://127.0.0.1:7777/gun'] } } as any),
+        resolveClient: () => ({ config: { peers: ['wss://relay.example.test/gun'] } } as any),
         randomId: () => 'comment-relay-fallback',
         now: () => 5,
         confirmCommentDurability: true,
@@ -1103,7 +1154,7 @@ describe('hermesForum store', () => {
       await expect(pending).resolves.toMatchObject({ id: 'comment-relay-fallback' });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://127.0.0.1:7777/vh/forum/comment',
+        'https://relay.example.test/vh/forum/comment',
         expect.objectContaining({
           method: 'POST',
           headers: { 'content-type': 'application/json' },

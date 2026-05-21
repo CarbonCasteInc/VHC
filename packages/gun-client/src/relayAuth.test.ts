@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import { createRelayDaemonAuthHeaders, createRelayUserSignatureHeaders } from './relayAuth';
 
 describe('relayAuth', () => {
@@ -96,5 +96,29 @@ describe('relayAuth', () => {
     });
 
     expect(headers['x-vh-relay-signature']).toBe(btoa('sig+/=').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''));
+  });
+
+  it('encodes non-Latin1 SEA signatures in browser fallback mode', async () => {
+    vi.spyOn(SEA, 'sign').mockResolvedValue('SEA{"m":"tonight’s thread","s":"sig"}' as never);
+    vi.stubGlobal('Buffer', undefined);
+
+    const headers = await createRelayUserSignatureHeaders('/vh/forum/thread', {
+      thread: {
+        id: 'news-story:story-1',
+        title: 'Tonight’s unique district',
+      },
+    }, {
+      pub: 'pub',
+      priv: 'priv',
+    }, {
+      nonce: 'nonce-3',
+      timestamp: '1777752333000',
+    });
+
+    const encoded = btoa(String.fromCharCode(...new TextEncoder().encode('SEA{"m":"tonight’s thread","s":"sig"}')))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+    expect(headers['x-vh-relay-signature']).toBe(encoded);
   });
 });

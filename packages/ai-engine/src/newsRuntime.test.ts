@@ -95,6 +95,46 @@ function batch(bundles: StoryBundle[] = [], storylines: StorylineGroup[] = []) {
   return { bundles, storylines };
 }
 
+function storyBundle(
+  storyId: string,
+  {
+    sourceCount = 1,
+    clusterWindowEnd = 1_700_000_100_000,
+    createdAt = 1_700_000_200_000,
+    confidenceScore = 0.9,
+    titles,
+  }: {
+    sourceCount?: number;
+    clusterWindowEnd?: number;
+    createdAt?: number;
+    confidenceScore?: number;
+    titles?: string[];
+  } = {},
+): StoryBundle {
+  const sources = Array.from({ length: sourceCount }, (_, index) => ({
+    source_id: `src-${storyId}-${index + 1}`,
+    publisher: `Publisher ${index + 1}`,
+    url: `https://example.com/${storyId}/${index + 1}`,
+    url_hash: `${storyId}-${index + 1}`,
+    published_at: clusterWindowEnd,
+    title: titles?.[index] ?? `${storyId} title ${index + 1}`,
+  }));
+  return {
+    ...STORY_BUNDLE,
+    story_id: storyId,
+    headline: `${storyId} headline`,
+    cluster_window_end: clusterWindowEnd,
+    sources,
+    primary_sources: sources,
+    cluster_features: {
+      ...STORY_BUNDLE.cluster_features,
+      confidence_score: confidenceScore,
+    },
+    provenance_hash: `${storyId}-provhash`,
+    created_at: createdAt,
+  };
+}
+
 describe('newsRuntime', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -126,9 +166,24 @@ describe('newsRuntime', () => {
     expect(__internal.normalizePollInterval(undefined)).toBe(30 * 60 * 1000);
     expect(__internal.normalizePollInterval(10.7)).toBe(10);
     expect(() => __internal.normalizePollInterval(0)).toThrow('pollIntervalMs must be a positive finite number');
+    expect(__internal.normalizeOptionalPositiveInt(undefined, 'sample')).toBeNull();
+    expect(__internal.normalizeOptionalPositiveInt(4.8, 'sample')).toBe(4);
+    expect(() => __internal.normalizeOptionalPositiveInt(0, 'sample')).toThrow(
+      'sample must be a positive finite number',
+    );
 
     vi.stubEnv('CUSTOM_RUNTIME_ENV', ' value ');
     expect(__internal.readEnvVar('CUSTOM_RUNTIME_ENV')).toBe(' value ');
+    vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', ' 3 ');
+    expect(__internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toBe(3);
+    vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', 'bad');
+    expect(() => __internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toThrow(
+      'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES must be a positive integer',
+    );
+    expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(false);
+    vi.stubEnv('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES', 'true');
+    expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(true);
+    expect(__internal.resolvePruneStaleBundles({ ...BASE_CONFIG, pruneStaleBundles: false })).toBe(false);
 
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
@@ -211,7 +266,316 @@ describe('newsRuntime', () => {
     expect(handle.isRunning()).toBe(false);
   });
 
+  it('caps published bundles by corroboration and recency when configured', async () => {
+    const staleSingleton = storyBundle('stale-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 100,
+    });
+    const recentSingleton = storyBundle('recent-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 300,
+    });
+    const corroborated = storyBundle('corroborated', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+    });
+
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([
+      staleSingleton,
+      recentSingleton,
+      corroborated,
+    ]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      maxPublishedBundles: 2,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'corroborated',
+      'recent-singleton',
+    ]);
+
+    handle.stop();
+  });
+
+  it('filters weak two-source canonical bundles before publication', () => {
+    const weakTopicOnly = storyBundle('weak-topic-only', {
+      sourceCount: 2,
+      confidenceScore: 0.57,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+    const strongTwoSource = storyBundle('strong-two-source', {
+      sourceCount: 2,
+      confidenceScore: 0.82,
+      titles: [
+        'Smalley leads as McIlroy and Rahm impress at the US PGA',
+        'Smalley takes two-shot lead into final round of US PGA Championship',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakTopicOnly)).toBe(false);
+    expect(__internal.isPublicationEligibleBundle(strongTwoSource)).toBe(true);
+    expect(__internal.selectBundlesForPublication([weakTopicOnly, strongTwoSource], null)).toEqual([
+      strongTwoSource,
+    ]);
+  });
+
+  it('keeps two-source bundles with explicit same-action title support below the strong-confidence line', () => {
+    const legalSameEvent = storyBundle('legal-same-event', {
+      sourceCount: 2,
+      confidenceScore: 0.79,
+      titles: [
+        'California man facing federal charges in international turtle trafficking plot',
+        'California man arrested for attempting to traffic wild turtles',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(legalSameEvent)).toBe(true);
+  });
+
+  it('keeps title-supported same-incident bundles just below the normal two-source confidence floor', () => {
+    const sanDiegoShooting = storyBundle('san-diego-shooting', {
+      sourceCount: 2,
+      confidenceScore: 0.46,
+      titles: [
+        'Man charged with murder after San Diego mosque shooting leaves one dead',
+        'Former Navy man pleads not guilty in San Diego mosque shooting that killed one',
+      ],
+    });
+    const weakTopicOnly = storyBundle('weak-low-confidence-topic', {
+      sourceCount: 2,
+      confidenceScore: 0.46,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+
+    expect(__internal.hasTitlePairCanonicalSupport(
+      sanDiegoShooting.sources[0]!.title,
+      sanDiegoShooting.sources[1]!.title,
+    )).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(sanDiegoShooting)).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(weakTopicOnly)).toBe(false);
+  });
+
+  it('rejects genuinely weak two-source bundles below the publication confidence floor', () => {
+    const weakSingletonPair = storyBundle('weak-two-source-pair', {
+      sourceCount: 2,
+      confidenceScore: 0.31,
+      titles: [
+        'City council approves a late-night zoning extension',
+        'Central bank minutes show inflation concerns eased last month',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakSingletonPair)).toBe(false);
+  });
+
+  it('keeps recent two-source bundles with shared normalized title anchors', () => {
+    const diplomacyEpisode = storyBundle('diplomacy-episode', {
+      sourceCount: 2,
+      confidenceScore: 0.79,
+      titles: [
+        "Days after Trump's summit in Beijing, Putin will meet with China's Xi",
+        "Putin to meet Chinese leader Xi Jinping following Trump's visit",
+      ],
+    });
+    const taiwanEpisode = storyBundle('taiwan-episode', {
+      sourceCount: 2,
+      confidenceScore: 0.68,
+      titles: [
+        "Trump warns Taiwan against declaring independence, hours after summit with China's Xi",
+        "Trump's comment about negotiations on Taiwan heightens concerns over China",
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(diplomacyEpisode)).toBe(true);
+    expect(__internal.isPublicationEligibleBundle(taiwanEpisode)).toBe(true);
+  });
+
+  it('normalizes title anchors and action overlap for publication support', () => {
+    expect(__internal.normalizeTitleKeyword('')).toBeNull();
+    expect(__internal.normalizeTitleKeyword('00042')).toBeNull();
+    expect(__internal.normalizeTitleKeyword('Trump&#039;s')).toBe('trump');
+    expect(__internal.normalizeTitleKeyword('Ebola-related')).toBeNull();
+    expect(__internal.titlesHaveMatchingAction(
+      'Senator introduces a budget amendment',
+      'Budget amendment draws sharp criticism',
+    )).toBe(false);
+    expect(__internal.titlesHaveMatchingAction(
+      'Man arrested in turtle trafficking case',
+      'Suspect charged over turtle smuggling plot',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'Trump threatens to pull Boebert endorsement over Massie support',
+      'Trump threatens weak minded Boebert with primary after Massie campaign',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'Man arrested in turtle trafficking case',
+      'Suspect charged over turtle smuggling plot',
+    )).toBe(true);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'U.S. announces Ebola-related travel restrictions amid outbreak in Congo, Uganda',
+      'Singapore steps up health measures after Ebola outbreak in DR Congo, Uganda',
+    )).toBe(false);
+    expect(__internal.hasTitlePairCanonicalSupport(
+      'American who contracted Ebola in DR Congo evacuated for treatment',
+      'US evacuates American doctor who contracted Ebola in DR Congo for treatment',
+    )).toBe(true);
+    expect(__internal.bundleConfidenceScore({
+      ...STORY_BUNDLE,
+      cluster_features: {
+        ...STORY_BUNDLE.cluster_features,
+        confidence_score: Number.NaN,
+      },
+    })).toBe(0.5);
+  });
+
+  it('keeps three-source corroborated bundles on source diversity even with varied headlines', () => {
+    const multiSource = storyBundle('multi-source', {
+      sourceCount: 3,
+      confidenceScore: 0.71,
+      titles: [
+        'Trump blasts disloyal Sen. Cassidy while pushing challenger in Louisiana primary',
+        'Republican senator who voted to convict Trump battles for re-election',
+        'GOP Sen. Cassidy fights to hold onto seat in Louisiana primary',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(multiSource)).toBe(true);
+  });
+
+  it('demotes unsupported outlier sources from multi-source canonical bundles before publication', () => {
+    const mixedSupremeCourtBundle = storyBundle('mixed-supreme-court', {
+      sourceCount: 4,
+      confidenceScore: 0.79,
+      titles: [
+        'Supreme Court rejects Virginia Democrats bid to revive new congressional map',
+        'Supreme Court rejects Virginia Democrats attempt to revive new congressional map',
+        'Supreme Court rejects bid to restore Virginia congressional map favoring Democrats',
+        'Supreme Court allows access to abortion pill by mail for now',
+      ],
+    });
+
+    const [selected] = __internal.selectBundlesForPublication([mixedSupremeCourtBundle], null);
+
+    expect(selected?.primary_sources?.map((source) => source.title)).toEqual([
+      'Supreme Court rejects Virginia Democrats bid to revive new congressional map',
+      'Supreme Court rejects Virginia Democrats attempt to revive new congressional map',
+      'Supreme Court rejects bid to restore Virginia congressional map favoring Democrats',
+    ]);
+    expect(selected?.related_links?.map((source) => source.title)).toEqual([
+      'Supreme Court allows access to abortion pill by mail for now',
+    ]);
+  });
+
+  it('keeps multi-source bundles unchanged when title support is all-or-nothing', () => {
+    const allSupported = storyBundle('all-supported', {
+      sourceCount: 3,
+      confidenceScore: 0.79,
+      titles: [
+        'Court rejects Virginia map challenge from Democrats',
+        'Supreme Court rejects Virginia Democrats map challenge',
+        'High court rejects Virginia Democrats congressional map bid',
+      ],
+    });
+    const tooFewSupported = storyBundle('too-few-supported', {
+      sourceCount: 4,
+      confidenceScore: 0.79,
+      titles: [
+        'Senate parliamentarian nixes ballroom fund in budget bill',
+        'Ebola response team expands Congo vaccine campaign',
+        'Climate report says sea levels rose again this year',
+        'Transit agency approves late-night rail extension',
+      ],
+    });
+
+    expect(__internal.refineBundleForPublication(allSupported)).toBe(allSupported);
+    expect(__internal.refineBundleForPublication(tooFewSupported)).toBe(tooFewSupported);
+  });
+
+  it('sorts capped bundle publication deterministically through every tie breaker', () => {
+    const older = storyBundle('older', {
+      sourceCount: 2,
+      clusterWindowEnd: 100,
+      createdAt: 100,
+    });
+    const newerWindow = storyBundle('newer-window', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 50,
+    });
+    const newerCreated = storyBundle('newer-created', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 80,
+    });
+    const alphabeticWinner = storyBundle('alphabetic-winner', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+      createdAt: 80,
+    });
+
+    expect(__internal.selectBundlesForPublication([
+      older,
+      newerWindow,
+      newerCreated,
+      alphabeticWinner,
+    ], 3).map((bundle) => bundle.story_id)).toEqual([
+      'alphabetic-winner',
+      'newer-created',
+      'newer-window',
+    ]);
+  });
+
   it('prunes stale published stories after a non-empty refresh shrinks the bundle set', async () => {
+    const storyTwo: StoryBundle = {
+      ...STORY_BUNDLE,
+      story_id: 'story-2',
+      topic_id: 'topic-2',
+      headline: 'Second story',
+      provenance_hash: 'provhash-2',
+      created_at: STORY_BUNDLE.created_at + 1,
+    };
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce(batch([STORY_BUNDLE, storyTwo]))
+      .mockResolvedValueOnce(batch([STORY_BUNDLE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      removeStoryBundle,
+      pruneStaleBundles: true,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, storyTwo);
+    expect(removeStoryBundle).toHaveBeenCalledTimes(1);
+    expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
+
+    handle.stop();
+  });
+
+  it('preserves previously published stories by default when a refresh returns fewer bundles', async () => {
     const storyTwo: StoryBundle = {
       ...STORY_BUNDLE,
       story_id: 'story-2',
@@ -240,8 +604,7 @@ describe('newsRuntime', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, storyTwo);
-    expect(removeStoryBundle).toHaveBeenCalledTimes(1);
-    expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
+    expect(removeStoryBundle).not.toHaveBeenCalled();
 
     handle.stop();
   });
@@ -267,6 +630,58 @@ describe('newsRuntime', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledTimes(1);
     expect(removeStoryBundle).not.toHaveBeenCalled();
+
+    handle.stop();
+  });
+
+  it('reports storyline write failures and continues the tick', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockRejectedValue(new Error('storyline write failed'));
+    const onError = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'storyline write failed' }));
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+
+    handle.stop();
+  });
+
+  it('reports non-Error storyline write failures', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockRejectedValue('storyline string failure');
+    const onError = vi.fn();
+    const traceSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(traceSpy).toHaveBeenCalledWith('[vh:news-runtime] storyline_write_failed', {
+      storyline_id: STORYLINE.storyline_id,
+      error: 'storyline string failure',
+    });
+    expect(onError).toHaveBeenCalledWith('storyline string failure');
 
     handle.stop();
   });

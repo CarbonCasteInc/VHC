@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import { setDefaultResultOrder } from 'node:dns';
+import { lookup as dnsLookup } from 'node:dns/promises';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -32,6 +34,9 @@ const PUBLIC_ENV_KEYS = {
   configMaxAgeMs: ['VH_MESH_PUBLIC_CONFIG_MAX_AGE_MS'],
   fetchTimeoutMs: ['VH_MESH_PUBLIC_FETCH_TIMEOUT_MS'],
   appBootTimeoutMs: ['VH_MESH_PUBLIC_APP_BOOT_TIMEOUT_MS'],
+  forceIpv4: ['VH_MESH_PUBLIC_FORCE_IPV4'],
+  chromiumArgs: ['VH_MESH_PUBLIC_CHROMIUM_ARGS'],
+  ipv4Hosts: ['VH_MESH_PUBLIC_IPV4_HOSTS'],
   rolloverPeerConfigUrl: ['VH_MESH_PUBLIC_ROLLOVER_PEER_CONFIG_URL'],
   rolloverConfigId: ['VH_MESH_PUBLIC_ROLLOVER_CONFIG_ID'],
   rolloverAppUrl: ['VH_MESH_PUBLIC_ROLLOVER_APP_URL'],
@@ -141,6 +146,43 @@ function safeOriginOf(url) {
   }
 }
 
+function hostnameFromUrl(value) {
+  try {
+    return new URL(String(value)).hostname;
+  } catch {
+    return '';
+  }
+}
+
+function normalizePublicHostname(value) {
+  const host = hostnameFromUrl(value) || String(value ?? '').trim();
+  return host.toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+export function publicProofBrowserHostnames(config) {
+  const hosts = [
+    hostnameFromUrl(config.appUrl),
+    hostnameFromUrl(config.peerConfigUrl),
+    ...config.peers.map(hostnameFromUrl),
+    ...(config.ipv4Hosts || []),
+  ]
+    .map(normalizePublicHostname)
+    .filter(Boolean);
+  return uniqueStrings(hosts).sort();
+}
+
+export async function buildChromiumHostResolverRules(hostnames, lookupImpl = dnsLookup) {
+  const rules = [];
+  for (const hostname of hostnames) {
+    const result = await lookupImpl(hostname, { family: 4 });
+    const address = typeof result === 'string' ? result : result?.address;
+    if (address) {
+      rules.push(`MAP ${hostname} ${address}`);
+    }
+  }
+  return rules.length ? `--host-resolver-rules=${rules.join(',')}` : '';
+}
+
 function copyIfExists(source, destination) {
   if (source && fs.existsSync(source)) {
     fs.copyFileSync(source, destination);
@@ -174,6 +216,21 @@ function parseList(raw) {
     // fall through to comma/space parsing
   }
   return raw.split(/[\s,]+/).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function parseBoolean(raw, fallback = false) {
+  if (typeof raw !== 'string' || !raw.trim()) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseChromiumArgs(raw) {
+  return String(raw ?? '')
+    .split(/\s+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function parsePositiveInteger(raw, fallback = null) {
@@ -454,6 +511,9 @@ export function parsePublicProofConfig(env = process.env) {
   const configMaxAgeMs = parsePositiveInteger(envValue(env, PUBLIC_ENV_KEYS.configMaxAgeMs), DEFAULT_PUBLIC_CONFIG_MAX_AGE_MS);
   const fetchTimeoutMs = parsePositiveInteger(envValue(env, PUBLIC_ENV_KEYS.fetchTimeoutMs), DEFAULT_PUBLIC_FETCH_TIMEOUT_MS);
   const appBootTimeoutMs = parsePositiveInteger(envValue(env, PUBLIC_ENV_KEYS.appBootTimeoutMs), DEFAULT_PUBLIC_APP_BOOT_TIMEOUT_MS);
+  const forceIpv4 = parseBoolean(envValue(env, PUBLIC_ENV_KEYS.forceIpv4), false);
+  const chromiumArgs = parseChromiumArgs(envValue(env, PUBLIC_ENV_KEYS.chromiumArgs));
+  const ipv4Hosts = uniqueStrings(parseList(envValue(env, PUBLIC_ENV_KEYS.ipv4Hosts)).map(normalizePublicHostname));
   const rolloverPeerConfigUrl = envValue(env, PUBLIC_ENV_KEYS.rolloverPeerConfigUrl);
   const rolloverConfigId = envValue(env, PUBLIC_ENV_KEYS.rolloverConfigId);
   const rolloverAppUrl = envValue(env, PUBLIC_ENV_KEYS.rolloverAppUrl);
@@ -518,6 +578,9 @@ export function parsePublicProofConfig(env = process.env) {
       configMaxAgeMs,
       fetchTimeoutMs,
       appBootTimeoutMs,
+      forceIpv4,
+      chromiumArgs,
+      ipv4Hosts,
       healthEndpoints: healthPlan.records,
       rollover: rolloverInputs.length === 3
         ? { peerConfigUrl: rolloverPeerConfigUrl, configId: rolloverConfigId, appUrl: rolloverAppUrl }
@@ -734,6 +797,17 @@ function extractConnectSrcTokens(cspText) {
   return connectSrc ? uniqueStrings(connectSrc.split(/\s+/).slice(1)) : [];
 }
 
+async function launchPublicProofBrowser(config, chromiumLauncher) {
+  const args = [...(config.chromiumArgs || [])];
+  if (config.forceIpv4) {
+    const resolverRules = await buildChromiumHostResolverRules(publicProofBrowserHostnames(config));
+    if (resolverRules) {
+      args.push(resolverRules);
+    }
+  }
+  return chromiumLauncher.launch({ headless: true, args });
+}
+
 async function runAppBoot({ config, appUrl, expectedConfigId, gateName }) {
   const startedAt = Date.now();
   const failures = [];
@@ -744,7 +818,7 @@ async function runAppBoot({ config, appUrl, expectedConfigId, gateName }) {
   let browser = null;
   try {
     const { chromium } = await import('@playwright/test');
-    browser = await chromium.launch({ headless: true });
+    browser = await launchPublicProofBrowser(config, chromium);
     const page = await browser.newPage();
     await page.addInitScript(() => {
       const nativeWebSocket = window.WebSocket;
@@ -1079,6 +1153,10 @@ async function runPublicDeployedWssProof() {
   const gates = [];
   const failures = [...parsed.failures];
   let browserEvidence = null;
+
+  if (parsed.config.forceIpv4) {
+    setDefaultResultOrder('ipv4first');
+  }
 
   writeJson(manifestPath, publicManifest(parsed.config, failures));
 

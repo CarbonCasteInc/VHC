@@ -13,9 +13,43 @@ import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
 
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
 const NEWS_HYDRATION_INDEX_LIMIT = readPositiveIntEnv('VITE_VH_NEWS_HYDRATION_INDEX_LIMIT', 80);
+const NEWS_HYDRATION_STORY_READ_CONCURRENCY = readPositiveIntEnv(
+  'VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY',
+  4,
+);
+const NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX = readBooleanEnv(
+  'VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX',
+  true,
+);
+const NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX = readBooleanEnv(
+  'VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX',
+  true,
+);
 
 const pendingStoryReadsByStore = new WeakMap<StoreApi<NewsState>, Set<string>>();
 const fetchedStoryTimestampsByStore = new WeakMap<StoreApi<NewsState>, Map<string, number>>();
+const storyReadQueuesByStore = new WeakMap<StoreApi<NewsState>, StoryReadQueueState>();
+const PROTOCOL_INDEX_FIELDS = [
+  '_protocolVersion',
+  '_writerKind',
+  '_systemWriterId',
+  '_systemSignature',
+  '_systemIssuedAt',
+  '_authorScheme',
+  'signedWriteEnvelope',
+];
+
+interface StoryReadJob {
+  client: VennClient;
+  store: StoreApi<NewsState>;
+  storyId: string;
+  latestActivityAt: number;
+}
+
+interface StoryReadQueueState {
+  active: number;
+  queue: StoryReadJob[];
+}
 
 /* c8 ignore start -- environment-source branching is runtime-host defensive; behavior is covered via callers. */
 function readPositiveIntEnv(name: string, fallback: number): number {
@@ -25,7 +59,26 @@ function readPositiveIntEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
+
+function readBooleanEnv(name: string, fallback: boolean): boolean {
+  const raw = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[name]
+    ?? (typeof process !== 'undefined' ? process.env?.[name] : undefined);
+  if (!raw) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
 /* c8 ignore stop */
+
+function carriesProtocolIndexFields(value: unknown): boolean {
+  /* v8 ignore next 3 -- callers guard object-ness before checking protocol fields. */
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return PROTOCOL_INDEX_FIELDS.some((field) => field in record);
+}
 
 /**
  * Latest-index migration parser.
@@ -49,6 +102,10 @@ function parseLatestTimestamp(value: unknown): number | null {
   }
 
   if (value && typeof value === 'object') {
+    if (carriesProtocolIndexFields(value)) {
+      return null;
+    }
+
     const record = value as {
       cluster_window_end?: unknown;
       latest_activity_at?: unknown;
@@ -82,8 +139,13 @@ function parseHotnessScore(value: unknown): number | null {
     return null;
   }
 
-  if (value && typeof value === 'object' && 'hotness' in (value as Record<string, unknown>)) {
-    return parseHotnessScore((value as { hotness?: unknown }).hotness);
+  if (value && typeof value === 'object') {
+    if (carriesProtocolIndexFields(value)) {
+      return null;
+    }
+    if ('hotness' in (value as Record<string, unknown>)) {
+      return parseHotnessScore((value as { hotness?: unknown }).hotness);
+    }
   }
 
   return null;
@@ -114,6 +176,16 @@ function getFetchedStoryTimestamps(store: StoreApi<NewsState>): Map<string, numb
   return created;
 }
 
+function getStoryReadQueue(store: StoreApi<NewsState>): StoryReadQueueState {
+  const existing = storyReadQueuesByStore.get(store);
+  if (existing) {
+    return existing;
+  }
+  const created = { active: 0, queue: [] };
+  storyReadQueuesByStore.set(store, created);
+  return created;
+}
+
 function pruneLatestWindow(store: StoreApi<NewsState>): void {
   const latestIndex = store.getState().latestIndex;
   const entries = Object.entries(latestIndex);
@@ -138,6 +210,45 @@ function pruneLatestWindow(store: StoreApi<NewsState>): void {
   }
 }
 
+async function runStoryReadJob(job: StoryReadJob): Promise<void> {
+  const { client, store, storyId, latestActivityAt } = job;
+  const pending = getPendingStoryReads(store);
+  const fetchedTimestamps = getFetchedStoryTimestamps(store);
+  try {
+    if (store.getState().latestIndex[storyId] !== latestActivityAt) {
+      return;
+    }
+    const story = await readNewsStory(client, storyId);
+    if (!story || store.getState().latestIndex[storyId] !== latestActivityAt) {
+      return;
+    }
+    store.getState().upsertStory(story);
+    fetchedTimestamps.set(storyId, latestActivityAt);
+    const storylines = await loadStorylinesForStories(client, [story]);
+    for (const storyline of storylines) {
+      store.getState().upsertStoryline(storyline);
+    }
+  } catch {
+    // Live hydration is best-effort; refreshLatest performs explicit bounded reads.
+  } finally {
+    pending.delete(storyId);
+  }
+}
+
+function drainStoryReadQueue(queueState: StoryReadQueueState): void {
+  while (
+    queueState.active < NEWS_HYDRATION_STORY_READ_CONCURRENCY &&
+    queueState.queue.length > 0
+  ) {
+    const job = queueState.queue.shift()!;
+    queueState.active += 1;
+    void runStoryReadJob(job).finally(() => {
+      queueState.active -= 1;
+      drainStoryReadQueue(queueState);
+    });
+  }
+}
+
 function loadStoryFromIndex(
   client: VennClient,
   store: StoreApi<NewsState>,
@@ -154,27 +265,9 @@ function loadStoryFromIndex(
   }
 
   pending.add(storyId);
-  void readNewsStory(client, storyId)
-    .then((story) => {
-      if (!story) {
-        return null;
-      }
-      store.getState().upsertStory(story);
-      fetchedTimestamps.set(storyId, latestActivityAt);
-      return loadStorylinesForStories(client, [story]);
-    })
-    .then((storylines) => {
-      if (!storylines) {
-        return;
-      }
-      for (const storyline of storylines) {
-        store.getState().upsertStoryline(storyline);
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      pending.delete(storyId);
-    });
+  const queue = getStoryReadQueue(store);
+  queue.queue.push({ client, store, storyId, latestActivityAt });
+  drainStoryReadQueue(queue);
 }
 
 /**
@@ -191,54 +284,62 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     return false;
   }
 
-  const latestChain = getNewsLatestIndexChain(client);
-  const hotChain = getNewsHotIndexChain(client);
+  const latestChain = NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX
+    ? getNewsLatestIndexChain(client)
+    : null;
+  const hotChain = NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX
+    ? getNewsHotIndexChain(client)
+    : null;
 
   if (
-    !canSubscribe(latestChain) ||
-    !canSubscribe(hotChain)
+    (latestChain !== null && !canSubscribe(latestChain)) ||
+    (hotChain !== null && !canSubscribe(hotChain))
   ) {
     return false;
   }
 
   hydratedStores.add(store);
 
-  latestChain.map!().on!((data: unknown, key?: string) => {
-    recordGunMessageActivity();
-    if (!key) {
-      return;
-    }
-    const timestamp = parseLatestTimestamp(data);
-    if (timestamp === null) {
-      if (data === null) {
-        store.getState().removeLatestIndex(key);
-        store.getState().removeHotIndex(key);
-        store.getState().removeStory(key);
-        getFetchedStoryTimestamps(store).delete(key);
+  if (latestChain !== null) {
+    latestChain.map!().on!((data: unknown, key?: string) => {
+      recordGunMessageActivity();
+      if (!key) {
+        return;
       }
-      return;
-    }
-    store.getState().upsertLatestIndex(key, timestamp);
-    pruneLatestWindow(store);
-    if (key in store.getState().latestIndex) {
-      loadStoryFromIndex(client, store, key, timestamp);
-    }
-  });
+      const timestamp = parseLatestTimestamp(data);
+      if (timestamp === null) {
+        if (data === null) {
+          store.getState().removeLatestIndex(key);
+          store.getState().removeHotIndex(key);
+          store.getState().removeStory(key);
+          getFetchedStoryTimestamps(store).delete(key);
+        }
+        return;
+      }
+      store.getState().upsertLatestIndex(key, timestamp);
+      pruneLatestWindow(store);
+      if (key in store.getState().latestIndex) {
+        loadStoryFromIndex(client, store, key, timestamp);
+      }
+    });
+  }
 
-  hotChain.map!().on!((data: unknown, key?: string) => {
-    recordGunMessageActivity();
-    if (!key) {
-      return;
-    }
-    const hotness = parseHotnessScore(data);
-    if (hotness === null) {
-      if (data === null) {
-        store.getState().removeHotIndex(key);
+  if (hotChain !== null) {
+    hotChain.map!().on!((data: unknown, key?: string) => {
+      recordGunMessageActivity();
+      if (!key) {
+        return;
       }
-      return;
-    }
-    store.getState().upsertHotIndex(key, hotness);
-  });
+      const hotness = parseHotnessScore(data);
+      if (hotness === null) {
+        if (data === null) {
+          store.getState().removeHotIndex(key);
+        }
+        return;
+      }
+      store.getState().upsertHotIndex(key, hotness);
+    });
+  }
 
   return true;
 }

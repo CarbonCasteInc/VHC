@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
 const gunRequire = createRequire(path.join(repoRoot, 'packages/gun-client/package.json'));
+const Gun = gunRequire('gun');
 const SEA = gunRequire('gun/sea');
 
 function findFreePort() {
@@ -142,6 +143,7 @@ async function startRelay(children, tempDirs, env = {}) {
       GUN_HOST: '127.0.0.1',
       GUN_PORT: String(port),
       GUN_FILE: path.join(gunDir, 'data'),
+      VH_RELAY_PEERS: '',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -171,6 +173,35 @@ async function waitForOutput(child, pattern, timeoutMs = 10_000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`timed out waiting for output ${pattern}`);
+}
+
+function readGunOnce(node, timeoutMs = 5_000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, timeoutMs);
+    node.once((data) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(data ?? null);
+    });
+  });
+}
+
+async function putGunValueAndWaitForReadback(node, value, timeoutMs = 5_000) {
+  node.put(value);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await readGunOnce(node, 500) === value) {
+      return;
+    }
+  }
+  throw new Error('gun-put-readback-timeout');
 }
 
 describe('infra relay server', () => {
@@ -225,6 +256,7 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_http_requests_total');
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
+    expect(metrics.body).toMatch(/vh_relay_process_open_fds \d+/);
   });
 
   it('exposes explicit relay topology metadata when relay peers are configured', async () => {
@@ -356,6 +388,595 @@ describe('infra relay server', () => {
         synthesis_id: 'synthesis-daemon',
       }),
     });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis?topic_id=topic-daemon`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          topic_id: 'topic-daemon',
+          synthesis_id: 'synthesis-daemon',
+          record: expect.objectContaining({
+            __topic_synthesis_json: expect.any(String),
+          }),
+        }),
+      });
+  });
+
+  it('serves scalar-only topic synthesis records without waiting for a missing parent node', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '800',
+    });
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: 'topic-scalar-only',
+      synthesis_id: 'synthesis-scalar-only',
+      epoch: 1,
+      created_at: '2026-05-02T00:00:00.000Z',
+      facts_summary: 'Scalar-only topic synthesis remains available through the relay REST fallback.',
+      frames: [],
+      provenance: {
+        candidate_ids: [],
+        provider_mix: {},
+      },
+      warnings: [],
+    };
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('topics').get(synthesis.topic_id).get('latest').get('__topic_synthesis_json'),
+      JSON.stringify(synthesis),
+    );
+    await expect(readGunOnce(
+      gun.get('vh').get('topics').get(synthesis.topic_id).get('latest').get('__topic_synthesis_json'),
+    )).resolves.toBe(JSON.stringify(synthesis));
+
+    const startedAt = Date.now();
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis?topic_id=${synthesis.topic_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          topic_id: synthesis.topic_id,
+          synthesis_id: synthesis.synthesis_id,
+          synthesis,
+          record: expect.objectContaining({
+            __topic_synthesis_json: JSON.stringify(synthesis),
+          }),
+        }),
+      });
+    expect(Date.now() - startedAt).toBeLessThan(800);
+    gun.off();
+  }, 15_000);
+
+  it('preserves LUMA aggregate voter envelopes written through the relay fallback', async () => {
+    const { port } = await startRelay(children, tempDirs);
+    const voterId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const payload = {
+      schema_version: 'aggregate-voter-node-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'voter-v1',
+      topic_id: 'topic-relay-luma',
+      synthesis_id: 'synthesis-relay-luma',
+      epoch: 7,
+      voter_id: voterId,
+      point_id: 'point-relay-luma',
+      agreement: 1,
+      weight: 1,
+      updated_at: '2026-05-02T00:00:00.000Z',
+    };
+    const signedWriteEnvelope = {
+      envelopeVersion: 1,
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      protocolVersion: 'luma-write-v1',
+      profile: 'public-beta',
+      audience: 'vh-aggregate-voter',
+      origin: `http://127.0.0.1:${port}`,
+      scheme: 'voter-v1',
+      publicAuthor: voterId,
+      sessionRef: {
+        tokenHash: 'token-hash',
+        envelopeDigest: 'envelope-digest',
+      },
+      payload,
+      payloadDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sequence: 1778990000000,
+      nonce: '00112233445566778899aabbccddeeff',
+      idempotencyKey: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      issuedAt: 1778990000000,
+      signature: 'signature-relay',
+    };
+    const node = {
+      ...payload,
+      signedWriteEnvelope,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/aggregates/voter`, {
+      method: 'POST',
+      body: {
+        topic_id: payload.topic_id,
+        synthesis_id: payload.synthesis_id,
+        epoch: payload.epoch,
+        voter_id: voterId,
+        node,
+      },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: payload.topic_id,
+        synthesis_id: payload.synthesis_id,
+        epoch: payload.epoch,
+        voter_id: voterId,
+        point_id: payload.point_id,
+      }),
+    });
+
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const pointChain = gun.get('vh').get('aggregates').get('topics').get(payload.topic_id)
+      .get('syntheses').get(payload.synthesis_id)
+      .get('epochs').get(String(payload.epoch))
+      .get('voters').get(voterId)
+      .get(payload.point_id);
+    const storedPoint = await readGunOnce(pointChain);
+    const storedEnvelope = await readGunOnce(pointChain.get('signedWriteEnvelope'));
+    const storedPayload = await readGunOnce(pointChain.get('signedWriteEnvelope').get('payload'));
+    const storedSessionRef = await readGunOnce(pointChain.get('signedWriteEnvelope').get('sessionRef'));
+    gun.off();
+
+    expect(storedPoint).toMatchObject({
+      ...payload,
+      signedWriteEnvelope: { '#': `vh/aggregates/topics/${payload.topic_id}/syntheses/${payload.synthesis_id}/epochs/${payload.epoch}/voters/${voterId}/${payload.point_id}/signedWriteEnvelope` },
+    });
+    expect(storedEnvelope).toMatchObject({
+      envelopeVersion: 1,
+      audience: 'vh-aggregate-voter',
+      publicAuthor: voterId,
+      payload: { '#': `vh/aggregates/topics/${payload.topic_id}/syntheses/${payload.synthesis_id}/epochs/${payload.epoch}/voters/${voterId}/${payload.point_id}/signedWriteEnvelope/payload` },
+      sessionRef: { '#': `vh/aggregates/topics/${payload.topic_id}/syntheses/${payload.synthesis_id}/epochs/${payload.epoch}/voters/${voterId}/${payload.point_id}/signedWriteEnvelope/sessionRef` },
+    });
+    expect(storedPayload).toMatchObject(payload);
+    expect(storedSessionRef).toMatchObject(signedWriteEnvelope.sessionRef);
+  });
+
+  it('serves a read-only aggregate point snapshot from persisted voter rows', async () => {
+    const { port } = await startRelay(children, tempDirs);
+    const baseWrite = {
+      topic_id: 'topic-aggregate-read',
+      synthesis_id: 'synthesis-aggregate-read',
+      epoch: 2,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/aggregates/point-snapshot`, {
+      method: 'POST',
+      body: {
+        snapshot: {
+          schema_version: 'point-aggregate-snapshot-v1',
+          ...baseWrite,
+          point_id: 'point-readable',
+          agree: 1,
+          disagree: 0,
+          weight: 1,
+          participants: 1,
+          version: 1,
+          computed_at: 1,
+          source_window: { from_seq: 1, to_seq: 1 },
+        },
+      },
+    })).resolves.toMatchObject({ statusCode: 200, body: expect.objectContaining({ ok: true }) });
+
+    for (const [voter_id, agreement, updated_at] of [
+      ['voter-one', 1, '2026-05-02T00:00:00.000Z'],
+      ['voter-two', 1, '2026-05-02T00:01:00.000Z'],
+      ['voter-three', -1, '2026-05-02T00:02:00.000Z'],
+    ]) {
+      await expect(requestJson(`http://127.0.0.1:${port}/vh/aggregates/voter`, {
+        method: 'POST',
+        body: {
+          ...baseWrite,
+          voter_id,
+          node: {
+            point_id: 'point-readable',
+            agreement,
+            weight: 1,
+            updated_at,
+          },
+        },
+      })).resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({ ok: true, voter_id }),
+      });
+    }
+
+    const aggregateReadUrl = `http://127.0.0.1:${port}/vh/aggregates/point?topic_id=topic-aggregate-read&synthesis_id=synthesis-aggregate-read&epoch=2&point_id=point-readable`;
+    const firstRead = await requestJson(aggregateReadUrl);
+    expect(firstRead).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: 'topic-aggregate-read',
+        synthesis_id: 'synthesis-aggregate-read',
+        epoch: 2,
+        point_id: 'point-readable',
+        row_count: 3,
+        aggregate: {
+          point_id: 'point-readable',
+          agree: 2,
+          disagree: 1,
+          weight: 3,
+          participants: 3,
+        },
+        snapshot: expect.objectContaining({
+          point_id: 'point-readable',
+          participants: 1,
+        }),
+      }),
+    });
+
+    const cachedRead = await requestJson(aggregateReadUrl);
+    expect(cachedRead).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        cached: true,
+        row_count: 3,
+        aggregate: expect.objectContaining({
+          agree: 2,
+          disagree: 1,
+          participants: 3,
+        }),
+      }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/aggregates/voter`, {
+      method: 'POST',
+      body: {
+        ...baseWrite,
+        voter_id: 'voter-four',
+        node: {
+          point_id: 'point-readable',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-05-02T00:03:00.000Z',
+        },
+      },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, voter_id: 'voter-four' }),
+    });
+
+    await expect(requestJson(aggregateReadUrl)).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        cached: false,
+        row_count: 4,
+        aggregate: expect.objectContaining({
+          agree: 3,
+          disagree: 1,
+          participants: 4,
+        }),
+      }),
+    });
+  });
+
+  it('reads signed forum threads through the relay fallback endpoint', async () => {
+    const { port } = await startRelay(children, tempDirs);
+    const thread = {
+      id: 'thread-relay-signed',
+      schemaVersion: 'hermes-thread-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      title: 'Relay fallback thread',
+      content: 'Thread metadata remains readable after reload.',
+      author: 'author-relay',
+      timestamp: 1778990000000,
+      tags: JSON.stringify(['news']),
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      topicId: 'topic-relay',
+      isHeadline: true,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/thread`, {
+      method: 'POST',
+      body: { thread: { ...thread, __thread_json: JSON.stringify({ ...thread, tags: ['news'] }) } },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        thread_id: 'thread-relay-signed',
+      }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/thread?thread_id=thread-relay-signed`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          thread_id: 'thread-relay-signed',
+          thread: expect.objectContaining({
+            id: 'thread-relay-signed',
+            title: 'Relay fallback thread',
+            isHeadline: true,
+          }),
+        }),
+      });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/thread`))
+      .resolves.toMatchObject({
+        statusCode: 400,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'thread_id-required',
+        }),
+      });
+  });
+
+  it('validates news story relay fallback endpoint inputs and missing stories', async () => {
+    const { port } = await startRelay(children, tempDirs);
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`))
+      .resolves.toMatchObject({
+        statusCode: 400,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'story_id-required',
+        }),
+      });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story?story_id=story-missing`))
+      .resolves.toMatchObject({
+        statusCode: 404,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'news-story-not-found',
+          story_id: 'story-missing',
+        }),
+      });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          record_count: 0,
+          records: {},
+        }),
+      });
+  });
+
+  it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',
+    });
+
+    const bounded = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`);
+    expect(bounded).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: expect.any(Number),
+        source_key_count: expect.any(Number),
+        truncated: expect.any(Boolean),
+        records: expect.any(Object),
+      }),
+    });
+    expect(bounded.body.record_count).toBeLessThanOrEqual(2);
+    expect(bounded.body).not.toHaveProperty('root');
+
+    const limited = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=1`);
+    expect(limited).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        record_count: expect.any(Number),
+        records: expect.any(Object),
+      }),
+    });
+    expect(limited.body.record_count).toBeLessThanOrEqual(1);
+
+    const withRoot = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=1&include_root=true`);
+    expect(withRoot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        root: expect.any(Object),
+      }),
+    });
+  });
+
+  it('serves scalar-only news story records without waiting for a missing parent node', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
+    });
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const story = {
+      story_id: 'story-scalar-only',
+      topic_id: 'topic-scalar-only',
+      headline: 'Scalar-only relay story',
+    };
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+      JSON.stringify(story),
+    );
+    await expect(readGunOnce(
+      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+    )).resolves.toBe(JSON.stringify(story));
+
+    const startedAt = Date.now();
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: story.story_id,
+          story,
+          record: expect.objectContaining({
+            __story_bundle_json: JSON.stringify(story),
+          }),
+        }),
+      });
+    expect(Date.now() - startedAt).toBeLessThan(800);
+    gun.off();
+  }, 15_000);
+
+  it('preserves signed forum comment envelopes written through the relay fallback', async () => {
+    const { port } = await startRelay(children, tempDirs);
+    const signedWriteEnvelope = {
+      envelopeVersion: 1,
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      protocolVersion: 'luma-write-v1',
+      profile: 'dev',
+      audience: 'vh-forum-comment',
+      origin: `http://127.0.0.1:${port}`,
+      scheme: 'forum-author-v1',
+      publicAuthor: 'author-relay',
+      sessionRef: {
+        tokenHash: 'token-hash',
+        envelopeDigest: 'envelope-digest',
+      },
+      payload: {
+        schemaVersion: 'hermes-comment-v2',
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'luma',
+        _authorScheme: 'forum-author-v1',
+        id: 'comment-relay-signed',
+        threadId: 'thread-relay-signed',
+        parentId: null,
+        content: 'Relay fallback comment keeps its signed envelope.',
+        author: 'author-relay',
+        timestamp: 1778990000000,
+        stance: 'discuss',
+      },
+      payloadDigest: 'payload-digest',
+      sequence: 1778990000000,
+      nonce: 'nonce-relay',
+      idempotencyKey: 'idempotency-relay',
+      issuedAt: 1778990000000,
+      signature: 'signature-relay',
+    };
+    const comment = {
+      ...signedWriteEnvelope.payload,
+      upvotes: 0,
+      downvotes: 0,
+      signedWriteEnvelope,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/comment`, {
+      method: 'POST',
+      body: { comment },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        thread_id: 'thread-relay-signed',
+        comment_id: 'comment-relay-signed',
+      }),
+    });
+    const secondSignedWriteEnvelope = {
+      ...signedWriteEnvelope,
+      payload: {
+        ...signedWriteEnvelope.payload,
+        id: 'comment-relay-signed-2',
+        content: 'Relay fallback comment keeps the compact index append-only.',
+        timestamp: 1778990000001,
+      },
+      payloadDigest: 'payload-digest-2',
+      sequence: 1778990000001,
+      nonce: 'nonce-relay-2',
+      idempotencyKey: 'idempotency-relay-2',
+      issuedAt: 1778990000001,
+      signature: 'signature-relay-2',
+    };
+    const secondComment = {
+      ...secondSignedWriteEnvelope.payload,
+      upvotes: 0,
+      downvotes: 0,
+      signedWriteEnvelope: secondSignedWriteEnvelope,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/comment`, {
+      method: 'POST',
+      body: { comment: secondComment },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        thread_id: 'thread-relay-signed',
+        comment_id: 'comment-relay-signed-2',
+      }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/comments?thread_id=thread-relay-signed`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          thread_id: 'thread-relay-signed',
+          comment_ids: ['comment-relay-signed', 'comment-relay-signed-2'],
+          count: 2,
+          comments: [
+            expect.objectContaining({
+              id: 'comment-relay-signed',
+              signedWriteEnvelope,
+            }),
+            expect.objectContaining({
+              id: 'comment-relay-signed-2',
+              signedWriteEnvelope: secondSignedWriteEnvelope,
+            }),
+          ],
+        }),
+      });
+
+    const gun = Gun({
+      peers: [`http://127.0.0.1:${port}/gun`],
+      localStorage: false,
+      radisk: false,
+    });
+    const stored = await readGunOnce(
+      gun.get('vh').get('forum').get('threads').get('thread-relay-signed').get('comments').get('comment-relay-signed'),
+    );
+    const storedSecond = await readGunOnce(
+      gun.get('vh').get('forum').get('threads').get('thread-relay-signed').get('comments').get('comment-relay-signed-2'),
+    );
+    const indexCurrent = await readGunOnce(
+      gun.get('vh').get('forum').get('indexes').get('comment_ids')
+        .get(encodeURIComponent('thread-relay-signed'))
+        .get('current'),
+    );
+    const firstIndexEntry = await readGunOnce(
+      gun.get('vh').get('forum').get('indexes').get('comment_ids')
+        .get(encodeURIComponent('thread-relay-signed'))
+        .get('entries')
+        .get('comment-relay-signed'),
+    );
+    const secondIndexEntry = await readGunOnce(
+      gun.get('vh').get('forum').get('indexes').get('comment_ids')
+        .get(encodeURIComponent('thread-relay-signed'))
+        .get('entries')
+        .get('comment-relay-signed-2'),
+    );
+    gun.off();
+
+    expect(JSON.parse(stored.__comment_json).signedWriteEnvelope).toEqual(signedWriteEnvelope);
+    expect(stored.signedWriteEnvelope).toBeUndefined();
+    expect(JSON.parse(storedSecond.__comment_json).signedWriteEnvelope).toEqual(secondSignedWriteEnvelope);
+    expect(JSON.parse(indexCurrent.idsJson)).toEqual(['comment-relay-signed', 'comment-relay-signed-2']);
+    expect(firstIndexEntry.commentId).toBe('comment-relay-signed');
+    expect(secondIndexEntry.commentId).toBe('comment-relay-signed-2');
   });
 
   it('enforces origin allowlist, request rate limits, and body size caps', async () => {

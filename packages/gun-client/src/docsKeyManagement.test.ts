@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import SEA from 'gun/sea';
+import SEA from 'gun/sea.js';
 import {
   deriveDocumentKey,
   shareDocumentKey,

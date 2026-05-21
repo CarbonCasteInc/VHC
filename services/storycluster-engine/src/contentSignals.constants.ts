@@ -20,12 +20,16 @@ export const ACTION_CATEGORIES = new Map<string, string>([
   ['schedule', 'politics'], ['schedules', 'politics'], ['scheduled', 'politics'], ['resigns', 'politics'],
   ['tell', 'diplomacy'], ['tells', 'diplomacy'], ['told', 'diplomacy'], ['urge', 'diplomacy'], ['urges', 'diplomacy'],
   ['warn', 'diplomacy'], ['warns', 'diplomacy'], ['meet', 'diplomacy'], ['meets', 'diplomacy'],
+  ['announce', 'diplomacy'], ['announces', 'diplomacy'], ['announced', 'diplomacy'],
   ['refuse', 'diplomacy'], ['refuses', 'diplomacy'], ['refused', 'diplomacy'],
   ['arrest', 'legal'], ['arrests', 'legal'], ['arrested', 'legal'], ['charged', 'legal'],
   ['charges', 'legal'], ['detain', 'legal'], ['detains', 'legal'], ['detained', 'legal'],
   ['detention', 'legal'], ['review', 'legal'], ['reviews', 'legal'], ['trial', 'legal'], ['lawsuit', 'legal'],
-  ['shoot', 'conflict'], ['shoots', 'conflict'], ['shot', 'conflict'],
+  ['shoot', 'conflict'], ['shoots', 'conflict'], ['shot', 'conflict'], ['shooting', 'conflict'],
+  ['killed', 'conflict'], ['kills', 'conflict'], ['dead', 'conflict'],
   ['earthquake', 'disaster'], ['flood', 'disaster'], ['wildfire', 'disaster'], ['storm', 'disaster'],
+  ['outbreak', 'disaster'], ['epidemic', 'disaster'],
+  ['implement', 'preparedness'], ['implements', 'preparedness'], ['implemented', 'preparedness'],
   ['market', 'economic'], ['stocks', 'economic'], ['slide', 'economic'], ['slides', 'economic'],
   ['cut', 'economic'], ['cuts', 'economic'], ['tariff', 'economic'], ['inflation', 'economic'],
   ['bring', 'economic'], ['brings', 'economic'], ['bringing', 'economic'],
@@ -51,6 +55,7 @@ export const LOCATION_LEXICON = new Set([
   'iran', 'israel', 'gaza', 'ukraine', 'russia', 'china', 'taiwan', 'tehran', 'jerusalem', 'kyiv',
   'washington', 'london', 'paris', 'berlin', 'tokyo', 'beijing', 'moscow', 'brussels', 'cairo',
   'mexico', 'canada', 'california', 'texas', 'new york', 'los angeles', 'europe', 'asia', 'africa',
+  'san diego', 'congo', 'dr congo', 'democratic republic of congo', 'uganda', 'south sudan', 'singapore',
 ]);
 
 export const TITLE_TRANSLATION_LEXICON: Record<string, Record<string, string>> = {

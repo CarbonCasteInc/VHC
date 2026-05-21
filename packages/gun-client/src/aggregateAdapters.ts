@@ -14,6 +14,7 @@ import {
 } from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { createRelayUserSignatureHeaders, type RelayDevicePair } from './relayAuth';
+import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -335,6 +336,72 @@ const WRITE_READBACK_READ_TIMEOUT_MS = readGunTimeoutMs(
 );
 const STALE_ZERO_READ_ATTEMPTS = 4;
 const STALE_ZERO_READ_RETRY_MS = 500;
+const RELAY_REST_FALLBACK_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+    'VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+  ],
+  5_000,
+);
+const RELAY_REST_AGGREGATE_READ_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_AGGREGATE_RELAY_REST_READ_TIMEOUT_MS',
+    'VH_AGGREGATE_RELAY_REST_READ_TIMEOUT_MS',
+    'VITE_VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+    'VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+  ],
+  15_000,
+);
+const RELAY_REST_AGGREGATE_FAST_PATH_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_AGGREGATE_RELAY_REST_FAST_PATH_TIMEOUT_MS',
+    'VH_AGGREGATE_RELAY_REST_FAST_PATH_TIMEOUT_MS',
+  ],
+  Math.min(5_000, RELAY_REST_AGGREGATE_READ_TIMEOUT_MS),
+);
+const RELAY_REST_AGGREGATE_WRITE_FIRST_ENV = [
+  'VITE_VH_AGGREGATE_RELAY_REST_WRITE_FIRST',
+  'VH_AGGREGATE_RELAY_REST_WRITE_FIRST',
+] as const;
+
+function readAggregateRuntimeString(name: string): string | undefined {
+  const importMetaEnv = (
+    globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined }
+  ).__VH_IMPORT_META_ENV__ ?? (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const importMetaValue = importMetaEnv?.[name];
+  if (typeof importMetaValue === 'string' && importMetaValue.trim().length > 0) {
+    return importMetaValue.trim();
+  }
+
+  if (typeof process !== 'undefined') {
+    const processValue = process.env?.[name];
+    if (typeof processValue === 'string' && processValue.trim().length > 0) {
+      return processValue.trim();
+    }
+  }
+
+  const globalValue = (globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> })
+    .__VH_GUN_CLIENT_CONFIG__?.[name];
+  if (typeof globalValue === 'string' && globalValue.trim().length > 0) {
+    return globalValue.trim();
+  }
+
+  return undefined;
+}
+
+function readAggregateRuntimeBoolean(names: readonly string[], fallback = false): boolean {
+  for (const name of names) {
+    const raw = readAggregateRuntimeString(name);
+    if (!raw) continue;
+    if (/^(1|true|yes|on)$/i.test(raw)) return true;
+    if (/^(0|false|no|off)$/i.test(raw)) return false;
+  }
+  return fallback;
+}
+
+function shouldWriteAggregateViaRelayRestFirst(): boolean {
+  return readAggregateRuntimeBoolean(RELAY_REST_AGGREGATE_WRITE_FIRST_ENV, false);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -355,12 +422,7 @@ function resolveRelayAggregateEndpoint(client: VennClient, path: 'voter' | 'poin
   if (!peer || typeof fetch !== 'function') {
     return null;
   }
-  try {
-    const url = new URL(peer, 'http://127.0.0.1/');
-    return `${url.origin}/vh/aggregates/${path}`;
-  } catch {
-    return null;
-  }
+  return resolveRelayRestEndpointFromPeer(peer, `/vh/aggregates/${path}`);
 }
 
 function resolveClientDevicePair(client: VennClient): RelayDevicePair | null {
@@ -395,6 +457,8 @@ async function writeVoterNodeViaRelayFallback(
   if (!endpoint) {
     return false;
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_FALLBACK_TIMEOUT_MS);
   try {
     const body = {
       topic_id: params.topicId,
@@ -410,6 +474,7 @@ async function writeVoterNodeViaRelayFallback(
         ...await createRelayUserSignatureHeaders('/vh/aggregates/voter', body, resolveClientDevicePair(client)),
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (!response.ok) {
       return false;
@@ -430,6 +495,8 @@ async function writeVoterNodeViaRelayFallback(
       && payload.point_id === params.node.point_id;
   } catch {
     return false;
+  } /* v8 ignore next -- V8 branch artifact on finally; relay write success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -441,6 +508,8 @@ async function writePointSnapshotViaRelayFallback(
   if (!endpoint) {
     return false;
   }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_FALLBACK_TIMEOUT_MS);
   try {
     const body = { snapshot };
     const response = await fetch(endpoint, {
@@ -450,6 +519,7 @@ async function writePointSnapshotViaRelayFallback(
         ...await createRelayUserSignatureHeaders('/vh/aggregates/point-snapshot', body, resolveClientDevicePair(client)),
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (!response.ok) {
       return false;
@@ -468,6 +538,8 @@ async function writePointSnapshotViaRelayFallback(
       && payload.point_id === snapshot.point_id;
   } catch {
     return false;
+  } /* v8 ignore next -- V8 branch artifact on finally; relay write success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -557,6 +629,92 @@ function isZeroPointAggregate(aggregate: PointAggregate): boolean {
     aggregate.participants === 0
   );
 }
+
+function parsePointAggregate(value: unknown, pointId: string): PointAggregate | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  /* v8 ignore next -- relay payload schema validation covers non-string point_id rejection. */
+  const point_id = typeof value.point_id === 'string' ? value.point_id.trim() : '';
+  const agree = typeof value.agree === 'number' ? value.agree : Number.NaN;
+  const disagree = typeof value.disagree === 'number' ? value.disagree : Number.NaN;
+  const weight = typeof value.weight === 'number' ? value.weight : Number.NaN;
+  const participants = typeof value.participants === 'number' ? value.participants : Number.NaN;
+  if (
+    point_id !== pointId
+    || !Number.isFinite(agree)
+    || !Number.isFinite(disagree)
+    || !Number.isFinite(weight)
+    || !Number.isFinite(participants)
+    || agree < 0
+    || disagree < 0
+    || weight < 0
+    || participants < 0
+  ) {
+    return null;
+  }
+  return {
+    point_id,
+    agree: normalizeNonNegativeInt(agree),
+    disagree: normalizeNonNegativeInt(disagree),
+    weight,
+    participants: normalizeNonNegativeInt(participants),
+  };
+}
+
+function preferMoreCompleteAggregate(
+  direct: PointAggregate | null,
+  relayed: PointAggregate | null,
+): PointAggregate | null {
+  if (!direct) {
+    return relayed;
+  }
+  if (!relayed) {
+    return direct;
+  }
+  if (relayed.point_id !== direct.point_id) {
+    return direct;
+  }
+  return relayed.participants > direct.participants || relayed.weight > direct.weight
+    ? relayed
+    : direct;
+}
+
+/* v8 ignore start -- bounded async race helper; callers cover outcomes while stale settlement branches are host-scheduler defensive. */
+function timeoutAsNull<T>(work: Promise<T | null>, timeoutMs: number): Promise<T | null> {
+  return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      /* v8 ignore next 3 -- defensive for timers firing after an already-settled read. */
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(null);
+    }, timeoutMs);
+    work.then(
+      (value) => {
+        /* v8 ignore next 3 -- defensive for late promise resolution after timeout fallback. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      () => {
+        /* v8 ignore next 3 -- defensive for late promise rejection after timeout fallback. */
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(null);
+      },
+    );
+  });
+}
+/* v8 ignore stop */
 
 function rowsContainWritesNewerThanSnapshot(
   rows: readonly AggregateVoterPointRow[],
@@ -880,6 +1038,31 @@ export async function writeVoterNode(
     normalizedPointId,
   );
 
+  if (shouldWriteAggregateViaRelayRestFirst()) {
+    const relayed = await writeVoterNodeViaRelayFallback(client, {
+      topicId: normalizedTopicId,
+      synthesisId: normalizedSynthesisId,
+      epoch: Number(normalizedEpoch),
+      voterId: normalizedVoterId,
+      node: sanitized,
+    }, { allowLumaV1: true });
+    if (relayed) {
+      console.info('[vh:aggregate:voter-write]', {
+        topic_id: normalizedTopicId,
+        synthesis_id: normalizedSynthesisId,
+        epoch: Number(normalizedEpoch),
+        voter_id: normalizedVoterId,
+        point_id: normalizedPointId,
+        acknowledged: true,
+        timed_out: false,
+        latency_ms: undefined,
+        path,
+        relay_first: true,
+      });
+      return sanitized;
+    }
+  }
+
   let ack: PutAckResult;
   try {
     ack = await putWithAck(
@@ -927,7 +1110,7 @@ export async function writeVoterNode(
         epoch: Number(normalizedEpoch),
         voterId: normalizedVoterId,
         node: sanitized,
-      }, { allowLumaV1: false });
+      }, { allowLumaV1: true });
       if (relayed) {
         console.info('[vh:aggregate:voter-write]', {
           topic_id: normalizedTopicId,
@@ -961,6 +1144,14 @@ export async function writeVoterNode(
     throw error;
   }
 
+  const relayMirrored = await writeVoterNodeViaRelayFallback(client, {
+    topicId: normalizedTopicId,
+    synthesisId: normalizedSynthesisId,
+    epoch: Number(normalizedEpoch),
+    voterId: normalizedVoterId,
+    node: sanitized,
+  }, { allowLumaV1: true });
+
   console.info('[vh:aggregate:voter-write]', {
     topic_id: normalizedTopicId,
     synthesis_id: normalizedSynthesisId,
@@ -971,6 +1162,7 @@ export async function writeVoterNode(
     timed_out: ack.timedOut,
     latency_ms: ack.latencyMs,
     path,
+    relay_mirror: relayMirrored || undefined,
   });
 
   return sanitized;
@@ -993,6 +1185,24 @@ export async function writePointAggregateSnapshot(
     normalizedEpoch,
     normalizedPointId,
   );
+
+  if (shouldWriteAggregateViaRelayRestFirst()) {
+    const relayed = await writePointSnapshotViaRelayFallback(client, sanitized);
+    if (relayed) {
+      console.info('[vh:aggregate:point-snapshot-write]', {
+        topic_id: normalizedTopicId,
+        synthesis_id: normalizedSynthesisId,
+        epoch: Number(normalizedEpoch),
+        point_id: normalizedPointId,
+        acknowledged: true,
+        timed_out: false,
+        latency_ms: undefined,
+        path,
+        relay_first: true,
+      });
+      return sanitized;
+    }
+  }
 
   let ack: PutAckResult;
   try {
@@ -1068,6 +1278,8 @@ export async function writePointAggregateSnapshot(
     throw error;
   }
 
+  const relayMirrored = await writePointSnapshotViaRelayFallback(client, sanitized);
+
   console.info('[vh:aggregate:point-snapshot-write]', {
     topic_id: normalizedTopicId,
     synthesis_id: normalizedSynthesisId,
@@ -1082,6 +1294,7 @@ export async function writePointAggregateSnapshot(
     participants: sanitized.participants,
     weight: sanitized.weight,
     version: sanitized.version,
+    relay_mirror: relayMirrored || undefined,
   });
 
   return sanitized;
@@ -1395,6 +1608,94 @@ export async function readAggregates(
   );
 }
 
+export async function readAggregatesViaRelayRest(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  pointId: string,
+): Promise<PointAggregate | null> {
+  const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
+  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
+  const normalizedEpoch = Number(normalizeEpoch(epoch));
+  const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
+  const peer = client.config.peers[0];
+  if (!peer || typeof fetch !== 'function') {
+    return null;
+  }
+  const query = new URLSearchParams({
+    topic_id: normalizedTopicId,
+    synthesis_id: normalizedSynthesisId,
+    epoch: String(normalizedEpoch),
+    point_id: normalizedPointId,
+  });
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/aggregates/point?${query.toString()}`,
+  );
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_AGGREGATE_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { aggregate?: unknown };
+    return parsePointAggregate(payload.aggregate, normalizedPointId);
+  } catch {
+    return null;
+  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readAggregatesWithRelayRestFallback(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  pointId: string,
+): Promise<PointAggregate> {
+  let directError: unknown;
+  const directPromise = readAggregates(client, topicId, synthesisId, epoch, pointId)
+    .catch((error: unknown) => {
+      directError = error;
+      return null;
+    });
+  const relayedPromise = readAggregatesViaRelayRest(client, topicId, synthesisId, epoch, pointId);
+  const fastRelayed = await timeoutAsNull(
+    relayedPromise,
+    RELAY_REST_AGGREGATE_FAST_PATH_TIMEOUT_MS,
+  );
+  if (fastRelayed && !isZeroPointAggregate(fastRelayed)) {
+    return fastRelayed;
+  }
+
+  const [direct, relayed] = await Promise.all([
+    directPromise,
+    fastRelayed
+      ? Promise.resolve(fastRelayed)
+      : timeoutAsNull(relayedPromise, RELAY_REST_AGGREGATE_READ_TIMEOUT_MS + 1_000),
+  ]);
+  const selected = preferMoreCompleteAggregate(direct, relayed);
+  if (selected) {
+    return selected;
+  }
+  if (directError instanceof Error) {
+    throw directError;
+  }
+  /* v8 ignore next -- readAggregates rejects with Error instances; this preserves fail-closed behavior for unknown throws. */
+  throw new Error('aggregate-read-failed');
+}
+
 export const aggregateAdapterInternal = {
   normalizeNonNegativeInt,
   aggregateVoterPointPath,
@@ -1402,4 +1703,8 @@ export const aggregateAdapterInternal = {
   aggregatePointPath,
   aggregatePointsPath,
   readOnce,
+  parsePointAggregate,
+  preferMoreCompleteAggregate,
+  writeVoterNodeViaRelayFallback,
+  shouldWriteAggregateViaRelayRestFirst,
 };

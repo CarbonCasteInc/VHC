@@ -33,14 +33,39 @@ export function stripUndefined<T extends object>(obj: T): T {
   return Object.fromEntries(entries) as T;
 }
 
+export function serializeGunScalarValue(value: unknown): unknown {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (Array.isArray(value) || typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return value;
+}
+
+export function parseJsonObjectScalar(value: unknown): unknown {
+  if (typeof value !== 'string' || !value.trim().startsWith('{')) {
+    return value;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+}
+
 /** Serialize thread for Gun storage (handles undefined + arrays) */
 export function serializeThreadForGun(thread: HermesThread): Record<string, unknown> {
   const clean = stripUndefined(thread);
+  const serialized = Object.fromEntries(
+    Object.entries(clean)
+      .map(([key, value]) => [key, serializeGunScalarValue(value)] as const)
+      .filter(([, value]) => value !== undefined)
+  );
   return {
-    ...clean,
+    ...serialized,
     [THREAD_JSON_FIELD]: JSON.stringify(clean),
-    tags: JSON.stringify(clean.tags),
-    // TODO: serialize nested proposal for Gun when elevation is implemented (see #77 maint S1)
   };
 }
 
@@ -69,6 +94,7 @@ export function parseThreadFromGun(data: Record<string, unknown>): Record<string
   }
   const { [THREAD_JSON_FIELD]: _threadEnvelope, proposal: rawProposal, ...rest } = data;
   const result: Record<string, unknown> = { ...rest, tags };
+  result.signedWriteEnvelope = parseJsonObjectScalar(result.signedWriteEnvelope);
   if (!result.sourceSynthesisId && typeof result.sourceAnalysisId === 'string') {
     result.sourceSynthesisId = result.sourceAnalysisId;
   }

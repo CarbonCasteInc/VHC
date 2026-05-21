@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { defineConfig, devices, type TestConfig } from '@playwright/test';
 import { buildPortClearShellCommand } from './src/live/daemonFirstFeedProcesses';
+import { resolveDaemonFeedSourcesJson } from './src/live/daemonFeedSources';
 import { E2E_SYSTEM_WRITER_PIN_JSON } from './src/live/lumaSystemWriterTestFixture';
 
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
@@ -8,6 +9,15 @@ process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
 function stablePort(base: number, span: number, seed: string): number {
   const offset = [...seed].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
   return base + offset;
+}
+
+function resolveDaemonFeedBridgeEnabled(): string {
+  const configured = process.env.VH_DAEMON_FEED_BRIDGES_ENABLED?.trim().toLowerCase();
+  if (configured === 'true' || configured === 'false') {
+    return configured;
+  }
+
+  return 'false';
 }
 
 function wrapLoggedWebServerCommand(name: string, script: string): string {
@@ -60,6 +70,9 @@ const fixtureServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-fi
 const qdrantServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-qdrant-stub.mjs');
 const analysisStubServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-analysis-stub.mjs');
 const cleanupServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-process-cleanup.mjs');
+const releaseRelayWsBytesPerSecond =
+  process.env.VH_RELAY_WS_BYTES_PER_SEC?.trim() || '25000000';
+const daemonFeedBridgeEnabled = resolveDaemonFeedBridgeEnabled();
 
 if (storyclusterVectorBackend === 'qdrant') {
   process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
@@ -140,6 +153,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'ap',
     enabled: true,
   },
+  'ap-politics': {
+    id: 'ap-politics',
+    name: 'Associated Press Politics',
+    displayName: 'AP',
+    rssUrl: 'https://apnews.com/politics',
+    perspectiveTag: 'wire-service',
+    iconKey: 'ap',
+    enabled: true,
+  },
   'yahoo-world': {
     id: 'yahoo-world',
     name: 'Yahoo News World',
@@ -210,6 +232,51 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     rssUrl: 'https://thenevadaindependent.com/feed/',
     perspectiveTag: 'statehouse',
     iconKey: 'nevadaindependent',
+    enabled: true,
+  },
+  'latimes-california': {
+    id: 'latimes-california',
+    name: 'Los Angeles Times California',
+    displayName: 'Los Angeles Times',
+    rssUrl: 'https://www.latimes.com/california.rss',
+    perspectiveTag: 'regional-newspaper',
+    iconKey: 'latimes',
+    enabled: true,
+  },
+  'militarytimes-news': {
+    id: 'militarytimes-news',
+    name: 'Military Times News',
+    displayName: 'Military Times',
+    rssUrl: 'https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml',
+    perspectiveTag: 'military-policy',
+    iconKey: 'militarytimes',
+    enabled: true,
+  },
+  'fedsmith-news': {
+    id: 'fedsmith-news',
+    name: 'FedSmith News',
+    displayName: 'FedSmith',
+    rssUrl: 'https://www.fedsmith.com/feed/',
+    perspectiveTag: 'federal-workforce',
+    iconKey: 'fedsmith',
+    enabled: true,
+  },
+  'democracydocket-alerts': {
+    id: 'democracydocket-alerts',
+    name: 'Democracy Docket Democracy Alerts',
+    displayName: 'Democracy Docket',
+    rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
+    perspectiveTag: 'election-law',
+    iconKey: 'democracydocket',
+    enabled: true,
+  },
+  'bigbendsentinel-border-wall': {
+    id: 'bigbendsentinel-border-wall',
+    name: 'Big Bend Sentinel Border Wall Updates',
+    displayName: 'Big Bend Sentinel',
+    rssUrl: 'https://bigbendsentinel.com/feed/',
+    perspectiveTag: 'local-news',
+    iconKey: 'bigbendsentinel',
     enabled: true,
   },
   'kffhealthnews-original': {
@@ -393,8 +460,8 @@ const localWebServers: TestConfig['webServer'] = [
           buildPortClearShellCommand(gunPort),
           `rm -rf ${JSON.stringify(relayRootDir)}`,
           `mkdir -p ${JSON.stringify(relayRootDir)}`,
-          `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
-          `GUN_HOST=127.0.0.1 GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
+          `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} --preserve-relay-server || true`,
+          `GUN_HOST=127.0.0.1 GUN_PORT=${gunPort} GUN_RADISK=false GUN_FILE=${JSON.stringify(relayDataPath)} VH_RELAY_WS_BYTES_PER_SEC=${releaseRelayWsBytesPerSecond} node ${JSON.stringify(relayServerPath)}`,
         ].join(' && ')),
         url: `http://127.0.0.1:${gunPort}`,
         reuseExistingServer: false,
@@ -404,7 +471,7 @@ const localWebServers: TestConfig['webServer'] = [
   {
     command: wrapLoggedWebServerCommand('web-pwa', [
       buildPortClearShellCommand(basePort),
-      `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort`,
+      `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort --force`,
     ].join(' && ')),
     url: baseUrl,
     reuseExistingServer: false,
@@ -416,14 +483,35 @@ const localWebServers: TestConfig['webServer'] = [
         useFixtureAnalysisStub ? 'true' : 'false',
       VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS:
         useFixtureAnalysisStub ? '1500' : process.env.VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS,
-      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_NEWS_BRIDGE_ENABLED: daemonFeedBridgeEnabled,
+      VITE_SYNTHESIS_BRIDGE_ENABLED: daemonFeedBridgeEnabled,
+      VITE_LINKED_SOCIAL_ENABLED: daemonFeedBridgeEnabled,
       VITE_NEWS_RUNTIME_ENABLED: 'false',
       VITE_NEWS_RUNTIME_ROLE: 'consumer',
+      VITE_VH_GUN_LOCAL_STORAGE:
+        process.env.VITE_VH_GUN_LOCAL_STORAGE?.trim() || 'false',
+      VITE_VH_GUN_READ_TIMEOUT_MS:
+        process.env.VITE_VH_GUN_READ_TIMEOUT_MS?.trim() || '10000',
       VH_DAEMON_FEED_USE_FIXTURE_FEED: useFixtureFeed ? 'true' : 'false',
       VH_DAEMON_FEED_FIXTURE_BASE_URL: fixtureFeedBaseUrl,
+      VITE_NEWS_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
       VITE_E2E_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
       VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
-      VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
+      VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
+      VITE_NEWS_REFRESH_TIMEOUT_MS:
+        process.env.VITE_NEWS_REFRESH_TIMEOUT_MS?.trim() || '120000',
+      VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY:
+        process.env.VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY?.trim() || '8',
+      ...(process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY?.trim()
+        ? { VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY: process.env.VITE_VH_NEWS_HYDRATION_STORY_READ_CONCURRENCY.trim() }
+        : {}),
+      ...(process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT?.trim()
+        ? { VITE_VH_NEWS_HYDRATION_INDEX_LIMIT: process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT.trim() }
+        : {}),
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX:
+        process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_LATEST_INDEX?.trim() || 'false',
+      VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX:
+        process.env.VITE_VH_NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX?.trim() || 'false',
       ...resolveAnalysisRelayEnv(),
     },
   },

@@ -31,3 +31,34 @@ export const LOW_SIGNAL_CANONICAL_ENTITIES = new Set([
   'golf',
   'darts',
 ]);
+
+const LOW_SIGNAL_COMPETITION_TERMS = new Set([
+  'bowl',
+  'championship',
+  'classic',
+  'cup',
+  'derby',
+  'final',
+  'finals',
+  'invitational',
+  'league',
+  'masters',
+  'open',
+  'playoff',
+  'playoffs',
+  'prix',
+  'series',
+  'tournament',
+]);
+
+export function isLowSignalCanonicalEntity(value: string): boolean {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, '_');
+  if (!normalized) {
+    return true;
+  }
+  if (LOW_SIGNAL_CANONICAL_ENTITIES.has(normalized)) {
+    return true;
+  }
+  const tokens = normalized.split('_').filter(Boolean);
+  return tokens.length <= 3 && tokens.some((token) => LOW_SIGNAL_COMPETITION_TERMS.has(token));
+}

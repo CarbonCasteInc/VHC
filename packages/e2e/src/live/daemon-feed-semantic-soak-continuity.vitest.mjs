@@ -122,6 +122,44 @@ describe('daemon-feed-semantic-soak continuity', () => {
     });
   });
 
+  it('preserves singleton store snapshots when a semantic audit exists but samples zero bundles', () => {
+    const artifactDir = '/repo/.tmp/daemon-feed-semantic-soak/250';
+    const files = new Map([
+      [`${artifactDir}/run-1.semantic-audit.json`, JSON.stringify({
+        sampled_story_count: 0,
+        supply: { status: 'singleton_only', story_count: 1, auditable_count: 0 },
+        bundles: [],
+      })],
+      [`${artifactDir}/run-1.semantic-audit-failure-snapshot.json`, JSON.stringify({
+        stories: [{
+          story_id: 'story-singleton',
+          topic_id: 'topic-singleton',
+          headline: 'One-off courthouse evacuation clears after inspection',
+          source_count: 1,
+          primary_source_count: 1,
+          secondary_asset_count: 0,
+          is_auditable: false,
+          is_dom_visible: true,
+        }],
+      })],
+    ]);
+
+    const snapshot = readExecutionBundleSnapshot(artifactDir, createFs(files));
+
+    expect(snapshot).toMatchObject({
+      coverageScope: 'store_snapshot',
+      topicCount: 1,
+      auditableTopicCount: 0,
+    });
+    expect(snapshot.topics[0]).toMatchObject({
+      topic_id: 'topic-singleton',
+      story_ids: ['story-singleton'],
+      source_count: 1,
+      is_auditable: false,
+      observationKinds: ['failure_snapshot'],
+    });
+  });
+
   it('marks mixed fidelity when audit and failure snapshots both contribute to a topic', () => {
     const artifactDir = '/repo/.tmp/daemon-feed-semantic-soak/300';
     const files = new Map([

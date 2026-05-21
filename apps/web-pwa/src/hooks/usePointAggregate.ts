@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { readAggregates, type PointAggregate } from '@vh/gun-client';
+import {
+  readAggregatesWithRelayRestFallback as readAggregates,
+  type PointAggregate,
+} from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { consumeVoteTimestamp, logConvergenceLag } from '../utils/sentimentTelemetry';
 import { subscribePointAggregateSignals } from './usePointAggregateSubscriptions';

@@ -322,6 +322,56 @@ describe('analysisRelay config + success paths', () => {
     expect(result.payload.provider?.model_id).toBe('client-model');
   });
 
+  it('reads text content arrays from chat completion choices', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({
+        choices: [{
+          message: {
+            content: [
+              { type: 'text', text: '{"ok":' },
+              { type: 'text', text: 'true}' },
+            ],
+          },
+        }],
+      }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-5-nano',
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.payload.content).toBe('{"ok":true}');
+  });
+
+  it('reads string and content fallback parts from chat completion arrays', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({
+        choices: [{
+          message: {
+            content: [
+              null,
+              { type: 'text', content: '{"ok":' },
+              'true}',
+            ],
+          },
+        }],
+      }),
+    );
+
+    const result = await relayAnalysis(
+      { prompt: 'Prompt body' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.payload.content).toBe('{"ok":true}');
+  });
+
   it('uses response.text and response.model when present', async () => {
     const result = await relayAnalysis(
       {
@@ -556,7 +606,7 @@ describe('analysisRelay config + success paths', () => {
   });
 
   it('returns 502 after exhausting all retry attempts on empty content', async () => {
-    const emptyResponse = okResponse({ choices: [{ message: { content: null } }] });
+    const emptyResponse = okResponse({ choices: [{ finish_reason: 'length', message: { content: null } }] });
     const fetchMock = vi.fn().mockResolvedValue(emptyResponse);
 
     const result = await relayAnalysis(
@@ -566,8 +616,189 @@ describe('analysisRelay config + success paths', () => {
 
     expect(result.status).toBe(502);
     expect(result.payload.error).toBe('Upstream response missing content');
+    expect(result.payload.details).toBe('finish_reason=length');
     // 1 initial + 2 retries = 3 total attempts
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('includes status and incomplete reason details on exhausted empty responses', async () => {
+    const emptyResponse = okResponse({
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(emptyResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'Should fail with details' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload).toEqual({
+      error: 'Upstream response missing content',
+      details: 'status=incomplete, incomplete_reason=max_output_tokens',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('expands GPT-5 completion budget on empty output-limit retries', async () => {
+    const emptyResponse = okResponse({ choices: [{ finish_reason: 'length', message: { content: null } }] });
+    const goodResponse = okResponse({ content: '{"ok":true}' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(goodResponse);
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Respond with exactly: {"ok":true}',
+        model: 'gpt-5-nano',
+        max_tokens: 32,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const tokenBudgets = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body));
+      return body.max_completion_tokens;
+    });
+    expect(tokenBudgets).toEqual([32, 128, 512]);
+  });
+
+  it('expands legacy max_tokens budgets on empty output-limit retries', async () => {
+    const emptyResponse = okResponse({ choices: [{ finish_reason: 'length', message: { content: null } }] });
+    const goodResponse = okResponse({ content: '{"ok":true}' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(goodResponse);
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Respond with exactly: {"ok":true}',
+        model: 'gpt-4o-mini',
+        max_tokens: 40,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const tokenBudgets = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body));
+      return body.max_tokens;
+    });
+    expect(tokenBudgets).toEqual([40, 160, 640]);
+  });
+
+  it('keeps capped completion budgets unchanged during empty output retries', async () => {
+    const emptyResponse = okResponse({ choices: [{ finish_reason: 'length', message: { content: null } }] });
+    const goodResponse = okResponse({ content: '{"ok":true}' });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(goodResponse);
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Respond with exactly: {"ok":true}',
+        model: 'gpt-5-nano',
+        max_tokens: 8192,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const tokenBudgets = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body));
+      return body.max_completion_tokens;
+    });
+    expect(tokenBudgets).toEqual([8192, 8192]);
+  });
+
+  it('retries GPT-5 upstream output-limit 400s with expanded completion budgets', async () => {
+    const outputLimitResponse = {
+      ok: false,
+      status: 400,
+      json: vi.fn().mockResolvedValue({
+        error: {
+          message: 'Could not finish the message because max_tokens or model output limit was reached.',
+        },
+      }),
+    } as unknown as Response;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(outputLimitResponse)
+      .mockResolvedValueOnce(outputLimitResponse)
+      .mockResolvedValueOnce(okResponse({ content: '{"ok":true}' }));
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Respond with exactly: {"ok":true}',
+        model: 'gpt-5-nano',
+        max_tokens: 32,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const tokenBudgets = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body));
+      return body.max_completion_tokens;
+    });
+    expect(tokenBudgets).toEqual([32, 128, 512]);
+  });
+
+  it('recognizes all upstream output-limit 400 wordings as retryable', async () => {
+    const retryableMessages = [
+      'Could not finish the message because max_completion_tokens was reached.',
+      'The model output limit was reached.',
+      'The output limit was reached.',
+    ];
+
+    for (const message of retryableMessages) {
+      const outputLimitResponse = {
+        ok: false,
+        status: 400,
+        json: vi.fn().mockResolvedValue({ error: { message } }),
+      } as unknown as Response;
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(outputLimitResponse)
+        .mockResolvedValueOnce(okResponse({ content: '{"ok":true}' }));
+
+      const result = await relayAnalysis(
+        {
+          prompt: 'Respond with exactly: {"ok":true}',
+          model: 'gpt-5-nano',
+          max_tokens: 32,
+        },
+        { env: BASE_ENV, fetchImpl: fetchMock },
+      );
+
+      expect(result.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it('does not retry upstream 400s that are not output-limit errors', async () => {
+    const errorResponse = {
+      ok: false,
+      status: 400,
+      json: vi.fn().mockResolvedValue({ error: { message: 'Invalid request body' } }),
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValue(errorResponse);
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Should not retry',
+        model: 'gpt-5-nano',
+        max_tokens: 32,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream 400: Invalid request body');
+    expect(result.payload.error_class).toBe('upstream_400');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry on non-ok upstream status', async () => {

@@ -1,0 +1,186 @@
+{
+  "schema_version": "mvp-production-grade-distribution-readiness-v1",
+  "date": "2026-05-14",
+  "updated_at": "2026-05-20T15:29:19Z",
+  "branch": "coord/mvp-production-grade-distribution-ready-v1",
+  "base_commit": "bb120a2e376784475202d59552f4b04531ee798b",
+  "engineering_evidence_commit_before_docs": "final PR head; commit-sensitive evidence is rerun after this documentation update",
+  "supersedes_pr": 629,
+  "supersedes_branch": "coord/mvp-public-beta-go-no-go-v1",
+  "included_superseded_commit": "de1c1eb4457a77d1a1e664c1b24d162c6f520478",
+  "node": "v20.20.2",
+  "pnpm": "9.7.1",
+  "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md",
+  "launch_control_path": "docs/reports/mvp-public-beta-launch-control-2026-05-13.md",
+  "final_status": "go_for_public_beta_launch",
+  "status_reason": "The real public deployment is reachable through Cloudflare Tunnel, analysis health is remote and reachable, StoryCluster is release_ready, the deployed public feed browser smoke passes, Mesh is release_ready with real public WSS proof against gun-a/b/c.carboncaste.io, and the production app canary passes with real downstream observations.",
+  "release_shaped_stack": {
+    "release_env_path": "/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local",
+    "secret_printing": "not printed; OPENAI_API_KEY and ANALYSIS_RELAY_API_KEY presence verified only",
+    "analysis_config": {
+      "configured": true,
+      "model": "gpt-5-nano",
+      "provider_id": "remote-analysis-relay"
+    },
+    "analysis_health": {
+      "status": 200,
+      "ok": true,
+      "model": "gpt-5-nano",
+      "upstream": "reachable"
+    },
+    "public_origin": {
+      "url": "https://venn.carboncaste.io",
+      "status": "pass",
+      "routes": [
+        "/mesh-peer-config.json",
+        "/api/analyze/config",
+        "/api/analyze/health",
+        "/api/analyze",
+        "/article-text"
+      ]
+    }
+  },
+  "public_infrastructure": {
+    "dns_authority": "Cloudflare",
+    "ingress": "Cloudflare Tunnel",
+    "tunnel_name": "vhc-a6-public-beta",
+    "tunnel_id": "1479d29e-4a0a-4e53-9aaf-b9984672ff9e",
+    "a6_lan_ip": "192.168.1.198",
+    "mac_mini_lan_ip": "192.168.1.56",
+    "router_forwarding_required": false,
+    "tls_path": "Cloudflare edge TLS",
+    "routes": {
+      "https://venn.carboncaste.io": "A6 http://localhost:8080",
+      "wss://gun-a.carboncaste.io/gun": "A6 http://localhost:8765",
+      "wss://gun-b.carboncaste.io/gun": "A6 http://localhost:8766",
+      "wss://gun-c.carboncaste.io/gun": "Mac mini http://192.168.1.56:8767"
+    },
+    "nested_peer_tls": {
+      "status": "excluded_from_mvp_proof",
+      "reason": "Cloudflare Free Universal SSL does not cover gun-a/b/c.venn.carboncaste.io.",
+      "mvp_proof_uses": "gun-a/b/c.carboncaste.io"
+    },
+    "relay_daemon_token_rotation": {
+      "status": "pass",
+      "a6_token_env_path": "/home/humble/.config/vhc/public-beta-relay-daemon-token-v2.env",
+      "mac_token_env_path": "~/.config/vhc/public-beta-relay-daemon-token-v2.env",
+      "mode": "600",
+      "secret_printed": false
+    }
+  },
+  "signed_peer_config": {
+    "config_url": "https://venn.carboncaste.io/mesh-peer-config.json",
+    "config_id": "public-beta-fallback-wss-v1",
+    "public_verification_key": "YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w",
+    "peers": [
+      "wss://gun-a.carboncaste.io/gun",
+      "wss://gun-b.carboncaste.io/gun",
+      "wss://gun-c.carboncaste.io/gun"
+    ],
+    "minimum_peer_count": 3,
+    "quorum_required": 2,
+    "csp_connect_src": "'self' https://venn.carboncaste.io wss://gun-a.carboncaste.io wss://gun-b.carboncaste.io wss://gun-c.carboncaste.io"
+  },
+  "storycluster_production_readiness": {
+    "status": "release_ready",
+    "report_path": ".tmp/storycluster-production-readiness/latest/production-readiness-report.json",
+    "headline_soak_summary_path": ".tmp/daemon-feed-semantic-soak/1779290237733/semantic-soak-summary.json",
+    "headline_soak_latest_execution": {
+      "readiness_status": "promotable",
+      "strict_soak_pass": true,
+      "run_count": 3,
+      "pass_count": 3,
+      "fail_count": 0,
+      "total_sampled_stories": 6,
+      "total_audited_pairs": 33,
+      "total_related_topic_only_pairs": 0,
+      "total_bundled_stories": 6,
+      "total_corroborated_bundles": 6,
+      "average_audited_pairs_per_sampled_story": 5.5,
+      "average_unique_source_count": 7
+    },
+    "singleton_policy": "Singleton stories are valid feed items when no same-story/topic/event overlap exists. They persist as singletons and remain eligible for later bundling when matching articles arrive. Release evidence proves accurate bundling when overlap exists and preserves continuity telemetry across runs."
+  },
+  "public_feed_ux": {
+    "status": "pass",
+    "summary_path": ".tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json",
+    "coverage": [
+      "current public headlines visible",
+      "source labels visible",
+      "timestamps visible",
+      "refresh works",
+      "scroll works",
+      "story detail opens",
+      "accepted analysis/synthesis visible",
+      "identity creation works",
+      "point stance write/readback works through the public app-origin aggregate fanout",
+      "story comments work",
+      "reload persistence works",
+      "second-browser visibility works"
+    ]
+  },
+  "mesh_and_app_canary": {
+    "public_wss_peer_config_proof": {
+      "status": "pass",
+      "run_id": "latest embedded public WSS proof in Mesh production readiness",
+      "report_path": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+      "failures": []
+    },
+    "mesh_claimed_release_ready": true,
+    "mesh_production_readiness_run_id": "latest",
+    "mesh_production_readiness_artifact": ".tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json",
+    "mesh_release_readiness_blockers": [],
+    "production_app_canary_claimed_pass": true,
+    "production_app_canary_run_id": "latest",
+    "production_app_canary_artifact": ".tmp/production-app-canary/latest/production-app-canary-report.json",
+    "production_app_canary_required_surfaces": [
+      "production_wss_relay_config",
+      "app_preview_or_deploy_shape",
+      "api_analyze",
+      "news_synthesis_publication",
+      "point_stance_write_readback",
+      "story_thread_create_comment"
+    ]
+  },
+  "approvals": {
+    "release_owner": "Carbon Caste Inc",
+    "external_legal_disposition": "not_required",
+    "external_legal_rationale": "public beta copy makes no regulated/commercial/legal claims",
+    "launch_copy_approval": "approved",
+    "approved_launch_copy_path": "docs/launch/public-beta-copy.md",
+    "support_intake_owner": "Venn Support",
+    "public_support_intake_path": "GitHub issue form in CarbonCasteInc/VHC",
+    "private_escalation_owner_channel": "Venn Core; none; single-developer project",
+    "rollback_disposition": "not_required",
+    "rollback_rationale": "fresh launch, no release version, no userbase, no migration"
+  },
+  "allowed_launch_copy": [
+    "Web PWA MVP public beta for the implemented scope.",
+    "Current launch-control status is go_for_public_beta_launch.",
+    "StoryCluster release readiness is green while preserving legitimate singleton stories.",
+    "Mesh release readiness is green for the fallback public peers gun-a/b/c.carboncaste.io.",
+    "Production app canary passes with real downstream observations.",
+    "Support intake is the GitHub issue form in CarbonCasteInc/VHC."
+  ],
+  "forbidden_claims": [
+    "LUMA Silver",
+    "verified-human identity",
+    "one-human-one-vote",
+    "Sybil resistance",
+    "native App Store readiness",
+    "TestFlight readiness",
+    "legal approval",
+    "commercial approval",
+    "nested gun-a/b/c.venn.carboncaste.io peer TLS validity",
+    "private support desk",
+    "SLA"
+  ],
+  "explicit_non_claims": [
+    "No legal approval claim; legal/external is not_required.",
+    "No commercial approval claim.",
+    "No nested gun-a/b/c.venn.carboncaste.io TLS claim.",
+    "No native app distribution claim.",
+    "No private support desk or SLA claim."
+  ],
+  "remaining_blockers": []
+}
