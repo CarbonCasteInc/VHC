@@ -188,6 +188,35 @@ That run failed with `public-relay-latest-index-story-404:4/0` and recorded:
 - Frame-count distribution: 73 stories with 0 rows, 1 story with 2 rows, 2 stories with 3 rows
 - Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
 
+After the implementation branch was committed and pushed, the public health path was
+checked again:
+
+- `https://venn.carboncaste.io/`: HTTP 200
+- `https://venn.carboncaste.io/api/analyze/health`: HTTP 200
+- `https://gun-a.carboncaste.io/health`: relay alive
+- `https://gun-b.carboncaste.io/health`: relay alive
+- `https://gun-c.carboncaste.io/health`: relay alive
+- Release environment file presence was verified locally without printing secrets
+
+The clean-branch MVP release-gate run failed on the undeployed public feed reliability
+gate, with artifacts under:
+
+`.tmp/analysis-frame-pipeline/20260528T031000Z/mvp-gate-public-feed-smoke-clean/public-feed-browser-smoke-summary.json`
+
+Measured public state in that run:
+
+- Latest-index records sampled: 80
+- Story readbacks attempted: 74
+- Story body readback: 74 HTTP 200, 6 HTTP 404
+- Latest synthesis readback: 3 HTTP 200, 71 HTTP 404
+- Readable singleton text stories: 22
+- Readable multi-source text stories: 52
+- Singleton visible with accepted synthesis: 0
+- Frame-count distribution: 71 stories with 0 rows, 1 story with 2 rows, 2 stories with 3 rows
+- Accepted synthesis stories: 3
+- Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
+- Gate failure: `public-relay-latest-index-story-404:6/0`
+
 ## Deployment Status
 
 Public deployment was not performed.
@@ -203,6 +232,12 @@ Because the A6 host could not be reached, the public origin and A/B relays could
 be updated. Relay C on the Mac mini was intentionally not restarted as standalone
 proof because the public origin chooses among public latest-index responses and a
 single local relay update would not prove the full public path.
+
+SSH was retried after the branch was committed and pushed, and the same blocker
+remained:
+
+- Command class: `ssh -o BatchMode=yes -o ConnectTimeout=8 humble true`
+- Failure: `ssh: connect to host 100.75.18.26 port 22: Operation timed out`
 
 Human blocker: restore SSH access to `humble`/A6 or provide an alternate deployment
 operator for the public self-hosted stack.
@@ -235,13 +270,35 @@ Failed or blocked:
 - `pnpm check:mesh:production-readiness`: blocked because source reports were generated from a dirty repo, with remaining release-ready blockers for canonical soak, public WSS deployment proof, evidence scrub promotion, and LUMA-gated write coverage
 - `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_report_dirty`
 
+Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`:
+
+- `pnpm check:mesh:production-readiness`: completed with status `review_required`; all source reports passed and evidence scrub passed. Artifact:
+  `.tmp/mesh-production-readiness/mesh-production-readiness-20260528T025448Z-35b024dc/mesh-production-readiness-report.json`.
+- Remaining Mesh release-ready blockers from the clean run: canonical 30-minute soak,
+  public WSS deployment proof, and LUMA-gated write coverage.
+- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_not_release_ready`, not `mesh_report_dirty`.
+  Artifact:
+  `.tmp/production-app-canary/production-app-canary-20260528T030629Z-810e0da8/production-app-canary-report.json`.
+- `pnpm check:mvp-release-gates`: failed on the undeployed public feed reliability
+  gate and LUMA readiness evidence. Public feed artifact:
+  `.tmp/analysis-frame-pipeline/20260528T031000Z/mvp-gate-public-feed-smoke-clean/public-feed-browser-smoke-summary.json`.
+- `pnpm check:storycluster:production-readiness`: refreshed correctness and source-health evidence, then blocked on `headline_soak_evidence_stale`.
+  Latest headline soak trend was generated `2026-05-22T22:27:43.129Z`, with age about
+  124.8 hours against the 36 hour limit. Collection command: `pnpm collect:storycluster:headline-soak`.
+- `pnpm check:luma:mvp-production-readiness` inside the clean MVP gate passed repo-clean
+  and surface checks, then blocked on `mesh_luma_coverage` because the latest LUMA
+  mesh reader-path coverage report was for commit
+  `d201eeba8d2615ea4d25e72370de0c484c2eb7fa`, not current commit
+  `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`.
+
 ## Remaining Blockers
 
 - Deploy the branch to the public A6/Mac mini topology after SSH access to `humble` is restored.
 - Rerun public smoke after deployment and require 0 unbounded story-body 404s in the latest-index top-N window.
 - Replay retryable synthesis lifecycle records and confirm every visible readable text story has accepted TopicSynthesisV2 or a durable terminal unavailable reason.
 - Regenerate StoryCluster headline soak evidence within the freshness window.
-- Regenerate mesh readiness evidence from a clean repo and rerun the production app canary with that report.
+- Regenerate Mesh LUMA-gated write coverage on the current commit.
+- Satisfy Mesh canonical 30-minute soak and public WSS deployment proof, then rerun the production app canary with a release-ready Mesh report.
 
 ## Explicit Non-Claims
 
