@@ -204,6 +204,27 @@ async function putGunValueAndWaitForReadback(node, value, timeoutMs = 5_000) {
   throw new Error('gun-put-readback-timeout');
 }
 
+async function putGunObjectAndWaitForField(node, value, field, expected, timeoutMs = 5_000) {
+  node.put(value);
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const observed = await readGunOnce(node, 500);
+    if (observed && typeof observed === 'object' && observed[field] === expected) {
+      return;
+    }
+  }
+  throw new Error('gun-object-put-readback-timeout');
+}
+
+function createRelayGunClient(port) {
+  return Gun({
+    peers: [`http://127.0.0.1:${port}/gun`],
+    localStorage: false,
+    radisk: false,
+    file: path.join(os.tmpdir(), `vh-relay-client-${process.pid}-${port}-${Date.now()}-${Math.random()}`),
+  });
+}
+
 describe('infra relay server', () => {
   const children = new Set();
   const tempDirs = new Set();
@@ -407,11 +428,7 @@ describe('infra relay server', () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '800',
     });
-    const gun = Gun({
-      peers: [`http://127.0.0.1:${port}/gun`],
-      localStorage: false,
-      radisk: false,
-    });
+    const gun = createRelayGunClient(port);
     const synthesis = {
       schemaVersion: 'topic-synthesis-v2',
       topic_id: 'topic-scalar-only',
@@ -516,11 +533,7 @@ describe('infra relay server', () => {
       }),
     });
 
-    const gun = Gun({
-      peers: [`http://127.0.0.1:${port}/gun`],
-      localStorage: false,
-      radisk: false,
-    });
+    const gun = createRelayGunClient(port);
     const pointChain = gun.get('vh').get('aggregates').get('topics').get(payload.topic_id)
       .get('syntheses').get(payload.synthesis_id)
       .get('epochs').get(String(payload.epoch))
@@ -794,15 +807,88 @@ describe('infra relay server', () => {
     });
   });
 
+  it('filters latest-index rows whose story body is unavailable and reports repair evidence', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '150',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '150',
+    });
+    const gun = createRelayGunClient(port);
+
+    const goodStory = {
+      story_id: 'story-good',
+      topic_id: 'topic-good',
+      headline: 'Good story',
+      cluster_window_end: 200,
+      created_at: 100,
+    };
+    const latestIndexRoot = gun.get('vh').get('news').get('index').get('latest');
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('news').get('stories').get(goodStory.story_id).get('__story_bundle_json'),
+      JSON.stringify(goodStory),
+    );
+    await putGunObjectAndWaitForField(
+      latestIndexRoot.get('story-missing'),
+      { story_id: 'story-missing', latest_activity_at: 300 },
+      'story_id',
+      'story-missing',
+    );
+    await putGunObjectAndWaitForField(
+      latestIndexRoot.get('story-good'),
+      { story_id: 'story-good', latest_activity_at: 200 },
+      'story_id',
+      'story-good',
+    );
+    latestIndexRoot.put({
+      'story-missing': { story_id: 'story-missing', latest_activity_at: 300 },
+      'story-good': { story_id: 'story-good', latest_activity_at: 200 },
+    });
+
+    let latest;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      latest = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=4&scan_limit=4&include_excluded=true`,
+      );
+      if (latest.body?.records?.['story-good']) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        consistency: expect.objectContaining({
+          enabled: true,
+          mode: 'relay_visible_filter',
+          excluded_count: 1,
+        }),
+        records: {
+          'story-good': expect.objectContaining({
+            story_id: 'story-good',
+            latest_activity_at: 200,
+          }),
+        },
+        excluded_records: [
+          expect.objectContaining({
+            story_id: 'story-missing',
+            reason: 'story_body_missing',
+          }),
+        ],
+      }),
+    });
+    expect(latest.body.records).not.toHaveProperty('story-missing');
+    gun.off();
+  }, 20_000);
+
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
     });
-    const gun = Gun({
-      peers: [`http://127.0.0.1:${port}/gun`],
-      localStorage: false,
-      radisk: false,
-    });
+    const gun = createRelayGunClient(port);
     const story = {
       story_id: 'story-scalar-only',
       topic_id: 'topic-scalar-only',
@@ -835,6 +921,9 @@ describe('infra relay server', () => {
 
   it('preserves signed forum comment envelopes written through the relay fallback', async () => {
     const { port } = await startRelay(children, tempDirs);
+    const threadId = `thread-relay-signed-${port}`;
+    const firstCommentId = `comment-relay-signed-${port}`;
+    const secondCommentId = `comment-relay-signed-${port}-2`;
     const signedWriteEnvelope = {
       envelopeVersion: 1,
       signatureSuite: 'jcs-ed25519-sha256-v1',
@@ -853,8 +942,8 @@ describe('infra relay server', () => {
         _protocolVersion: 'luma-public-v1',
         _writerKind: 'luma',
         _authorScheme: 'forum-author-v1',
-        id: 'comment-relay-signed',
-        threadId: 'thread-relay-signed',
+        id: firstCommentId,
+        threadId,
         parentId: null,
         content: 'Relay fallback comment keeps its signed envelope.',
         author: 'author-relay',
@@ -882,15 +971,15 @@ describe('infra relay server', () => {
       statusCode: 200,
       body: expect.objectContaining({
         ok: true,
-        thread_id: 'thread-relay-signed',
-        comment_id: 'comment-relay-signed',
+        thread_id: threadId,
+        comment_id: firstCommentId,
       }),
     });
     const secondSignedWriteEnvelope = {
       ...signedWriteEnvelope,
       payload: {
         ...signedWriteEnvelope.payload,
-        id: 'comment-relay-signed-2',
+        id: secondCommentId,
         content: 'Relay fallback comment keeps the compact index append-only.',
         timestamp: 1778990000001,
       },
@@ -915,68 +1004,64 @@ describe('infra relay server', () => {
       statusCode: 200,
       body: expect.objectContaining({
         ok: true,
-        thread_id: 'thread-relay-signed',
-        comment_id: 'comment-relay-signed-2',
+        thread_id: threadId,
+        comment_id: secondCommentId,
       }),
     });
 
-    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/comments?thread_id=thread-relay-signed`))
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/comments?thread_id=${encodeURIComponent(threadId)}`))
       .resolves.toMatchObject({
         statusCode: 200,
         body: expect.objectContaining({
           ok: true,
-          thread_id: 'thread-relay-signed',
-          comment_ids: ['comment-relay-signed', 'comment-relay-signed-2'],
+          thread_id: threadId,
+          comment_ids: [firstCommentId, secondCommentId],
           count: 2,
           comments: [
             expect.objectContaining({
-              id: 'comment-relay-signed',
+              id: firstCommentId,
               signedWriteEnvelope,
             }),
             expect.objectContaining({
-              id: 'comment-relay-signed-2',
+              id: secondCommentId,
               signedWriteEnvelope: secondSignedWriteEnvelope,
             }),
           ],
         }),
       });
 
-    const gun = Gun({
-      peers: [`http://127.0.0.1:${port}/gun`],
-      localStorage: false,
-      radisk: false,
-    });
+    const gun = createRelayGunClient(port);
     const stored = await readGunOnce(
-      gun.get('vh').get('forum').get('threads').get('thread-relay-signed').get('comments').get('comment-relay-signed'),
+      gun.get('vh').get('forum').get('threads').get(threadId).get('comments').get(firstCommentId),
     );
     const storedSecond = await readGunOnce(
-      gun.get('vh').get('forum').get('threads').get('thread-relay-signed').get('comments').get('comment-relay-signed-2'),
+      gun.get('vh').get('forum').get('threads').get(threadId).get('comments').get(secondCommentId),
     );
     const indexCurrent = await readGunOnce(
       gun.get('vh').get('forum').get('indexes').get('comment_ids')
-        .get(encodeURIComponent('thread-relay-signed'))
+        .get(encodeURIComponent(threadId))
         .get('current'),
     );
     const firstIndexEntry = await readGunOnce(
       gun.get('vh').get('forum').get('indexes').get('comment_ids')
-        .get(encodeURIComponent('thread-relay-signed'))
+        .get(encodeURIComponent(threadId))
         .get('entries')
-        .get('comment-relay-signed'),
+        .get(firstCommentId),
     );
     const secondIndexEntry = await readGunOnce(
       gun.get('vh').get('forum').get('indexes').get('comment_ids')
-        .get(encodeURIComponent('thread-relay-signed'))
+        .get(encodeURIComponent(threadId))
         .get('entries')
-        .get('comment-relay-signed-2'),
+        .get(secondCommentId),
     );
     gun.off();
 
     expect(JSON.parse(stored.__comment_json).signedWriteEnvelope).toEqual(signedWriteEnvelope);
     expect(stored.signedWriteEnvelope).toBeUndefined();
     expect(JSON.parse(storedSecond.__comment_json).signedWriteEnvelope).toEqual(secondSignedWriteEnvelope);
-    expect(JSON.parse(indexCurrent.idsJson)).toEqual(['comment-relay-signed', 'comment-relay-signed-2']);
-    expect(firstIndexEntry.commentId).toBe('comment-relay-signed');
-    expect(secondIndexEntry.commentId).toBe('comment-relay-signed-2');
+    expect(JSON.parse(indexCurrent.idsJson)).toEqual([firstCommentId, secondCommentId]);
+    expect(firstIndexEntry.commentId).toBe(firstCommentId);
+    expect(secondIndexEntry.commentId).toBe(secondCommentId);
   });
 
   it('enforces origin allowlist, request rate limits, and body size caps', async () => {

@@ -29,6 +29,7 @@ const requiredMvpGateIds = [
   'story_correctness',
   'feed_render',
   'story_detail',
+  'public_feed_analysis_frame_reliability',
   'synthesis_correction',
   'point_stance',
   'story_thread',

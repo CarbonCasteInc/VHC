@@ -566,4 +566,81 @@ describe('bundleSynthesisWorker', () => {
     expect(artifacts[0]?.bundle_synthesis.response?.content).toContain('"source_count":2');
     expect(artifacts[0]?.source_articles[0]?.extraction.raw_extracted_article_text).toContain('Council approved');
   });
+
+  it('retries one strict bundle synthesis schema failure before rejecting', async () => {
+    const writtenSyntheses: TopicSynthesisV2[] = [];
+    let bundleAttempt = 0;
+    const relay = vi.fn(async ({ prompt }: { prompt: string }) => {
+      if (prompt.includes('--- ARTICLE START ---')) {
+        return { model: 'gpt-4o-mini', content: JSON.stringify(articleAnalysisPayload()) };
+      }
+      bundleAttempt += 1;
+      return {
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(bundleAttempt === 1
+          ? { ...bundleSynthesisPayload(), source_count: 2 }
+          : bundleSynthesisPayload()),
+      };
+    });
+
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay,
+      writeCandidate: vi.fn(async (_client, candidate) => candidate),
+      writeSynthesis: vi.fn(async (_client, synthesis) => {
+        writtenSyntheses.push(synthesis);
+        return synthesis;
+      }),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toMatchObject({
+      status: 'written',
+      storyId: 'story-1',
+    });
+    expect(relay).toHaveBeenCalledTimes(3);
+    expect(relay.mock.calls[2]?.[0].prompt).toContain('Schema retry');
+    expect(writtenSyntheses).toHaveLength(1);
+  });
+
+  it('returns candidate write failures as counted lifecycle outcomes', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay: vi.fn(async ({ prompt }: { prompt: string }) => ({
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(
+          prompt.includes('--- ARTICLE START ---')
+            ? articleAnalysisPayload()
+            : bundleSynthesisPayload(),
+        ),
+      })),
+      writeCandidate: vi.fn(async () => {
+        throw new Error('candidate write unavailable');
+      }),
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toEqual({
+      status: 'rejected',
+      storyId: 'story-1',
+      reason: 'candidate_write_failed',
+    });
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'rejected',
+      rejection_reason: 'candidate_write_failed',
+    });
+  });
 });

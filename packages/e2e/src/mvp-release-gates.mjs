@@ -47,6 +47,16 @@ const GATES = [
     artifactRefs: ['apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx'],
   },
   {
+    id: 'public_feed_analysis_frame_reliability',
+    label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
+    command: ['pnpm', ['test:public-feed:browser-smoke']],
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-browser-smoke.mjs',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      '.tmp/analysis-frame-pipeline',
+    ],
+  },
+  {
     id: 'synthesis_correction',
     label: 'Operator correction hides bad accepted synthesis with audit provenance',
     command: [

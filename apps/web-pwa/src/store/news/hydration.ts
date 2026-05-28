@@ -2,7 +2,7 @@ import type { StoryBundle } from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
-  readNewsStory,
+  readNewsStoryWithRelayRestFallback,
   type ChainWithGet,
   type VennClient
 } from '@vh/gun-client';
@@ -126,6 +126,26 @@ function parseLatestTimestamp(value: unknown): number | null {
   return null;
 }
 
+function parseLatestIndexSubscriptionTimestamp(storyId: string, value: unknown): number | null {
+  if (!value || typeof value !== 'object') {
+    return parseLatestTimestamp(value);
+  }
+
+  const record = value as {
+    story_id?: unknown;
+    latest_activity_at?: unknown;
+  };
+  if (
+    carriesProtocolIndexFields(value) &&
+    record.story_id === storyId &&
+    'latest_activity_at' in record
+  ) {
+    return parseLatestTimestamp(record.latest_activity_at);
+  }
+
+  return parseLatestTimestamp(value);
+}
+
 function parseHotnessScore(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return Math.round(value * 1_000_000) / 1_000_000;
@@ -218,7 +238,7 @@ async function runStoryReadJob(job: StoryReadJob): Promise<void> {
     if (store.getState().latestIndex[storyId] !== latestActivityAt) {
       return;
     }
-    const story = await readNewsStory(client, storyId);
+    const story = await readNewsStoryWithRelayRestFallback(client, storyId);
     if (!story || store.getState().latestIndex[storyId] !== latestActivityAt) {
       return;
     }
@@ -306,7 +326,7 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       if (!key) {
         return;
       }
-      const timestamp = parseLatestTimestamp(data);
+      const timestamp = parseLatestIndexSubscriptionTimestamp(key, data);
       if (timestamp === null) {
         if (data === null) {
           store.getState().removeLatestIndex(key);

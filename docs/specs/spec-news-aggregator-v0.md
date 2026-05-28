@@ -166,6 +166,17 @@ Public story-node storage contract:
 - Latest/hot index entries under `vh/news/index/latest/<storyId>` and
   `vh/news/index/hot/<storyId>` migrate through their own M0.B index-entry
   contract below. They are written after the story node by `writeNewsBundle`.
+- Public latest-index readers MUST NOT expose an index entry as feed-visible
+  until the corresponding `vh/news/stories/<storyId>` body route is readable.
+  If an index entry is discovered without a readable body, the relay/origin
+  read path must either repair the index record from the readable story body or
+  suppress the row and record a bounded repair/tombstone reason. A missing
+  story body outside that explicit repair window is a public-beta release gate
+  failure, not a normal empty-feed state.
+- Feed hydration must parse signed system-writer index records with the same
+  acceptance semantics as the shared Gun client adapter. Direct subscriptions
+  and relay REST fallback must agree on `story_id` and `latest_activity_at`
+  before the Web PWA tries to hydrate a story card.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.

@@ -959,9 +959,9 @@ function parseStoryBundleEnvelope(value) {
   }
 }
 
-async function readNewsStoryRecord(gun, storyId) {
+async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
-  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
   const [directRaw, scalarRaw] = await Promise.all([
     readOnce(storyChain, storyTimeoutMs),
     readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs),
@@ -1029,6 +1029,39 @@ function gunLinkSoul(value) {
   return typeof soul === 'string' && soul.trim() ? soul.trim() : null;
 }
 
+function isGunLinkRecord(value) {
+  return Boolean(gunLinkSoul(value));
+}
+
+function resolveLatestActivityFromStory(story) {
+  if (!story || typeof story !== 'object') return null;
+  for (const key of ['cluster_window_end', 'created_at', 'updated_at', 'published_at']) {
+    const value = Number(story[key]);
+    if (Number.isFinite(value) && value >= 0) {
+      return Math.floor(value);
+    }
+  }
+  return null;
+}
+
+function latestIndexRecordHasTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record)) return true;
+  if (typeof record === 'string' && Number.isFinite(Number(record))) return true;
+  if (!record || typeof record !== 'object') return false;
+  return ['latest_activity_at', 'cluster_window_end', 'created_at'].some((key) => {
+    const value = Number(record[key]);
+    return Number.isFinite(value) && value >= 0;
+  });
+}
+
+function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) {
+  const latestActivityAt = resolveLatestActivityFromStory(story) ?? Math.max(0, Math.floor(fallbackPriority || 0));
+  return {
+    story_id: storyId,
+    latest_activity_at: latestActivityAt,
+  };
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -1050,43 +1083,165 @@ async function readLinkedGunRecord(gun, value, timeoutMs) {
   return linked !== null && linked !== undefined ? linked : value;
 }
 
+async function readIndexMapSnapshots(indexChain, timeoutMs, maxKeys) {
+  return new Promise((resolve) => {
+    const snapshots = {};
+    let mapped = null;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        mapped?.off?.();
+      } catch {
+        // Best-effort cleanup for Gun map listeners.
+      }
+      resolve(snapshots);
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    try {
+      mapped = indexChain.map();
+      mapped.on((value, key) => {
+        if (settled || typeof key !== 'string' || key === '_' || !key.trim()) {
+          return;
+        }
+        const clean = stripGunMetadata(value);
+        if (clean !== null && clean !== undefined) {
+          snapshots[key] = clean;
+        }
+        if (Object.keys(snapshots).length >= maxKeys) {
+          clearTimeout(timer);
+          finish();
+        }
+      });
+    } catch {
+      clearTimeout(timer);
+      finish();
+    }
+  });
+}
+
 async function readNewsLatestIndexRecords(gun, options = {}) {
   const indexChain = gun.get('vh').get('news').get('index').get('latest');
   const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000);
   const childTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750);
+  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 900);
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
     positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
   );
+  const consistencyFilter = options.consistencyFilter !== false
+    && boolEnv('VH_RELAY_NEWS_INDEX_REST_CONSISTENCY_FILTER', true);
   const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
   const rawRoot = await readOnce(indexChain, rootTimeoutMs);
-  const sourceKeys = extractIndexChildKeys(rawRoot);
-  const keys = sourceKeys.slice(0, maxRecords);
+  const requestedScanLimit = consistencyFilter
+    ? positiveInteger(
+      options.scanLimit,
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS', Math.max(maxRecords * 4, maxRecords)),
+    )
+    : maxRecords;
+  const rootKeys = extractIndexChildKeys(rawRoot);
+  const mapSnapshots = rootKeys.length === 0
+    ? await readIndexMapSnapshots(indexChain, childTimeoutMs, requestedScanLimit)
+    : {};
+  const readableRoot = Object.keys(mapSnapshots).length > 0
+    ? {
+      ...(rawRoot && typeof rawRoot === 'object' ? stripGunMetadata(rawRoot) : {}),
+      ...mapSnapshots,
+    }
+    : rawRoot;
+  const sourceKeys = extractIndexChildKeys(readableRoot);
+  const scanLimit = requestedScanLimit;
+  const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, scanLimit));
   const records = {};
+  const excludedRecords = [];
+  const repairedRecords = [];
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
-    const direct = rawRoot && typeof rawRoot === 'object' && storyId in rawRoot
-      ? stripGunMetadata(rawRoot[storyId])
+    const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
+      ? stripGunMetadata(readableRoot[storyId])
       : null;
     const child = await readLinkedGunRecord(
       gun,
       stripGunMetadata(await readOnce(indexChain.get(storyId), childTimeoutMs)),
       childTimeoutMs,
     );
-    if (child !== null && child !== undefined) {
-      return [storyId, child];
+    const record = child !== null && child !== undefined
+      ? child
+      : direct !== null && direct !== undefined
+        ? await readLinkedGunRecord(gun, direct, childTimeoutMs)
+        : null;
+
+    if (!consistencyFilter) {
+      return record !== null && record !== undefined ? [storyId, record] : null;
     }
-    if (direct !== null && direct !== undefined) {
-      return [storyId, await readLinkedGunRecord(gun, direct, childTimeoutMs)];
+
+    const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs: storyTimeoutMs });
+    if (!storyResult) {
+      return {
+        excluded: {
+          story_id: storyId,
+          reason: 'story_body_missing',
+          latest_activity_at: indexEntryPriority(readableRoot, storyId) || null,
+        },
+      };
     }
-    return null;
+
+    if (record !== null && record !== undefined && latestIndexRecordHasTimestamp(record)) {
+      return [storyId, record];
+    }
+
+    const synthesized = synthesizeLatestIndexRecordFromStory(
+      storyId,
+      storyResult.story,
+      indexEntryPriority(readableRoot, storyId),
+    );
+    return {
+      entry: [storyId, synthesized],
+      repaired: {
+        story_id: storyId,
+        reason: record === null || record === undefined
+          ? 'latest_index_record_missing_from_story_body'
+          : isGunLinkRecord(record)
+            ? 'latest_index_record_unresolved_link_from_story_body'
+            : 'latest_index_record_timestamp_missing_from_story_body',
+        latest_activity_at: synthesized.latest_activity_at,
+      },
+    };
   });
   for (const entry of entries) {
-    if (entry) records[entry[0]] = entry[1];
+    if (!entry) continue;
+    if (Array.isArray(entry)) {
+      if (Object.keys(records).length < maxRecords) {
+        records[entry[0]] = entry[1];
+      }
+      continue;
+    }
+    if (entry.excluded) {
+      excludedRecords.push(entry.excluded);
+      continue;
+    }
+    if (entry.repaired) {
+      repairedRecords.push(entry.repaired);
+    }
+    if (entry.entry && Object.keys(records).length < maxRecords) {
+      records[entry.entry[0]] = entry.entry[1];
+    }
   }
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
-    truncated: sourceKeys.length > keys.length,
+    scannedKeyCount: keys.length,
+    truncated: sourceKeys.length > keys.length || Object.keys(records).length >= maxRecords,
+    consistency: {
+      enabled: consistencyFilter,
+      mode: consistencyFilter ? 'relay_visible_filter' : 'disabled',
+      scan_limit: keys.length,
+      excluded_count: excludedRecords.length,
+      repaired_count: repairedRecords.length,
+      story_body_timeout_ms: consistencyFilter ? storyTimeoutMs : null,
+    },
+    excludedRecords,
+    repairedRecords,
     records,
   };
 }
@@ -2052,16 +2207,28 @@ const server = http.createServer((req, res) => {
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
-    void readNewsLatestIndexRecords(gun, { limit, includeRoot })
+    const includeExcluded = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_EXCLUDED', false)
+      || parsedUrl.searchParams.get('include_excluded') === 'true';
+    const consistencyFilter = parsedUrl.searchParams.get('consistency') === 'false'
+      ? false
+      : undefined;
+    const scanLimit = parsedUrl.searchParams.get('scan_limit');
+    void readNewsLatestIndexRecords(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit })
       .then((result) => {
         const payload = {
           ok: true,
           record_count: Object.keys(result.records).length,
           source_key_count: result.sourceKeyCount,
+          scanned_key_count: result.scannedKeyCount,
           truncated: result.truncated,
+          consistency: result.consistency,
           records: result.records,
         };
         if (result.root) payload.root = result.root;
+        if (includeExcluded) {
+          payload.excluded_records = result.excludedRecords;
+          payload.repaired_records = result.repairedRecords;
+        }
         sendJson(res, 200, payload);
       })
       .catch((error) => {

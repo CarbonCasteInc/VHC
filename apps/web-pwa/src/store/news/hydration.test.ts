@@ -25,7 +25,7 @@ vi.mock('@vh/gun-client', () => ({
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
   hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
-  readNewsStory: gunMocks.readNewsStory,
+  readNewsStoryWithRelayRestFallback: gunMocks.readNewsStory,
 }));
 
 const CANONICAL_TOPIC_ID = 'a'.repeat(64);
@@ -380,6 +380,36 @@ describe('hydrateNewsStore', () => {
 
     expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-missing');
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-missing' }));
+  });
+
+  it('hydrates signed latest-index subscription records through the relay-capable story reader', async () => {
+    const client = { id: 'client-signed-index-fetch' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 'story-signed' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit({
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'writer-1',
+      _systemSignature: 'signature',
+      story_id: 'story-signed',
+      latest_activity_at: 789,
+    }, 'story-signed');
+    await Promise.resolve();
+
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('story-signed', 789);
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-signed');
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-signed' }));
   });
 
   it('deduplicates in-flight and already-fetched latest-index story reads', async () => {

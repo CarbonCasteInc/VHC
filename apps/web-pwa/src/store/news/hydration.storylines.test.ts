@@ -18,7 +18,7 @@ vi.mock('@vh/gun-client', () => ({
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
   hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
-  readNewsStory: gunMocks.readNewsStory,
+  readNewsStoryWithRelayRestFallback: gunMocks.readNewsStory,
   readNewsStoryline: gunMocks.readNewsStoryline,
 }));
 

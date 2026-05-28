@@ -65,6 +65,7 @@ export interface NewsCardBackProps {
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
   readonly synthesisUnavailable?: boolean;
+  readonly synthesisReadinessTimedOut?: boolean;
   readonly synthesisCorrection?: TopicSynthesisCorrection | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
@@ -114,6 +115,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   synthesisLoading,
   synthesisError,
   synthesisUnavailable = false,
+  synthesisReadinessTimedOut = false,
   synthesisCorrection = null,
   analysis,
   analysisId,
@@ -135,6 +137,24 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
     ? 'Accepted synthesis suppressed'
     : 'Accepted synthesis unavailable';
+  const acceptedSynthesisState = synthesisCorrection
+    ? synthesisCorrection.status === 'suppressed'
+      ? 'accepted_synthesis_suppressed_by_correction'
+      : 'accepted_synthesis_terminal_unavailable'
+    : synthesisId
+      ? 'accepted_synthesis_available'
+      : synthesisLoading
+        ? 'accepted_synthesis_loading'
+        : 'accepted_synthesis_pending';
+  const frameEmptyMessage = acceptedSynthesisState === 'accepted_synthesis_loading'
+    ? 'Accepted synthesis frame rows are loading.'
+    : acceptedSynthesisState === 'accepted_synthesis_terminal_unavailable'
+      ? 'Accepted synthesis is unavailable for this story.'
+      : acceptedSynthesisState === 'accepted_synthesis_suppressed_by_correction'
+        ? 'Accepted synthesis was suppressed; frame rows are hidden.'
+        : synthesisReadinessTimedOut
+          ? 'Accepted synthesis did not become available within the readiness window; stance controls remain unavailable until synthesis or a terminal reason is published.'
+          : 'Accepted synthesis frame rows are pending for this story.';
   const [reportReason, setReportReason] = useState<HermesNewsReportReasonCode>('inaccurate_summary');
   const [reportStatus, setReportStatus] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
   const [reportError, setReportError] = useState<string | null>(null);
@@ -452,7 +472,9 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             className="mt-2 text-xs text-amber-700"
             data-testid={`news-card-synthesis-unavailable-${topicId}`}
           >
-            Publish-time synthesis has not been published for this story yet.
+            {synthesisReadinessTimedOut
+              ? 'Accepted synthesis did not become available within the readiness window. Stance controls remain unavailable until accepted synthesis or a terminal reason is published.'
+              : 'Accepted synthesis is pending for this story.'}
           </p>
         )}
         {synthesisCorrection && (
@@ -473,6 +495,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Analysis needs regeneration to produce frame/reframe rows.
           </p>
         )}
+        {frameRows.length > 0 && synthesisId && epoch !== undefined && !hasAcceptedStanceTargets && !correctionBlocksSynthesis && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            data-testid={`news-card-stance-unavailable-${topicId}`}
+          >
+            Stance controls are unavailable because these accepted synthesis rows do not include persisted point IDs.
+          </p>
+        )}
         {!correctionBlocksSynthesis && (
           <div className="mt-2">
             <BiasTable
@@ -487,6 +517,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               epoch={epoch}
               votingEnabled={Boolean(synthesisId && epoch !== undefined && hasAcceptedStanceTargets)}
               votingPointIdMode="accepted-synthesis"
+              emptyMessage={frameEmptyMessage}
             />
           </div>
         )}

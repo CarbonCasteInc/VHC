@@ -443,6 +443,40 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 
+  it('renders accepted frame rows without point ids but keeps stance controls unavailable', async () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.setState({
+      topics: {
+        'news-1': {
+          topicId: 'news-1',
+          epoch: 2,
+          synthesis: makeSynthesis({
+            frames: [
+              {
+                frame: 'Public investment is overdue',
+                reframe: 'Budget risk should slow rollout',
+              },
+            ],
+          } as Partial<TopicSynthesisV2>) as TopicSynthesisV2,
+          correction: null,
+          effectiveStatus: 'accepted_available',
+          hydrated: true,
+          loading: false,
+          error: null,
+        },
+      },
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByText('Public investment is overdue')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-stance-unavailable-news-1')).toHaveTextContent(
+      'persisted point IDs',
+    );
+    expect(screen.queryByTestId(/^cell-vote-agree-/)).not.toBeInTheDocument();
+  });
+
   it('renders suppressed synthesis as corrected and hides stale summary, provenance, and frame rows', async () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
@@ -679,9 +713,11 @@ describe('NewsCard', () => {
       'Feed summary hint; synthesis pending',
     );
     expect(screen.getByTestId('news-card-synthesis-unavailable-news-1')).toHaveTextContent(
-      'Publish-time synthesis has not been published for this story yet.',
+      'Accepted synthesis is pending for this story.',
     );
-    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent('No bias analysis available yet');
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis frame rows are pending for this story.',
+    );
     expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
