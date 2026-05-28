@@ -46,6 +46,7 @@ const MIME_TYPES = new Map([
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
+  'host',
   'keep-alive',
   'proxy-authenticate',
   'proxy-authorization',
@@ -611,6 +612,7 @@ async function main() {
     cspConnectSrc: process.env.VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC || "'self'",
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
     relayProxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS || DEFAULT_RELAY_PROXY_TIMEOUT_MS),
+    relayFanoutTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_FANOUT_TIMEOUT_MS || DEFAULT_RELAY_FANOUT_TIMEOUT_MS),
   });
   const address = server.address();
   const label = typeof address === 'object' && address

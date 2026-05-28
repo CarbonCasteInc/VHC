@@ -200,6 +200,11 @@ describe('newsIngest', () => {
     expect(newsIngestInternal.extractLink('<item><link>https://example.com/b</link></item>')).toBe(
       'https://example.com/b',
     );
+    expect(
+      newsIngestInternal.extractLink(
+        '<item><guid>not-a-texas-tribune-url</guid><link>https://feeds.texastribune.org/link/12345</link></item>',
+      ),
+    ).toBe('https://feeds.texastribune.org/link/12345');
     expect(newsIngestInternal.extractLink('<item></item>')).toBeUndefined();
 
     expect(newsIngestInternal.parsePublishedAt('<item><pubDate>Mon, 05 Feb 2024 12:00:00 GMT</pubDate></item>')).toBe(
@@ -322,6 +327,25 @@ describe('newsIngest', () => {
         author: undefined,
       }),
     ]);
+  });
+
+  it('uses the Texas Tribune guid when feedpress item links are broken trackers', () => {
+    const parsed = newsIngestInternal.parseFeedXml(
+      `<rss><channel><item>
+        <title>East Texas lithium supply</title>
+        <link>https://feeds.texastribune.org/link/16799/17350019/bill-east-texas-lithium-mining</link>
+        <guid isPermaLink="false">https://www.texastribune.org/?p=231636</guid>
+      </item></channel></rss>`,
+      {
+        id: 'texastribune-main',
+        name: 'Texas Tribune',
+        rssUrl: 'https://feeds.texastribune.org/feeds/main/',
+        enabled: true,
+      },
+    );
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].url).toBe('https://www.texastribune.org/?p=231636');
   });
 
   it('extracts image urls from embedded html when feed media tags are absent', () => {

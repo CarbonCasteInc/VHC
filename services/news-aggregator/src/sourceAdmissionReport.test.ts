@@ -95,6 +95,24 @@ describe('sourceAdmissionReport', () => {
     ]);
   });
 
+  it('uses the Texas Tribune guid when feedpress item links are broken trackers', () => {
+    const xml = `
+      <rss>
+        <channel>
+          <item>
+            <title>East Texas lithium supply</title>
+            <link>https://feeds.texastribune.org/link/16799/17350019/bill-east-texas-lithium-mining</link>
+            <guid isPermaLink="false">https://www.texastribune.org/?p=231636</guid>
+          </item>
+        </channel>
+      </rss>
+    `;
+
+    expect(sourceAdmissionReportInternal.parseFeedLinks(xml, 4)).toEqual([
+      'https://www.texastribune.org/?p=231636',
+    ]);
+  });
+
   it('skips likely video feed entries and pulls additional article links', () => {
     const xml = `
       <rss>

@@ -601,6 +601,17 @@ function readOnce(chain, timeoutMs = 1_500) {
   });
 }
 
+async function putScalarRecord(chain, record, options = {}) {
+  const rootTimeoutMs = options.rootTimeoutMs ?? 3_000;
+  const fieldTimeoutMs = options.fieldTimeoutMs ?? 1_000;
+  const writes = [putWithTimeout(chain, record, rootTimeoutMs)];
+  for (const [key, value] of Object.entries(record)) {
+    if (key === '_' || value === undefined || !isGunScalar(value)) continue;
+    writes.push(putWithTimeout(chain.get(key), value, fieldTimeoutMs));
+  }
+  await Promise.allSettled(writes);
+}
+
 function stripGunMetadata(value) {
   if (!value || typeof value !== 'object') return value;
   const { _, ...rest } = value;
@@ -772,6 +783,56 @@ function buildTopicSynthesisGraph(synthesis) {
   return graph;
 }
 
+function sanitizeNewsStoryWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-story-record-required');
+  }
+  const story = parseStoryBundleEnvelope(record.__story_bundle_json);
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  if (!storyId || story?.story_id !== storyId) {
+    throw new Error('news-story-record-mismatch');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsStoryGraph(write) {
+  const state = Gun.state();
+  const storySoul = `vh/news/stories/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'stories', 'vh/news/stories', state);
+  linkNode(graph, 'vh/news/stories', write.story_id, storySoul, state);
+  writeScalarFields(graph, storySoul, state, write.record);
+  return graph;
+}
+
+function sanitizeNewsLatestIndexWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-latest-index-record-required');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const latestActivityAt = Number(record.latest_activity_at);
+  if (!storyId || !Number.isFinite(latestActivityAt) || latestActivityAt < 0) {
+    throw new Error('news-latest-index-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsLatestIndexGraph(write) {
+  const state = Gun.state();
+  const latestRootSoul = 'vh/news/index/latest';
+  const latestSoul = `${latestRootSoul}/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'index', 'vh/news/index', state);
+  linkNode(graph, 'vh/news/index', 'latest', latestRootSoul, state);
+  linkNode(graph, latestRootSoul, write.story_id, latestSoul, state);
+  writeScalarFields(graph, latestSoul, state, write.record);
+  return graph;
+}
+
 function buildAggregateVoterGraph(write) {
   const state = Gun.state();
   const topicRootSoul = `vh/aggregates/topics/${write.topic_id}`;
@@ -922,6 +983,17 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   return null;
 }
 
+async function pollTopicSynthesisBack(gun, topicId, synthesisId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readTopicSynthesisBack(gun, topicId, synthesisId);
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
 async function readTopicLatestSynthesisRecord(gun, topicId) {
   const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
   const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
@@ -984,6 +1056,17 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
     };
   }
   return null;
+}
+
+async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsStoryRecord(gun, storyId, { timeoutMs: 1_500 });
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
 }
 
 function indexEntryPriority(root, storyId) {
@@ -1083,6 +1166,30 @@ async function readLinkedGunRecord(gun, value, timeoutMs) {
   return linked !== null && linked !== undefined ? linked : value;
 }
 
+async function readNewsLatestIndexRecord(gun, storyId, timeoutMs = 1_500) {
+  const indexChain = gun.get('vh').get('news').get('index').get('latest');
+  const raw = stripGunMetadata(await readOnce(indexChain.get(storyId), timeoutMs));
+  const record = stripGunMetadata(await readLinkedGunRecord(gun, raw, timeoutMs));
+  if (!record || typeof record !== 'object') return null;
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const latestActivityAt = Number(record.latest_activity_at);
+  if (recordStoryId === storyId && Number.isFinite(latestActivityAt) && latestActivityAt >= 0) {
+    return record;
+  }
+  return null;
+}
+
+async function pollNewsLatestIndexBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsLatestIndexRecord(gun, storyId, 1_500);
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
 async function readIndexMapSnapshots(indexChain, timeoutMs, maxKeys) {
   return new Promise((resolve) => {
     const snapshots = {};
@@ -1132,6 +1239,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   );
   const consistencyFilter = options.consistencyFilter !== false
     && boolEnv('VH_RELAY_NEWS_INDEX_REST_CONSISTENCY_FILTER', true);
+  const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK', consistencyFilter);
   const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
   const rawRoot = await readOnce(indexChain, rootTimeoutMs);
   const requestedScanLimit = consistencyFilter
@@ -1141,7 +1249,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     )
     : maxRecords;
   const rootKeys = extractIndexChildKeys(rawRoot);
-  const mapSnapshots = rootKeys.length === 0
+  const mapSnapshots = rootKeys.length === 0 && mapFallbackEnabled
     ? await readIndexMapSnapshots(indexChain, childTimeoutMs, requestedScanLimit)
     : {};
   const readableRoot = Object.keys(mapSnapshots).length > 0
@@ -1986,7 +2094,45 @@ async function writeForumComment(gun, comment) {
 
 async function writeTopicSynthesis(gun, synthesis) {
   const clean = sanitizeTopicSynthesis(synthesis);
+  const encoded = encodeTopicSynthesis(clean);
+  const topicChain = gun.get('vh').get('topics').get(clean.topic_id);
+  await Promise.allSettled([
+    putScalarRecord(topicChain.get('latest'), encoded, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 }),
+    putScalarRecord(
+      topicChain.get('epochs').get(String(clean.epoch)).get('synthesis'),
+      encoded,
+      { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 },
+    ),
+  ]);
   injectGraph(gun, buildTopicSynthesisGraph(clean));
+  const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
+  if (!readback) {
+    throw new Error('topic-synthesis-readback-failed');
+  }
+  return clean;
+}
+
+async function writeNewsStoryRecord(gun, body) {
+  const clean = sanitizeNewsStoryWrite(body);
+  const storyChain = gun.get('vh').get('news').get('stories').get(clean.story_id);
+  await putScalarRecord(storyChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
+  injectGraph(gun, buildNewsStoryGraph(clean));
+  const readback = await pollNewsStoryBack(gun, clean.story_id, 5_000);
+  if (!readback) {
+    throw new Error('news-story-readback-failed');
+  }
+  return clean;
+}
+
+async function writeNewsLatestIndexRecord(gun, body) {
+  const clean = sanitizeNewsLatestIndexWrite(body);
+  const latestChain = gun.get('vh').get('news').get('index').get('latest').get(clean.story_id);
+  await putScalarRecord(latestChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
+  injectGraph(gun, buildNewsLatestIndexGraph(clean));
+  const readback = await pollNewsLatestIndexBack(gun, clean.story_id, 5_000);
+  if (!readback) {
+    throw new Error('news-latest-index-readback-failed');
+  }
   return clean;
 }
 
@@ -2360,6 +2506,22 @@ const server = http.createServer((req, res) => {
         topic_id: synthesis.topic_id,
         synthesis_id: synthesis.synthesis_id,
       };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/story') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsStoryRecord(gun, body);
+      return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/latest-index') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsLatestIndexRecord(gun, body);
+      return { story_id: write.story_id };
     });
     return;
   }

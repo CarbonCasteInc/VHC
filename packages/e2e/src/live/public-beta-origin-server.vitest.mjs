@@ -154,6 +154,7 @@ describe('public beta origin server', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        host: 'venn.carboncaste.io',
         'x-vh-relay-device-pub': 'device-pub',
       },
       body: JSON.stringify({ comment: { id: 'comment-1', threadId: 'thread-1' } }),
@@ -168,6 +169,7 @@ describe('public beta origin server', () => {
       body: JSON.stringify({ comment: { id: 'comment-1', threadId: 'thread-1' } }),
     });
     expect(relayRequests[0].headers['x-vh-relay-device-pub']).toBe('device-pub');
+    expect(relayRequests[0].headers.host).not.toBe('venn.carboncaste.io');
 
     const synthesis = await fetch(`${origin}/vh/topics/synthesis?topic_id=topic-1`);
     expect(synthesis.status).toBe(200);

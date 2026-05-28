@@ -850,6 +850,43 @@ describe('synthesisAdapters', () => {
     }
   });
 
+  it('can explicitly repair a blocked latest synthesis with a freshly signed latest record', async () => {
+    const { mesh, client, latestRecord } = await createSignedSynthesisFixture();
+    mesh.writes.length = 0;
+    mesh.setRead('topics/topic-1/latest', {
+      ...latestRecord,
+      [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify({ ...SYNTHESIS, facts_summary: 'Tampered' }),
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'blocked' });
+      await expect(
+        writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS, {
+          allowOverwriteBlockedLatest: true,
+        }),
+      ).resolves.toMatchObject({
+        status: 'written',
+        previous: null,
+      });
+      expect(mesh.writes).toHaveLength(1);
+      expect(mesh.writes[0]?.path).toBe('topics/topic-1/latest');
+      expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
+        schemaVersion: SYNTHESIS.schemaVersion,
+        topic_id: SYNTHESIS.topic_id,
+        epoch: SYNTHESIS.epoch,
+        synthesis_id: SYNTHESIS.synthesis_id,
+        created_at: SYNTHESIS.created_at,
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('keeps legacy scalar latest fallback when the latest root is non-object noise', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('topics/topic-1/latest', 'legacy-root-placeholder');

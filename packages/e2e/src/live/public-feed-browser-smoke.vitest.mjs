@@ -392,6 +392,88 @@ describe('public feed browser smoke helpers', () => {
     }
   });
 
+  it('fails coverage when readable text latest-index stories lack accepted synthesis or a terminal reason', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      storyBodyStatusCounts: { 200: 5 },
+      missingAcceptedSynthesisStoryCount: 2,
+      missingAcceptedSynthesisStories: [
+        { storyId: 'story-readable-a' },
+        { storyId: 'story-readable-b' },
+      ],
+      pointIdPresence: {
+        frameRows: 3,
+        framePointIdsPresent: 3,
+        reframePointIdsPresent: 3,
+      },
+    }, {})).toThrow('public-relay-readable-text-synthesis-missing:2:story-readable-a,story-readable-b');
+  });
+
+  it('does not count terminal unavailable synthesis outcomes as ambiguous missing synthesis', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-terminal': {
+                latest_activity_at: 20,
+                terminal_unavailable_reason: 'source_text_unavailable',
+              },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-terminal',
+              topic_id: 'topic-terminal',
+              headline: 'Readable text story with terminal synthesis status',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+              terminal_unavailable_reason: 'source_text_unavailable',
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 1,
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        missingAcceptedSynthesisStoryCount: 0,
+        terminalUnavailableReasonCounts: { source_text_unavailable: 1 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('uses a release-shaped timeout for second-browser public vote convergence', async () => {
     expect(internal.DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS).toBe(120_000);
   });
@@ -752,5 +834,47 @@ describe('public feed browser smoke helpers', () => {
         writers: [{ ...pin.writers[0], id: 'vh-e2e-news-daemon-system-writer-v1' }],
       }),
     })).toEqual(pin);
+  });
+
+  it('extracts the deployed public system writer pin from a Vite bundle', () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'public-material' },
+      }],
+    };
+    const source = `const env={BASE_URL:"/",VITE_NEWS_SYSTEM_WRITER_PIN_JSON:'${JSON.stringify(pin)}',MODE:"production"};`;
+
+    expect(JSON.parse(internal.extractViteEnvString(source, 'VITE_NEWS_SYSTEM_WRITER_PIN_JSON'))).toEqual(pin);
+  });
+
+  it('uses the deployed app pin before falling back to the E2E fixture', async () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'public-material' },
+      }],
+    };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === 'https://venn.example/') {
+        return new Response('<script type="module" crossorigin src="/assets/index-public.js"></script>');
+      }
+      if (url === 'https://venn.example/assets/index-public.js') {
+        return new Response(`const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};`);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(internal.fetchDeployedSystemWriterPin('https://venn.example/', fetchImpl)).resolves.toEqual(pin);
   });
 });
