@@ -292,7 +292,8 @@ Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a9
   `d201eeba8d2615ea4d25e72370de0c484c2eb7fa`, not current commit
   `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`.
 
-Current clean evidence after pushed head `fa8e1594d40a163c33695ce829364595c74324a6`:
+Current clean evidence after implementation head
+`fa8e1594d40a163c33695ce829364595c74324a6` and before evidence-only report commits:
 
 - `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e`: passed with
   run id `mesh-luma-gated-write-coverage-20260528T042404Z-8d114ef6` and artifact
@@ -346,7 +347,7 @@ Current clean evidence after pushed head `fa8e1594d40a163c33695ce829364595c74324
   Runs 1 and 2 failed strict semantic audit with `related_topic_only_pair_count: 1`;
   run 3 produced only `run-3.preflight.log`, then stalled and was terminated.
 
-Additional public and release-gate evidence captured after the pushed head:
+Additional public and release-gate evidence captured after the implementation head:
 
 - Public top-20 latest-index readback artifact:
   `.tmp/analysis-frame-pipeline/20260528T043636Z/public-top20-readback/public-top20-story-readback.json`.
