@@ -213,6 +213,7 @@ describe('public feed browser smoke helpers', () => {
 
     expect(source).toContain('const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;');
     expect(source).toContain('const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;');
+    expect(source).toContain('scanLimit = indexLimit');
     expect(source).toContain('readPublicRelaySynthesisCandidates({');
     expect(source).toContain('topStories: stories,');
     expect(source).not.toContain('topStories: stories.slice(0, 8)');
@@ -267,7 +268,12 @@ describe('public feed browser smoke helpers', () => {
             synthesis: {
               synthesis_id: 'news-bundle:story-bundled:abc',
               facts_summary: 'Accepted synthesis with enough context.',
-              frames: [{ point_id: 'frame-1' }],
+              frames: [{
+                frame_point_id: 'frame-1',
+                frame: 'Frame',
+                reframe_point_id: 'reframe-1',
+                reframe: 'Reframe',
+              }],
             },
           }),
         };
@@ -285,7 +291,19 @@ describe('public feed browser smoke helpers', () => {
         timeoutMs: 100,
       })).resolves.toMatchObject({
         latestIndexCount: 2,
-        storyReadbackCount: 1,
+        storyReadbackCount: 2,
+        acceptedSynthesisStoryCount: 1,
+        storyBodyStatusCounts: { 200: 2 },
+        synthesisStatusCounts: { 200: 2 },
+        singletonReadableCount: 1,
+        multiSourceReadableCount: 1,
+        mediaClassCounts: { text: 2 },
+        sourceFilterStatusCounts: { unknown: 3 },
+        pointIdPresence: {
+          frameRows: 1,
+          framePointIdsPresent: 1,
+          reframePointIdsPresent: 1,
+        },
         topStories: [{
           storyId: 'story-bundled',
           topicId: 'topic-bundled',
@@ -297,6 +315,78 @@ describe('public feed browser smoke helpers', () => {
       });
       expect(calls.some((href) => href === 'https://venn.example/vh/news/story?story_id=story-bundled')).toBe(true);
       expect(calls.some((href) => href === 'https://venn.example/vh/topics/synthesis?topic_id=topic-bundled')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('samples key-only latest-index rows so public story-body 404s are counted', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-missing-body': { _: { '#': 'vh/news/index/latest/story-missing-body' } },
+              'story-readable': { latest_activity_at: 20 },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-missing-body')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'news-story-not-found' }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-readable')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-readable',
+              topic_id: 'topic-readable',
+              headline: 'Readable text story',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 2,
+        sampledStoryIds: ['story-readable', 'story-missing-body'],
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        storyBodyStatusCounts: { 200: 1, 404: 1 },
+        synthesisStatusCounts: { 404: 1 },
+        articleTextSampleStatusCounts: { '200_text': 1 },
+      });
     } finally {
       vi.unstubAllGlobals();
     }

@@ -178,6 +178,35 @@ Public mesh paths:
 
 Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 
+## 7. Public MVP lifecycle states
+
+Public story detail must distinguish accepted synthesis from provisional or
+unavailable analysis:
+
+- `accepted_synthesis_loading`: the client is inside the bounded readiness
+  window and is still reading the accepted `TopicSynthesisV2` record.
+- `accepted_synthesis_available`: the latest accepted synthesis validates,
+  has non-empty `facts_summary`, and carries frame/reframe rows. Rows without
+  point ids may render as explanatory text, but stance controls are unavailable
+  for those rows.
+- `accepted_synthesis_pending`: the story is readable and eligible, but the
+  worker has not yet reached a written or terminal lifecycle outcome.
+- `accepted_synthesis_terminal_unavailable`: the worker recorded a durable
+  terminal domain reason such as missing story, no analysis-capable sources, or
+  source text unavailable. Public UI may show the reason class, but must not
+  expose provider secrets or raw upstream errors.
+- `accepted_synthesis_suppressed_by_correction`: an operator correction hides
+  the accepted synthesis, and the stale frame table must not remain votable.
+- `provisional_analysis_available`: optional card-open analysis that is
+  explicitly labeled provisional and non-votable. It must not be written or
+  displayed as accepted synthesis.
+
+Every visible readable text story in the public MVP feed must be accountable as
+pending, rejected, skipped, written, latest-write skipped/failed, readback
+failed, or terminal unavailable. Retry/replay is allowed only for retryable
+infrastructure/schema/write classes; terminal domain outcomes must not be
+retried indefinitely.
+
 Current storage contract: new `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 and `vh/topics/<topicId>/latest` writes are system-writer signed records.
 They store the encoded `TopicSynthesisV2` wrapper plus

@@ -16,7 +16,11 @@ import {
   DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS,
   getBundleSynthesisModel,
 } from './bundleSynthesisRelay';
-import { createBundleSynthesisWorker } from './bundleSynthesisWorker';
+import { createBundleSynthesisWorker, type BundleSynthesisWorkerResult } from './bundleSynthesisWorker';
+import {
+  appendSynthesisLifecycleRecord,
+  synthesisLifecycleRecordFromWorkerResult,
+} from './synthesisLifecycleLedger';
 
 export interface BundleSynthesisDaemonEnrichment {
   enrichmentWorker?: EnrichmentWorker;
@@ -47,6 +51,22 @@ function parseFiniteNumber(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isBundleSynthesisWorkerResult(value: unknown): value is BundleSynthesisWorkerResult {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const status = (value as { status?: unknown }).status;
+  if (status === 'written') {
+    return typeof (value as { storyId?: unknown }).storyId === 'string'
+      && typeof (value as { synthesisId?: unknown }).synthesisId === 'string'
+      && ((value as { latestStatus?: unknown }).latestStatus === 'written'
+        || (value as { latestStatus?: unknown }).latestStatus === 'skipped');
+  }
+  return (status === 'skipped' || status === 'rejected')
+    && typeof (value as { storyId?: unknown }).storyId === 'string'
+    && typeof (value as { reason?: unknown }).reason === 'string';
+}
+
 export function createBundleSynthesisEnrichmentFromEnv(
   client: VennClient,
   logger: LoggerLike = console,
@@ -75,22 +95,28 @@ export function createBundleSynthesisEnrichmentFromEnv(
     logger,
     runWrite: options.runWrite,
   });
-  const artifactRoot = readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT');
-  const stateRoot = readEnvVar('VH_NEWS_DAEMON_STATE_DIR');
-  const queuePersistenceDir =
-    readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DIR') ??
-    path.join(
-      (stateRoot?.trim() || artifactRoot?.trim() || path.join(os.tmpdir(), 'vh-news-daemon')),
-      'bundle-synthesis-queue',
-    );
+  const queuePersistenceDir = resolveBundleSynthesisQueueDirFromEnv();
+  const lifecycleLedgerPath = resolveBundleSynthesisLifecycleLedgerPathFromEnv(queuePersistenceDir);
 
   return {
-    enrichmentWorker: async (candidate) => {
-      await worker(candidate);
-    },
+    enrichmentWorker: (candidate) => worker(candidate),
     enrichmentQueueOptions: {
       maxDepth: queueDepth,
       persistenceDir: queuePersistenceDir,
+      onWorkerResult(candidate, result) {
+        if (!isBundleSynthesisWorkerResult(result)) {
+          return;
+        }
+        appendSynthesisLifecycleRecord({
+          filePath: lifecycleLedgerPath,
+          record: synthesisLifecycleRecordFromWorkerResult({
+            candidate,
+            result,
+            now: Date.now(),
+          }),
+          logger,
+        });
+      },
       onDrop(candidate) {
         logger.warn('[vh:bundle-synthesis] queue full; candidate dead-lettered for replay', {
           story_id: candidate.story_id,
@@ -99,4 +125,21 @@ export function createBundleSynthesisEnrichmentFromEnv(
       },
     },
   };
+}
+
+export function resolveBundleSynthesisQueueDirFromEnv(): string {
+  const artifactRoot = readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT');
+  const stateRoot = readEnvVar('VH_NEWS_DAEMON_STATE_DIR');
+  return (
+    readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DIR') ??
+    path.join(
+      (stateRoot?.trim() || artifactRoot?.trim() || path.join(os.tmpdir(), 'vh-news-daemon')),
+      'bundle-synthesis-queue',
+    )
+  );
+}
+
+export function resolveBundleSynthesisLifecycleLedgerPathFromEnv(queuePersistenceDir = resolveBundleSynthesisQueueDirFromEnv()): string {
+  return readEnvVar('VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER') ??
+    path.join(queuePersistenceDir, 'synthesis-lifecycle.jsonl');
 }

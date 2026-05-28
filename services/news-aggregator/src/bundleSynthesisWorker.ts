@@ -37,6 +37,7 @@ import {
   persistRejectedBundleSynthesisEvalArtifact,
 } from './bundleSynthesisEvalArtifact';
 import {
+  AcceptedSynthesisWriteError,
   BUNDLE_SYNTHESIS_EPOCH,
   buildCandidatePayload,
   normalizeIdToken,
@@ -45,11 +46,24 @@ import {
 import { generateBundleSynthesisPrompt, parseBundleSynthesisResponse, PromptParseError } from './prompts';
 
 const PROVIDER_ID = 'openai';
+const BUNDLE_SYNTHESIS_SCHEMA_RETRY_LIMIT = 1;
 
 export type BundleSynthesisWorkerResult =
   | { status: 'written'; storyId: string; synthesisId: string; latestStatus: 'written' | 'skipped' }
   | { status: 'skipped'; storyId: string; reason: 'story_missing' | 'no_analysis_sources' }
-  | { status: 'rejected'; storyId: string; reason: 'relay_failed' | 'parse_failed' | 'source_count_mismatch' | 'source_text_unavailable' };
+  | {
+      status: 'rejected';
+      storyId: string;
+      reason:
+        | 'source_text_unavailable'
+        | 'source_analysis_failed'
+        | 'relay_failed'
+        | 'parse_failed'
+        | 'source_count_mismatch'
+        | 'candidate_write_failed'
+        | 'epoch_write_failed'
+        | 'latest_write_failed';
+    };
 
 export interface BundleSynthesisWorkerConfig {
   client: VennClient;
@@ -81,6 +95,30 @@ export interface BundleSynthesisWorkerConfig {
     attributes: Record<string, unknown>,
     task: () => Promise<T>,
   ) => Promise<T>;
+}
+
+function bundleSynthesisParseFailureReason(error: unknown): 'parse_failed' | 'source_count_mismatch' {
+  return error instanceof PromptParseError && error.message.startsWith('source_count:')
+    ? 'source_count_mismatch'
+    : 'parse_failed';
+}
+
+function retryBundleSynthesisPrompt(input: {
+  readonly originalPrompt: string;
+  readonly expectedSourceCount: number;
+  readonly reason: 'parse_failed' | 'source_count_mismatch';
+  readonly error: unknown;
+}): string {
+  const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
+  return [
+    input.originalPrompt,
+    '',
+    'Schema retry: the previous bundle synthesis response was rejected by strict validation.',
+    `Failure reason: ${input.reason}.`,
+    `Expected source_count: ${input.expectedSourceCount}.`,
+    `Validation message: ${errorMessage}`,
+    'Return only JSON matching the original schema. Keep source_count exactly equal to Expected source_count and include non-empty key_facts, summary, and frame_reframe_table.',
+  ].join('\n');
 }
 
 export function createBundleSynthesisWorker(
@@ -203,18 +241,31 @@ export function createBundleSynthesisWorker(
     const synthesisId = `news-bundle:${normalizeIdToken(bundle.story_id)}:${fingerprint.slice(0, 16)}`;
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);
     if (existingCandidate && candidateHasReusableFullTextAudit(existingCandidate)) {
-      const { latestStatus } = await writeAcceptedSynthesis({
-        client: config.client,
-        bundle,
-        candidateId,
-        synthesisId,
-        summary: existingCandidate.facts_summary,
-        frames: existingCandidate.frames,
-        warnings: existingCandidate.warnings,
-        createdAt: existingCandidate.created_at,
-        writeSynthesis: writeSynthesisWithLane,
-        writeLatest: writeLatestWithLane,
-      });
+      let latestStatus: 'written' | 'skipped';
+      try {
+        ({ latestStatus } = await writeAcceptedSynthesis({
+          client: config.client,
+          bundle,
+          candidateId,
+          synthesisId,
+          summary: existingCandidate.facts_summary,
+          frames: existingCandidate.frames,
+          warnings: existingCandidate.warnings,
+          createdAt: existingCandidate.created_at,
+          writeSynthesis: writeSynthesisWithLane,
+          writeLatest: writeLatestWithLane,
+        }));
+      } catch (error) {
+        const reason = error instanceof AcceptedSynthesisWriteError ? error.stage : 'epoch_write_failed';
+        logger.warn('[vh:bundle-synthesis] duplicate candidate synthesis write failed', {
+          story_id: storyId,
+          candidate_id: candidateId,
+          synthesis_id: synthesisId,
+          reason,
+          error,
+        });
+        return { status: 'rejected', storyId, reason };
+      }
       logger.info('[vh:bundle-synthesis] duplicate candidate recovered synthesis; skipped model call', {
         story_id: storyId,
         candidate_id: candidateId,
@@ -254,60 +305,85 @@ export function createBundleSynthesisWorker(
       synthesisId,
     };
     if (articleAnalysis.analyzedSources.length === 0) {
-      logger.warn('[vh:bundle-synthesis] no source analyses completed; rejected', { story_id: storyId });
-      await persistRejectedBundleSynthesisEvalArtifact({
-        context: artifactContext,
-        capturedAt: now(),
-        rejectionReason: 'relay_failed',
-        warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
-      });
-      return { status: 'rejected', storyId, reason: 'relay_failed' };
-    }
-
-    let response: BundleSynthesisRelayResponse;
-    const bundlePrompt = generateBundleSynthesisPrompt(
-      toBundleSynthesisInput(bundle, articleAnalysis.analyzedSources),
-    );
-    try {
-      response = await relay({
-        prompt: bundlePrompt,
-        model,
-        maxTokens,
-        timeoutMs,
-        ratePerMinute,
-        temperature,
-      });
-    } catch (error) {
-      logger.warn('[vh:bundle-synthesis] relay failed', { story_id: storyId, error });
-      await persistRejectedBundleSynthesisEvalArtifact({
-        context: artifactContext,
-        capturedAt: now(),
-        rejectionReason: 'relay_failed',
-        bundlePrompt,
-        warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
-        error,
-      });
-      return { status: 'rejected', storyId, reason: 'relay_failed' };
-    }
-
-    let parsed: ReturnType<typeof parseBundleSynthesisResponse>;
-    try {
-      parsed = parseBundleSynthesisResponse(response.content, articleAnalysis.analyzedSources.length);
-    } catch (error) {
-      logger.warn('[vh:bundle-synthesis] generated output rejected', { story_id: storyId, error });
-      const reason = error instanceof PromptParseError && error.message.startsWith('source_count:')
-        ? 'source_count_mismatch'
-        : 'parse_failed';
+      const reason = articleAnalysis.failedSources.length > 0 ? 'source_analysis_failed' : 'relay_failed';
+      logger.warn('[vh:bundle-synthesis] no source analyses completed; rejected', { story_id: storyId, reason });
       await persistRejectedBundleSynthesisEvalArtifact({
         context: artifactContext,
         capturedAt: now(),
         rejectionReason: reason,
-        bundlePrompt,
-        bundleResponse: response,
         warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
-        error,
       });
       return { status: 'rejected', storyId, reason };
+    }
+
+    const bundlePrompt = generateBundleSynthesisPrompt(
+      toBundleSynthesisInput(bundle, articleAnalysis.analyzedSources),
+    );
+    let parsed: ReturnType<typeof parseBundleSynthesisResponse> | null = null;
+    let response: BundleSynthesisRelayResponse | null = null;
+    let acceptedBundlePrompt = bundlePrompt;
+    let lastParseError: unknown = null;
+    for (let attempt = 0; attempt <= BUNDLE_SYNTHESIS_SCHEMA_RETRY_LIMIT; attempt += 1) {
+      const prompt = attempt === 0
+        ? bundlePrompt
+        : retryBundleSynthesisPrompt({
+          originalPrompt: bundlePrompt,
+          expectedSourceCount: articleAnalysis.analyzedSources.length,
+          reason: bundleSynthesisParseFailureReason(lastParseError),
+          error: lastParseError,
+        });
+      try {
+        response = await relay({
+          prompt,
+          model,
+          maxTokens,
+          timeoutMs,
+          ratePerMinute,
+          temperature,
+        });
+      } catch (error) {
+        logger.warn('[vh:bundle-synthesis] relay failed', { story_id: storyId, error });
+        await persistRejectedBundleSynthesisEvalArtifact({
+          context: artifactContext,
+          capturedAt: now(),
+          rejectionReason: 'relay_failed',
+          bundlePrompt: prompt,
+          warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
+          error,
+        });
+        return { status: 'rejected', storyId, reason: 'relay_failed' };
+      }
+
+      try {
+        parsed = parseBundleSynthesisResponse(response.content, articleAnalysis.analyzedSources.length);
+        acceptedBundlePrompt = prompt;
+        break;
+      } catch (error) {
+        lastParseError = error;
+        const reason = bundleSynthesisParseFailureReason(error);
+        if (attempt < BUNDLE_SYNTHESIS_SCHEMA_RETRY_LIMIT) {
+          logger.warn('[vh:bundle-synthesis] generated output rejected; retrying once', {
+            story_id: storyId,
+            reason,
+            error,
+          });
+          continue;
+        }
+        logger.warn('[vh:bundle-synthesis] generated output rejected', { story_id: storyId, reason, error });
+        await persistRejectedBundleSynthesisEvalArtifact({
+          context: artifactContext,
+          capturedAt: now(),
+          rejectionReason: reason,
+          bundlePrompt: prompt,
+          bundleResponse: response ?? undefined,
+          warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
+          error,
+        });
+        return { status: 'rejected', storyId, reason };
+      }
+    }
+    if (!parsed || !response) {
+      return { status: 'rejected', storyId, reason: 'parse_failed' };
     }
 
     const warnings = dedupeWarnings([
@@ -333,23 +409,60 @@ export function createBundleSynthesisWorker(
       model: response.model,
       now: createdAt,
     });
-    await writeCandidateWithLane(config.client, candidatePayload);
-    const { latestStatus, synthesis } = await writeAcceptedSynthesis({
-      client: config.client,
-      bundle,
-      synthesisId,
-      candidateId,
-      summary: parsed.summary,
-      frames,
-      warnings,
-      createdAt,
-      writeSynthesis: writeSynthesisWithLane,
-      writeLatest: writeLatestWithLane,
-    });
+    try {
+      await writeCandidateWithLane(config.client, candidatePayload);
+    } catch (error) {
+      logger.warn('[vh:bundle-synthesis] candidate write failed', { story_id: storyId, candidate_id: candidateId, error });
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: artifactContext,
+        capturedAt: createdAt,
+        rejectionReason: 'candidate_write_failed',
+        bundlePrompt: acceptedBundlePrompt,
+        bundleResponse: response,
+        warnings,
+        error,
+      });
+      return { status: 'rejected', storyId, reason: 'candidate_write_failed' };
+    }
+    let latestStatus: 'written' | 'skipped';
+    let synthesis: TopicSynthesisV2;
+    try {
+      ({ latestStatus, synthesis } = await writeAcceptedSynthesis({
+        client: config.client,
+        bundle,
+        synthesisId,
+        candidateId,
+        summary: parsed.summary,
+        frames,
+        warnings,
+        createdAt,
+        writeSynthesis: writeSynthesisWithLane,
+        writeLatest: writeLatestWithLane,
+      }));
+    } catch (error) {
+      const reason = error instanceof AcceptedSynthesisWriteError ? error.stage : 'epoch_write_failed';
+      logger.warn('[vh:bundle-synthesis] accepted synthesis write failed', {
+        story_id: storyId,
+        candidate_id: candidateId,
+        synthesis_id: synthesisId,
+        reason,
+        error,
+      });
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: artifactContext,
+        capturedAt: createdAt,
+        rejectionReason: reason,
+        bundlePrompt: acceptedBundlePrompt,
+        bundleResponse: response,
+        warnings,
+        error,
+      });
+      return { status: 'rejected', storyId, reason };
+    }
     await persistAcceptedBundleSynthesisEvalArtifact({
       context: artifactContext,
       capturedAt: createdAt,
-      bundlePrompt,
+      bundlePrompt: acceptedBundlePrompt,
       bundleResponse: response,
       bundleGenerated: parsed,
       candidateSynthesis: candidatePayload,

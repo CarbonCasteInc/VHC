@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StorylineGroup } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
@@ -167,6 +167,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     ? 'Topic synthesis frames'
     : undefined;
   const synthesisUnavailable = !synthesisLoading && !effectiveSynthesis && !synthesisError && !correctionBlocksSynthesis;
+  const [synthesisReadinessTimedOut, setSynthesisReadinessTimedOut] = useState(false);
   const relatedLinks = useMemo(
     () => mergeRelatedLinks(story, null),
     [story],
@@ -194,6 +195,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     if (!isExpanded) {
       return;
     }
+    setSynthesisReadinessTimedOut(false);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
   }, [isExpanded, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
@@ -209,11 +211,17 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
 
     const refreshPendingSynthesis = () => {
       if (cancelled || attempt >= PENDING_SYNTHESIS_REFRESH_ATTEMPTS) {
+        if (!cancelled) {
+          setSynthesisReadinessTimedOut(true);
+        }
         return;
       }
       attempt += 1;
       void refreshSynthesisTopic(item.topic_id).finally(() => {
         if (cancelled || attempt >= PENDING_SYNTHESIS_REFRESH_ATTEMPTS) {
+          if (!cancelled) {
+            setSynthesisReadinessTimedOut(true);
+          }
           return;
         }
         const latest = useSynthesisStore.getState().topics[item.topic_id];
@@ -240,6 +248,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     synthesisError,
     synthesisLoading,
   ]);
+
+  useEffect(() => {
+    if (effectiveSynthesis || synthesisCorrection || synthesisError) {
+      setSynthesisReadinessTimedOut(false);
+    }
+  }, [effectiveSynthesis, synthesisCorrection, synthesisError]);
 
   useEffect(() => {
     if (!isExpanded) return;
@@ -357,6 +371,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               synthesisLoading={synthesisLoading}
               synthesisError={synthesisError}
               synthesisUnavailable={synthesisUnavailable}
+              synthesisReadinessTimedOut={synthesisReadinessTimedOut}
               synthesisCorrection={correctionBlocksSynthesis ? synthesisCorrection : null}
               analysis={null}
               analysisId={null}

@@ -27,7 +27,6 @@ const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
 const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
-const DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT = 32;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function normalizeUrl(value) {
@@ -117,6 +116,11 @@ async function navigateToAppRoute(
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function boolEnv(value, fallback = false) {
@@ -517,39 +521,160 @@ function acceptedSynthesisReady(synthesis) {
   return Boolean(String(synthesis?.facts_summary ?? '').trim() && (synthesis?.frames?.length ?? 0) > 0);
 }
 
+function latestIndexEntryStoryId(storyId, record) {
+  const direct = String(record?.story_id || record?.storyId || storyId || '').trim();
+  return direct || null;
+}
+
+function sourceUrl(source) {
+  return String(source?.url || source?.canonical_url || source?.href || '').trim();
+}
+
+function storySources(story) {
+  if (Array.isArray(story?.sources)) return story.sources;
+  if (Array.isArray(story?.primary_sources)) return story.primary_sources;
+  return [];
+}
+
+function sourceLooksVideoWatch(source) {
+  const text = `${sourceUrl(source)} ${source?.title ?? ''} ${source?.source_id ?? ''}`.toLowerCase();
+  return /(?:\byoutube\.com\b|\byoutu\.be\b|\bvideo\b|\bvideos\b|\/watch(?:[/?#]|$)|\bwatch\b|\blive\b)/.test(text);
+}
+
+function classifyStoryMedia(story) {
+  const sources = storySources(story);
+  if (sources.length === 0) return 'unknown';
+  const videoCount = sources.filter(sourceLooksVideoWatch).length;
+  if (videoCount === 0) return 'text';
+  if (videoCount === sources.length) return 'video_watch';
+  return 'mixed';
+}
+
+function classifySourceFilterStatus(source) {
+  const raw = String(
+    source?.source_filter_status
+      || source?.sourceFilterStatus
+      || source?.admission_status
+      || source?.admissionStatus
+      || '',
+  ).toLowerCase();
+  if (['pass', 'passed', 'eligible', 'accepted', 'admitted'].includes(raw)) return 'pass';
+  if (['fail', 'failed', 'excluded', 'rejected', 'blocked'].includes(raw)) return 'fail';
+  return 'unknown';
+}
+
+async function readArticleTextSampleStatus({ root, story, timeoutMs }) {
+  const firstUrl = storySources(story).map(sourceUrl).find(Boolean);
+  if (!firstUrl) return 'no_source_url';
+  const articleUrl = new URL('/article-text', root);
+  articleUrl.searchParams.set('url', firstUrl);
+  try {
+    const payload = await fetchJsonWithTimeout(articleUrl.href, timeoutMs, 'public-relay-article-text');
+    const text = String(payload?.text || payload?.article_text || '').trim();
+    return text ? '200_text' : '200_empty';
+  } catch (error) {
+    const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+    return match?.[1] ?? 'error';
+  }
+}
+
 async function readPublicRelaySynthesisCandidates({
   baseUrl,
   indexLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT,
-  scanLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT,
+  scanLimit = indexLimit,
   timeoutMs = 15_000,
 } = {}) {
   const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
   const indexUrl = new URL('/vh/news/latest-index', root);
   indexUrl.searchParams.set('limit', String(indexLimit));
   const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index');
-  const records = Object.values(index?.records ?? {})
-    .filter((record) => record && typeof record === 'object')
-    .sort((left, right) => latestIndexRecordTimestamp(right) - latestIndexRecordTimestamp(left));
+  const rawRecords = index?.records && typeof index.records === 'object'
+    ? index.records
+    : index?.index && typeof index.index === 'object'
+      ? index.index
+      : {};
+  const records = Object.entries(rawRecords)
+    .map(([storyId, record]) => ({
+      storyId: latestIndexEntryStoryId(storyId, record),
+      record,
+    }))
+    .filter((entry) => entry.storyId)
+    .sort((left, right) => latestIndexRecordTimestamp(right.record) - latestIndexRecordTimestamp(left.record));
   const topStories = [];
-  for (const record of records.slice(0, scanLimit)) {
-    const storyId = String(record.story_id || record.storyId || '').trim();
+  const sampledStoryIds = [];
+  const sampledTopicIds = [];
+  const storyBodyStatusCounts = {};
+  const synthesisStatusCounts = {};
+  const frameCountDistribution = {};
+  const mediaClassCounts = {};
+  const sourceFilterStatusCounts = {};
+  const articleTextSampleStatusCounts = {};
+  let singletonReadableCount = 0;
+  let multiSourceReadableCount = 0;
+  let singletonVisibleAcceptedCount = 0;
+  let storyReadbackCount = 0;
+  let framePointIdsPresent = 0;
+  let reframePointIdsPresent = 0;
+  let frameRows = 0;
+  for (const entry of records.slice(0, scanLimit)) {
+    const record = entry.record;
+    const storyId = entry.storyId;
     if (!storyId) continue;
+    sampledStoryIds.push(storyId);
     const storyUrl = new URL('/vh/news/story', root);
     storyUrl.searchParams.set('story_id', storyId);
-    const storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story')
-      .catch(() => null);
+    let storyPayload = null;
+    try {
+      storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story');
+      storyBodyStatusCounts['200'] = (storyBodyStatusCounts['200'] ?? 0) + 1;
+      storyReadbackCount += 1;
+    } catch (error) {
+      const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+      const status = match?.[1] ?? 'error';
+      storyBodyStatusCounts[status] = (storyBodyStatusCounts[status] ?? 0) + 1;
+      continue;
+    }
     const story = storyPayload?.story;
     if (!story?.story_id || !story?.topic_id || !story?.headline) continue;
+    sampledTopicIds.push(story.topic_id);
+    const labels = storySourceLabels(story);
+    const mediaClass = classifyStoryMedia(story);
+    mediaClassCounts[mediaClass] = (mediaClassCounts[mediaClass] ?? 0) + 1;
+    for (const source of storySources(story)) {
+      const sourceFilterStatus = classifySourceFilterStatus(source);
+      sourceFilterStatusCounts[sourceFilterStatus] = (sourceFilterStatusCounts[sourceFilterStatus] ?? 0) + 1;
+    }
+    if (labels.length === 1) singletonReadableCount += 1;
+    if (labels.length > 1) multiSourceReadableCount += 1;
     const synthesisUrl = new URL('/vh/topics/synthesis', root);
     synthesisUrl.searchParams.set('topic_id', story.topic_id);
-    const synthesisPayload = await fetchJsonWithTimeout(
-      synthesisUrl.href,
-      timeoutMs,
-      'public-relay-topic-synthesis',
-    ).catch(() => null);
+    let synthesisPayload = null;
+    try {
+      synthesisPayload = await fetchJsonWithTimeout(
+        synthesisUrl.href,
+        timeoutMs,
+        'public-relay-topic-synthesis',
+      );
+      synthesisStatusCounts['200'] = (synthesisStatusCounts['200'] ?? 0) + 1;
+    } catch (error) {
+      const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+      const status = match?.[1] ?? 'error';
+      synthesisStatusCounts[status] = (synthesisStatusCounts[status] ?? 0) + 1;
+    }
     const synthesis = synthesisPayload?.synthesis;
-    if (!acceptedSynthesisReady(synthesis)) continue;
-    const labels = storySourceLabels(story);
+    const rows = Array.isArray(synthesis?.frames) ? synthesis.frames : [];
+    frameRows += rows.length;
+    frameCountDistribution[String(rows.length)] = (frameCountDistribution[String(rows.length)] ?? 0) + 1;
+    for (const row of rows) {
+      if (typeof row?.frame_point_id === 'string' && row.frame_point_id.trim()) framePointIdsPresent += 1;
+      if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) reframePointIdsPresent += 1;
+    }
+    if (!acceptedSynthesisReady(synthesis)) {
+      const articleTextStatus = await readArticleTextSampleStatus({ root, story, timeoutMs });
+      articleTextSampleStatusCounts[articleTextStatus] = (articleTextSampleStatusCounts[articleTextStatus] ?? 0) + 1;
+      continue;
+    }
+    if (labels.length === 1) singletonVisibleAcceptedCount += 1;
     topStories.push({
       storyId: story.story_id,
       topicId: story.topic_id,
@@ -563,7 +688,24 @@ async function readPublicRelaySynthesisCandidates({
   }
   return {
     latestIndexCount: records.length,
-    storyReadbackCount: topStories.length,
+    sampledStoryIds,
+    sampledTopicIds: [...new Set(sampledTopicIds)],
+    storyBodyStatusCounts,
+    synthesisStatusCounts,
+    mediaClassCounts,
+    sourceFilterStatusCounts,
+    articleTextSampleStatusCounts,
+    singletonReadableCount,
+    multiSourceReadableCount,
+    singletonVisibleAcceptedCount,
+    frameCountDistribution,
+    pointIdPresence: {
+      frameRows,
+      framePointIdsPresent,
+      reframePointIdsPresent,
+    },
+    storyReadbackCount,
+    acceptedSynthesisStoryCount: topStories.length,
     topStories,
   };
 }
@@ -1581,7 +1723,43 @@ async function runPublicFeedBrowserSmoke({
     progress('public-relay-synthesis-readback', {
       latestIndexCount: publicRelaySynthesisReadback.latestIndexCount,
       storyReadbackCount: publicRelaySynthesisReadback.storyReadbackCount,
+      storyBodyStatusCounts: publicRelaySynthesisReadback.storyBodyStatusCounts,
+      synthesisStatusCounts: publicRelaySynthesisReadback.synthesisStatusCounts,
+      singletonReadableCount: publicRelaySynthesisReadback.singletonReadableCount,
+      multiSourceReadableCount: publicRelaySynthesisReadback.multiSourceReadableCount,
+      mediaClassCounts: publicRelaySynthesisReadback.mediaClassCounts,
+      sourceFilterStatusCounts: publicRelaySynthesisReadback.sourceFilterStatusCounts,
+      articleTextSampleStatusCounts: publicRelaySynthesisReadback.articleTextSampleStatusCounts,
+      frameCountDistribution: publicRelaySynthesisReadback.frameCountDistribution,
+      pointIdPresence: publicRelaySynthesisReadback.pointIdPresence,
     });
+    summary = {
+      ...summary,
+      checks: {
+        ...summary.checks,
+        daemonGunLatestIndexReadback: gunReadback,
+        publicRelaySynthesisReadback,
+      },
+    };
+    const acceptedRepairWindowStory404Threshold = parseNonNegativeInt(
+      env.VH_PUBLIC_FEED_REPAIR_WINDOW_STORY_404_THRESHOLD,
+      0,
+    );
+    const storyBody404Count = Number(publicRelaySynthesisReadback.storyBodyStatusCounts?.['404'] ?? 0);
+    if (storyBody404Count > acceptedRepairWindowStory404Threshold) {
+      throw new Error(`public-relay-latest-index-story-404:${storyBody404Count}/${acceptedRepairWindowStory404Threshold}`);
+    }
+    const pointPresence = publicRelaySynthesisReadback.pointIdPresence ?? {};
+    const frameRows = Number(pointPresence.frameRows ?? 0);
+    if (
+      frameRows > 0
+      && (
+        Number(pointPresence.framePointIdsPresent ?? 0) < frameRows
+        || Number(pointPresence.reframePointIdsPresent ?? 0) < frameRows
+      )
+    ) {
+      throw new Error(`public-relay-synthesis-point-ids-missing:${JSON.stringify(pointPresence)}`);
+    }
     browser = await launchBrowserFn();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
     await addConsumerInitScript(context, gunPeerUrl);

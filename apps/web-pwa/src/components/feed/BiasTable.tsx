@@ -22,6 +22,7 @@ export interface BiasTableProps {
   readonly epoch?: number;
   readonly votingEnabled?: boolean;
   readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
+  readonly emptyMessage?: string;
 }
 
 function biasTableDiagnosticsEnabled(): boolean {
@@ -204,6 +205,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   epoch,
   votingEnabled = false,
   votingPointIdMode = 'legacy-compatible',
+  emptyMessage = 'No frame/reframe pairs are available for this topic.',
 }) => {
   const hasExplicitSynthesisContext = synthesisId !== undefined && epoch !== undefined;
   const stableVotingContextId = hasExplicitSynthesisContext
@@ -290,7 +292,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
         className="text-xs text-slate-500"
         data-testid="bias-table-empty"
       >
-        No bias analysis available yet
+        {emptyMessage}
       </p>
     );
   }
@@ -354,7 +356,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   className="border border-slate-200 px-2 py-2 text-slate-500"
                   colSpan={2}
                 >
-                  No frame/reframe pairs yet for this topic.
+                  {emptyMessage}
                 </td>
               </tr>
             )}
