@@ -292,10 +292,10 @@ Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a9
   `d201eeba8d2615ea4d25e72370de0c484c2eb7fa`, not current commit
   `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`.
 
-Current clean evidence after commit `9c42c6099755362513e06dff7d1829ae0867a1e6`:
+Current clean evidence after pushed head `fa8e1594d40a163c33695ce829364595c74324a6`:
 
 - `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e`: passed with
-  run id `mesh-luma-gated-write-coverage-20260528T031719Z-3773c895` and artifact
+  run id `mesh-luma-gated-write-coverage-20260528T042404Z-8d114ef6` and artifact
   `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`.
   The report used the `e2e` LUMA profile, was generated from the current commit, and
   covered forum threads, forum comments, vote/aggregate writes, directory publish,
@@ -308,14 +308,15 @@ Current clean evidence after commit `9c42c6099755362513e06dff7d1829ae0867a1e6`:
   `mesh-production-readiness-20260528T034654Z-0dff40a5`, and artifact
   `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`.
   All source reports passed, evidence scrub passed, and LUMA-gated write coverage
-  passed. The only remaining Mesh release-ready blockers are `canonical-30-minute-soak`
-  and `public-wss-deployment-proof`.
+  passed. That earlier aggregate still had `canonical-30-minute-soak` and
+  `public-wss-deployment-proof` as release-ready blockers; the later canonical
+  aggregate below supersedes this Mesh evidence.
 - `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
   was rerun with artifact
   `.tmp/production-app-canary/latest/production-app-canary-report.json`.
-  It blocked on `mesh_not_release_ready` because the Mesh report still has the two
-  blockers above. The canary report was clean for repo dirtiness, current commit, and
-  LUMA profile matching.
+  It blocked on `mesh_not_release_ready` because that earlier Mesh report still had
+  the two blockers above. The later production canary evidence below supersedes this
+  canary run.
 - `pnpm check:mvp-release-gates` was rerun with the public feed smoke artifact
   directory set to
   `.tmp/analysis-frame-pipeline/20260528T040000Z/mvp-gate-public-feed-smoke-luma-current/`.
@@ -345,13 +346,53 @@ Current clean evidence after commit `9c42c6099755362513e06dff7d1829ae0867a1e6`:
   Runs 1 and 2 failed strict semantic audit with `related_topic_only_pair_count: 1`;
   run 3 produced only `run-3.preflight.log`, then stalled and was terminated.
 
+Additional public and release-gate evidence captured after the pushed head:
+
+- Public top-20 latest-index readback artifact:
+  `.tmp/analysis-frame-pipeline/20260528T043636Z/public-top20-readback/public-top20-story-readback.json`.
+  It sampled 20 latest-index rows and found 20 story-body `404` responses. Synthesis
+  readback was skipped for all 20 because the story body was unavailable. This proves
+  the current public stack is still exposing stale or body-missing story IDs and has
+  not received the relay consistency fix.
+- Public health remained reachable: `https://venn.carboncaste.io/` returned HTTP 200,
+  `/api/analyze/health` returned HTTP 200 with upstream reachable, and
+  `https://gun-a.carboncaste.io/health`, `https://gun-b.carboncaste.io/health`, and
+  `https://gun-c.carboncaste.io/health` all returned relay-alive responses.
+- `ssh -o BatchMode=yes -o ConnectTimeout=8 humble true` still failed with
+  `ssh: connect to host 100.75.18.26 port 22: Operation timed out`, so deployment and
+  synthesis replay on A6 remain human-blocked.
+- Public WSS proof was attempted with the documented public app URL, WSS peers, config
+  ID, CSP connect-src, peer count, and public verification key. Artifact:
+  `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779941524790-b9079192/mesh-production-readiness-report.json`.
+  The run was blocked because the deployed peer config `issuedAt` was older than the
+  24 hour freshness bound. The proof did confirm the expected public config ID, opened
+  sockets to all three expected WSS host hashes, and read `healthz`, `readyz`, and
+  `metrics` from all three public peers with HTTP 200 responses. The blocker is the
+  stale deployed signed peer config, not a dead public relay health path.
+- `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness`
+  completed with status `review_required`, run id
+  `mesh-production-readiness-20260528T052120Z-63550327`, and artifact
+  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`.
+  All Mesh source reports passed, evidence scrub passed, LUMA-gated write coverage
+  passed, and the aggregate's own soak source used the canonical 1,800,000 ms
+  duration. The soak source run was `mesh-soak-20260528T052932Z-faeb4bfc`; it had
+  `full_duration_satisfied: true`, `duplicate_canonical_writes: 0`,
+  `terminal_failures: 0`, `repair_events: 0`, and cleanup `pass`.
+- The only remaining Mesh release-ready blocker in that aggregate is
+  `public-wss-deployment-proof`.
+- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+  wrote `.tmp/production-app-canary/latest/production-app-canary-report.json` with run
+  id `production-app-canary-20260528T060254Z-e1a0c37a`. It blocked on
+  `mesh_not_release_ready` because the Mesh aggregate still lacks public WSS
+  deployment proof. The canary report was from the current commit and repo-clean.
+
 ## Remaining Blockers
 
 - Deploy the branch to the public A6/Mac mini topology after SSH access to `humble` is restored.
 - Rerun public smoke after deployment and require 0 unbounded story-body 404s in the latest-index top-N window.
 - Replay retryable synthesis lifecycle records and confirm every visible readable text story has accepted TopicSynthesisV2 or a durable terminal unavailable reason.
 - Regenerate passing StoryCluster headline soak evidence within the freshness window; the latest fresh collection attempt failed/hung.
-- Satisfy Mesh canonical 30-minute soak and public WSS deployment proof, then rerun the production app canary with a release-ready Mesh report.
+- Refresh and redeploy the public signed peer config so `pnpm test:mesh:deployed-wss-peer-config:public` satisfies the public WSS deployment proof, then rerun the production app canary with a release-ready Mesh report.
 
 ## Explicit Non-Claims
 
