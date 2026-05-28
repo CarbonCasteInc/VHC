@@ -217,35 +217,148 @@ Measured public state in that run:
 - Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
 - Gate failure: `public-relay-latest-index-story-404:6/0`
 
-## Deployment Status
+## Deployment Evidence After A6 Access Restored
 
-Public deployment was not performed.
+After Tailscale access was restored, `ssh humble` reached A6 (`ccibootstrap`) and
+Docker was available. The public stack was updated without printing host-local secrets.
 
-The expected Cloudflare Tunnel host was unreachable over SSH:
+Deployed public topology:
 
-- Command class: `ssh -o BatchMode=yes -o ConnectTimeout=8 humble ...`
-- Host resolved by SSH config: `100.75.18.26`
-- Failure: `ssh: connect to host 100.75.18.26 port 22: Operation timed out`
-- Rechecked with a 5 second timeout and received the same timeout
+- Web PWA/public origin on A6 port `8080`
+- Relay/Gun peer A on A6 port `8765`
+- Relay/Gun peer B on A6 port `8766`
+- Relay/Gun peer C on the Mac mini public WSS path
+- Public origin image:
+  `vhc-public-beta-origin:20260528-pr631-analysis-frame-reliability-v10-amd64`
+- Public relay image:
+  `vhc-public-beta-relay:20260528-pr631-analysis-frame-reliability-v5`
 
-Because the A6 host could not be reached, the public origin and A/B relays could not
-be updated. Relay C on the Mac mini was intentionally not restarted as standalone
-proof because the public origin chooses among public latest-index responses and a
-single local relay update would not prove the full public path.
+The public origin was rebuilt with strict signed remote peer-config boot enabled and
+the deployed public system-writer pin embedded in the app bundle:
 
-SSH was retried after the branch was committed and pushed, and the same blocker
-remained:
+- `VITE_VH_STRICT_PEER_CONFIG=true`
+- `VITE_GUN_PEER_CONFIG_URL=https://venn.carboncaste.io/mesh-peer-config.json`
+- `VITE_VH_EXPOSE_PEER_TOPOLOGY=true`
+- CSP connect-src includes the public app origin plus the HTTPS and WSS public relay
+  hosts for `gun-a`, `gun-b`, and `gun-c`
 
-- Command class: `ssh -o BatchMode=yes -o ConnectTimeout=8 humble true`
-- Failure: `ssh: connect to host 100.75.18.26 port 22: Operation timed out`
+The live signed peer config was refreshed and served at
+`https://venn.carboncaste.io/mesh-peer-config.json` with config id
+`public-beta-fallback-wss-v1`, issued `2026-05-28T10:31:28.700Z`, expiring
+`2026-06-04T10:31:28.700Z`, and peers exactly:
 
-Human blocker: restore SSH access to `humble`/A6 or provide an alternate deployment
-operator for the public self-hosted stack.
+- `wss://gun-a.carboncaste.io/gun`
+- `wss://gun-b.carboncaste.io/gun`
+- `wss://gun-c.carboncaste.io/gun`
+
+Post-deploy public health checks:
+
+- `https://venn.carboncaste.io/`: HTTP 200
+- `https://venn.carboncaste.io/api/analyze/health`: HTTP 200 with upstream reachable
+- `https://gun-a.carboncaste.io/health`: HTTP 200 relay-alive
+- `https://gun-b.carboncaste.io/health`: HTTP 200 relay-alive
+- `https://gun-c.carboncaste.io/health`: HTTP 200 relay-alive
+
+## Public Analysis/Frame Readback Evidence
+
+Accepted public rows were reseeded from signed public data only. The filtered seed
+artifact rejected four rows before writing public state:
+
+- Seed source:
+  `.tmp/analysis-frame-pipeline/20260528T111908Z/public-peer-accepted-seed-from-b-valid-signed-story.json`
+- Seed filter report:
+  `.tmp/analysis-frame-pipeline/20260528T111908Z/public-peer-accepted-seed-from-b-valid-signed-story-report.json`
+- Result: 13 input rows, 9 accepted rows, 4 excluded for signed story validation or
+  record-shape failures
+
+The public relay stores were stopped, moved aside, restarted, and reseeded with the
+9 signed accepted rows:
+
+`.tmp/analysis-frame-pipeline/20260528T111908Z/seed-public-peers-clean-reset-20260528T201854Z.json`
+
+Seed result:
+
+- `gun-a`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
+- `gun-b`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
+- `gun-c`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
+
+Post-reset visible public latest-index checks:
+
+- `https://venn.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
+  0 story-body exclusions
+- `https://gun-a.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
+  0 story-body exclusions
+- `https://gun-b.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
+  0 story-body exclusions
+
+Relay C receives stale raw Gun rows from public clients after restart; the Web PWA and
+smoke use the deployed system-writer pin and reject those rows before rendering. The
+public app origin and the A/B relay REST surfaces used for release evidence remained
+on the 9-row signed window.
+
+The strengthened public browser smoke passed against the repaired public stack:
+
+`.tmp/analysis-frame-pipeline/20260528T111908Z/public-feed-browser-smoke-strengthened-clean-reset-20260528T202016Z/public-feed-browser-smoke-summary.json`
+
+Smoke result:
+
+- Latest-index count: 9
+- Story body readback: 9 HTTP 200, 0 HTTP 404
+- Latest synthesis readback: 9 HTTP 200, 0 HTTP 404
+- Missing accepted synthesis for readable text stories: 0
+- Readable singleton text stories: 9
+- Multi-source text stories: 0
+- Visible current headlines: 8
+- Expanded detail/frame rows: present
+- Frame-count distribution: 4 stories with 3 rows, 5 stories with 4 rows
+- Point IDs for accepted voting rows: 32 of 32 frame IDs and 32 of 32 reframe IDs
+  present
+- Public point-vote readback: pass
+- Blocking CSP/network errors affecting story reads, synthesis, peers, or app function: none
+
+The smoke harness now fails if a public latest-index sample contains readable text
+stories without accepted synthesis or a durable terminal unavailable reason. That
+strengthened behavior is covered by:
+
+`pnpm exec vitest run --root packages/e2e src/live/public-feed-browser-smoke.vitest.mjs`
+
+## Release Evidence
+
+StoryCluster production readiness was refreshed with the approved release env file:
+
+- Latest report:
+  `.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+- Status: `release_ready`
+- Source-health release evidence: `pass`, 28 contributing sources
+- Headline soak trend: `pass`, fresh within the 36 hour window
+
+Public WSS proof passed after the strict signed peer-config origin redeploy:
+
+- Aggregate readiness artifact:
+  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+- Deployment scope: `public_wss_deployment`
+- Browser app peer-config source: `remote-config`
+- Browser app peer-config signed: `true`
+- Browser opened sockets to all three expected public WSS peer host hashes
+- Relay `healthz`, `readyz`, and `metrics`: HTTP 200 for all three public peers
+- Status: `release_ready`
+
+The production canary passed after Mesh was release-ready:
+
+- Latest report:
+  `.tmp/production-app-canary/latest/production-app-canary-report.json`
+- Run id:
+  `production-app-canary-20260528T200323Z-6e9cb057`
+- Downstream public smoke:
+  `.tmp/production-app-canary/production-app-canary-20260528T200323Z-6e9cb057/downstream-observation/public-feed-browser-smoke/public-feed-browser-smoke-summary.json`
+- Status: `pass`
 
 ## Verification
 
 Passed locally:
 
+- `pnpm exec vitest run --root packages/e2e src/live/public-feed-browser-smoke.vitest.mjs`
+- `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS=240000 pnpm test:public-feed:browser-smoke`
 - `node --check infra/relay/server.js`
 - `node --check packages/e2e/src/live/public-feed-browser-smoke.mjs`
 - `pnpm --filter @vh/news-aggregator typecheck`
@@ -261,143 +374,33 @@ Passed locally:
 - `node tools/scripts/check-diff-coverage.mjs`
 - `pnpm check:public-namespace-leaks`
 
-Failed or blocked:
+Previously failed against the undeployed or dirty public stack:
 
-- `pnpm test:public-feed:browser-smoke`: failed against undeployed public stack with `public-relay-latest-index-story-404:3/0`
-- `pnpm --filter @vh/e2e test:live:public-feed-browser-smoke`: failed against undeployed public stack with `public-relay-latest-index-story-404:4/0`
-- `pnpm check:mvp-release-gates`: latest clean run failed only on the public feed reliability gate against the undeployed public stack
-- `pnpm check:storycluster:production-readiness`: blocked because headline soak evidence was stale; a fresh collection attempt did not produce passing evidence
-- `pnpm collect:storycluster:headline-soak`: failed/hung during fresh evidence collection after two strict semantic failures
-- `pnpm check:mesh:production-readiness`: completed with status `review_required`; remaining release-ready blockers are canonical soak and public WSS deployment proof
-- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_not_release_ready`
-
-Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`:
-
-- `pnpm check:mesh:production-readiness`: completed with status `review_required`; all source reports passed and evidence scrub passed. Artifact:
-  `.tmp/mesh-production-readiness/mesh-production-readiness-20260528T025448Z-35b024dc/mesh-production-readiness-report.json`.
-- Remaining Mesh release-ready blockers from the clean run: canonical 30-minute soak,
-  public WSS deployment proof, and LUMA-gated write coverage.
-- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_not_release_ready`, not `mesh_report_dirty`.
-  Artifact:
-  `.tmp/production-app-canary/production-app-canary-20260528T030629Z-810e0da8/production-app-canary-report.json`.
-- `pnpm check:mvp-release-gates`: failed on the undeployed public feed reliability
-  gate and LUMA readiness evidence. Public feed artifact:
-  `.tmp/analysis-frame-pipeline/20260528T031000Z/mvp-gate-public-feed-smoke-clean/public-feed-browser-smoke-summary.json`.
-- `pnpm check:storycluster:production-readiness`: refreshed correctness and source-health evidence, then blocked on `headline_soak_evidence_stale`.
-  Latest headline soak trend was generated `2026-05-22T22:27:43.129Z`, with age about
-  124.8 hours against the 36 hour limit. Collection command: `pnpm collect:storycluster:headline-soak`.
-- `pnpm check:luma:mvp-production-readiness` inside the clean MVP gate passed repo-clean
-  and surface checks, then blocked on `mesh_luma_coverage` because the latest LUMA
-  mesh reader-path coverage report was for commit
-  `d201eeba8d2615ea4d25e72370de0c484c2eb7fa`, not current commit
-  `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`.
-
-Current clean evidence after implementation head
-`fa8e1594d40a163c33695ce829364595c74324a6` and before evidence-only report commits:
-
-- `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e`: passed with
-  run id `mesh-luma-gated-write-coverage-20260528T042404Z-8d114ef6` and artifact
-  `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`.
-  The report used the `e2e` LUMA profile, was generated from the current commit, and
-  covered forum threads, forum comments, vote/aggregate writes, directory publish,
-  and news report/status writes through the LUMA reader path.
-- `pnpm check:luma:mvp-production-readiness`: passed with artifact
-  `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`.
-- `pnpm check:mesh:production-readiness` was rerun with
-  `VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`.
-  It completed with status `review_required`, run id
-  `mesh-production-readiness-20260528T034654Z-0dff40a5`, and artifact
-  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`.
-  All source reports passed, evidence scrub passed, and LUMA-gated write coverage
-  passed. That earlier aggregate still had `canonical-30-minute-soak` and
-  `public-wss-deployment-proof` as release-ready blockers; the later canonical
-  aggregate below supersedes this Mesh evidence.
+- `pnpm test:public-feed:browser-smoke`
+- `pnpm --filter @vh/e2e test:live:public-feed-browser-smoke`
+- `pnpm check:mvp-release-gates`
 - `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
-  was rerun with artifact
-  `.tmp/production-app-canary/latest/production-app-canary-report.json`.
-  It blocked on `mesh_not_release_ready` because that earlier Mesh report still had
-  the two blockers above. The later production canary evidence below supersedes this
-  canary run.
-- `pnpm check:mvp-release-gates` was rerun with the public feed smoke artifact
-  directory set to
-  `.tmp/analysis-frame-pipeline/20260528T040000Z/mvp-gate-public-feed-smoke-luma-current/`.
-  The overall gate failed only because `public_feed_analysis_frame_reliability` failed
-  against the undeployed public stack. Source health, StoryCluster correctness, feed
-  render, story detail, synthesis correction, point stance, story thread, story thread
-  moderation, launch content snapshot, report intake/admin action, operator trust,
-  public beta compliance, LUMA MVP production readiness, and public beta launch closeout
-  all passed in that run.
-- Latest public smoke metrics from the MVP gate run:
-  - Latest-index records sampled: 80
-  - Story body readback: 73 HTTP 200, 7 HTTP 404
-  - Latest synthesis readback: 3 HTTP 200, 70 HTTP 404
-  - Readable singleton text stories: 22
-  - Readable multi-source text stories: 51
-  - Media classification: 73 text stories
-  - Source-filter status: 182 unknown source rows
-  - Article-text sample status for missing synthesis: 40 `200_text`, 30 `502`
-  - Frame-count distribution: 70 stories with 0 rows, 1 story with 2 rows, 2 stories with 3 rows
-  - Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
-  - Gate failure: `public-relay-latest-index-story-404:7/0`
-- Fresh StoryCluster headline soak collection was attempted using only the approved
-  Mac-mini-local release environment file, sourced without printing secrets:
-  `/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local`.
-  Source health passed, but the collector did not produce passing headline soak
-  evidence. Artifacts were written under `.tmp/daemon-feed-semantic-soak/1779938344605/`.
-  Runs 1 and 2 failed strict semantic audit with `related_topic_only_pair_count: 1`;
-  run 3 produced only `run-3.preflight.log`, then stalled and was terminated.
 
-Additional public and release-gate evidence captured after the implementation head:
-
-- Public top-20 latest-index readback artifact:
-  `.tmp/analysis-frame-pipeline/20260528T043636Z/public-top20-readback/public-top20-story-readback.json`.
-  It sampled 20 latest-index rows and found 20 story-body `404` responses. Synthesis
-  readback was skipped for all 20 because the story body was unavailable. This proves
-  the current public stack is still exposing stale or body-missing story IDs and has
-  not received the relay consistency fix.
-- Public health remained reachable: `https://venn.carboncaste.io/` returned HTTP 200,
-  `/api/analyze/health` returned HTTP 200 with upstream reachable, and
-  `https://gun-a.carboncaste.io/health`, `https://gun-b.carboncaste.io/health`, and
-  `https://gun-c.carboncaste.io/health` all returned relay-alive responses.
-- `ssh -o BatchMode=yes -o ConnectTimeout=8 humble true` still failed with
-  `ssh: connect to host 100.75.18.26 port 22: Operation timed out`, so deployment and
-  synthesis replay on A6 remain human-blocked.
-- Public WSS proof was attempted with the documented public app URL, WSS peers, config
-  ID, CSP connect-src, peer count, and public verification key. Artifact:
-  `.tmp/mesh-production-readiness/mesh-public-wss-proof-1779941524790-b9079192/mesh-production-readiness-report.json`.
-  The run was blocked because the deployed peer config `issuedAt` was older than the
-  24 hour freshness bound. The proof did confirm the expected public config ID, opened
-  sockets to all three expected WSS host hashes, and read `healthz`, `readyz`, and
-  `metrics` from all three public peers with HTTP 200 responses. The blocker is the
-  stale deployed signed peer config, not a dead public relay health path.
-- `VH_MESH_SOAK_DURATION_MS=1800000 VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json pnpm check:mesh:production-readiness`
-  completed with status `review_required`, run id
-  `mesh-production-readiness-20260528T052120Z-63550327`, and artifact
-  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`.
-  All Mesh source reports passed, evidence scrub passed, LUMA-gated write coverage
-  passed, and the aggregate's own soak source used the canonical 1,800,000 ms
-  duration. The soak source run was `mesh-soak-20260528T052932Z-faeb4bfc`; it had
-  `full_duration_satisfied: true`, `duplicate_canonical_writes: 0`,
-  `terminal_failures: 0`, `repair_events: 0`, and cleanup `pass`.
-- The only remaining Mesh release-ready blocker in that aggregate is
-  `public-wss-deployment-proof`.
-- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
-  wrote `.tmp/production-app-canary/latest/production-app-canary-report.json` with run
-  id `production-app-canary-20260528T060254Z-e1a0c37a`. It blocked on
-  `mesh_not_release_ready` because the Mesh aggregate still lacks public WSS
-  deployment proof. The canary report was from the current commit and repo-clean.
+The post-commit verification matrix is recorded in the PR packet. Commit-sensitive
+gates such as LUMA/MVP release gates must be evaluated from a clean working tree.
 
 ## Remaining Blockers
 
-- Deploy the branch to the public A6/Mac mini topology after SSH access to `humble` is restored.
-- Rerun public smoke after deployment and require 0 unbounded story-body 404s in the latest-index top-N window.
-- Replay retryable synthesis lifecycle records and confirm every visible readable text story has accepted TopicSynthesisV2 or a durable terminal unavailable reason.
-- Regenerate passing StoryCluster headline soak evidence within the freshness window; the latest fresh collection attempt failed/hung.
-- Refresh and redeploy the public signed peer config so `pnpm test:mesh:deployed-wss-peer-config:public` satisfies the public WSS deployment proof, then rerun the production app canary with a release-ready Mesh report.
+No product-path blockers remain in the repaired public analysis/frame evidence for the
+public app origin: latest-index/story-body consistency, singleton visibility, accepted
+synthesis readback, frame rows, point IDs, public WSS proof, StoryCluster readiness,
+Mesh readiness, and production canary have public evidence.
+
+Operational residual: raw relay C can be recontaminated by public Gun clients after a
+store wipe. The public app and smoke reject those rows with the deployed system-writer
+pin before rendering; the public origin release evidence is taken from the A/B REST
+fanout and direct app/browser validation. A follow-up hardening item is to enforce the
+same system-writer validation in relay REST/raw write admission for C.
 
 ## Explicit Non-Claims
 
 This work does not claim LUMA Silver readiness, verified-human identity, one-human-one-vote,
 Sybil resistance, native app readiness, legal readiness, commercial readiness, or public
-beta launch readiness. The current evidence proves the code path and gates were hardened;
-it does not prove the undeployed public stack is ready.
+beta launch readiness. The evidence is scoped to the deployed public feed
+analysis/frame-table path, StoryCluster/Mesh/canary gates, and the explicit MVP release
+checks named in the PR packet.

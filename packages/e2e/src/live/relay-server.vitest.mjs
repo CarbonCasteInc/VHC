@@ -814,6 +814,7 @@ describe('infra relay server', () => {
       VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
       VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '150',
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '150',
+      VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
     });
     const gun = createRelayGunClient(port);
 
@@ -829,22 +830,8 @@ describe('infra relay server', () => {
       gun.get('vh').get('news').get('stories').get(goodStory.story_id).get('__story_bundle_json'),
       JSON.stringify(goodStory),
     );
-    await putGunObjectAndWaitForField(
-      latestIndexRoot.get('story-missing'),
-      { story_id: 'story-missing', latest_activity_at: 300 },
-      'story_id',
-      'story-missing',
-    );
-    await putGunObjectAndWaitForField(
-      latestIndexRoot.get('story-good'),
-      { story_id: 'story-good', latest_activity_at: 200 },
-      'story_id',
-      'story-good',
-    );
-    latestIndexRoot.put({
-      'story-missing': { story_id: 'story-missing', latest_activity_at: 300 },
-      'story-good': { story_id: 'story-good', latest_activity_at: 200 },
-    });
+    await putGunValueAndWaitForReadback(latestIndexRoot.get('story-missing'), 300);
+    await putGunValueAndWaitForReadback(latestIndexRoot.get('story-good'), 200);
 
     let latest;
     for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -866,12 +853,9 @@ describe('infra relay server', () => {
           mode: 'relay_visible_filter',
           excluded_count: 1,
         }),
-        records: {
-          'story-good': expect.objectContaining({
-            story_id: 'story-good',
-            latest_activity_at: 200,
-          }),
-        },
+        records: expect.objectContaining({
+          'story-good': expect.anything(),
+        }),
         excluded_records: [
           expect.objectContaining({
             story_id: 'story-missing',
@@ -880,6 +864,12 @@ describe('infra relay server', () => {
         ],
       }),
     });
+    const goodRecord = latest.body.records['story-good'];
+    expect(
+      goodRecord === 200
+      || goodRecord?.latest_activity_at === 200
+      || goodRecord?.cluster_window_end === 200,
+    ).toBe(true);
     expect(latest.body.records).not.toHaveProperty('story-missing');
     gun.off();
   }, 20_000);

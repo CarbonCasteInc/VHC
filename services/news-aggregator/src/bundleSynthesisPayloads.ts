@@ -131,6 +131,7 @@ export async function writeAcceptedSynthesis(input: {
   try {
     latestResult = await input.writeLatest(input.client, synthesis, {
       canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
+      allowOverwriteBlockedLatest: true,
     });
   } catch (error) {
     throw new AcceptedSynthesisWriteError('latest_write_failed', error);

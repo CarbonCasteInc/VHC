@@ -8,6 +8,11 @@ import type {
 import type { ClusterStore } from './clusterStore';
 import type { PipelineState } from './stageState';
 
+const MAX_DOCUMENT_BODY_CHARS = 12_000;
+const MAX_DOCUMENT_SUMMARY_CHARS = 3_000;
+const MAX_DOCUMENT_TITLE_CHARS = 512;
+const MAX_DOCUMENT_URL_CHARS = 2_048;
+
 export interface NormalizedPipelineRequest {
   topicId: string;
   referenceNowMs: number;
@@ -19,6 +24,22 @@ export function clamp01(value: number): number {
     return 0;
   }
   return Math.max(0, Math.min(1, Number(value.toFixed(6))));
+}
+
+function trimBoundedText(value: string | undefined, maxChars: number): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  const clipped = trimmed.slice(0, maxChars);
+  const lastWhitespace = clipped.search(/\s+\S*$/);
+  if (lastWhitespace > Math.floor(maxChars * 0.8)) {
+    return clipped.slice(0, lastWhitespace).trim();
+  }
+  return clipped.trim();
 }
 
 export function normalizeRequest(
@@ -34,8 +55,8 @@ export function normalizeRequest(
   const documents = request.documents.map((document) => {
     const docId = document.doc_id.trim();
     const sourceId = document.source_id.trim();
-    const title = document.title.trim();
-    const url = document.url.trim();
+    const title = trimBoundedText(document.title, MAX_DOCUMENT_TITLE_CHARS) ?? '';
+    const url = trimBoundedText(document.url, MAX_DOCUMENT_URL_CHARS) ?? '';
     if (!docId || !sourceId || !title || !url) {
       throw new Error('documents must provide non-empty doc_id, source_id, title, and url');
     }
@@ -51,8 +72,8 @@ export function normalizeRequest(
       doc_id: docId,
       source_id: sourceId,
       title,
-      body: document.body?.trim() || undefined,
-      summary: document.summary?.trim() || undefined,
+      body: trimBoundedText(document.body, MAX_DOCUMENT_BODY_CHARS),
+      summary: trimBoundedText(document.summary, MAX_DOCUMENT_SUMMARY_CHARS),
       canonical_url: document.canonical_url?.trim() || url,
       publisher: document.publisher?.trim() || sourceId,
       url,
