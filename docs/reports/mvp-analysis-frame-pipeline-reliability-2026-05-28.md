@@ -265,10 +265,11 @@ Failed or blocked:
 
 - `pnpm test:public-feed:browser-smoke`: failed against undeployed public stack with `public-relay-latest-index-story-404:3/0`
 - `pnpm --filter @vh/e2e test:live:public-feed-browser-smoke`: failed against undeployed public stack with `public-relay-latest-index-story-404:4/0`
-- `pnpm check:mvp-release-gates`: failed on public feed reliability and LUMA readiness evidence blockers
-- `pnpm check:storycluster:production-readiness`: blocked because headline soak evidence was stale; the latest headline soak trend was older than the 36 hour limit
-- `pnpm check:mesh:production-readiness`: blocked because source reports were generated from a dirty repo, with remaining release-ready blockers for canonical soak, public WSS deployment proof, evidence scrub promotion, and LUMA-gated write coverage
-- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_report_dirty`
+- `pnpm check:mvp-release-gates`: latest clean run failed only on the public feed reliability gate against the undeployed public stack
+- `pnpm check:storycluster:production-readiness`: blocked because headline soak evidence was stale; a fresh collection attempt did not produce passing evidence
+- `pnpm collect:storycluster:headline-soak`: failed/hung during fresh evidence collection after two strict semantic failures
+- `pnpm check:mesh:production-readiness`: completed with status `review_required`; remaining release-ready blockers are canonical soak and public WSS deployment proof
+- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`: blocked on `mesh_not_release_ready`
 
 Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`:
 
@@ -291,13 +292,65 @@ Additional clean-branch evidence after commit `e3dce209e7b6dd416fc50b9d6086d90a9
   `d201eeba8d2615ea4d25e72370de0c484c2eb7fa`, not current commit
   `e3dce209e7b6dd416fc50b9d6086d90a991f84fe`.
 
+Current clean evidence after commit `9c42c6099755362513e06dff7d1829ae0867a1e6`:
+
+- `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e`: passed with
+  run id `mesh-luma-gated-write-coverage-20260528T031719Z-3773c895` and artifact
+  `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`.
+  The report used the `e2e` LUMA profile, was generated from the current commit, and
+  covered forum threads, forum comments, vote/aggregate writes, directory publish,
+  and news report/status writes through the LUMA reader path.
+- `pnpm check:luma:mvp-production-readiness`: passed with artifact
+  `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`.
+- `pnpm check:mesh:production-readiness` was rerun with
+  `VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`.
+  It completed with status `review_required`, run id
+  `mesh-production-readiness-20260528T034654Z-0dff40a5`, and artifact
+  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`.
+  All source reports passed, evidence scrub passed, and LUMA-gated write coverage
+  passed. The only remaining Mesh release-ready blockers are `canonical-30-minute-soak`
+  and `public-wss-deployment-proof`.
+- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+  was rerun with artifact
+  `.tmp/production-app-canary/latest/production-app-canary-report.json`.
+  It blocked on `mesh_not_release_ready` because the Mesh report still has the two
+  blockers above. The canary report was clean for repo dirtiness, current commit, and
+  LUMA profile matching.
+- `pnpm check:mvp-release-gates` was rerun with the public feed smoke artifact
+  directory set to
+  `.tmp/analysis-frame-pipeline/20260528T040000Z/mvp-gate-public-feed-smoke-luma-current/`.
+  The overall gate failed only because `public_feed_analysis_frame_reliability` failed
+  against the undeployed public stack. Source health, StoryCluster correctness, feed
+  render, story detail, synthesis correction, point stance, story thread, story thread
+  moderation, launch content snapshot, report intake/admin action, operator trust,
+  public beta compliance, LUMA MVP production readiness, and public beta launch closeout
+  all passed in that run.
+- Latest public smoke metrics from the MVP gate run:
+  - Latest-index records sampled: 80
+  - Story body readback: 73 HTTP 200, 7 HTTP 404
+  - Latest synthesis readback: 3 HTTP 200, 70 HTTP 404
+  - Readable singleton text stories: 22
+  - Readable multi-source text stories: 51
+  - Media classification: 73 text stories
+  - Source-filter status: 182 unknown source rows
+  - Article-text sample status for missing synthesis: 40 `200_text`, 30 `502`
+  - Frame-count distribution: 70 stories with 0 rows, 1 story with 2 rows, 2 stories with 3 rows
+  - Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
+  - Gate failure: `public-relay-latest-index-story-404:7/0`
+- Fresh StoryCluster headline soak collection was attempted using only the approved
+  Mac-mini-local release environment file, sourced without printing secrets:
+  `/Users/benjamintucker/Desktop/VHC/VHC-mvp-public-beta-go-no-go-v1/packages/e2e/.env.dev-small.local`.
+  Source health passed, but the collector did not produce passing headline soak
+  evidence. Artifacts were written under `.tmp/daemon-feed-semantic-soak/1779938344605/`.
+  Runs 1 and 2 failed strict semantic audit with `related_topic_only_pair_count: 1`;
+  run 3 produced only `run-3.preflight.log`, then stalled and was terminated.
+
 ## Remaining Blockers
 
 - Deploy the branch to the public A6/Mac mini topology after SSH access to `humble` is restored.
 - Rerun public smoke after deployment and require 0 unbounded story-body 404s in the latest-index top-N window.
 - Replay retryable synthesis lifecycle records and confirm every visible readable text story has accepted TopicSynthesisV2 or a durable terminal unavailable reason.
-- Regenerate StoryCluster headline soak evidence within the freshness window.
-- Regenerate Mesh LUMA-gated write coverage on the current commit.
+- Regenerate passing StoryCluster headline soak evidence within the freshness window; the latest fresh collection attempt failed/hung.
 - Satisfy Mesh canonical 30-minute soak and public WSS deployment proof, then rerun the production app canary with a release-ready Mesh report.
 
 ## Explicit Non-Claims
