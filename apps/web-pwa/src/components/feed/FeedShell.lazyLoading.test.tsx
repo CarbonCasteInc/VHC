@@ -295,7 +295,7 @@ describe('FeedShell lazy loading', () => {
         await vi.advanceTimersByTimeAsync(100);
       });
 
-      expect(refreshLatest).toHaveBeenCalledWith({ limit: 50, before: NOW });
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW });
       expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });
@@ -315,7 +315,7 @@ describe('FeedShell lazy loading', () => {
       render(<FeedShell feedResult={makeFeedResult([])} />);
 
       await waitFor(() => {
-        expect(refreshLatest).toHaveBeenCalledWith(50);
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
       });
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });
@@ -341,7 +341,7 @@ describe('FeedShell lazy loading', () => {
       ])} />);
 
       await waitFor(() => {
-        expect(refreshLatest).toHaveBeenCalledWith(50);
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
       });
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });
@@ -368,7 +368,7 @@ describe('FeedShell lazy loading', () => {
       ])} />);
 
       await waitFor(() => {
-        expect(refreshLatest).toHaveBeenCalledWith(50);
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
       });
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });

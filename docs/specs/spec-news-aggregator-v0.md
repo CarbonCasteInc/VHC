@@ -306,6 +306,9 @@ Public latest/hot index-entry storage contract:
   using an exclusive `before=<latest_activity_at>` cursor. Web PWA load-more
   must use this cursor/window path and merge the returned older rows into the
   existing feed state rather than relying only on a larger initial top-N window.
+  The initial public latest refresh should be bounded to the visible feed page
+  size; revealing rows from a larger in-memory first window is not sufficient
+  scroll/load-more evidence.
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
