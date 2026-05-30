@@ -213,6 +213,66 @@ describe('product feed reconciler', () => {
     );
   });
 
+  it('promotes singleton and corroborated raw stories in the default repair window', async () => {
+    const singleton = makeStory({ story_id: 'story-singleton', provenance_hash: 'prov-singleton' });
+    const corroborated = makeStory({
+      story_id: 'story-corroborated',
+      provenance_hash: 'prov-corroborated',
+      sources: [
+        ...singleton.sources,
+        {
+          source_id: 'src-2',
+          publisher: 'Publisher Two',
+          url: 'https://example.org/story',
+          url_hash: 'hash-story-2',
+          title: 'Raw story from another publisher',
+        },
+      ],
+      primary_sources: [
+        ...singleton.sources,
+        {
+          source_id: 'src-2',
+          publisher: 'Publisher Two',
+          url: 'https://example.org/story',
+          url_hash: 'hash-story-2',
+          title: 'Raw story from another publisher',
+        },
+      ],
+    });
+    const stories = new Map([
+      [singleton.story_id, singleton],
+      [corroborated.story_id, corroborated],
+    ]);
+    const dependencies = makeDependencies(singleton);
+    dependencies.readStoryIds.mockResolvedValue([singleton.story_id, corroborated.story_id]);
+    dependencies.readStory.mockImplementation(async (_client: VennClient, storyId: string) =>
+      stories.get(storyId) ?? null,
+    );
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(dependencies.readStoryIds).toHaveBeenCalledWith({ id: 'client' }, { limit: 1000 });
+    expect(result).toMatchObject({
+      sampled: 2,
+      eligible: 2,
+      singleton_eligible: 1,
+      multi_source_eligible: 1,
+      repaired_latest_index: 2,
+      repaired_hot_index: 2,
+      repaired_lifecycle: 2,
+    });
+    expect(dependencies.writeLatestIndexEntry).toHaveBeenCalledWith(
+      { id: 'client' },
+      corroborated.story_id,
+      corroborated.cluster_window_end,
+      corroborated,
+    );
+  });
+
   it('resets lifecycle to pending when raw story provenance advances', async () => {
     const story = makeStory({ provenance_hash: 'prov-new' });
     const lifecycle = makeLifecycle(story, {
