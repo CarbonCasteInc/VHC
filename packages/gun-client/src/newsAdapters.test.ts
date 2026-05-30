@@ -36,8 +36,10 @@ import {
   parseRemovalEntry,
   readLatestStoryIds,
   readNewsHotIndex,
+  readNewsHotIndexProductRecord,
   readNewsIngestionLease,
   readNewsLatestIndex,
+  readNewsLatestIndexProductRecord,
   readNewsLatestIndexViaRelayRest,
   readNewsLatestIndexWithRelayRestFallback,
   readNewsRemoval,
@@ -1123,6 +1125,16 @@ describe('newsAdapters', () => {
       story_created_at: STORY.created_at,
       cluster_window_start: STORY.cluster_window_start,
     });
+    mesh.setRead(`news/index/latest/${STORY.story_id}`, productRecord);
+    await expect(
+      readNewsLatestIndexProductRecord(signingClient, STORY.story_id),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+    });
 
     await writeNewsHotIndexEntry(signingClient, STORY.story_id, 0.625, STORY);
     const hotProductRecord = expectSystemHotIndexRecord(
@@ -1143,6 +1155,16 @@ describe('newsAdapters', () => {
       canonical_source_count: STORY.sources.length,
       story_created_at: STORY.created_at,
       cluster_window_start: STORY.cluster_window_start,
+    });
+    mesh.setRead(`news/index/hot/${STORY.story_id}`, hotProductRecord);
+    await expect(
+      readNewsHotIndexProductRecord(signingClient, STORY.story_id),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      hotness: 0.625,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
     });
     await expect(parseNewsHotIndexProductRecord(signingClient, 'other-story', hotProductRecord)).resolves.toBeNull();
   });

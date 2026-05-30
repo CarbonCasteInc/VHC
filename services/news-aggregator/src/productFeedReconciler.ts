@@ -2,14 +2,14 @@ import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
 import {
   buildNewsSynthesisLifecycleRecord,
   computeStoryHotness,
-  readNewsLatestIndex,
+  readNewsLatestIndexProductRecord,
   readNewsStory,
   readNewsStoryIds,
   readNewsSynthesisLifecycleStatus,
   writeNewsHotIndexEntry,
   writeNewsLatestIndexEntry,
   writeNewsSynthesisLifecycleStatus,
-  type NewsLatestIndex,
+  type NewsLatestIndexEntryRecord,
   type NewsSynthesisLifecycleRecord,
   type VennClient,
 } from '@vh/gun-client';
@@ -37,7 +37,7 @@ export interface ProductFeedReconciliationResult {
 
 export interface ProductFeedReconcilerDependencies {
   readonly readStoryIds?: typeof readNewsStoryIds;
-  readonly readLatestIndex?: typeof readNewsLatestIndex;
+  readonly readLatestIndexEntry?: typeof readNewsLatestIndexProductRecord;
   readonly readStory?: typeof readNewsStory;
   readonly readLifecycle?: typeof readNewsSynthesisLifecycleStatus;
   readonly writeLatestIndexEntry?: typeof writeNewsLatestIndexEntry;
@@ -71,9 +71,24 @@ function isEligibleRawStory(story: StoryBundle | null): story is StoryBundle {
   );
 }
 
-function latestIndexNeedsRepair(index: NewsLatestIndex, story: StoryBundle): boolean {
-  const expected = Math.max(0, Math.floor(story.cluster_window_end));
-  return index[story.story_id] !== expected;
+function canonicalSourceCount(story: StoryBundle): number {
+  return (story.primary_sources ?? story.sources).length;
+}
+
+function latestIndexNeedsRepair(record: NewsLatestIndexEntryRecord | null, story: StoryBundle): boolean {
+  const expectedLatestActivityAt = Math.max(0, Math.floor(story.cluster_window_end));
+  const expectedCreatedAt = Math.max(0, Math.floor(story.created_at));
+  const expectedClusterWindowStart = Math.max(0, Math.floor(story.cluster_window_start));
+  return !record
+    || record.story_id !== story.story_id
+    || record.latest_activity_at !== expectedLatestActivityAt
+    || record.product_state_schema_version !== 'vh-news-product-feed-index-v1'
+    || record.topic_id !== story.topic_id
+    || record.source_set_revision !== story.provenance_hash
+    || record.source_count !== story.sources.length
+    || record.canonical_source_count !== canonicalSourceCount(story)
+    || record.story_created_at !== expectedCreatedAt
+    || record.cluster_window_start !== expectedClusterWindowStart;
 }
 
 function lifecycleNeedsPendingRepair(
@@ -89,7 +104,7 @@ export async function reconcileProductFeedFromRawStories(
 ): Promise<ProductFeedReconciliationResult> {
   const dependencies = options.dependencies ?? {};
   const readStoryIds = dependencies.readStoryIds ?? readNewsStoryIds;
-  const readLatestIndex = dependencies.readLatestIndex ?? readNewsLatestIndex;
+  const readLatestIndexEntry = dependencies.readLatestIndexEntry ?? readNewsLatestIndexProductRecord;
   const readStory = dependencies.readStory ?? readNewsStory;
   const readLifecycle = dependencies.readLifecycle ?? readNewsSynthesisLifecycleStatus;
   const writeLatestIndex = dependencies.writeLatestIndexEntry ?? writeNewsLatestIndexEntry;
@@ -100,10 +115,7 @@ export async function reconcileProductFeedFromRawStories(
   const logger = options.logger ?? console;
   const sampleLimit = normalizeSampleLimit(options.sampleLimit);
 
-  const [storyIds, latestIndex] = await Promise.all([
-    readStoryIds(client, { limit: sampleLimit }),
-    readLatestIndex(client).catch(() => ({})),
-  ]);
+  const storyIds = await readStoryIds(client, { limit: sampleLimit });
 
   let eligible = 0;
   let skippedInvalidStory = 0;
@@ -122,7 +134,8 @@ export async function reconcileProductFeedFromRawStories(
       }
       eligible += 1;
 
-      if (latestIndexNeedsRepair(latestIndex, story)) {
+      const latestIndexRecord = await readLatestIndexEntry(client, story.story_id).catch(() => null);
+      if (latestIndexNeedsRepair(latestIndexRecord, story)) {
         await writeLatestIndex(client, story.story_id, story.cluster_window_end, story);
         repairedLatestIndex += 1;
       }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
 import type {
+  NewsLatestIndexEntryRecord,
   NewsSynthesisLifecycleRecord,
   VennClient,
 } from '@vh/gun-client';
@@ -55,10 +56,28 @@ function makeLifecycle(
   };
 }
 
+function makeLatestIndexRecord(
+  story: StoryBundle,
+  overrides: Partial<NewsLatestIndexEntryRecord> = {},
+): NewsLatestIndexEntryRecord {
+  return {
+    story_id: story.story_id,
+    latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
+    product_state_schema_version: 'vh-news-product-feed-index-v1',
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: story.sources.length,
+    canonical_source_count: (story.primary_sources ?? story.sources).length,
+    story_created_at: Math.max(0, Math.floor(story.created_at)),
+    cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
+    ...overrides,
+  };
+}
+
 function makeDependencies(story: StoryBundle, lifecycle: NewsSynthesisLifecycleRecord | null = null) {
   return {
     readStoryIds: vi.fn(async () => [story.story_id]),
-    readLatestIndex: vi.fn(async () => ({})),
+    readLatestIndexEntry: vi.fn(async () => null as NewsLatestIndexEntryRecord | null),
     readStory: vi.fn(async () => story),
     readLifecycle: vi.fn(async () => lifecycle),
     writeLatestIndexEntry: vi.fn(async () => undefined),
@@ -109,7 +128,7 @@ describe('product feed reconciler', () => {
     const story = makeStory();
     const lifecycle = makeLifecycle(story);
     const dependencies = makeDependencies(story, lifecycle);
-    dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
+    dependencies.readLatestIndexEntry.mockResolvedValue(makeLatestIndexRecord(story));
 
     const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
       dependencies,
@@ -129,6 +148,35 @@ describe('product feed reconciler', () => {
     expect(dependencies.writeLifecycle).not.toHaveBeenCalled();
   });
 
+  it('repairs latest index rows when activity matches but product metadata is missing', async () => {
+    const story = makeStory();
+    const lifecycle = makeLifecycle(story);
+    const dependencies = makeDependencies(story, lifecycle);
+    dependencies.readLatestIndexEntry.mockResolvedValue({
+      story_id: story.story_id,
+      latest_activity_at: story.cluster_window_end,
+    });
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toMatchObject({
+      eligible: 1,
+      repaired_latest_index: 1,
+      repaired_lifecycle: 0,
+      preserved_lifecycle: 1,
+    });
+    expect(dependencies.writeLatestIndexEntry).toHaveBeenCalledWith(
+      { id: 'client' },
+      story.story_id,
+      story.cluster_window_end,
+      story,
+    );
+  });
+
   it('resets lifecycle to pending when raw story provenance advances', async () => {
     const story = makeStory({ provenance_hash: 'prov-new' });
     const lifecycle = makeLifecycle(story, {
@@ -136,7 +184,7 @@ describe('product feed reconciler', () => {
       status: 'accepted_available',
     });
     const dependencies = makeDependencies(story, lifecycle);
-    dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
+    dependencies.readLatestIndexEntry.mockResolvedValue(makeLatestIndexRecord(story));
 
     const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
       dependencies,
