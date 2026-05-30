@@ -590,6 +590,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           strict: peerTopology.strict,
           quorumRequired: peerTopology.quorumRequired,
         });
+        const profile = loadProfile();
+        set({
+          client,
+          profile,
+          identityStatus: profile ? 'ready' : 'idle',
+          sessionReady: Boolean(profile),
+        });
+
+        const runtimeBootstrapPromise = bootstrapRuntimeFeatures(client, 'default');
         await Promise.race([
           client.hydrationBarrier.prepare(),
           new Promise<void>((_, reject) =>
@@ -599,7 +608,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
           client.hydrationBarrier.markReady();
         });
-        const profile = loadProfile();
         // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
         await migrateLegacyLocalStorage();
         const loadedIdentity = await loadIdentityRecord();
@@ -622,7 +630,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sessionReady: Boolean(profile)
         });
 
-        await bootstrapRuntimeFeatures(client, 'default');
+        await runtimeBootstrapPromise;
       } catch (err) {
         exposePeerTopologyProof({
           status: 'failed',
