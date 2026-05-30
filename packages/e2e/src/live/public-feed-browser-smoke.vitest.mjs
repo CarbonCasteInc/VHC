@@ -201,6 +201,26 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.isAcceptedSynthesisText('Accepted summary without controls.', 0)).toBe(false);
   });
 
+  it('classifies public peer CSP connect-src violations as critical browser diagnostics', () => {
+    expect(internal.summarizeBrowserLogDiagnostics([
+      {
+        type: 'error',
+        text: 'Refused to connect to https://gun-a.carboncaste.io/healthz because it violates the Content Security Policy directive: connect-src self',
+      },
+      {
+        type: 'error',
+        text: 'A non-critical console error',
+      },
+    ])).toMatchObject({
+      browserErrorCount: 2,
+      cspViolationCount: 1,
+      criticalCspViolationCount: 1,
+      criticalCspViolations: [
+        expect.stringContaining('https://gun-a.carboncaste.io/healthz'),
+      ],
+    });
+  });
+
   it('keeps reload and second-browser synthesis waits on the page-scoped signature', async () => {
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
 
@@ -231,6 +251,22 @@ describe('public feed browser smoke helpers', () => {
             records: {
               'story-singleton': { story_id: 'story-singleton', latest_activity_at: 20 },
               'story-bundled': { story_id: 'story-bundled', latest_activity_at: 10 },
+            },
+            composition: {
+              total_visible: 2,
+              singleton_visible: 1,
+              multi_source_visible: 1,
+              freshness_age_ms: 1_000,
+            },
+            story_states: {
+              'story-singleton': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
+              'story-bundled': {
+                synthesis_state: 'accepted_synthesis_available',
+                frame_table_state: 'frame_table_ready',
+              },
             },
           }),
         };
@@ -295,6 +331,11 @@ describe('public feed browser smoke helpers', () => {
         acceptedSynthesisStoryCount: 1,
         storyBodyStatusCounts: { 200: 2 },
         synthesisStatusCounts: { 200: 2 },
+        relayCapability: {
+          composition_present: true,
+          story_states_present: true,
+          story_state_count: 2,
+        },
         singletonReadableCount: 1,
         multiSourceReadableCount: 1,
         mediaClassCounts: { text: 2 },
@@ -330,6 +371,22 @@ describe('public feed browser smoke helpers', () => {
             records: {
               'story-missing-body': { _: { '#': 'vh/news/index/latest/story-missing-body' } },
               'story-readable': { latest_activity_at: 20 },
+            },
+            composition: {
+              total_visible: 2,
+              singleton_visible: 2,
+              multi_source_visible: 0,
+              freshness_age_ms: 1_000,
+            },
+            story_states: {
+              'story-missing-body': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
+              'story-readable': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
             },
           }),
         };
@@ -394,6 +451,11 @@ describe('public feed browser smoke helpers', () => {
 
   it('fails coverage when readable text latest-index stories lack accepted synthesis or a terminal reason', () => {
     expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 5,
+      },
       storyBodyStatusCounts: { 200: 5 },
       missingAcceptedSynthesisStoryCount: 2,
       missingAcceptedSynthesisStories: [
@@ -412,6 +474,11 @@ describe('public feed browser smoke helpers', () => {
 
   it('fails coverage when the public relay feed is singleton-only', () => {
     expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 3,
+      },
       storyBodyStatusCounts: { 200: 3 },
       missingAcceptedSynthesisStoryCount: 0,
       singletonReadableCount: 3,
@@ -430,6 +497,40 @@ describe('public feed browser smoke helpers', () => {
     })).toThrow('public-relay-feed-composition-missing-multi-source');
   });
 
+  it('fails coverage when the public relay latest-index omits composition or story states', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: false,
+        story_states_present: true,
+        story_state_count: 3,
+      },
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-latest-index-missing-composition');
+
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: false,
+        story_state_count: 0,
+      },
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-latest-index-missing-story-states');
+  });
+
   it('captures relay coverage failures without throwing before browser boot evidence is collected', async () => {
     const coverage = internal.capturePublicRelayAnalysisFrameCoverage({
       storyBodyStatusCounts: { 200: 2 },
@@ -445,7 +546,7 @@ describe('public feed browser smoke helpers', () => {
 
     expect(coverage).toMatchObject({
       status: 'fail',
-      errorMessage: 'public-relay-feed-composition-missing-multi-source',
+      errorMessage: 'public-relay-latest-index-missing-composition',
     });
 
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
