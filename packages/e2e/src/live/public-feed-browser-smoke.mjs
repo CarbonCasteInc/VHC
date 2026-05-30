@@ -703,6 +703,7 @@ async function readPublicRelaySynthesisCandidates({
   const storyStates = index?.story_states && typeof index.story_states === 'object'
     ? index.story_states
     : {};
+  const relayStoryStatesPresent = Boolean(index?.story_states && typeof index.story_states === 'object');
   const relayComposition = index?.composition && typeof index.composition === 'object'
     ? index.composition
     : null;
@@ -833,6 +834,11 @@ async function readPublicRelaySynthesisCandidates({
     storyBodyStatusCounts,
     synthesisStatusCounts,
     publicStateCounts,
+    relayCapability: {
+      composition_present: Boolean(relayComposition),
+      story_states_present: relayStoryStatesPresent,
+      story_state_count: Object.keys(storyStates).length,
+    },
     relayComposition,
     mediaClassCounts,
     sourceFilterStatusCounts,
@@ -856,6 +862,17 @@ async function readPublicRelaySynthesisCandidates({
 }
 
 function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env = process.env) {
+  const requireRelayStateSurface = String(env.VH_PUBLIC_FEED_REQUIRE_RELAY_STATE_SURFACE ?? 'true').trim().toLowerCase() !== 'false';
+  if (requireRelayStateSurface) {
+    const capability = publicRelaySynthesisReadback.relayCapability ?? {};
+    if (!capability.composition_present) {
+      throw new Error('public-relay-latest-index-missing-composition');
+    }
+    if (!capability.story_states_present) {
+      throw new Error('public-relay-latest-index-missing-story-states');
+    }
+  }
+
   const requireMixedComposition = String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false';
   const singletonReadableCount = Number(publicRelaySynthesisReadback.singletonReadableCount ?? 0);
   const multiSourceReadableCount = Number(publicRelaySynthesisReadback.multiSourceReadableCount ?? 0);
@@ -1067,6 +1084,25 @@ async function summarizeFeedState(page) {
         : null,
     };
   });
+}
+
+function summarizeBrowserLogDiagnostics(logs) {
+  const browserErrors = logs
+    .filter((entry) => ['error', 'pageerror'].includes(String(entry?.type ?? '').toLowerCase()))
+    .map((entry) => String(entry?.text ?? '').trim())
+    .filter(Boolean);
+  const cspViolations = browserErrors.filter((text) =>
+    /content security policy|connect-src|refused to connect/i.test(text),
+  );
+  const criticalCspViolations = cspViolations.filter((text) =>
+    /healthz|\/gun\b|\/vh\/news\/|\/vh\/topics\/synthesis|\/vh\/aggregates\//i.test(text),
+  );
+  return {
+    browserErrorCount: browserErrors.length,
+    cspViolationCount: cspViolations.length,
+    criticalCspViolationCount: criticalCspViolations.length,
+    criticalCspViolations: criticalCspViolations.slice(0, 12),
+  };
 }
 
 function readbackStoryToVisibleCard(row) {
@@ -1999,6 +2035,7 @@ async function runPublicFeedBrowserSmoke({
       storyBodyStatusCounts: publicRelaySynthesisReadback.storyBodyStatusCounts,
       synthesisStatusCounts: publicRelaySynthesisReadback.synthesisStatusCounts,
       publicStateCounts: publicRelaySynthesisReadback.publicStateCounts,
+      relayCapability: publicRelaySynthesisReadback.relayCapability,
       relayComposition: publicRelaySynthesisReadback.relayComposition,
       singletonReadableCount: publicRelaySynthesisReadback.singletonReadableCount,
       multiSourceReadableCount: publicRelaySynthesisReadback.multiSourceReadableCount,
@@ -2203,10 +2240,12 @@ async function runPublicFeedBrowserSmoke({
       progress('story-comment-workflow-skipped', { reason: comment.reason });
     }
 
+    const browserLogDiagnostics = summarizeBrowserLogDiagnostics(logs);
     summary = {
       ...summary,
       generatedAt: new Date().toISOString(),
       status: 'pass',
+      browserLogDiagnostics,
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
@@ -2244,6 +2283,9 @@ async function runPublicFeedBrowserSmoke({
         secondBrowserVisibility: secondBrowser,
       },
     };
+    if (browserLogDiagnostics.criticalCspViolationCount > 0) {
+      throw new Error(`public-feed-browser-csp-violations:${browserLogDiagnostics.criticalCspViolationCount}`);
+    }
     if (publicRelayAnalysisFrameCoverage.status !== 'pass') {
       throw new Error(publicRelayAnalysisFrameCoverage.errorMessage || 'public-relay-analysis-frame-coverage-failed');
     }
@@ -2252,6 +2294,7 @@ async function runPublicFeedBrowserSmoke({
       ...summary,
       generatedAt: new Date().toISOString(),
       status: 'fail',
+      browserLogDiagnostics: summarizeBrowserLogDiagnostics(logs),
       errorMessage: error instanceof Error ? error.message : String(error),
       errorStack: formatError(error),
     };
@@ -2308,6 +2351,7 @@ export const publicFeedBrowserSmokeInternal = {
   fetchDeployedSystemWriterPin,
   refreshLatest,
   findVisibleStoryRow,
+  summarizeBrowserLogDiagnostics,
   waitForInitialOpenHeadlines,
   gotoFeedInitialOpen,
   resolveArtifactDir,

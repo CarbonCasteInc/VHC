@@ -11,9 +11,13 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('BLOCKED_SETUP_SCARCITY: not enough vote-capable topics')).toBe('setup_scarcity');
     expect(classifyGateFailure('publisher-canary-feed_stage_outage')).toBe('setup_scarcity');
     expect(classifyGateFailure('public-relay-feed-composition-missing-multi-source')).toBe('setup_scarcity');
+    expect(classifyGateFailure('fail:public-relay-feed-composition-missing-multi-source')).toBe('fail');
+    expect(classifyGateFailure('public-relay-latest-index-missing-composition')).toBe('fail');
+    expect(classifyGateFailure('public-relay-latest-index-missing-story-states')).toBe('fail');
     expect(classifyGateFailure('fail:eligible_raw_story_hidden_without_allowed_reason,public_feed_composition_missing_multi_source')).toBe('fail');
     expect(classifyGateFailure('public-feed-initial-open-headlines-timeout public-relay-feed-composition-missing-multi-source')).toBe('fail');
     expect(classifyGateFailure('public-feed-load-more-not-from-mesh public-relay-feed-composition-missing-multi-source')).toBe('fail');
+    expect(classifyGateFailure('public-feed-browser-csp-violations:3')).toBe('fail');
     expect(classifyGateFailure('expected story detail to render accepted synthesis')).toBe('fail');
   });
 

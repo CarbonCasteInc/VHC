@@ -292,7 +292,11 @@ export function classifyGateFailure(output) {
     text.includes('multi_source_raw_story_hidden_by_synthesis_state') ||
     text.includes('public-feed-initial-open-headlines-timeout') ||
     text.includes('public-feed-load-more-not-from-mesh') ||
+    text.includes('public-feed-browser-csp-violations') ||
     text.includes('scroll-feed-lost-headlines') ||
+    text.includes('public-relay-latest-index-missing-composition') ||
+    text.includes('public-relay-latest-index-missing-story-states') ||
+    text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
     text.includes('source-labels-missing') ||
     text.includes('timestamps-missing')
   ) {
