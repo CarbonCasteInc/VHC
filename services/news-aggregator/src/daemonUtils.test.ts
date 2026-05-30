@@ -433,6 +433,8 @@ describe('daemonUtils', () => {
     expect(parseFeedSources(undefined).length).toBeGreaterThan(0);
     expect(parseFeedSources('oops').length).toBeGreaterThan(0);
     expect(parseFeedSources('{}').length).toBeGreaterThan(0);
+    expect(parseFeedSources('[]').length).toBeGreaterThan(0);
+    expect(parseFeedSources(JSON.stringify([{ id: '', rssUrl: 'not-a-url', enabled: true }])).length).toBeGreaterThan(0);
 
     const parsedFeeds = parseFeedSources(
       JSON.stringify([
