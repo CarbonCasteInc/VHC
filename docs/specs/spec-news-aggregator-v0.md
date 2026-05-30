@@ -376,6 +376,11 @@ Public lifecycle storage contract:
   remains stable, `source_set_revision` advances, and synthesis lifecycle
   returns to `pending`/`in_progress` until the revised source set reaches an
   accepted or terminal state.
+- Republishing the same story/source-set revision MUST preserve the existing
+  lifecycle record. Routine daemon refreshes MUST NOT downgrade
+  `accepted_available`, `terminal_unavailable`, `suppressed`,
+  `retryable_failure`, or `in_progress` back to `pending` unless
+  `source_set_revision` has changed.
 - `accepted_available` means accepted `TopicSynthesisV2` exists for the
   current story/source-set revision. `frame_table_ready` additionally requires a
   non-empty facts summary, non-empty frames, and persisted `frame_point_id` and

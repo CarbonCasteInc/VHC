@@ -10,6 +10,7 @@ import {
 } from '@vh/ai-engine';
 import {
   readNewsIngestionLease,
+  readNewsSynthesisLifecycleStatus,
   removeNewsBundle,
   removeNewsStoryline,
   buildNewsSynthesisLifecycleRecord,
@@ -170,14 +171,32 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
               ? StoryBundleSchema.parse(bundle)
               : null;
           if (parsedWritten) {
-            await writeLanes.run('news_synthesis_lifecycle', { story_id: parsedWritten.story_id, status: 'pending' }, async () =>
-              writeNewsSynthesisLifecycleStatus(runtimeClient as VennClient, buildNewsSynthesisLifecycleRecord({
-                story: parsedWritten,
-                status: 'pending',
-                frameTableState: 'frame_table_pending',
-                updatedAt: nowFn(),
-              })),
-            );
+            const existingLifecycle = await readNewsSynthesisLifecycleStatus(
+              runtimeClient as VennClient,
+              parsedWritten.story_id,
+            ).catch((error) => {
+              logger.warn('[vh:news-daemon] synthesis lifecycle read failed before pending transition', {
+                story_id: parsedWritten.story_id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            });
+            if (existingLifecycle?.source_set_revision === parsedWritten.provenance_hash) {
+              logger.info('[vh:news-daemon] preserving synthesis lifecycle for unchanged source set', {
+                story_id: parsedWritten.story_id,
+                source_set_revision: parsedWritten.provenance_hash,
+                status: existingLifecycle.status,
+              });
+            } else {
+              await writeLanes.run('news_synthesis_lifecycle', { story_id: parsedWritten.story_id, status: 'pending' }, async () =>
+                writeNewsSynthesisLifecycleStatus(runtimeClient as VennClient, buildNewsSynthesisLifecycleRecord({
+                  story: parsedWritten,
+                  status: 'pending',
+                  frameTableState: 'frame_table_pending',
+                  updatedAt: nowFn(),
+                })),
+              );
+            }
           }
           return written;
         });

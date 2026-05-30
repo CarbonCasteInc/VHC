@@ -231,6 +231,40 @@ function isAcceptedFrameReady(synthesis) {
   );
 }
 
+function hasAcceptedSynthesisPayload(synthesis) {
+  return Boolean(
+    synthesis?.facts_summary?.trim()
+      && Array.isArray(synthesis.frames)
+      && synthesis.frames.length > 0
+      && synthesis.frames.every((row) =>
+        String(row?.frame ?? '').trim()
+          && String(row?.reframe ?? '').trim()
+      ),
+  );
+}
+
+function synthesisInputsIncludeStory(synthesis, storyId) {
+  const normalizedStoryId = String(storyId ?? '').trim();
+  if (!normalizedStoryId) return false;
+  const storyBundleIds = Array.isArray(synthesis?.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  return storyBundleIds.some((candidate) => String(candidate ?? '').trim() === normalizedStoryId);
+}
+
+function isAcceptedSynthesisCurrentForStory({ story, lifecycle, synthesis }) {
+  if (!story?.story_id || !story?.provenance_hash) return false;
+  if (!hasAcceptedSynthesisPayload(synthesis)) return false;
+  if (!synthesisInputsIncludeStory(synthesis, story.story_id)) return false;
+  if (!lifecycle || lifecycle.status !== 'accepted_available') return false;
+  if (lifecycle.source_set_revision !== story.provenance_hash) return false;
+  if (typeof synthesis.synthesis_id !== 'string' || lifecycle.synthesis_id !== synthesis.synthesis_id) return false;
+  if (Number.isFinite(Number(synthesis.epoch)) && Number.isFinite(Number(lifecycle.epoch))) {
+    return Math.floor(Number(synthesis.epoch)) === Math.floor(Number(lifecycle.epoch));
+  }
+  return true;
+}
+
 function classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffMs }) {
   if (!story) return 'blocked';
   if (!isEligibleStory(story)) return 'rejected_source';
@@ -250,6 +284,7 @@ function classifyLifecycleAccountabilityStatus(failures) {
   const hasHardLifecycleFailure = codes.some((code) =>
     code === 'eligible_raw_story_hidden_without_allowed_reason'
       || code === 'multi_source_raw_story_hidden_by_synthesis_state'
+      || code === 'relay_accepted_synthesis_not_current'
   );
   if (hasHardLifecycleFailure) return 'fail';
   if (codes.every((code) =>
@@ -337,10 +372,13 @@ async function runPublicFeedLifecycleAccountability({
       const inRelay = Object.prototype.hasOwnProperty.call(relayLatest.records, storyId);
       const productVisible = inLatest || inHot || inRelay;
       const classification = classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffMs });
+      const acceptedSynthesisCurrent = isAcceptedSynthesisCurrentForStory({ story, lifecycle, synthesis });
+      const frameTableReady = acceptedSynthesisCurrent && isAcceptedFrameReady(synthesis);
       stories.push({
         story_id: storyId,
         topic_id: story?.topic_id ?? null,
         headline: story?.headline ?? null,
+        source_set_revision: story?.provenance_hash ?? null,
         source_count: story ? sourceCount(story) : 0,
         source_labels: story ? sourceLabels(story) : [],
         latest_activity_at: story?.cluster_window_end ?? story?.latest_activity_at ?? null,
@@ -349,10 +387,14 @@ async function runPublicFeedLifecycleAccountability({
         in_relay_latest_index: inRelay,
         product_visible: productVisible,
         lifecycle_status: lifecycle?.status ?? null,
+        lifecycle_source_set_revision: lifecycle?.source_set_revision ?? null,
         lifecycle_reason: lifecycle?.reason ?? null,
         frame_table_state: lifecycle?.frame_table_state ?? null,
-        accepted_synthesis_available: Boolean(synthesis?.facts_summary?.trim()),
-        frame_table_ready: isAcceptedFrameReady(synthesis),
+        accepted_synthesis_available: acceptedSynthesisCurrent,
+        topic_latest_synthesis_present: Boolean(synthesis?.facts_summary?.trim()),
+        topic_latest_synthesis_id: synthesis?.synthesis_id ?? null,
+        topic_latest_synthesis_epoch: Number.isFinite(Number(synthesis?.epoch)) ? Math.floor(Number(synthesis.epoch)) : null,
+        frame_table_ready: frameTableReady,
         relay_state: relayLatest.storyStates?.[storyId] ?? null,
         classification,
       });
@@ -398,6 +440,16 @@ async function runPublicFeedLifecycleAccountability({
       failures.push({
         code: 'multi_source_raw_story_hidden_by_synthesis_state',
         story_ids: hiddenMultiSourcePending.map((story) => story.story_id),
+      });
+    }
+    const relayAcceptedNotCurrent = stories.filter(
+      (story) => story.relay_state?.synthesis_state === 'accepted_synthesis_available'
+        && !story.accepted_synthesis_available,
+    );
+    if (relayAcceptedNotCurrent.length > 0) {
+      failures.push({
+        code: 'relay_accepted_synthesis_not_current',
+        story_ids: relayAcceptedNotCurrent.map((story) => story.story_id),
       });
     }
     if (counts.singleton_visible <= 0) {
@@ -452,6 +504,7 @@ export {
   readRelayLatest,
   sourceCount,
   isAcceptedFrameReady,
+  isAcceptedSynthesisCurrentForStory,
   classifyLifecycleAccountabilityStatus,
 };
 
