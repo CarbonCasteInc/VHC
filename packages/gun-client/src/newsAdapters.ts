@@ -1193,15 +1193,19 @@ async function readNewsLatestIndexEntry(
   return parseLatestIndexEntry(client, storyId, raw);
 }
 
-async function readNewsLatestIndexEntryRecord(
+export async function readNewsLatestIndexProductRecord(
   client: VennClient,
   storyId: string,
 ): Promise<NewsLatestIndexEntryRecord | null> {
-  const raw = await readOnce(getNewsLatestIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  const raw = await readOnce(getNewsLatestIndexChain(client).get(normalizedId) as unknown as ChainWithGet<unknown>);
   if (raw === null) {
     return null;
   }
-  return parseLatestIndexEntryRecordFromStoredRecord(client, storyId, raw);
+  return parseLatestIndexEntryRecordFromStoredRecord(client, normalizedId, raw);
 }
 
 async function readNewsHotIndexEntry(
@@ -1215,15 +1219,19 @@ async function readNewsHotIndexEntry(
   return parseHotIndexEntry(client, storyId, raw);
 }
 
-async function readNewsHotIndexEntryRecord(
+export async function readNewsHotIndexProductRecord(
   client: VennClient,
   storyId: string,
 ): Promise<NewsHotIndexEntryRecord | null> {
-  const raw = await readOnce(getNewsHotIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  const raw = await readOnce(getNewsHotIndexChain(client).get(normalizedId) as unknown as ChainWithGet<unknown>);
   if (raw === null) {
     return null;
   }
-  return parseHotIndexEntryRecordFromStoredRecord(client, storyId, raw);
+  return parseHotIndexEntryRecordFromStoredRecord(client, normalizedId, raw);
 }
 
 function sanitizeStoryBundle(data: unknown): StoryBundle {
@@ -1912,7 +1920,7 @@ export async function writeNewsLatestIndexEntry(
     writeClass: 'news-latest-index',
     timeoutError: 'news latest-index write timed out and readback did not confirm persistence',
     readback: () => expectedMetadata
-      ? readNewsLatestIndexEntryRecord(client, normalizedId)
+      ? readNewsLatestIndexProductRecord(client, normalizedId)
       : readNewsLatestIndexEntry(client, normalizedId),
     readbackPredicate: (observed) => {
       if (!expectedMetadata) {
@@ -1978,7 +1986,7 @@ export async function writeNewsHotIndexEntry(
     writeClass: 'news-hot-index',
     timeoutError: 'news hot-index write timed out and readback did not confirm persistence',
     readback: () => expectedMetadata
-      ? readNewsHotIndexEntryRecord(client, normalizedId)
+      ? readNewsHotIndexProductRecord(client, normalizedId)
       : readNewsHotIndexEntry(client, normalizedId),
     readbackPredicate: (observed) => {
       if (!expectedMetadata) {

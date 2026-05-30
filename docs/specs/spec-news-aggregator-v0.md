@@ -218,9 +218,13 @@ Public story-node storage contract:
   synthesis lifecycle and frame-table state rather than silently filtering rows.
 - The daemon MUST reconcile durable raw stories back into product feed indexes
   after acquiring the ingestion lease. If an eligible `vh/news/stories/<storyId>`
-  body exists but latest index rows are missing/stale or hot index rows are
-  missing/legacy metadata-only-insufficient, the daemon rewrites those product
-  rows with system-writer readback. Missing lifecycle records are initialized to
+  body exists but latest index rows are missing, stale, or missing required
+  product metadata, the daemon rewrites those product rows with system-writer
+  readback. Timestamp-only latest-index agreement is not sufficient
+  reconciliation evidence because public relay/app gates need the durable
+  source counts, source-set revision, creation time, and cluster window. Hot
+  index rows are likewise rewritten when they are missing, legacy, or
+  metadata-insufficient. Missing lifecycle records are initialized to
   `pending`; lifecycle records for an unchanged `source_set_revision` are
   preserved.
 
