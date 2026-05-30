@@ -193,10 +193,11 @@ Public story-node storage contract:
   synthesis lifecycle and frame-table state rather than silently filtering rows.
 - The daemon MUST reconcile durable raw stories back into product feed indexes
   after acquiring the ingestion lease. If an eligible `vh/news/stories/<storyId>`
-  body exists but latest/hot index rows are missing or stale, the daemon rewrites
-  those product rows with system-writer readback. Missing lifecycle records are
-  initialized to `pending`; lifecycle records for an unchanged
-  `source_set_revision` are preserved.
+  body exists but latest index rows are missing/stale or hot index rows are
+  missing/legacy metadata-only-insufficient, the daemon rewrites those product
+  rows with system-writer readback. Missing lifecycle records are initialized to
+  `pending`; lifecycle records for an unchanged `source_set_revision` are
+  preserved.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
@@ -314,7 +315,11 @@ Public latest/hot index-entry storage contract:
 - New writes to `vh/news/index/hot/<storyId>` MUST store an object carrying
   `story_id`, `hotness`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
-  `_systemSignature`.
+  `_systemSignature`. When the writer has the `StoryBundle`, hot index writes
+  MUST include the same product feed metadata as latest index writes and
+  readback-confirm those metadata fields. Scalar hotness readback remains
+  transitional-reader compatible but is not sufficient proof for new
+  story-backed product hot rows.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
   JCS-canonical(node minus `_systemSignature`) and MUST validate through the
   shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.

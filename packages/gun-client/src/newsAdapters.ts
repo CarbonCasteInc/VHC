@@ -187,7 +187,27 @@ export type NewsLatestIndexEntryRecord = Pick<
 export interface SystemWriterHotIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
   readonly story_id: string;
   readonly hotness: number;
+  readonly product_state_schema_version?: 'vh-news-product-feed-index-v1';
+  readonly topic_id?: string;
+  readonly source_set_revision?: string;
+  readonly source_count?: number;
+  readonly canonical_source_count?: number;
+  readonly story_created_at?: number;
+  readonly cluster_window_start?: number;
 }
+
+export type NewsHotIndexEntryRecord = Pick<
+  SystemWriterHotIndexRecord,
+  | 'story_id'
+  | 'hotness'
+  | 'product_state_schema_version'
+  | 'topic_id'
+  | 'source_set_revision'
+  | 'source_count'
+  | 'canonical_source_count'
+  | 'story_created_at'
+  | 'cluster_window_start'
+>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -695,13 +715,18 @@ async function buildSystemWriterHotIndexRecord(
   client: VennClient,
   storyId: string,
   hotness: number,
+  story?: StoryBundle,
 ): Promise<SystemWriterHotIndexRecord> {
+  const metadata = story && story.story_id === storyId
+    ? latestIndexProductMetadataForStory(story)
+    : {};
   return signSystemWriterRecord(
     client,
     hotIndexEntryPath(storyId),
     {
       story_id: storyId,
       hotness,
+      ...metadata,
     },
     'system writer signer is required for news hot-index writes',
   ) as Promise<SystemWriterHotIndexRecord>;
@@ -944,41 +969,37 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
   return parseNewsSynthesisLifecyclePayload(payload, storyId);
 }
 
-async function parseNewsIndexEntryFromStoredRecord(
-  client: VennClient,
-  path: string,
-  storyId: string,
-  data: unknown,
-  parseEntry: (value: unknown) => number | null,
-): Promise<number | null> {
-  const payload = stripGunMetadata(data);
-  if (isSystemWriterMarkedRecord(payload)) {
-    const validation = await validateSystemWriterRecord({
-      path,
-      record: payload,
-      pin: client.config.systemWriterPin,
-      verify: client.config.systemWriterVerify,
-    });
-    if (!validation.valid) {
-      emitSystemWriterValidationFailure(validation);
-      return null;
-    }
-    if (payload.story_id !== storyId) {
-      return null;
-    }
-    return parseEntry(payload);
-  }
-
-  if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
-    return null;
-  }
-
-  return parseEntry(payload);
-}
-
 function normalizeOptionalIndexInt(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined;
+}
+
+function parseProductIndexMetadata(payload: Record<string, unknown>): Omit<
+  NewsLatestIndexEntryRecord,
+  'story_id' | 'latest_activity_at'
+> {
+  const topicId = typeof payload.topic_id === 'string' && payload.topic_id.trim()
+    ? payload.topic_id.trim()
+    : undefined;
+  const sourceSetRevision = typeof payload.source_set_revision === 'string' && payload.source_set_revision.trim()
+    ? payload.source_set_revision.trim()
+    : undefined;
+  const sourceCount = normalizeOptionalIndexInt(payload.source_count);
+  const canonicalSourceCount = normalizeOptionalIndexInt(payload.canonical_source_count);
+  const storyCreatedAt = normalizeOptionalIndexInt(payload.story_created_at);
+  const clusterWindowStart = normalizeOptionalIndexInt(payload.cluster_window_start);
+
+  return {
+    ...(payload.product_state_schema_version === 'vh-news-product-feed-index-v1'
+      ? { product_state_schema_version: 'vh-news-product-feed-index-v1' as const }
+      : {}),
+    ...(topicId ? { topic_id: topicId } : {}),
+    ...(sourceSetRevision ? { source_set_revision: sourceSetRevision } : {}),
+    ...(sourceCount !== undefined ? { source_count: sourceCount } : {}),
+    ...(canonicalSourceCount !== undefined ? { canonical_source_count: canonicalSourceCount } : {}),
+    ...(storyCreatedAt !== undefined ? { story_created_at: storyCreatedAt } : {}),
+    ...(clusterWindowStart !== undefined ? { cluster_window_start: clusterWindowStart } : {}),
+  };
 }
 
 function parseLatestIndexEntryPayload(
@@ -1002,29 +1023,38 @@ function parseLatestIndexEntryPayload(
     return null;
   }
 
-  const topicId = typeof payload.topic_id === 'string' && payload.topic_id.trim()
-    ? payload.topic_id.trim()
-    : undefined;
-  const sourceSetRevision = typeof payload.source_set_revision === 'string' && payload.source_set_revision.trim()
-    ? payload.source_set_revision.trim()
-    : undefined;
-  const sourceCount = normalizeOptionalIndexInt(payload.source_count);
-  const canonicalSourceCount = normalizeOptionalIndexInt(payload.canonical_source_count);
-  const storyCreatedAt = normalizeOptionalIndexInt(payload.story_created_at);
-  const clusterWindowStart = normalizeOptionalIndexInt(payload.cluster_window_start);
-
   return {
     story_id: payloadStoryId || storyId,
     latest_activity_at: latestActivityAt,
-    ...(payload.product_state_schema_version === 'vh-news-product-feed-index-v1'
-      ? { product_state_schema_version: 'vh-news-product-feed-index-v1' as const }
-      : {}),
-    ...(topicId ? { topic_id: topicId } : {}),
-    ...(sourceSetRevision ? { source_set_revision: sourceSetRevision } : {}),
-    ...(sourceCount !== undefined ? { source_count: sourceCount } : {}),
-    ...(canonicalSourceCount !== undefined ? { canonical_source_count: canonicalSourceCount } : {}),
-    ...(storyCreatedAt !== undefined ? { story_created_at: storyCreatedAt } : {}),
-    ...(clusterWindowStart !== undefined ? { cluster_window_start: clusterWindowStart } : {}),
+    ...parseProductIndexMetadata(payload),
+  };
+}
+
+function parseHotIndexEntryPayload(
+  payload: unknown,
+  storyId: string,
+): NewsHotIndexEntryRecord | null {
+  const hotness = parseHotnessScore(payload);
+  if (hotness === null) {
+    return null;
+  }
+
+  if (!isRecord(payload)) {
+    return {
+      story_id: storyId,
+      hotness,
+    };
+  }
+
+  const payloadStoryId = typeof payload.story_id === 'string' ? payload.story_id.trim() : '';
+  if (payloadStoryId && payloadStoryId !== storyId) {
+    return null;
+  }
+
+  return {
+    story_id: payloadStoryId || storyId,
+    hotness,
+    ...parseProductIndexMetadata(payload),
   };
 }
 
@@ -1095,13 +1125,37 @@ async function parseHotIndexEntry(
   storyId: string,
   value: unknown,
 ): Promise<number | null> {
-  return parseNewsIndexEntryFromStoredRecord(
-    client,
-    hotIndexEntryPath(storyId),
-    storyId,
-    value,
-    parseHotnessScore,
-  );
+  return (await parseHotIndexEntryRecordFromStoredRecord(client, storyId, value))?.hotness ?? null;
+}
+
+async function parseHotIndexEntryRecordFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<NewsHotIndexEntryRecord | null> {
+  const payload = stripGunMetadata(value);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: hotIndexEntryPath(storyId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+    if (payload.story_id !== storyId) {
+      return null;
+    }
+    return parseHotIndexEntryPayload(payload, storyId);
+  }
+
+  if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
+    return null;
+  }
+
+  return parseHotIndexEntryPayload(payload, storyId);
 }
 
 async function readNewsLatestIndexEntry(
@@ -1135,6 +1189,17 @@ async function readNewsHotIndexEntry(
     return null;
   }
   return parseHotIndexEntry(client, storyId, raw);
+}
+
+async function readNewsHotIndexEntryRecord(
+  client: VennClient,
+  storyId: string,
+): Promise<NewsHotIndexEntryRecord | null> {
+  const raw = await readOnce(getNewsHotIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  if (raw === null) {
+    return null;
+  }
+  return parseHotIndexEntryRecordFromStoredRecord(client, storyId, raw);
 }
 
 function sanitizeStoryBundle(data: unknown): StoryBundle {
@@ -1871,20 +1936,44 @@ export async function writeNewsHotIndexEntry(
   client: VennClient,
   storyId: string,
   hotnessScore: number,
+  story?: StoryBundle,
 ): Promise<number> {
   const normalizedId = storyId.trim();
   if (!normalizedId) {
     throw new Error('storyId is required');
   }
+  if (story && story.story_id !== normalizedId) {
+    throw new Error('hot-index story metadata must match storyId');
+  }
 
   const normalizedHotness = parseHotnessScore(hotnessScore) ?? 0;
-  const encoded = await buildSystemWriterHotIndexRecord(client, normalizedId, normalizedHotness);
+  const encoded = await buildSystemWriterHotIndexRecord(client, normalizedId, normalizedHotness, story);
   const chain = getNewsHotIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
+  const expectedMetadata = story ? latestIndexProductMetadataForStory(story) : null;
   await putWithAck(chain, encoded, {
     writeClass: 'news-hot-index',
     timeoutError: 'news hot-index write timed out and readback did not confirm persistence',
-    readback: () => readNewsHotIndexEntry(client, normalizedId),
-    readbackPredicate: (observed) => observed === normalizedHotness,
+    readback: () => expectedMetadata
+      ? readNewsHotIndexEntryRecord(client, normalizedId)
+      : readNewsHotIndexEntry(client, normalizedId),
+    readbackPredicate: (observed) => {
+      if (!expectedMetadata) {
+        return observed === normalizedHotness;
+      }
+      const record = observed as NewsHotIndexEntryRecord | null;
+      return Boolean(
+        record
+        && record.story_id === normalizedId
+        && record.hotness === normalizedHotness
+        && record.product_state_schema_version === expectedMetadata.product_state_schema_version
+        && record.topic_id === expectedMetadata.topic_id
+        && record.source_set_revision === expectedMetadata.source_set_revision
+        && record.source_count === expectedMetadata.source_count
+        && record.canonical_source_count === expectedMetadata.canonical_source_count
+        && record.story_created_at === expectedMetadata.story_created_at
+        && record.cluster_window_start === expectedMetadata.cluster_window_start
+      );
+    },
   });
   return normalizedHotness;
 }
@@ -1916,7 +2005,7 @@ export async function removeNewsHotIndexEntry(
 export async function writeNewsBundle(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = await writeNewsStory(client, story);
   await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end, sanitized);
-  await writeNewsHotIndexEntry(client, sanitized.story_id, computeStoryHotness(sanitized));
+  await writeNewsHotIndexEntry(client, sanitized.story_id, computeStoryHotness(sanitized), sanitized);
   return sanitized;
 }
 

@@ -59,7 +59,6 @@ function makeDependencies(story: StoryBundle, lifecycle: NewsSynthesisLifecycleR
   return {
     readStoryIds: vi.fn(async () => [story.story_id]),
     readLatestIndex: vi.fn(async () => ({})),
-    readHotIndex: vi.fn(async () => ({})),
     readStory: vi.fn(async () => story),
     readLifecycle: vi.fn(async () => lifecycle),
     writeLatestIndexEntry: vi.fn(async () => undefined),
@@ -94,7 +93,7 @@ describe('product feed reconciler', () => {
       story.cluster_window_end,
       story,
     );
-    expect(dependencies.writeHotIndexEntry).toHaveBeenCalledWith({ id: 'client' }, story.story_id, 0.42);
+    expect(dependencies.writeHotIndexEntry).toHaveBeenCalledWith({ id: 'client' }, story.story_id, 0.42, story);
     expect(dependencies.writeLifecycle).toHaveBeenCalledWith(
       { id: 'client' },
       expect.objectContaining({
@@ -111,7 +110,6 @@ describe('product feed reconciler', () => {
     const lifecycle = makeLifecycle(story);
     const dependencies = makeDependencies(story, lifecycle);
     dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
-    dependencies.readHotIndex.mockResolvedValue({ [story.story_id]: 0.3 });
 
     const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
       dependencies,
@@ -123,10 +121,11 @@ describe('product feed reconciler', () => {
       sampled: 1,
       eligible: 1,
       repaired_latest_index: 0,
-      repaired_hot_index: 0,
+      repaired_hot_index: 1,
       repaired_lifecycle: 0,
       preserved_lifecycle: 1,
     });
+    expect(dependencies.writeHotIndexEntry).toHaveBeenCalledWith({ id: 'client' }, story.story_id, 0.42, story);
     expect(dependencies.writeLifecycle).not.toHaveBeenCalled();
   });
 
@@ -138,7 +137,6 @@ describe('product feed reconciler', () => {
     });
     const dependencies = makeDependencies(story, lifecycle);
     dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
-    dependencies.readHotIndex.mockResolvedValue({ [story.story_id]: 0.3 });
 
     const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
       dependencies,
@@ -157,4 +155,3 @@ describe('product feed reconciler', () => {
     );
   });
 });
-

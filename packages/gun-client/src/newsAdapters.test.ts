@@ -316,6 +316,7 @@ function expectSystemHotIndexRecord(
   value: unknown,
   storyId: string,
   hotness: number,
+  story?: StoryBundle,
 ): SystemWriterHotIndexRecord {
   expect(value).toMatchObject({
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -326,6 +327,17 @@ function expectSystemHotIndexRecord(
     story_id: storyId,
     hotness,
   });
+  if (story) {
+    expect(value).toMatchObject({
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: (story.primary_sources ?? story.sources).length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    });
+  }
   expect(value).not.toHaveProperty('_authorScheme');
   expect(value).not.toHaveProperty('signedWriteEnvelope');
   return value as SystemWriterHotIndexRecord;
@@ -2201,7 +2213,13 @@ describe('newsAdapters', () => {
       }),
     });
 
+    await expect(writeNewsHotIndexEntry(client, STORY.story_id, 0.5, STORY)).resolves.toBe(0.5);
+    expectSystemHotIndexRecord(mesh.writes[3].value, STORY.story_id, 0.5, STORY);
+
     await expect(writeNewsHotIndexEntry(client, '   ', 0.1)).rejects.toThrow('storyId is required');
+    await expect(writeNewsHotIndexEntry(client, 'story-other', 0.1, STORY)).rejects.toThrow(
+      'hot-index story metadata must match storyId',
+    );
   });
 
   it('writeNewsLatestIndexEntry and writeNewsHotIndexEntry confirm signed readback after ack timeout', async () => {
@@ -2292,6 +2310,56 @@ describe('newsAdapters', () => {
       await vi.advanceTimersByTimeAsync(1000);
       await expect(hotPromise).resolves.toBe(0.5);
 
+      const hotMetadataStory = { ...STORY, story_id: 'story-hot-metadata' };
+      mesh.setPutHang('news/index/hot/story-hot-metadata');
+      mesh.setRead('news/index/hot/story-hot-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: hotMetadataStory.story_id,
+        hotness: 0.25,
+        product_state_schema_version: 'vh-news-product-feed-index-v1',
+        topic_id: hotMetadataStory.topic_id,
+        source_set_revision: hotMetadataStory.provenance_hash,
+        source_count: hotMetadataStory.sources.length,
+        canonical_source_count: hotMetadataStory.sources.length,
+        story_created_at: hotMetadataStory.created_at,
+        cluster_window_start: hotMetadataStory.cluster_window_start,
+      });
+      const hotMetadataPromise = writeNewsHotIndexEntry(
+        client,
+        hotMetadataStory.story_id,
+        0.25,
+        hotMetadataStory,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(hotMetadataPromise).resolves.toBe(0.25);
+
+      const hotMissingMetadataStory = { ...STORY, story_id: 'story-hot-missing-metadata' };
+      mesh.setPutHang('news/index/hot/story-hot-missing-metadata');
+      mesh.setRead('news/index/hot/story-hot-missing-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: hotMissingMetadataStory.story_id,
+        hotness: 0.25,
+      });
+      const missingHotMetadataPromise = expect(
+        writeNewsHotIndexEntry(
+          client,
+          hotMissingMetadataStory.story_id,
+          0.25,
+          hotMissingMetadataStory,
+        ),
+      ).rejects.toThrow('news hot-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingHotMetadataPromise;
+
       mesh.setPutHang('news/index/latest/story-missing');
       mesh.setRead('news/index/latest/story-missing', null);
       const missingLatestPromise = expect(
@@ -2362,9 +2430,14 @@ describe('newsAdapters', () => {
           _writerKind: 'system',
           story_id: STORY.story_id,
           hotness: computeStoryHotness(STORY, Date.now()),
+          product_state_schema_version: 'vh-news-product-feed-index-v1',
+          topic_id: STORY.topic_id,
+          source_set_revision: STORY.provenance_hash,
+          source_count: STORY.sources.length,
+          canonical_source_count: STORY.sources.length,
         }),
       });
-      expectSystemHotIndexRecord(mesh.writes[2].value, STORY.story_id, computeStoryHotness(STORY, Date.now()));
+      expectSystemHotIndexRecord(mesh.writes[2].value, STORY.story_id, computeStoryHotness(STORY, Date.now()), STORY);
     } finally {
       vi.useRealTimers();
     }
