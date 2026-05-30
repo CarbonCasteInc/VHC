@@ -1408,6 +1408,20 @@ describe('newsAdapters', () => {
     await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
   });
 
+  it('readNewsStory rejects unsigned legacy records carrying old system signature fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+    mesh.setRead('news/stories/story-123', {
+      [STORY_BUNDLE_JSON_KEY]: JSON.stringify(STORY),
+      _Signature: 'legacy-signature',
+      _WriterId: TEST_SYSTEM_WRITER_ID,
+      _IssuedAt: TEST_SYSTEM_ISSUED_AT,
+    });
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
+  });
+
   it('readNewsStory rejects tampered system story metadata and payloads', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -2023,6 +2037,12 @@ describe('newsAdapters', () => {
         _systemSignature: 'not-allowed',
         latest_activity_at: 128,
       },
+      'legacy-old-signature-downgrade': {
+        _Signature: 'not-allowed',
+        _WriterId: TEST_SYSTEM_WRITER_ID,
+        _IssuedAt: TEST_SYSTEM_ISSUED_AT,
+        latest_activity_at: 129,
+      },
     });
     mesh.setRead('news/index/hot', {
       'legacy-scalar': 0.5,
@@ -2038,6 +2058,10 @@ describe('newsAdapters', () => {
         _writerKind: 'legacy',
         signedWriteEnvelope: { signature: 'not-allowed' },
         hotness: 0.9,
+      },
+      'legacy-old-signature-downgrade': {
+        _system: 'not-allowed',
+        hotness: 1,
       },
     });
 
