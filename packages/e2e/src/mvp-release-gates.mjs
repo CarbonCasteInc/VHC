@@ -290,6 +290,8 @@ export function classifyGateFailure(output) {
   if (
     text.includes('eligible_raw_story_hidden_without_allowed_reason') ||
     text.includes('multi_source_raw_story_hidden_by_synthesis_state') ||
+    text.includes('product_feed_hot_index_missing_for_visible_story') ||
+    text.includes('hot_index_product_metadata_missing') ||
     text.includes('public-feed-initial-open-headlines-timeout') ||
     text.includes('public-feed-load-more-not-from-mesh') ||
     text.includes('public-feed-browser-csp-violations') ||

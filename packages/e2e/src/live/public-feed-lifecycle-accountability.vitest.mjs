@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyLifecycleAccountabilityStatus,
+  classifyProductIndexMetadata,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
   sourceCount,
@@ -77,5 +78,46 @@ describe('public feed lifecycle accountability helpers', () => {
     expect(classifyLifecycleAccountabilityStatus([
       { code: 'public_feed_composition_missing_multi_source' },
     ])).toBe('setup_scarcity');
+    expect(classifyLifecycleAccountabilityStatus([
+      { code: 'product_feed_hot_index_missing_for_visible_story' },
+      { code: 'public_feed_composition_missing_multi_source' },
+    ])).toBe('fail');
+    expect(classifyLifecycleAccountabilityStatus([
+      { code: 'hot_index_product_metadata_missing' },
+    ])).toBe('fail');
+  });
+
+  it('classifies hot/latest product index metadata against current story source-set state', () => {
+    const story = {
+      story_id: 'story-1',
+      topic_id: 'topic-1',
+      provenance_hash: 'source-set-1',
+      created_at: 100,
+      cluster_window_start: 90,
+      sources: [{ publisher: 'A' }, { publisher: 'B' }],
+      primary_sources: [{ publisher: 'A' }],
+    };
+
+    expect(classifyProductIndexMetadata({
+      story_id: 'story-1',
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: 'topic-1',
+      source_set_revision: 'source-set-1',
+      source_count: 2,
+      canonical_source_count: 1,
+      story_created_at: 100,
+      cluster_window_start: 90,
+    }, story)).toBe('complete');
+    expect(classifyProductIndexMetadata({ hotness: 0.5 }, story)).toBe('missing');
+    expect(classifyProductIndexMetadata({
+      story_id: 'story-1',
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: 'topic-1',
+      source_set_revision: 'source-set-old',
+      source_count: 1,
+      canonical_source_count: 1,
+      story_created_at: 100,
+      cluster_window_start: 90,
+    }, story)).toBe('partial_or_mismatch');
   });
 });

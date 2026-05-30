@@ -185,8 +185,33 @@ async function readNewsLifecycleStatus(client, storyId, timeoutMs) {
   return record;
 }
 
+async function readNewsHotIndexProductRecord(client, storyId, timeoutMs) {
+  const raw = stripGunMetadata(await readGunOnce(
+    client.mesh?.get('news')?.get('index')?.get('hot')?.get(storyId),
+    timeoutMs,
+  ));
+  if (raw === null || raw === undefined) return null;
+  const hotness = Number(raw && typeof raw === 'object' ? raw.hotness : raw);
+  if (!Number.isFinite(hotness) || hotness < 0) return null;
+  if (!raw || typeof raw !== 'object') {
+    return { story_id: storyId, hotness };
+  }
+  const rawStoryId = String(raw.story_id ?? '').trim();
+  if (rawStoryId && rawStoryId !== storyId) return null;
+  return {
+    ...raw,
+    story_id: rawStoryId || storyId,
+    hotness,
+  };
+}
+
 async function readRawStoryIds(client, limit, timeoutMs) {
   return readGunMapKeys(client.mesh?.get('news')?.get('stories'), limit, timeoutMs);
+}
+
+function finiteNonNegativeIndexInt(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
 
 function sourceCount(story) {
@@ -194,6 +219,40 @@ function sourceCount(story) {
   const canonical = Number(story?.canonical_source_count ?? story?.source_count ?? 0);
   const sources = Array.isArray(story?.sources) ? story.sources.length : 0;
   return Math.max(primary, Number.isFinite(canonical) ? canonical : 0, sources);
+}
+
+function classifyProductIndexMetadata(record, story) {
+  if (!story) return 'story_missing';
+  if (!record || typeof record !== 'object') return 'missing';
+  const expectedSourceCount = Array.isArray(story.sources) ? story.sources.length : sourceCount(story);
+  const expectedCanonicalSourceCount = Array.isArray(story.primary_sources)
+    ? story.primary_sources.length
+    : expectedSourceCount;
+  const expectedStoryCreatedAt = finiteNonNegativeIndexInt(story.created_at);
+  const expectedClusterWindowStart = finiteNonNegativeIndexInt(story.cluster_window_start);
+  const recordSourceCount = finiteNonNegativeIndexInt(record.source_count);
+  const recordCanonicalSourceCount = finiteNonNegativeIndexInt(record.canonical_source_count);
+  const recordStoryCreatedAt = finiteNonNegativeIndexInt(record.story_created_at);
+  const recordClusterWindowStart = finiteNonNegativeIndexInt(record.cluster_window_start);
+  const hasSchema = record.product_state_schema_version === 'vh-news-product-feed-index-v1';
+  const hasStoryId = String(record.story_id ?? '').trim() === String(story.story_id ?? '').trim();
+  const hasTopic = String(record.topic_id ?? '').trim() === String(story.topic_id ?? '').trim();
+  const storyRevision = String(story.provenance_hash ?? '').trim();
+  const hasRevision = storyRevision && String(record.source_set_revision ?? '').trim() === storyRevision;
+  const hasSourceCounts =
+    recordSourceCount === expectedSourceCount &&
+    recordCanonicalSourceCount === expectedCanonicalSourceCount;
+  const hasTimestamps =
+    expectedStoryCreatedAt !== null &&
+    expectedClusterWindowStart !== null &&
+    recordStoryCreatedAt === expectedStoryCreatedAt &&
+    recordClusterWindowStart === expectedClusterWindowStart;
+  if (hasSchema && hasStoryId && hasTopic && hasRevision && hasSourceCounts && hasTimestamps) {
+    return 'complete';
+  }
+  return hasSchema || hasTopic || recordSourceCount !== null || recordCanonicalSourceCount !== null
+    ? 'partial_or_mismatch'
+    : 'missing';
 }
 
 function sourceLabels(story) {
@@ -285,6 +344,8 @@ function classifyLifecycleAccountabilityStatus(failures) {
     code === 'eligible_raw_story_hidden_without_allowed_reason'
       || code === 'multi_source_raw_story_hidden_by_synthesis_state'
       || code === 'relay_accepted_synthesis_not_current'
+      || code === 'product_feed_hot_index_missing_for_visible_story'
+      || code === 'hot_index_product_metadata_missing'
   );
   if (hasHardLifecycleFailure) return 'fail';
   if (codes.every((code) =>
@@ -371,6 +432,12 @@ async function runPublicFeedLifecycleAccountability({
       const inHot = Object.prototype.hasOwnProperty.call(hotIndex, storyId);
       const inRelay = Object.prototype.hasOwnProperty.call(relayLatest.records, storyId);
       const productVisible = inLatest || inHot || inRelay;
+      const hotProductRecord = inHot
+        ? await readNewsHotIndexProductRecord(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null)
+        : null;
+      const hotIndexProductMetadataStatus = inHot
+        ? classifyProductIndexMetadata(hotProductRecord, story)
+        : 'not_in_hot_index';
       const classification = classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffMs });
       const acceptedSynthesisCurrent = isAcceptedSynthesisCurrentForStory({ story, lifecycle, synthesis });
       const frameTableReady = acceptedSynthesisCurrent && isAcceptedFrameReady(synthesis);
@@ -386,6 +453,10 @@ async function runPublicFeedLifecycleAccountability({
         in_hot_index: inHot,
         in_relay_latest_index: inRelay,
         product_visible: productVisible,
+        hot_index_hotness: Number.isFinite(hotIndex[storyId]) ? hotIndex[storyId] : null,
+        hot_index_product_metadata_status: hotIndexProductMetadataStatus,
+        hot_index_product_source_set_revision: hotProductRecord?.source_set_revision ?? null,
+        hot_index_product_source_count: finiteNonNegativeIndexInt(hotProductRecord?.source_count),
         lifecycle_status: lifecycle?.status ?? null,
         lifecycle_source_set_revision: lifecycle?.source_set_revision ?? null,
         lifecycle_reason: lifecycle?.reason ?? null,
@@ -406,6 +477,11 @@ async function runPublicFeedLifecycleAccountability({
       if (story.product_visible) acc.product_visible_total += 1;
       if (story.source_count === 1 && story.product_visible) acc.singleton_visible += 1;
       if (story.source_count > 1 && story.product_visible) acc.multi_source_visible += 1;
+      if (story.product_visible && story.source_count > 0 && !story.in_hot_index) acc.visible_missing_hot_index += 1;
+      if (story.in_hot_index) {
+        const key = `hot_index_product_metadata_${story.hot_index_product_metadata_status}`;
+        acc[key] = (acc[key] ?? 0) + 1;
+      }
       if (story.lifecycle_status === 'pending') acc.pending += 1;
       if (story.lifecycle_status === 'in_progress') acc.in_progress += 1;
       if (story.lifecycle_status === 'retryable_failure') acc.retryable_failure += 1;
@@ -418,6 +494,11 @@ async function runPublicFeedLifecycleAccountability({
       product_visible_total: 0,
       singleton_visible: 0,
       multi_source_visible: 0,
+      visible_missing_hot_index: 0,
+      hot_index_product_metadata_complete: 0,
+      hot_index_product_metadata_missing: 0,
+      hot_index_product_metadata_partial_or_mismatch: 0,
+      hot_index_product_metadata_story_missing: 0,
       pending: 0,
       in_progress: 0,
       retryable_failure: 0,
@@ -450,6 +531,28 @@ async function runPublicFeedLifecycleAccountability({
       failures.push({
         code: 'relay_accepted_synthesis_not_current',
         story_ids: relayAcceptedNotCurrent.map((story) => story.story_id),
+      });
+    }
+    const visibleMissingHotIndex = stories.filter((story) =>
+      story.product_visible && story.source_count > 0 && !story.in_hot_index,
+    );
+    if (visibleMissingHotIndex.length > 0) {
+      failures.push({
+        code: 'product_feed_hot_index_missing_for_visible_story',
+        story_ids: visibleMissingHotIndex.map((story) => story.story_id),
+      });
+    }
+    const hotIndexMetadataMissing = stories.filter((story) =>
+      story.in_hot_index && story.hot_index_product_metadata_status !== 'complete',
+    );
+    if (hotIndexMetadataMissing.length > 0) {
+      failures.push({
+        code: 'hot_index_product_metadata_missing',
+        story_ids: hotIndexMetadataMissing.map((story) => story.story_id),
+        status_counts: hotIndexMetadataMissing.reduce((acc, story) => {
+          acc[story.hot_index_product_metadata_status] = (acc[story.hot_index_product_metadata_status] ?? 0) + 1;
+          return acc;
+        }, {}),
       });
     }
     if (counts.singleton_visible <= 0) {
@@ -503,6 +606,7 @@ export {
   runPublicFeedLifecycleAccountability,
   readRelayLatest,
   sourceCount,
+  classifyProductIndexMetadata,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
   classifyLifecycleAccountabilityStatus,
