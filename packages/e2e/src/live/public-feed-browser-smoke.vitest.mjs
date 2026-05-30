@@ -430,6 +430,36 @@ describe('public feed browser smoke helpers', () => {
     })).toThrow('public-relay-feed-composition-missing-multi-source');
   });
 
+  it('captures relay coverage failures without throwing before browser boot evidence is collected', async () => {
+    const coverage = internal.capturePublicRelayAnalysisFrameCoverage({
+      storyBodyStatusCounts: { 200: 2 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    });
+
+    expect(coverage).toMatchObject({
+      status: 'fail',
+      errorMessage: 'public-relay-feed-composition-missing-multi-source',
+    });
+
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+    expect(source.indexOf('capturePublicRelayAnalysisFrameCoverage')).toBeLessThan(
+      source.indexOf("progress('identity-start'"),
+    );
+    expect(source.indexOf("progress('initial-feed-wait-start'")).toBeGreaterThan(
+      source.indexOf('capturePublicRelayAnalysisFrameCoverage'),
+    );
+    expect(source.indexOf('throw new Error(publicRelayAnalysisFrameCoverage.errorMessage')).toBeGreaterThan(
+      source.indexOf('secondBrowserVisibility: secondBrowser'),
+    );
+  });
+
   it('does not count terminal unavailable synthesis outcomes as ambiguous missing synthesis', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       const href = String(url);
@@ -829,6 +859,19 @@ describe('public feed browser smoke helpers', () => {
     expect(source).toContain("progress('initial-feed-wait-start'");
     expect(source).toContain("progress('headline-wait-diagnostics'");
     expect(source).toContain('summarizeFeedState(page)');
+  });
+
+  it('keeps initial app-open feed proof separate from manual refresh recovery', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+    const initialWaitStart = source.indexOf('async function waitForInitialOpenHeadlines');
+    const initialWaitEnd = source.indexOf('function findVisibleStoryRow', initialWaitStart);
+    const initialWaitSource = source.slice(initialWaitStart, initialWaitEnd);
+
+    expect(source).toContain('manualRefreshAllowed: false');
+    expect(source).toContain('const initialCards = await gotoFeedInitialOpen(');
+    expect(initialWaitSource).toContain("waitFor('public-feed-initial-open-headlines'");
+    expect(initialWaitSource).toContain("progress('initial-open-wait-diagnostics'");
+    expect(initialWaitSource).not.toContain('clickFeedRefresh');
   });
 
   it('bounds direct Gun reads used by release proof collection', async () => {
