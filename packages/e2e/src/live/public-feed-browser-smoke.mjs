@@ -21,6 +21,7 @@ const DEFAULT_GUN_PEER_URL = 'http://127.0.0.1:7777/gun';
 const DEFAULT_MIN_HEADLINES = 4;
 const DEFAULT_READY_TIMEOUT_MS = 12 * 60_000;
 const DEFAULT_ANALYSIS_TIMEOUT_MS = 120_000;
+const DEFAULT_INITIAL_OPEN_TIMEOUT_MS = 45_000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
 const DEFAULT_POSTED_COMMENT_QUERY_TIMEOUT_MS = 5_000;
 const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
@@ -922,6 +923,19 @@ function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, en
   }
 }
 
+function capturePublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env = process.env) {
+  try {
+    assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env);
+    return { status: 'pass' };
+  } catch (error) {
+    return {
+      status: 'fail',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: formatError(error),
+    };
+  }
+}
+
 async function readPublicPointAggregate({ baseUrl, gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
   const originAggregate = await readPublicPointAggregateViaOrigin({
     baseUrl,
@@ -1103,6 +1117,30 @@ async function waitForHeadlines(page, minHeadlines, timeoutMs, progress = () => 
   }, { timeoutMs, intervalMs: 1_000 });
 }
 
+async function waitForInitialOpenHeadlines(page, minHeadlines, timeoutMs, progress = () => {}) {
+  const startedAt = Date.now();
+  let lastProgressAt = 0;
+  return waitFor('public-feed-initial-open-headlines', async () => {
+    const rows = await visibleCards(page);
+    if (rows.length >= minHeadlines) return rows;
+    const now = Date.now();
+    if (now - lastProgressAt >= 10_000) {
+      lastProgressAt = now;
+      const diagnostics = await withTimeout('initial-open-diagnostics', summarizeFeedState(page), 3_000)
+        .catch((error) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      progress('initial-open-wait-diagnostics', {
+        elapsedMs: now - startedAt,
+        rows: rows.length,
+        minHeadlines,
+        diagnostics,
+      });
+    }
+    return null;
+  }, { timeoutMs, intervalMs: 500 });
+}
+
 function findVisibleStoryRow(rows, targetRow) {
   return rows.find((row) => row.storyId === targetRow.storyId)
     ?? rows.find((row) => row.topicId === targetRow.topicId)
@@ -1133,6 +1171,12 @@ async function gotoFeed(page, baseUrl, minHeadlines, timeoutMs, progress = () =>
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
   return waitForHeadlines(page, minHeadlines, timeoutMs, progress);
+}
+
+async function gotoFeedInitialOpen(page, baseUrl, minHeadlines, timeoutMs, progress = () => {}) {
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+  return waitForInitialOpenHeadlines(page, minHeadlines, timeoutMs, progress);
 }
 
 async function ensureIdentity(page, baseUrl, label) {
@@ -1874,6 +1918,10 @@ async function runPublicFeedBrowserSmoke({
   const minHeadlines = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_MIN_HEADLINES, DEFAULT_MIN_HEADLINES);
   const readyTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
   const analysisTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS, DEFAULT_ANALYSIS_TIMEOUT_MS);
+  const initialOpenTimeoutMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_INITIAL_OPEN_TIMEOUT_MS,
+    Math.min(DEFAULT_INITIAL_OPEN_TIMEOUT_MS, Math.max(15_000, Math.floor(readyTimeoutMs / 8))),
+  );
   const publicRelayReadbackTimeoutMs = parsePositiveInt(
     env.VH_PUBLIC_FEED_SMOKE_PUBLIC_RELAY_READBACK_TIMEOUT_MS,
     Math.min(60_000, Math.max(30_000, Math.floor(readyTimeoutMs / 12))),
@@ -1918,6 +1966,7 @@ async function runPublicFeedBrowserSmoke({
       gunPeerUrl,
       minHeadlines,
       readyTimeoutMs,
+      initialOpenTimeoutMs,
       analysisTimeoutMs,
       publicRelayReadbackTimeoutMs,
       commentVisibilityTimeoutMs,
@@ -1961,15 +2010,20 @@ async function runPublicFeedBrowserSmoke({
       frameCountDistribution: publicRelaySynthesisReadback.frameCountDistribution,
       pointIdPresence: publicRelaySynthesisReadback.pointIdPresence,
     });
+    const publicRelayAnalysisFrameCoverage = capturePublicRelayAnalysisFrameCoverage(
+      publicRelaySynthesisReadback,
+      env,
+    );
+    progress('public-relay-analysis-frame-coverage', publicRelayAnalysisFrameCoverage);
     summary = {
       ...summary,
       checks: {
         ...summary.checks,
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
+        publicRelayAnalysisFrameCoverage,
       },
     };
-    assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env);
     browser = await launchBrowserFn();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
     await addConsumerInitScript(context, gunPeerUrl);
@@ -1981,8 +2035,12 @@ async function runPublicFeedBrowserSmoke({
     progress('identity-start');
     const identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
     progress('identity-complete', identity);
-    progress('initial-feed-wait-start', { minHeadlines });
-    const initialCards = await gotoFeed(page, baseUrl, minHeadlines, readyTimeoutMs, progress);
+    progress('initial-feed-wait-start', {
+      minHeadlines,
+      timeoutMs: initialOpenTimeoutMs,
+      manualRefreshAllowed: false,
+    });
+    const initialCards = await gotoFeedInitialOpen(page, baseUrl, minHeadlines, initialOpenTimeoutMs, progress);
     await page.screenshot(viewportScreenshotOptions(screenshots.initialFeed));
     progress('initial-feed-screenshot', { count: initialCards.length });
     const cardsWithSources = initialCards.filter((card) => card.sourceLabels.length > 0);
@@ -2186,6 +2244,9 @@ async function runPublicFeedBrowserSmoke({
         secondBrowserVisibility: secondBrowser,
       },
     };
+    if (publicRelayAnalysisFrameCoverage.status !== 'pass') {
+      throw new Error(publicRelayAnalysisFrameCoverage.errorMessage || 'public-relay-analysis-frame-coverage-failed');
+    }
   } catch (error) {
     summary = {
       ...summary,
@@ -2247,6 +2308,8 @@ export const publicFeedBrowserSmokeInternal = {
   fetchDeployedSystemWriterPin,
   refreshLatest,
   findVisibleStoryRow,
+  waitForInitialOpenHeadlines,
+  gotoFeedInitialOpen,
   resolveArtifactDir,
   resolveSystemWriterPin,
   isAcceptedSynthesisText,
@@ -2255,6 +2318,7 @@ export const publicFeedBrowserSmokeInternal = {
   readPublicPointAggregateViaOrigin,
   readPublicRelaySynthesisCandidates,
   assertPublicRelayAnalysisFrameCoverage,
+  capturePublicRelayAnalysisFrameCoverage,
   storyThreadVisibilityTimeoutMs,
   storyDetailUrl,
   isNavigationAbortError,
