@@ -2,7 +2,6 @@ import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
 import {
   buildNewsSynthesisLifecycleRecord,
   computeStoryHotness,
-  readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory,
   readNewsStoryIds,
@@ -10,7 +9,6 @@ import {
   writeNewsHotIndexEntry,
   writeNewsLatestIndexEntry,
   writeNewsSynthesisLifecycleStatus,
-  type NewsHotIndex,
   type NewsLatestIndex,
   type NewsSynthesisLifecycleRecord,
   type VennClient,
@@ -40,7 +38,6 @@ export interface ProductFeedReconciliationResult {
 export interface ProductFeedReconcilerDependencies {
   readonly readStoryIds?: typeof readNewsStoryIds;
   readonly readLatestIndex?: typeof readNewsLatestIndex;
-  readonly readHotIndex?: typeof readNewsHotIndex;
   readonly readStory?: typeof readNewsStory;
   readonly readLifecycle?: typeof readNewsSynthesisLifecycleStatus;
   readonly writeLatestIndexEntry?: typeof writeNewsLatestIndexEntry;
@@ -79,10 +76,6 @@ function latestIndexNeedsRepair(index: NewsLatestIndex, story: StoryBundle): boo
   return index[story.story_id] !== expected;
 }
 
-function hotIndexNeedsRepair(index: NewsHotIndex, story: StoryBundle): boolean {
-  return !Number.isFinite(index[story.story_id]);
-}
-
 function lifecycleNeedsPendingRepair(
   lifecycle: NewsSynthesisLifecycleRecord | null,
   story: StoryBundle,
@@ -97,7 +90,6 @@ export async function reconcileProductFeedFromRawStories(
   const dependencies = options.dependencies ?? {};
   const readStoryIds = dependencies.readStoryIds ?? readNewsStoryIds;
   const readLatestIndex = dependencies.readLatestIndex ?? readNewsLatestIndex;
-  const readHotIndex = dependencies.readHotIndex ?? readNewsHotIndex;
   const readStory = dependencies.readStory ?? readNewsStory;
   const readLifecycle = dependencies.readLifecycle ?? readNewsSynthesisLifecycleStatus;
   const writeLatestIndex = dependencies.writeLatestIndexEntry ?? writeNewsLatestIndexEntry;
@@ -108,10 +100,9 @@ export async function reconcileProductFeedFromRawStories(
   const logger = options.logger ?? console;
   const sampleLimit = normalizeSampleLimit(options.sampleLimit);
 
-  const [storyIds, latestIndex, hotIndex] = await Promise.all([
+  const [storyIds, latestIndex] = await Promise.all([
     readStoryIds(client, { limit: sampleLimit }),
     readLatestIndex(client).catch(() => ({})),
-    readHotIndex(client).catch(() => ({})),
   ]);
 
   let eligible = 0;
@@ -136,10 +127,10 @@ export async function reconcileProductFeedFromRawStories(
         repairedLatestIndex += 1;
       }
 
-      if (hotIndexNeedsRepair(hotIndex, story)) {
-        await writeHotIndex(client, story.story_id, computeHotness(story, now()));
-        repairedHotIndex += 1;
-      }
+      // Refresh hot rows even when a legacy scalar exists so story-backed
+      // product metadata stays in parity with the latest index.
+      await writeHotIndex(client, story.story_id, computeHotness(story, now()), story);
+      repairedHotIndex += 1;
 
       const lifecycle = await readLifecycle(client, story.story_id).catch(() => null);
       if (lifecycleNeedsPendingRepair(lifecycle, story)) {
@@ -184,4 +175,3 @@ export async function reconcileProductFeedFromRawStories(
 
   return result;
 }
-
