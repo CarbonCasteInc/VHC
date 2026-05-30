@@ -614,6 +614,45 @@ function latestIndexEntryStoryId(storyId, record) {
   return direct || null;
 }
 
+function finiteNonNegativeIndexInt(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function classifyLatestIndexProductMetadata(record, story) {
+  if (!record || typeof record !== 'object') return 'missing';
+  const expectedSourceCount = Array.isArray(story?.sources)
+    ? story.sources.length
+    : storySources(story).length;
+  const expectedCanonicalSourceCount = Array.isArray(story?.primary_sources)
+    ? story.primary_sources.length
+    : expectedSourceCount;
+  const expectedStoryCreatedAt = finiteNonNegativeIndexInt(story?.created_at);
+  const expectedClusterWindowStart = finiteNonNegativeIndexInt(story?.cluster_window_start);
+  const recordSourceCount = finiteNonNegativeIndexInt(record.source_count);
+  const recordCanonicalSourceCount = finiteNonNegativeIndexInt(record.canonical_source_count);
+  const recordStoryCreatedAt = finiteNonNegativeIndexInt(record.story_created_at);
+  const recordClusterWindowStart = finiteNonNegativeIndexInt(record.cluster_window_start);
+  const hasSchema = record.product_state_schema_version === 'vh-news-product-feed-index-v1';
+  const hasTopic = String(record.topic_id ?? '').trim() === String(story?.topic_id ?? '').trim();
+  const storyRevision = String(story?.provenance_hash ?? '').trim();
+  const hasRevision = storyRevision && String(record.source_set_revision ?? '').trim() === storyRevision;
+  const hasSourceCounts =
+    recordSourceCount === expectedSourceCount &&
+    recordCanonicalSourceCount === expectedCanonicalSourceCount;
+  const hasTimestamps =
+    expectedStoryCreatedAt !== null &&
+    expectedClusterWindowStart !== null &&
+    recordStoryCreatedAt === expectedStoryCreatedAt &&
+    recordClusterWindowStart === expectedClusterWindowStart;
+  if (hasSchema && hasTopic && hasRevision && hasSourceCounts && hasTimestamps) {
+    return 'complete';
+  }
+  return hasSchema || hasTopic || recordSourceCount !== null || recordCanonicalSourceCount !== null
+    ? 'partial_or_mismatch'
+    : 'missing';
+}
+
 function sourceUrl(source) {
   return String(source?.url || source?.canonical_url || source?.href || '').trim();
 }
@@ -723,6 +762,8 @@ async function readPublicRelaySynthesisCandidates({
   const mediaClassCounts = {};
   const sourceFilterStatusCounts = {};
   const articleTextSampleStatusCounts = {};
+  const latestIndexProductMetadataStatusCounts = {};
+  const missingLatestIndexProductMetadataStories = [];
   let singletonReadableCount = 0;
   let multiSourceReadableCount = 0;
   let singletonVisibleAcceptedCount = 0;
@@ -757,6 +798,17 @@ async function readPublicRelaySynthesisCandidates({
     const story = storyPayload?.story;
     if (!story?.story_id || !story?.topic_id || !story?.headline) continue;
     sampledTopicIds.push(story.topic_id);
+    const latestMetadataStatus = classifyLatestIndexProductMetadata(record, story);
+    latestIndexProductMetadataStatusCounts[latestMetadataStatus] =
+      (latestIndexProductMetadataStatusCounts[latestMetadataStatus] ?? 0) + 1;
+    if (latestMetadataStatus !== 'complete') {
+      missingLatestIndexProductMetadataStories.push({
+        storyId: story.story_id,
+        status: latestMetadataStatus,
+        expectedSourceCount: Array.isArray(story.sources) ? story.sources.length : storySources(story).length,
+        recordSourceCount: finiteNonNegativeIndexInt(record?.source_count),
+      });
+    }
     const labels = storySourceLabels(story);
     const mediaClass = classifyStoryMedia(story);
     mediaClassCounts[mediaClass] = (mediaClassCounts[mediaClass] ?? 0) + 1;
@@ -843,6 +895,9 @@ async function readPublicRelaySynthesisCandidates({
     mediaClassCounts,
     sourceFilterStatusCounts,
     articleTextSampleStatusCounts,
+    latestIndexProductMetadataStatusCounts,
+    missingLatestIndexProductMetadataStoryCount: missingLatestIndexProductMetadataStories.length,
+    missingLatestIndexProductMetadataStories,
     terminalUnavailableReasonCounts,
     missingAcceptedSynthesisStoryCount: missingAcceptedSynthesisStories.length,
     missingAcceptedSynthesisStories,
@@ -870,6 +925,27 @@ function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, en
     }
     if (!capability.story_states_present) {
       throw new Error('public-relay-latest-index-missing-story-states');
+    }
+  }
+
+  const requireLatestIndexProductMetadata = String(
+    env.VH_PUBLIC_FEED_REQUIRE_LATEST_INDEX_PRODUCT_METADATA ?? 'true',
+  ).trim().toLowerCase() !== 'false';
+  if (requireLatestIndexProductMetadata) {
+    const missingMetadataCount = Number(
+      publicRelaySynthesisReadback.missingLatestIndexProductMetadataStoryCount
+        ?? publicRelaySynthesisReadback.missingLatestIndexProductMetadataStories?.length
+        ?? 0,
+    );
+    if (missingMetadataCount > 0) {
+      const sample = (publicRelaySynthesisReadback.missingLatestIndexProductMetadataStories ?? [])
+        .slice(0, 5)
+        .map((story) => story.storyId)
+        .filter(Boolean)
+        .join(',');
+      throw new Error(
+        `public-relay-latest-index-product-metadata-missing:${missingMetadataCount}${sample ? `:${sample}` : ''}`,
+      );
     }
   }
 
@@ -2042,6 +2118,8 @@ async function runPublicFeedBrowserSmoke({
       mediaClassCounts: publicRelaySynthesisReadback.mediaClassCounts,
       sourceFilterStatusCounts: publicRelaySynthesisReadback.sourceFilterStatusCounts,
       articleTextSampleStatusCounts: publicRelaySynthesisReadback.articleTextSampleStatusCounts,
+      latestIndexProductMetadataStatusCounts: publicRelaySynthesisReadback.latestIndexProductMetadataStatusCounts,
+      missingLatestIndexProductMetadataStoryCount: publicRelaySynthesisReadback.missingLatestIndexProductMetadataStoryCount,
       terminalUnavailableReasonCounts: publicRelaySynthesisReadback.terminalUnavailableReasonCounts,
       missingAcceptedSynthesisStoryCount: publicRelaySynthesisReadback.missingAcceptedSynthesisStoryCount,
       frameCountDistribution: publicRelaySynthesisReadback.frameCountDistribution,

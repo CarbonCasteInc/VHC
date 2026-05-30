@@ -55,6 +55,10 @@ describe('public feed composition freshness gate', () => {
       'public-relay-latest-index-missing-composition',
       { totalCorroboratedBundleCount: 0 },
     )).toBe('fail');
+    expect(classifyPublicFeedCompositionFailure(
+      'public-relay-latest-index-product-metadata-missing:1',
+      { totalCorroboratedBundleCount: 0 },
+    )).toBe('fail');
   });
 
   it('fails singleton-only public feeds when source-health proves corroborated supply exists', async () => {
@@ -90,7 +94,17 @@ describe('public feed composition freshness gate', () => {
       if (href.includes('/vh/news/latest-index')) {
         return jsonResponse({
           records: {
-            'story-singleton': { story_id: 'story-singleton', latest_activity_at: Date.now() },
+            'story-singleton': {
+              story_id: 'story-singleton',
+              latest_activity_at: Date.now(),
+              product_state_schema_version: 'vh-news-product-feed-index-v1',
+              topic_id: 'topic-singleton',
+              source_set_revision: 'prov-singleton',
+              source_count: 1,
+              canonical_source_count: 1,
+              story_created_at: 5,
+              cluster_window_start: 4,
+            },
           },
           composition: {
             total_visible: 1,
@@ -113,6 +127,9 @@ describe('public feed composition freshness gate', () => {
             story_id: 'story-singleton',
             topic_id: 'topic-singleton',
             headline: 'One valid singleton story',
+            provenance_hash: 'prov-singleton',
+            created_at: 5,
+            cluster_window_start: 4,
             sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
           },
         });

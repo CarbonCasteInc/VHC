@@ -249,8 +249,28 @@ describe('public feed browser smoke helpers', () => {
           ok: true,
           text: async () => JSON.stringify({
             records: {
-              'story-singleton': { story_id: 'story-singleton', latest_activity_at: 20 },
-              'story-bundled': { story_id: 'story-bundled', latest_activity_at: 10 },
+              'story-singleton': {
+                story_id: 'story-singleton',
+                latest_activity_at: 20,
+                product_state_schema_version: 'vh-news-product-feed-index-v1',
+                topic_id: 'topic-singleton',
+                source_set_revision: 'prov-singleton',
+                source_count: 1,
+                canonical_source_count: 1,
+                story_created_at: 5,
+                cluster_window_start: 4,
+              },
+              'story-bundled': {
+                story_id: 'story-bundled',
+                latest_activity_at: 10,
+                product_state_schema_version: 'vh-news-product-feed-index-v1',
+                topic_id: 'topic-bundled',
+                source_set_revision: 'prov-bundled',
+                source_count: 2,
+                canonical_source_count: 2,
+                story_created_at: 7,
+                cluster_window_start: 6,
+              },
             },
             composition: {
               total_visible: 2,
@@ -279,6 +299,9 @@ describe('public feed browser smoke helpers', () => {
               story_id: 'story-singleton',
               topic_id: 'topic-singleton',
               headline: 'One valid singleton story',
+              provenance_hash: 'prov-singleton',
+              created_at: 5,
+              cluster_window_start: 4,
               sources: [{ publisher: 'one-source' }],
             },
           }),
@@ -292,6 +315,9 @@ describe('public feed browser smoke helpers', () => {
               story_id: 'story-bundled',
               topic_id: 'topic-bundled',
               headline: 'Bundled story with accepted synthesis',
+              provenance_hash: 'prov-bundled',
+              created_at: 7,
+              cluster_window_start: 6,
               sources: [{ publisher: 'source-a' }, { publisher: 'source-b' }],
             },
           }),
@@ -340,6 +366,8 @@ describe('public feed browser smoke helpers', () => {
         multiSourceReadableCount: 1,
         mediaClassCounts: { text: 2 },
         sourceFilterStatusCounts: { unknown: 3 },
+        latestIndexProductMetadataStatusCounts: { complete: 2 },
+        missingLatestIndexProductMetadataStoryCount: 0,
         pointIdPresence: {
           frameRows: 1,
           framePointIdsPresent: 1,
@@ -529,6 +557,30 @@ describe('public feed browser smoke helpers', () => {
         reframePointIdsPresent: 0,
       },
     })).toThrow('public-relay-latest-index-missing-story-states');
+  });
+
+  it('fails coverage when readable latest-index rows lack durable product metadata', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 2,
+      },
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      missingLatestIndexProductMetadataStoryCount: 1,
+      missingLatestIndexProductMetadataStories: [
+        { storyId: 'story-with-timestamp-only-row', status: 'missing' },
+      ],
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow(
+      'public-relay-latest-index-product-metadata-missing:1:story-with-timestamp-only-row',
+    );
   });
 
   it('captures relay coverage failures without throwing before browser boot evidence is collected', async () => {

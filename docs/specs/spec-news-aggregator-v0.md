@@ -292,8 +292,11 @@ Public latest/hot index-entry storage contract:
   `_systemSignature`. Story publication and accepted-synthesis republish paths
   MUST include the product feed metadata above so public readers and release
   gates can audit singleton versus multi-source composition without relying on
-  in-memory daemon state. Older minimal signed latest entries remain
-  read-compatible but are insufficient as new publication output.
+  in-memory daemon state. When a write includes `StoryBundle` metadata, durable
+  write readback must verify the metadata fields as well as the timestamp; a
+  timestamp-only readback does not prove product feed row persistence. Older
+  minimal signed latest entries remain read-compatible but are insufficient as
+  new publication output.
 - New writes to `vh/news/index/hot/<storyId>` MUST store an object carrying
   `story_id`, `hotness`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and

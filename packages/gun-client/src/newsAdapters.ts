@@ -168,6 +168,19 @@ export interface SystemWriterLatestIndexRecord extends Record<string, unknown>, 
   readonly cluster_window_start?: number;
 }
 
+export type NewsLatestIndexEntryRecord = Pick<
+  SystemWriterLatestIndexRecord,
+  | 'story_id'
+  | 'latest_activity_at'
+  | 'product_state_schema_version'
+  | 'topic_id'
+  | 'source_set_revision'
+  | 'source_count'
+  | 'canonical_source_count'
+  | 'story_created_at'
+  | 'cluster_window_start'
+>;
+
 export interface SystemWriterHotIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
   readonly story_id: string;
   readonly hotness: number;
@@ -605,6 +618,21 @@ function encodeStoryBundleForGun(story: StoryBundle): Record<string, unknown> {
   };
 }
 
+function latestIndexProductMetadataForStory(story: StoryBundle): Omit<
+  NewsLatestIndexEntryRecord,
+  'story_id' | 'latest_activity_at'
+> {
+  return {
+    product_state_schema_version: 'vh-news-product-feed-index-v1',
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: story.sources.length,
+    canonical_source_count: canonicalSourceCount(story),
+    story_created_at: Math.max(0, Math.floor(story.created_at)),
+    cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
+  };
+}
+
 async function signSystemWriterRecord<T extends Record<string, unknown>>(
   client: VennClient,
   path: string,
@@ -642,15 +670,7 @@ async function buildSystemWriterLatestIndexRecord(
   story?: StoryBundle,
 ): Promise<SystemWriterLatestIndexRecord> {
   const metadata = story && story.story_id === storyId
-    ? {
-        product_state_schema_version: 'vh-news-product-feed-index-v1' as const,
-        topic_id: story.topic_id,
-        source_set_revision: story.provenance_hash,
-        source_count: story.sources.length,
-        canonical_source_count: canonicalSourceCount(story),
-        story_created_at: Math.max(0, Math.floor(story.created_at)),
-        cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
-      }
+    ? latestIndexProductMetadataForStory(story)
     : {};
   return signSystemWriterRecord(
     client,
@@ -949,18 +969,94 @@ async function parseNewsIndexEntryFromStoredRecord(
   return parseEntry(payload);
 }
 
+function normalizeOptionalIndexInt(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined;
+}
+
+function parseLatestIndexEntryPayload(
+  payload: unknown,
+  storyId: string,
+): NewsLatestIndexEntryRecord | null {
+  const latestActivityAt = parseLatestTimestamp(payload);
+  if (latestActivityAt === null) {
+    return null;
+  }
+
+  if (!isRecord(payload)) {
+    return {
+      story_id: storyId,
+      latest_activity_at: latestActivityAt,
+    };
+  }
+
+  const payloadStoryId = typeof payload.story_id === 'string' ? payload.story_id.trim() : '';
+  if (payloadStoryId && payloadStoryId !== storyId) {
+    return null;
+  }
+
+  const topicId = typeof payload.topic_id === 'string' && payload.topic_id.trim()
+    ? payload.topic_id.trim()
+    : undefined;
+  const sourceSetRevision = typeof payload.source_set_revision === 'string' && payload.source_set_revision.trim()
+    ? payload.source_set_revision.trim()
+    : undefined;
+  const sourceCount = normalizeOptionalIndexInt(payload.source_count);
+  const canonicalSourceCount = normalizeOptionalIndexInt(payload.canonical_source_count);
+  const storyCreatedAt = normalizeOptionalIndexInt(payload.story_created_at);
+  const clusterWindowStart = normalizeOptionalIndexInt(payload.cluster_window_start);
+
+  return {
+    story_id: payloadStoryId || storyId,
+    latest_activity_at: latestActivityAt,
+    ...(payload.product_state_schema_version === 'vh-news-product-feed-index-v1'
+      ? { product_state_schema_version: 'vh-news-product-feed-index-v1' as const }
+      : {}),
+    ...(topicId ? { topic_id: topicId } : {}),
+    ...(sourceSetRevision ? { source_set_revision: sourceSetRevision } : {}),
+    ...(sourceCount !== undefined ? { source_count: sourceCount } : {}),
+    ...(canonicalSourceCount !== undefined ? { canonical_source_count: canonicalSourceCount } : {}),
+    ...(storyCreatedAt !== undefined ? { story_created_at: storyCreatedAt } : {}),
+    ...(clusterWindowStart !== undefined ? { cluster_window_start: clusterWindowStart } : {}),
+  };
+}
+
+async function parseLatestIndexEntryRecordFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<NewsLatestIndexEntryRecord | null> {
+  const payload = stripGunMetadata(value);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: latestIndexEntryPath(storyId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+    if (payload.story_id !== storyId) {
+      return null;
+    }
+    return parseLatestIndexEntryPayload(payload, storyId);
+  }
+
+  if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
+    return null;
+  }
+
+  return parseLatestIndexEntryPayload(payload, storyId);
+}
+
 async function parseLatestIndexEntry(
   client: VennClient,
   storyId: string,
   value: unknown,
 ): Promise<number | null> {
-  return parseNewsIndexEntryFromStoredRecord(
-    client,
-    latestIndexEntryPath(storyId),
-    storyId,
-    value,
-    parseLatestTimestamp,
-  );
+  return (await parseLatestIndexEntryRecordFromStoredRecord(client, storyId, value))?.latest_activity_at ?? null;
 }
 
 export async function parseNewsLatestIndexEntryRecord(
@@ -973,6 +1069,18 @@ export async function parseNewsLatestIndexEntryRecord(
     return null;
   }
   return parseLatestIndexEntry(client, normalizedId, value);
+}
+
+export async function parseNewsLatestIndexProductRecord(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<NewsLatestIndexEntryRecord | null> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  return parseLatestIndexEntryRecordFromStoredRecord(client, normalizedId, value);
 }
 
 async function parseHotIndexEntry(
@@ -998,6 +1106,17 @@ async function readNewsLatestIndexEntry(
     return null;
   }
   return parseLatestIndexEntry(client, storyId, raw);
+}
+
+async function readNewsLatestIndexEntryRecord(
+  client: VennClient,
+  storyId: string,
+): Promise<NewsLatestIndexEntryRecord | null> {
+  const raw = await readOnce(getNewsLatestIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  if (raw === null) {
+    return null;
+  }
+  return parseLatestIndexEntryRecordFromStoredRecord(client, storyId, raw);
 }
 
 async function readNewsHotIndexEntry(
@@ -1680,11 +1799,31 @@ export async function writeNewsLatestIndexEntry(
   const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
   const encoded = await buildSystemWriterLatestIndexRecord(client, normalizedId, normalizedLatestTimestamp, story);
   const chain = getNewsLatestIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
+  const expectedMetadata = story ? latestIndexProductMetadataForStory(story) : null;
   await putWithAck(chain, encoded, {
     writeClass: 'news-latest-index',
     timeoutError: 'news latest-index write timed out and readback did not confirm persistence',
-    readback: () => readNewsLatestIndexEntry(client, normalizedId),
-    readbackPredicate: (observed) => observed === normalizedLatestTimestamp,
+    readback: () => expectedMetadata
+      ? readNewsLatestIndexEntryRecord(client, normalizedId)
+      : readNewsLatestIndexEntry(client, normalizedId),
+    readbackPredicate: (observed) => {
+      if (!expectedMetadata) {
+        return observed === normalizedLatestTimestamp;
+      }
+      const record = observed as NewsLatestIndexEntryRecord | null;
+      return Boolean(
+        record
+        && record.story_id === normalizedId
+        && record.latest_activity_at === normalizedLatestTimestamp
+        && record.product_state_schema_version === expectedMetadata.product_state_schema_version
+        && record.topic_id === expectedMetadata.topic_id
+        && record.source_set_revision === expectedMetadata.source_set_revision
+        && record.source_count === expectedMetadata.source_count
+        && record.canonical_source_count === expectedMetadata.canonical_source_count
+        && record.story_created_at === expectedMetadata.story_created_at
+        && record.cluster_window_start === expectedMetadata.cluster_window_start
+      );
+    },
   });
 }
 
