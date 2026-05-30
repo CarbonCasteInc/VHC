@@ -90,6 +90,7 @@ export interface BundleSynthesisWorkerConfig {
   writeCandidate?: (client: VennClient, candidate: CandidateSynthesis) => Promise<CandidateSynthesis>;
   writeSynthesis?: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
   writeLatest?: typeof writeTopicLatestSynthesisIfNotDowngrade;
+  publishReadyStory?: (client: VennClient, bundle: StoryBundle, synthesis: TopicSynthesisV2) => Promise<void>;
   runWrite?: <T>(
     writeClass: string,
     attributes: Record<string, unknown>,
@@ -142,6 +143,7 @@ export function createBundleSynthesisWorker(
   const writeCandidate = config.writeCandidate ?? writeTopicEpochCandidate;
   const writeSynthesis = config.writeSynthesis ?? writeTopicEpochSynthesis;
   const writeLatest = config.writeLatest ?? writeTopicLatestSynthesisIfNotDowngrade;
+  const publishReadyStory = config.publishReadyStory;
   const runWrite = config.runWrite ?? (<T>(_: string, __: Record<string, unknown>, task: () => Promise<T>) => task());
   const writeCandidateWithLane = (client: VennClient, candidatePayload: CandidateSynthesis) =>
     runWrite(
@@ -242,8 +244,9 @@ export function createBundleSynthesisWorker(
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);
     if (existingCandidate && candidateHasReusableFullTextAudit(existingCandidate)) {
       let latestStatus: 'written' | 'skipped';
+      let synthesis: TopicSynthesisV2;
       try {
-        ({ latestStatus } = await writeAcceptedSynthesis({
+        ({ latestStatus, synthesis } = await writeAcceptedSynthesis({
           client: config.client,
           bundle,
           candidateId,
@@ -265,6 +268,19 @@ export function createBundleSynthesisWorker(
           error,
         });
         return { status: 'rejected', storyId, reason };
+      }
+      if (publishReadyStory) {
+        try {
+          await publishReadyStory(config.client, bundle, synthesis);
+        } catch (error) {
+          logger.warn('[vh:bundle-synthesis] duplicate candidate product-ready publish failed', {
+            story_id: storyId,
+            candidate_id: candidateId,
+            synthesis_id: synthesisId,
+            error,
+          });
+          return { status: 'rejected', storyId, reason: 'latest_write_failed' };
+        }
       }
       logger.info('[vh:bundle-synthesis] duplicate candidate recovered synthesis; skipped model call', {
         story_id: storyId,
@@ -458,6 +474,28 @@ export function createBundleSynthesisWorker(
         error,
       });
       return { status: 'rejected', storyId, reason };
+    }
+    if (publishReadyStory) {
+      try {
+        await publishReadyStory(config.client, bundle, synthesis);
+      } catch (error) {
+        logger.warn('[vh:bundle-synthesis] product-ready publish failed', {
+          story_id: storyId,
+          candidate_id: candidateId,
+          synthesis_id: synthesisId,
+          error,
+        });
+        await persistRejectedBundleSynthesisEvalArtifact({
+          context: artifactContext,
+          capturedAt: createdAt,
+          rejectionReason: 'latest_write_failed',
+          bundlePrompt: acceptedBundlePrompt,
+          bundleResponse: response,
+          warnings,
+          error,
+        });
+        return { status: 'rejected', storyId, reason: 'latest_write_failed' };
+      }
     }
     await persistAcceptedBundleSynthesisEvalArtifact({
       context: artifactContext,

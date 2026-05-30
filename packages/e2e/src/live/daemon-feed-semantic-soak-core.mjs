@@ -323,6 +323,46 @@ export function resolvePublicSemanticSoakMaxItemsTotal(
   return String(Math.min(requestedTotal, normalizedRemoteMaxItemsPerRequest));
 }
 
+export function resolvePublicSemanticSoakBundleSynthesisEnv(env = process.env, portPlan = resolveDaemonFirstPortPlan('bundle-synthesis')) {
+  const configuredEnabled = env.VH_BUNDLE_SYNTHESIS_ENABLED?.trim();
+  const fixtureRun = env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
+  const hasRemoteBackend = Boolean(
+    env.VH_BUNDLE_SYNTHESIS_API_KEY?.trim()
+    || env.ANALYSIS_RELAY_API_KEY?.trim()
+    || env.OPENAI_API_KEY?.trim(),
+  );
+  const enabled = configuredEnabled || (fixtureRun || hasRemoteBackend ? 'true' : 'false');
+  const nextEnv = {
+    VH_BUNDLE_SYNTHESIS_ENABLED: enabled,
+  };
+  if (enabled !== 'true') {
+    return nextEnv;
+  }
+
+  nextEnv.VH_BUNDLE_SYNTHESIS_TIMEOUT_MS =
+    env.VH_BUNDLE_SYNTHESIS_TIMEOUT_MS?.trim() || '60000';
+  nextEnv.VH_BUNDLE_SYNTHESIS_RATE_PER_MIN =
+    env.VH_BUNDLE_SYNTHESIS_RATE_PER_MIN?.trim() || '120';
+  nextEnv.VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH =
+    env.VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH?.trim() || '64';
+
+  if (fixtureRun) {
+    nextEnv.VH_BUNDLE_SYNTHESIS_UPSTREAM_URL =
+      env.VH_BUNDLE_SYNTHESIS_UPSTREAM_URL?.trim()
+      || `http://127.0.0.1:${portPlan.analysisStubPort}/v1/chat/completions`;
+    nextEnv.VH_BUNDLE_SYNTHESIS_API_KEY =
+      env.VH_BUNDLE_SYNTHESIS_API_KEY?.trim()
+      || env.ANALYSIS_RELAY_API_KEY?.trim()
+      || 'fixture-analysis-stub-key';
+    nextEnv.VH_BUNDLE_SYNTHESIS_MODEL =
+      env.VH_BUNDLE_SYNTHESIS_MODEL?.trim()
+      || env.ANALYSIS_RELAY_MODEL?.trim()
+      || 'fixture-analysis-stub';
+  }
+
+  return nextEnv;
+}
+
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
   if (!raw) return fallback;
@@ -1382,6 +1422,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
     VH_DAEMON_FEED_FIXTURE_PORT: String(portPlan.fixturePort),
     VH_DAEMON_FEED_QDRANT_PORT: String(portPlan.qdrantPort),
     VH_DAEMON_FEED_ANALYSIS_STUB_PORT: String(portPlan.analysisStubPort),
+    ...resolvePublicSemanticSoakBundleSynthesisEnv(env, portPlan),
     VH_LIVE_BASE_URL: `http://127.0.0.1:${portPlan.webPort}/`,
     VH_GUN_PEERS: JSON.stringify([effectiveGunPeerUrl]),
     VITE_GUN_PEERS: JSON.stringify([effectiveGunPeerUrl]),

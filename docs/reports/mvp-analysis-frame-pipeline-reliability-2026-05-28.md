@@ -140,7 +140,7 @@ Public smoke and gates:
 - `pnpm check:mvp-release-gates` now includes the
   `public_feed_analysis_frame_reliability` gate.
 
-## Current Public Evidence After Implementation
+## Pre-Deploy Public Evidence After Implementation
 
 The fixed smoke harness was run against the still-undeployed public stack. It failed
 as intended because the public deployment has not received these changes:
@@ -217,10 +217,34 @@ Measured public state in that run:
 - Point IDs for accepted rows: 8 of 8 frame IDs present, 8 of 8 reframe IDs present
 - Gate failure: `public-relay-latest-index-story-404:6/0`
 
-## Deployment Evidence After A6 Access Restored
+## Post-Review Fix
 
-After Tailscale access was restored, `ssh humble` reached A6 (`ccibootstrap`) and
-Docker was available. The public stack was updated without printing host-local secrets.
+The review blocker was a product-visibility race: public latest/hot rows could be
+written before accepted topic synthesis existed. The repair splits durable story
+publication from product-visible publication:
+
+- `services/news-aggregator/src/daemon.ts` now writes raw story bundles with
+  `writeNewsStory`, not `writeStoryBundle`, during daemon ingestion.
+- `services/news-aggregator/src/bundleSynthesisWorker.ts` publishes product-visible
+  latest/hot rows only after `writeAcceptedSynthesis` succeeds.
+- `services/news-aggregator/src/bundleSynthesisDaemonConfig.ts` writes
+  `news_latest_index` and `news_hot_index` from the synthesis-ready callback.
+- `infra/relay/server.js` filters latest-index REST rows unless the story body is
+  readable and the topic has accepted synthesis with non-empty `facts_summary` and
+  frame/reframe rows.
+
+The second blocker was live Web PWA hydration accepting protocol-shaped latest-index
+objects without the adapter validation used by refresh/REST paths. The repair makes
+live subscription hydration validate those objects through
+`parseNewsLatestIndexEntryRecord`, which enforces the same system-writer pin,
+signature, path, and story-id semantics as `packages/gun-client/src/newsAdapters.ts`.
+Per-story event versions prevent a slower validation result from reintroducing stale
+subscription data after a newer event.
+
+## Deployment Evidence
+
+The public stack was refreshed on 2026-05-30 without committing or printing release
+secrets.
 
 Deployed public topology:
 
@@ -229,178 +253,154 @@ Deployed public topology:
 - Relay/Gun peer B on A6 port `8766`
 - Relay/Gun peer C on the Mac mini public WSS path
 - Public origin image:
-  `vhc-public-beta-origin:20260528-pr631-analysis-frame-reliability-v10-amd64`
+  `vhc-public-beta-origin:20260530-pr631-readiness-fresh-peer-config-v1-amd64`
 - Public relay image:
-  `vhc-public-beta-relay:20260528-pr631-analysis-frame-reliability-v5`
+  `vhc-public-beta-relay:20260530-pr631-readiness-fence-v1`
 
-The public origin was rebuilt with strict signed remote peer-config boot enabled and
-the deployed public system-writer pin embedded in the app bundle:
+The public origin was rebuilt with strict signed remote peer-config boot enabled:
 
 - `VITE_VH_STRICT_PEER_CONFIG=true`
 - `VITE_GUN_PEER_CONFIG_URL=https://venn.carboncaste.io/mesh-peer-config.json`
+- `VITE_GUN_PEER_CONFIG_PUBLIC_KEY` set to the public peer-config signer
 - `VITE_VH_EXPOSE_PEER_TOPOLOGY=true`
-- CSP connect-src includes the public app origin plus the HTTPS and WSS public relay
-  hosts for `gun-a`, `gun-b`, and `gun-c`
+- CSP `connect-src` includes only the public app origin plus the HTTPS/WSS public
+  relay hosts for `gun-a`, `gun-b`, and `gun-c`
 
-The live signed peer config was refreshed and served at
-`https://venn.carboncaste.io/mesh-peer-config.json` with config id
-`public-beta-fallback-wss-v1`, issued `2026-05-28T10:31:28.700Z`, expiring
-`2026-06-04T10:31:28.700Z`, and peers exactly:
+The signed peer config served at
+`https://venn.carboncaste.io/mesh-peer-config.json` remains
+`public-beta-fallback-wss-v1`, issued `2026-05-30T13:03:34.909Z`, expiring
+`2026-06-06T13:03:34.909Z`, with peers exactly:
 
 - `wss://gun-a.carboncaste.io/gun`
 - `wss://gun-b.carboncaste.io/gun`
 - `wss://gun-c.carboncaste.io/gun`
 
-Post-deploy public health checks:
+Post-deploy public health checks all returned HTTP 200:
 
-- `https://venn.carboncaste.io/`: HTTP 200
-- `https://venn.carboncaste.io/api/analyze/health`: HTTP 200 with upstream reachable
-- `https://gun-a.carboncaste.io/health`: HTTP 200 relay-alive
-- `https://gun-b.carboncaste.io/health`: HTTP 200 relay-alive
-- `https://gun-c.carboncaste.io/health`: HTTP 200 relay-alive
+- `https://venn.carboncaste.io/`
+- `https://venn.carboncaste.io/api/analyze/health`
+- `https://gun-a.carboncaste.io/health`
+- `https://gun-b.carboncaste.io/health`
+- `https://gun-c.carboncaste.io/health`
 
 ## Public Analysis/Frame Readback Evidence
 
-Accepted public rows were reseeded from signed public data only. The filtered seed
-artifact rejected four rows before writing public state:
+Fresh public browser smoke passed against the redeployed stack:
 
-- Seed source:
-  `.tmp/analysis-frame-pipeline/20260528T111908Z/public-peer-accepted-seed-from-b-valid-signed-story.json`
-- Seed filter report:
-  `.tmp/analysis-frame-pipeline/20260528T111908Z/public-peer-accepted-seed-from-b-valid-signed-story-report.json`
-- Result: 13 input rows, 9 accepted rows, 4 excluded for signed story validation or
-  record-shape failures
-
-The public relay stores were stopped, moved aside, restarted, and reseeded with the
-9 signed accepted rows:
-
-`.tmp/analysis-frame-pipeline/20260528T111908Z/seed-public-peers-clean-reset-20260528T201854Z.json`
-
-Seed result:
-
-- `gun-a`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
-- `gun-b`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
-- `gun-c`: 9 stories, 9 syntheses, 9 latest-index rows, 0 failures
-
-Post-reset visible public latest-index checks:
-
-- `https://venn.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
-  0 story-body exclusions
-- `https://gun-a.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
-  0 story-body exclusions
-- `https://gun-b.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
-  0 story-body exclusions
-
-Relay C receives stale raw Gun rows from public clients after restart; the Web PWA and
-smoke use the deployed system-writer pin and reject those rows before rendering. The
-public app origin and the A/B relay REST surfaces used for release evidence remained
-on the 9-row signed window.
-
-The strengthened public browser smoke passed against the repaired public stack:
-
-`.tmp/analysis-frame-pipeline/20260528T111908Z/public-feed-browser-smoke-strengthened-clean-reset-20260528T202016Z/public-feed-browser-smoke-summary.json`
+`.tmp/release-evidence/public-feed-browser-smoke/1780160374505/public-feed-browser-smoke-summary.json`
 
 Smoke result:
 
-- Latest-index count: 9
+- Status: `pass`
+- Public relay latest-index sample: 9
 - Story body readback: 9 HTTP 200, 0 HTTP 404
 - Latest synthesis readback: 9 HTTP 200, 0 HTTP 404
-- Missing accepted synthesis for readable text stories: 0
+- Missing accepted synthesis or terminal unavailable state for readable text stories: 0
 - Readable singleton text stories: 9
 - Multi-source text stories: 0
 - Visible current headlines: 8
-- Expanded detail/frame rows: present
+- Frame-count distribution in the smoke sample: 4 stories with 3 rows, 5 stories
+  with 4 rows
+- Point IDs for accepted voting rows in the smoke sample: 32 of 32 frame IDs and
+  32 of 32 reframe IDs present
+- Public point-vote readback: pass; the selected frame point read back from the
+  public aggregate path with `afterAgree: 7`
+- Blocking CSP/network errors affecting story reads, synthesis, peers, or app
+  function: none
+
+The origin REST fanout was also audited across the full visible latest-index window
+after deployment:
+
+- `https://venn.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows,
+  0 latest-index exclusions, 1 repaired legacy-shaped row
+- Story-body readback: 9 HTTP 200, 0 HTTP 404
+- Latest synthesis readback: 9 HTTP 200, 0 HTTP 404
+- Readable singleton text stories: 9
+- Multi-source text stories: 0
+- Missing accepted synthesis or terminal unavailable state: 0
 - Frame-count distribution: 4 stories with 3 rows, 5 stories with 4 rows
-- Point IDs for accepted voting rows: 32 of 32 frame IDs and 32 of 32 reframe IDs
-  present
-- Public point-vote readback: pass
-- Blocking CSP/network errors affecting story reads, synthesis, peers, or app function: none
+- Frame/reframe rows: 32
 
-The smoke harness now fails if a public latest-index sample contains readable text
-stories without accepted synthesis or a durable terminal unavailable reason. That
-strengthened behavior is covered by:
+Direct relay REST state after the relay restart:
 
-`pnpm exec vitest run --root packages/e2e src/live/public-feed-browser-smoke.vitest.mjs`
+- `https://gun-a.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows
+- `https://gun-b.carboncaste.io/vh/news/latest-index?limit=80`: 9 visible rows
+- `https://gun-c.carboncaste.io/vh/news/latest-index?limit=80`: 0 visible rows
+  after restart, so stale relay-C raw rows are not part of the product-visible REST
+  window
 
-## Release Evidence
+## Commit-Head Release Evidence
 
-StoryCluster production readiness was refreshed with the approved release env file:
+The following paths are the post-fix, clean-commit release evidence for PR #631.
+Do not use the stale 2026-05-28 Mesh/canary/status claims as current release
+evidence.
 
-- Latest report:
+- StoryCluster production readiness:
   `.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
-- Status: `release_ready`
-- Source-health release evidence: `pass`, 28 contributing sources
-- Headline soak trend: `pass`, fresh within the 36 hour window
-
-Public WSS proof passed after the strict signed peer-config origin redeploy:
-
-- Aggregate readiness artifact:
+  with `status: release_ready`.
+- LUMA mesh reader-path coverage:
+  `.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json`
+  with `status: pass`.
+- Public WSS peer-config proof:
+  `.tmp/mesh-production-readiness/mesh-production-readiness-20260530T155607Z-4b08de91/source-reports/deployed_wss/mesh-production-readiness-report.json`
+  with `failures: []`; the aggregate Mesh report below is the release-ready
+  decision.
+- Mesh production readiness:
   `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
-- Deployment scope: `public_wss_deployment`
-- Browser app peer-config source: `remote-config`
-- Browser app peer-config signed: `true`
-- Browser opened sockets to all three expected public WSS peer host hashes
-- Relay `healthz`, `readyz`, and `metrics`: HTTP 200 for all three public peers
-- Status: `release_ready`
-
-The production canary passed after Mesh was release-ready:
-
-- Latest report:
-  `.tmp/production-app-canary/latest/production-app-canary-report.json`
-- Run id:
-  `production-app-canary-20260528T200323Z-6e9cb057`
-- Downstream public smoke:
-  `.tmp/production-app-canary/production-app-canary-20260528T200323Z-6e9cb057/downstream-observation/public-feed-browser-smoke/public-feed-browser-smoke-summary.json`
-- Status: `pass`
+  with `run_id: mesh-production-readiness-20260530T155607Z-4b08de91`,
+  `status: release_ready`, `release_ready_blockers: []`, and
+  `VH_MESH_DEPLOYED_WSS_PUBLIC_PROOF=true`.
+- Production app canary:
+  `.tmp/production-app-canary/latest/production-app-canary-report.json` with
+  `run_id: production-app-canary-20260530T164447Z-30c70493`, `status: pass`,
+  `reason: all_required_surfaces_observed`, and all required downstream surfaces
+  observed.
+- MVP release gates:
+  `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` with
+  passing public smoke artifact
+  `.tmp/release-evidence/public-feed-browser-smoke/1780159960742/public-feed-browser-smoke-summary.json`
+  and all gates passing.
+- Public beta launch closeout:
+  `pnpm check:public-beta-launch-closeout` passes against the same clean commit.
 
 ## Verification
 
-Passed locally:
+Targeted tests passed before the final clean-commit gate run:
 
-- `pnpm exec vitest run --root packages/e2e src/live/public-feed-browser-smoke.vitest.mjs`
-- `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS=240000 pnpm test:public-feed:browser-smoke`
+- `pnpm --filter @vh/gun-client test -- newsAdapters.test.ts`
+- `pnpm --filter @vh/web-pwa exec vitest run src/store/news/hydration.test.ts`
+- `pnpm --filter @vh/news-aggregator test -- bundleSynthesisWorker.test.ts daemon.production.test.ts`
+- `pnpm --filter @vh/news-aggregator exec vitest run --config ./vitest.config.ts src/bundleSynthesisDaemonConfig.test.ts src/bundleSynthesisWorker.test.ts src/daemon.production.test.ts`
 - `node --check infra/relay/server.js`
-- `node --check packages/e2e/src/live/public-feed-browser-smoke.mjs`
-- `pnpm --filter @vh/news-aggregator typecheck`
-- `pnpm --filter @vh/news-aggregator test`
+- `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm test:public-feed:browser-smoke`
+
+Final clean-commit verification:
+
 - `pnpm --filter @vh/gun-client test`
-- `pnpm --filter @vh/web-pwa typecheck`
+- `pnpm --filter @vh/news-aggregator test`
 - `pnpm --filter @vh/web-pwa test`
-- `pnpm --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs src/live/public-feed-browser-smoke.vitest.mjs --config ./vitest.config.ts --reporter=verbose --no-file-parallelism`
-- `pnpm --filter @vh/e2e exec vitest run src/live/public-feed-browser-smoke.vitest.mjs --config ./vitest.config.ts --reporter=verbose`
+- `pnpm test:public-feed:browser-smoke`
+- `pnpm check:storycluster:production-readiness`
+- `pnpm check:mesh:production-readiness`
+- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+- `pnpm check:mvp-release-gates`
 - `pnpm check:public-beta-launch-closeout`
 - `pnpm docs:check`
 - `git diff --check origin/main...HEAD`
 - `node tools/scripts/check-diff-coverage.mjs`
 - `pnpm check:public-namespace-leaks`
 
-Previously failed against the undeployed or dirty public stack:
-
-- `pnpm test:public-feed:browser-smoke`
-- `pnpm --filter @vh/e2e test:live:public-feed-browser-smoke`
-- `pnpm check:mvp-release-gates`
-- `pnpm check:production-app-canary -- --mesh-report .tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
-
-The post-commit verification matrix is recorded in the PR packet. Commit-sensitive
-gates such as LUMA/MVP release gates must be evaluated from a clean working tree.
-
 ## Remaining Blockers
 
-No product-path blockers remain in the repaired public analysis/frame evidence for the
-public app origin: latest-index/story-body consistency, singleton visibility, accepted
-synthesis readback, frame rows, point IDs, public WSS proof, StoryCluster readiness,
-Mesh readiness, and production canary have public evidence.
-
-Operational residual: raw relay C can be recontaminated by public Gun clients after a
-store wipe. The public app and smoke reject those rows with the deployed system-writer
-pin before rendering; the public origin release evidence is taken from the A/B REST
-fanout and direct app/browser validation. A follow-up hardening item is to enforce the
-same system-writer validation in relay REST/raw write admission for C.
+No public feed analysis/frame product-path blocker remains in the post-fix public
+smoke evidence above. PR #631 remains draft and is not marked ready or merged here;
+mergeability still depends on the pushed branch head, GitHub checks, and reviewer
+approval.
 
 ## Explicit Non-Claims
 
-This work does not claim LUMA Silver readiness, verified-human identity, one-human-one-vote,
-Sybil resistance, native app readiness, legal readiness, commercial readiness, or public
-beta launch readiness. The evidence is scoped to the deployed public feed
-analysis/frame-table path, StoryCluster/Mesh/canary gates, and the explicit MVP release
-checks named in the PR packet.
+This work does not claim LUMA Silver readiness, verified-human identity,
+one-human-one-vote, Sybil resistance, native app readiness, legal readiness,
+commercial readiness, or public beta launch readiness. The evidence is scoped to the
+deployed public feed analysis/frame-table path, StoryCluster/Mesh/canary gates, and
+the explicit MVP release checks named in the PR packet.

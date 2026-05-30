@@ -12,9 +12,9 @@ import {
   readNewsIngestionLease,
   removeNewsBundle,
   removeNewsStoryline,
+  writeNewsStory,
   writeNewsIngestionLease,
   writeNewsStoryline,
-  writeStoryBundle,
   type NewsIngestionLease,
   type VennClient,
 } from '@vh/gun-client';
@@ -99,7 +99,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const startRuntime = config.startRuntime ?? startNewsRuntime;
   const readLease = config.readLease ?? readNewsIngestionLease;
   const writeLease = config.writeLease ?? writeNewsIngestionLease;
-  const writeBundle = config.writeBundle ?? writeStoryBundle;
+  const writeBundle = config.writeBundle ?? writeNewsStory;
   const removeBundle = config.removeBundle ?? removeNewsBundle;
   const nowFn = config.now ?? Date.now;
   const randomFn = config.random ?? Math.random;

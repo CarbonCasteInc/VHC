@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolvePublicSemanticSoakBundleSynthesisEnv,
   resolvePublicSemanticSoakMaxItemsTotal,
   resolvePublicSemanticSoakSourceIds,
   resolvePublicSemanticSoakSpawnEnv,
@@ -232,6 +233,40 @@ describe('runDaemonFeedSemanticSoak', () => {
       VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '112',
       VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST: '24',
     }, sourceIds)).toBe('112');
+  });
+
+  it('enables product-ready bundle synthesis for public smoke runs when a backend is available', () => {
+    const env = resolvePublicSemanticSoakBundleSynthesisEnv({
+      OPENAI_API_KEY: 'openai-key',
+    }, TEST_PORT_PLAN);
+
+    expect(env).toMatchObject({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+      VH_BUNDLE_SYNTHESIS_TIMEOUT_MS: '60000',
+      VH_BUNDLE_SYNTHESIS_RATE_PER_MIN: '120',
+      VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH: '64',
+    });
+    expect(env.VH_BUNDLE_SYNTHESIS_UPSTREAM_URL).toBeUndefined();
+    expect(env.VH_BUNDLE_SYNTHESIS_API_KEY).toBeUndefined();
+  });
+
+  it('keeps bundle synthesis disabled for public smoke runs without a synthesis backend', () => {
+    expect(resolvePublicSemanticSoakBundleSynthesisEnv({}, TEST_PORT_PLAN)).toEqual({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'false',
+    });
+  });
+
+  it('routes fixture smoke bundle synthesis through the local analysis stub', () => {
+    const env = resolvePublicSemanticSoakBundleSynthesisEnv({
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+    }, TEST_PORT_PLAN);
+
+    expect(env).toMatchObject({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+      VH_BUNDLE_SYNTHESIS_UPSTREAM_URL: 'http://127.0.0.1:9100/v1/chat/completions',
+      VH_BUNDLE_SYNTHESIS_API_KEY: 'fixture-analysis-stub-key',
+      VH_BUNDLE_SYNTHESIS_MODEL: 'fixture-analysis-stub',
+    });
   });
 
   it('shares managed StoryCluster state across runs in the same soak artifact by default', () => {

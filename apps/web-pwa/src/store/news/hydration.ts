@@ -2,6 +2,7 @@ import type { StoryBundle } from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
+  parseNewsLatestIndexEntryRecord,
   readNewsStoryWithRelayRestFallback,
   type ChainWithGet,
   type VennClient
@@ -29,6 +30,7 @@ const NEWS_HYDRATION_SUBSCRIBE_HOT_INDEX = readBooleanEnv(
 const pendingStoryReadsByStore = new WeakMap<StoreApi<NewsState>, Set<string>>();
 const fetchedStoryTimestampsByStore = new WeakMap<StoreApi<NewsState>, Map<string, number>>();
 const storyReadQueuesByStore = new WeakMap<StoreApi<NewsState>, StoryReadQueueState>();
+const latestIndexEventVersionsByStore = new WeakMap<StoreApi<NewsState>, Map<string, number>>();
 const PROTOCOL_INDEX_FIELDS = [
   '_protocolVersion',
   '_writerKind',
@@ -102,10 +104,6 @@ function parseLatestTimestamp(value: unknown): number | null {
   }
 
   if (value && typeof value === 'object') {
-    if (carriesProtocolIndexFields(value)) {
-      return null;
-    }
-
     const record = value as {
       cluster_window_end?: unknown;
       latest_activity_at?: unknown;
@@ -126,21 +124,13 @@ function parseLatestTimestamp(value: unknown): number | null {
   return null;
 }
 
-function parseLatestIndexSubscriptionTimestamp(storyId: string, value: unknown): number | null {
+function parseLatestIndexSubscriptionTimestamp(value: unknown): number | null {
   if (!value || typeof value !== 'object') {
     return parseLatestTimestamp(value);
   }
 
-  const record = value as {
-    story_id?: unknown;
-    latest_activity_at?: unknown;
-  };
-  if (
-    carriesProtocolIndexFields(value) &&
-    record.story_id === storyId &&
-    'latest_activity_at' in record
-  ) {
-    return parseLatestTimestamp(record.latest_activity_at);
+  if (carriesProtocolIndexFields(value)) {
+    return null;
   }
 
   return parseLatestTimestamp(value);
@@ -204,6 +194,31 @@ function getStoryReadQueue(store: StoreApi<NewsState>): StoryReadQueueState {
   const created = { active: 0, queue: [] };
   storyReadQueuesByStore.set(store, created);
   return created;
+}
+
+function getLatestIndexEventVersions(store: StoreApi<NewsState>): Map<string, number> {
+  const existing = latestIndexEventVersionsByStore.get(store);
+  if (existing) {
+    return existing;
+  }
+  const created = new Map<string, number>();
+  latestIndexEventVersionsByStore.set(store, created);
+  return created;
+}
+
+function markLatestIndexEvent(store: StoreApi<NewsState>, storyId: string): number {
+  const versions = getLatestIndexEventVersions(store);
+  const next = (versions.get(storyId) ?? 0) + 1;
+  versions.set(storyId, next);
+  return next;
+}
+
+function isCurrentLatestIndexEvent(
+  store: StoreApi<NewsState>,
+  storyId: string,
+  version: number,
+): boolean {
+  return getLatestIndexEventVersions(store).get(storyId) === version;
 }
 
 function pruneLatestWindow(store: StoreApi<NewsState>): void {
@@ -326,14 +341,31 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       if (!key) {
         return;
       }
-      const timestamp = parseLatestIndexSubscriptionTimestamp(key, data);
+      const eventVersion = markLatestIndexEvent(store, key);
+      if (data === null) {
+        store.getState().removeLatestIndex(key);
+        store.getState().removeHotIndex(key);
+        store.getState().removeStory(key);
+        getFetchedStoryTimestamps(store).delete(key);
+        return;
+      }
+      const timestamp = parseLatestIndexSubscriptionTimestamp(data);
+      if (carriesProtocolIndexFields(data)) {
+        void parseNewsLatestIndexEntryRecord(client, key, data)
+          .then((timestamp) => {
+            if (timestamp === null || !isCurrentLatestIndexEvent(store, key, eventVersion)) {
+              return;
+            }
+            store.getState().upsertLatestIndex(key, timestamp);
+            pruneLatestWindow(store);
+            if (key in store.getState().latestIndex) {
+              loadStoryFromIndex(client, store, key, timestamp);
+            }
+          })
+          .catch(() => undefined);
+        return;
+      }
       if (timestamp === null) {
-        if (data === null) {
-          store.getState().removeLatestIndex(key);
-          store.getState().removeHotIndex(key);
-          store.getState().removeStory(key);
-          getFetchedStoryTimestamps(store).delete(key);
-        }
         return;
       }
       store.getState().upsertLatestIndex(key, timestamp);

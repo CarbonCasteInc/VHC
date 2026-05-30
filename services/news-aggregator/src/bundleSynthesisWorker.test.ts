@@ -232,6 +232,7 @@ describe('bundleSynthesisWorker', () => {
       async <T,>(_writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<T>) => task(),
     );
     const runWrite: NonNullable<BundleSynthesisWorkerConfig['runWrite']> = runWriteMock;
+    const publishReadyStory = vi.fn(async () => undefined);
 
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
@@ -247,6 +248,7 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest,
+      publishReadyStory,
       runWrite,
       analysisEvalArtifactWriter: {
         write: vi.fn(async (artifact) => {
@@ -298,6 +300,10 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]?.frames[0]?.frame_point_id).toMatch(/^synth-point:/);
     expect(writtenSyntheses[0]?.synthesis_id).toMatch(/^news-bundle:story-1:/);
     expect(writeLatest).toHaveBeenCalledTimes(1);
+    expect(publishReadyStory).toHaveBeenCalledWith({} as VennClient, BUNDLE, writtenSyntheses[0]);
+    expect(writeLatest.mock.invocationCallOrder[0]).toBeLessThan(
+      publishReadyStory.mock.invocationCallOrder[0],
+    );
     expect(runWriteMock.mock.calls.map((call) => call[0])).toEqual([
       'synthesis_candidate',
       'synthesis_epoch',
@@ -390,6 +396,50 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]).toMatchObject({
       facts_summary: 'Existing summary',
       provenance: { candidate_ids: [expect.stringMatching(/^news-bundle:/)] },
+    });
+  });
+
+  it('does not publish product-ready latest when accepted synthesis publication fails', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
+    const publishReadyStory = vi.fn(async () => {
+      throw new Error('latest index unavailable');
+    });
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      now: () => 1700000003000,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay: vi.fn(async ({ prompt }: { prompt: string }) => ({
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(
+          prompt.includes('--- ARTICLE START ---')
+            ? articleAnalysisPayload()
+            : bundleSynthesisPayload(),
+        ),
+      })),
+      writeCandidate: vi.fn(async (_client, candidate) => candidate),
+      writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      publishReadyStory,
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toEqual({
+      status: 'rejected',
+      storyId: 'story-1',
+      reason: 'latest_write_failed',
+    });
+
+    expect(publishReadyStory).toHaveBeenCalledTimes(1);
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'rejected',
+      rejection_reason: 'latest_write_failed',
     });
   });
 
