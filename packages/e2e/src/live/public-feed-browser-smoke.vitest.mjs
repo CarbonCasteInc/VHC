@@ -119,6 +119,58 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, beforeRows)).toBeNull();
   });
 
+  it('records feed load-more refresh calls so pagination cannot pass from a preloaded window', async () => {
+    const refreshLatest = vi.fn(async () => undefined);
+    const store = {
+      state: {
+        refreshLatest,
+        latestIndex: { 'story-a': 20 },
+        stories: [{ story_id: 'story-a' }],
+        loading: false,
+        error: null,
+      },
+      getState() {
+        return this.state;
+      },
+      setState(next) {
+        this.state = { ...this.state, ...next };
+      },
+    };
+    const fakeWindow = { __VH_NEWS_STORE__: store };
+    const page = {
+      evaluate: vi.fn(async (fn) => {
+        const previousWindow = globalThis.window;
+        globalThis.window = fakeWindow;
+        try {
+          return await fn();
+        } finally {
+          globalThis.window = previousWindow;
+        }
+      }),
+    };
+
+    await expect(internal.installRefreshLatestRecorder(page)).resolves.toMatchObject({
+      installed: true,
+    });
+    const previousWindow = globalThis.window;
+    globalThis.window = fakeWindow;
+    try {
+      await store.getState().refreshLatest({ limit: 15, before: 20 });
+    } finally {
+      globalThis.window = previousWindow;
+    }
+    await expect(internal.readRefreshLatestRecorder(page)).resolves.toEqual([{
+      args: [{ limit: 15, before: 20 }],
+      at: expect.any(Number),
+    }]);
+    await expect(internal.readPublicNewsStoreSnapshot(page)).resolves.toMatchObject({
+      latestIndexCount: 1,
+      storyCount: 1,
+      loading: false,
+    });
+    expect(refreshLatest).toHaveBeenCalledWith({ limit: 15, before: 20 });
+  });
+
   it('reads public aggregate proof through the deployed app origin fanout shape', async () => {
     const fetchMock = vi.fn(async (url) => {
       expect(String(url)).toBe(

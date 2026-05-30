@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
-import { useFeedStore } from '../../hooks/useFeedStore';
+import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
 import { useAppStore } from '../../store';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useNewsStore } from '../../store/news';
@@ -16,8 +16,8 @@ const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
 const DIRECT_STORY_LOAD_RETRY_MS = 1_000;
 const DIRECT_STORY_LOAD_MAX_ATTEMPTS = 12;
-const PUBLIC_NEWS_REFRESH_INITIAL_LIMIT = 50;
-const PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP = 50;
+const PUBLIC_NEWS_REFRESH_INITIAL_LIMIT = FEED_PAGE_SIZE;
+const PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP = FEED_PAGE_SIZE;
 const PUBLIC_NEWS_REFRESH_MAX_LIMIT = 250;
 
 export interface FeedShellProps {

@@ -1117,6 +1117,58 @@ async function refreshLatest(page, limit = 120, timeoutMs = DEFAULT_REFRESH_TIME
   }));
 }
 
+async function installRefreshLatestRecorder(page) {
+  return page.evaluate(() => {
+    const store = window.__VH_NEWS_STORE__;
+    const state = store?.getState?.();
+    const refresh = state?.refreshLatest;
+    if (!store || typeof store.setState !== 'function' || typeof refresh !== 'function') {
+      return { installed: false, reason: 'news-store-refreshLatest-missing' };
+    }
+    if (window.__VH_PUBLIC_FEED_REFRESH_RECORDER_INSTALLED) {
+      window.__VH_PUBLIC_FEED_REFRESH_CALLS = [];
+      return { installed: true, reused: true };
+    }
+    window.__VH_PUBLIC_FEED_REFRESH_CALLS = [];
+    window.__VH_PUBLIC_FEED_REFRESH_RECORDER_INSTALLED = true;
+    store.setState({
+      refreshLatest: async (...args) => {
+        window.__VH_PUBLIC_FEED_REFRESH_CALLS.push({
+          args,
+          at: Date.now(),
+        });
+        return refresh(...args);
+      },
+    });
+    return { installed: true, reused: false };
+  }).catch((error) => ({
+    installed: false,
+    reason: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function readRefreshLatestRecorder(page) {
+  return page.evaluate(() => Array.isArray(window.__VH_PUBLIC_FEED_REFRESH_CALLS)
+    ? window.__VH_PUBLIC_FEED_REFRESH_CALLS
+    : [])
+    .catch(() => []);
+}
+
+async function readPublicNewsStoreSnapshot(page) {
+  return page.evaluate(() => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    if (!store) return null;
+    return {
+      latestIndexCount: store.latestIndex && typeof store.latestIndex === 'object'
+        ? Object.keys(store.latestIndex).length
+        : null,
+      storyCount: Array.isArray(store.stories) ? store.stories.length : null,
+      loading: Boolean(store.loading),
+      error: store.error ? String(store.error).slice(0, 240) : null,
+    };
+  }).catch(() => null);
+}
+
 async function visibleCards(page) {
   return page.evaluate(() => Array.from(document.querySelectorAll('article[data-testid^="news-card-"]'))
     .map((card) => {
@@ -2171,9 +2223,13 @@ async function runPublicFeedBrowserSmoke({
     await page.screenshot(viewportScreenshotOptions(screenshots.afterRefresh));
     progress('refresh-screenshot', { count: afterRefreshCards.length });
 
+    const beforeScrollNewsStore = await readPublicNewsStoreSnapshot(page);
+    const refreshRecorder = await installRefreshLatestRecorder(page);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(1_500);
     const afterScrollCards = await visibleCards(page);
+    const loadMoreRefreshCalls = await readRefreshLatestRecorder(page);
+    const afterScrollNewsStore = await readPublicNewsStoreSnapshot(page);
     await page.screenshot(viewportScreenshotOptions(screenshots.afterScroll));
     const afterScrollNewStoryIds = afterScrollCards
       .map((card) => card.storyId)
@@ -2187,8 +2243,15 @@ async function runPublicFeedBrowserSmoke({
       newStoryIds: afterScrollNewStoryIds.slice(0, 12),
       meshIndexCount,
       initialCount: initialCards.length,
+      beforeScrollNewsStore,
+      afterScrollNewsStore,
+      refreshRecorder,
+      loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 12),
     });
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
+    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length > 0 && loadMoreRefreshCalls.length === 0) {
+      throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}:preloaded-window`);
+    }
     if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length === 0) {
       throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}`);
     }
@@ -2349,6 +2412,9 @@ async function runPublicFeedBrowserSmoke({
           initialCount: initialCards.length,
           meshIndexCount,
           newStoryIds: afterScrollNewStoryIds.slice(0, 24),
+          beforeScrollNewsStore,
+          afterScrollNewsStore,
+          loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 24),
         },
         storyDetailOpens: {
           storyId: target.storyId,
@@ -2430,6 +2496,9 @@ export const publicFeedBrowserSmokeInternal = {
   extractViteEnvString,
   fetchDeployedSystemWriterPin,
   refreshLatest,
+  installRefreshLatestRecorder,
+  readRefreshLatestRecorder,
+  readPublicNewsStoreSnapshot,
   findVisibleStoryRow,
   summarizeBrowserLogDiagnostics,
   waitForInitialOpenHeadlines,
