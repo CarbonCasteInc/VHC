@@ -283,6 +283,7 @@ function expectSystemLatestIndexRecord(
   value: unknown,
   storyId: string,
   latestActivityAt: number,
+  story?: StoryBundle,
 ): SystemWriterLatestIndexRecord {
   expect(value).toMatchObject({
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -293,6 +294,17 @@ function expectSystemLatestIndexRecord(
     story_id: storyId,
     latest_activity_at: latestActivityAt,
   });
+  if (story) {
+    expect(value).toMatchObject({
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: (story.primary_sources ?? story.sources).length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    });
+  }
   expect(value).not.toHaveProperty('_authorScheme');
   expect(value).not.toHaveProperty('signedWriteEnvelope');
   return value as SystemWriterLatestIndexRecord;
@@ -2208,9 +2220,14 @@ describe('newsAdapters', () => {
           _writerKind: 'system',
           story_id: STORY.story_id,
           latest_activity_at: STORY.cluster_window_end,
+          product_state_schema_version: 'vh-news-product-feed-index-v1',
+          topic_id: STORY.topic_id,
+          source_set_revision: STORY.provenance_hash,
+          source_count: STORY.sources.length,
+          canonical_source_count: STORY.sources.length,
         }),
       });
-      expectSystemLatestIndexRecord(mesh.writes[1].value, STORY.story_id, STORY.cluster_window_end);
+      expectSystemLatestIndexRecord(mesh.writes[1].value, STORY.story_id, STORY.cluster_window_end, STORY);
       expect(mesh.writes[2]).toEqual({
         path: 'news/index/hot/story-123',
         value: expect.objectContaining({
@@ -2223,6 +2240,17 @@ describe('newsAdapters', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rejects latest-index source metadata that does not match the story id', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      writeNewsLatestIndexEntry(client, 'story-other', STORY.cluster_window_end, STORY),
+    ).rejects.toThrow('latest-index story metadata must match storyId');
+    expect(mesh.writes).toHaveLength(0);
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {

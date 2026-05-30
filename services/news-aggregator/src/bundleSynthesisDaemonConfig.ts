@@ -104,7 +104,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
       await runWrite(
         'news_latest_index',
         { story_id: bundle.story_id, topic_id: bundle.topic_id },
-        () => writeNewsLatestIndexEntry(publishClient, bundle.story_id, bundle.cluster_window_end),
+        () => writeNewsLatestIndexEntry(publishClient, bundle.story_id, bundle.cluster_window_end, bundle),
       );
       await runWrite(
         'news_hot_index',
