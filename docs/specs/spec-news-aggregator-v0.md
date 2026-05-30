@@ -227,6 +227,13 @@ Public story-node storage contract:
   metadata-insufficient. Missing lifecycle records are initialized to
   `pending`; lifecycle records for an unchanged `source_set_revision` are
   preserved.
+- A malformed system-marked story body MUST NOT become product-visible through
+  relaxed reader rules. The daemon MAY repair a stale row that is missing the
+  required top-level story mirror fields only when the embedded
+  `__story_bundle_json` parses as a valid `StoryBundle` for that path and the
+  existing `_systemSignature` verifies after reconstructing those mirror fields.
+  Rows that cannot pass that reconstructed-signature check remain invalid and
+  are skipped or reported as repair failures.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.

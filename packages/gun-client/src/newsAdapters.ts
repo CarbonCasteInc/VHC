@@ -954,6 +954,47 @@ async function parseStoryBundleFromStoredRecord(
   return parsed?.story_id === storyId ? parsed : null;
 }
 
+async function parseStoryBundleRepairCandidateFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  data: unknown,
+): Promise<StoryBundle | null> {
+  const payload = stripGunMetadata(data);
+  if (!isSystemWriterMarkedRecord(payload)) {
+    return null;
+  }
+  if ('_authorScheme' in payload || 'signedWriteEnvelope' in payload || hasForbiddenNewsPayloadFields(payload)) {
+    return null;
+  }
+
+  const parsed = parseLegacyStoryBundle(payload);
+  if (!parsed || parsed.story_id !== storyId) {
+    return null;
+  }
+
+  const needsMirrorRepair =
+    payload.story_id !== parsed.story_id
+    || payload.created_at !== parsed.created_at
+    || payload.schemaVersion !== parsed.schemaVersion;
+  if (!needsMirrorRepair) {
+    return null;
+  }
+
+  const reconstructed = {
+    ...payload,
+    story_id: parsed.story_id,
+    created_at: parsed.created_at,
+    schemaVersion: parsed.schemaVersion,
+  };
+  const validation = await validateSystemWriterRecord({
+    path: storyPath(storyId),
+    record: reconstructed,
+    pin: client.config.systemWriterPin,
+    verify: client.config.systemWriterVerify,
+  });
+  return validation.valid ? parsed : null;
+}
+
 async function parseNewsSynthesisLifecycleFromStoredRecord(
   client: VennClient,
   storyId: string,
@@ -1466,6 +1507,31 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   } catch {
     return null;
   }
+}
+
+/**
+ * Read a system-written story body that is not product-visible yet but can be
+ * safely reconstructed for daemon repair.
+ *
+ * This intentionally does not loosen `readNewsStory`: malformed system rows
+ * remain hidden from product readers. A repair candidate is returned only when
+ * the embedded StoryBundle is valid for the requested path and the existing
+ * `_systemSignature` verifies after restoring the required top-level story
+ * mirror fields that older Gun merge writes may have lost.
+ */
+export async function readNewsStoryRepairCandidate(
+  client: VennClient,
+  storyId: string,
+): Promise<StoryBundle | null> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  const raw = await readOnce(getNewsStoryChain(client, normalizedId));
+  if (raw === null) {
+    return null;
+  }
+  return parseStoryBundleRepairCandidateFromStoredRecord(client, normalizedId, raw);
 }
 
 export async function readNewsStoryIds(
