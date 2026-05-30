@@ -96,6 +96,7 @@ function classifyPublicFeedCompositionFailure(message, sourceHealthEvidence) {
   if (
     text.includes('public-relay-latest-index-missing-composition')
     || text.includes('public-relay-latest-index-missing-story-states')
+    || text.includes('public-relay-latest-index-product-metadata-missing')
     || text.includes('public-relay-readable-text-synthesis-missing')
     || text.includes('public-relay-synthesis-point-ids-missing')
     || text.includes('public-relay-latest-index-story-404')
@@ -173,6 +174,9 @@ async function runPublicFeedCompositionFreshnessGate({
     storyBodyStatusCounts: readback.storyBodyStatusCounts,
     synthesisStatusCounts: readback.synthesisStatusCounts,
     publicStateCounts: readback.publicStateCounts,
+    latestIndexProductMetadataStatusCounts: readback.latestIndexProductMetadataStatusCounts,
+    missingLatestIndexProductMetadataStoryCount: readback.missingLatestIndexProductMetadataStoryCount,
+    missingLatestIndexProductMetadataStories: readback.missingLatestIndexProductMetadataStories,
     relayCapability: readback.relayCapability,
     terminalUnavailableReasonCounts: readback.terminalUnavailableReasonCounts,
     missingAcceptedSynthesisStories: readback.missingAcceptedSynthesisStories,

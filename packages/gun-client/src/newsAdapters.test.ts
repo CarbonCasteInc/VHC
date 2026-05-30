@@ -31,6 +31,7 @@ import {
   hasForbiddenNewsPayloadFields,
   newsAdapterInternal,
   parseNewsLatestIndexEntryRecord,
+  parseNewsLatestIndexProductRecord,
   parseRemovalEntry,
   readLatestStoryIds,
   readNewsHotIndex,
@@ -1069,6 +1070,27 @@ describe('newsAdapters', () => {
     await expect(
       parseNewsLatestIndexEntryRecord(signingClient, 'other-story', record),
     ).resolves.toBeNull();
+
+    await writeNewsLatestIndexEntry(signingClient, STORY.story_id, STORY.cluster_window_end, STORY);
+    const productRecord = expectSystemLatestIndexRecord(
+      mesh.writes.at(-1)?.value,
+      STORY.story_id,
+      STORY.cluster_window_end,
+      STORY,
+    );
+    await expect(
+      parseNewsLatestIndexProductRecord(signingClient, STORY.story_id, productRecord),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
   });
 
   it('readNewsLatestIndexWithRelayRestFallback prefers validated REST records before scanning the direct root', async () => {
@@ -2186,6 +2208,56 @@ describe('newsAdapters', () => {
       const latestPromise = writeNewsLatestIndexEntry(client, 'story-a', 123);
       await vi.advanceTimersByTimeAsync(1000);
       await expect(latestPromise).resolves.toBeUndefined();
+
+      const metadataStory = { ...STORY, story_id: 'story-metadata' };
+      mesh.setPutHang('news/index/latest/story-metadata');
+      mesh.setRead('news/index/latest/story-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: metadataStory.story_id,
+        latest_activity_at: metadataStory.cluster_window_end,
+        product_state_schema_version: 'vh-news-product-feed-index-v1',
+        topic_id: metadataStory.topic_id,
+        source_set_revision: metadataStory.provenance_hash,
+        source_count: metadataStory.sources.length,
+        canonical_source_count: metadataStory.sources.length,
+        story_created_at: metadataStory.created_at,
+        cluster_window_start: metadataStory.cluster_window_start,
+      });
+      const metadataPromise = writeNewsLatestIndexEntry(
+        client,
+        metadataStory.story_id,
+        metadataStory.cluster_window_end,
+        metadataStory,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(metadataPromise).resolves.toBeUndefined();
+
+      const metadataMissingStory = { ...STORY, story_id: 'story-missing-metadata' };
+      mesh.setPutHang('news/index/latest/story-missing-metadata');
+      mesh.setRead('news/index/latest/story-missing-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: metadataMissingStory.story_id,
+        latest_activity_at: metadataMissingStory.cluster_window_end,
+      });
+      const missingMetadataPromise = expect(
+        writeNewsLatestIndexEntry(
+          client,
+          metadataMissingStory.story_id,
+          metadataMissingStory.cluster_window_end,
+          metadataMissingStory,
+        ),
+      ).rejects.toThrow('news latest-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingMetadataPromise;
 
       mesh.setPutHang('news/index/hot/story-a');
       mesh.setRead('news/index/hot/story-a', {

@@ -296,6 +296,7 @@ export function classifyGateFailure(output) {
     text.includes('scroll-feed-lost-headlines') ||
     text.includes('public-relay-latest-index-missing-composition') ||
     text.includes('public-relay-latest-index-missing-story-states') ||
+    text.includes('public-relay-latest-index-product-metadata-missing') ||
     text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
     text.includes('source-labels-missing') ||
     text.includes('timestamps-missing')
