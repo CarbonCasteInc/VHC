@@ -918,6 +918,163 @@ describe('infra relay server', () => {
     gun.off();
   }, 20_000);
 
+  it('does not mark stale topic synthesis accepted until lifecycle matches the current story source-set revision', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '250',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '250',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '250',
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '250',
+      VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
+    });
+    const gun = createRelayGunClient(port);
+    const latestIndexRoot = gun.get('vh').get('news').get('index').get('latest');
+    const story = {
+      schemaVersion: 'story-bundle-v0',
+      story_id: 'story-grown',
+      topic_id: 'topic-grown',
+      headline: 'Grown story',
+      cluster_window_start: 100,
+      cluster_window_end: 300,
+      sources: [
+        { source_id: 'src-a', publisher: 'A', url: 'https://example.com/a', url_hash: 'hash-a', published_at: 100, title: 'Grown story first source' },
+        { source_id: 'src-b', publisher: 'B', url: 'https://example.com/b', url_hash: 'hash-b', published_at: 300, title: 'Grown story second source' },
+      ],
+      cluster_features: {
+        entity_keys: ['grown', 'story'],
+        time_bucket: 'tb-1',
+        semantic_signature: 'sig-grown',
+      },
+      provenance_hash: 'prov-current',
+      created_at: 100,
+    };
+    const acceptedSynthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: story.topic_id,
+      synthesis_id: 'syn-old',
+      epoch: 1,
+      inputs: { story_bundle_ids: [story.story_id] },
+      facts_summary: 'Accepted synthesis from the prior source-set revision.',
+      frames: [{
+        frame: 'Frame',
+        reframe: 'Reframe',
+        frame_point_id: 'syn-old:0:frame',
+        reframe_point_id: 'syn-old:0:reframe',
+      }],
+      provenance: {
+        candidate_ids: ['cand-old'],
+        provider_mix: [{ provider_id: 'remote-analysis', count: 1 }],
+      },
+      quorum: {
+        required: 1,
+        received: 1,
+        reached_at: 300,
+        timed_out: false,
+        selection_rule: 'deterministic',
+      },
+      divergence_metrics: {
+        disagreement_score: 0,
+        source_dispersion: 1,
+        candidate_count: 1,
+      },
+      warnings: [],
+      created_at: 300,
+    };
+    const lifecycleChain = gun
+      .get('vh')
+      .get('news')
+      .get('stories')
+      .get(story.story_id)
+      .get('synthesis_lifecycle')
+      .get('latest');
+
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+      JSON.stringify(story),
+    );
+    await putGunObjectAndWaitForField(latestIndexRoot.get(story.story_id), {
+      story_id: story.story_id,
+      latest_activity_at: story.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: 2,
+      canonical_source_count: 2,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    }, 'source_set_revision', story.provenance_hash);
+    await putGunValueAndWaitForReadback(
+      gun.get('vh').get('topics').get(story.topic_id).get('latest').get('__topic_synthesis_json'),
+      JSON.stringify(acceptedSynthesis),
+    );
+    await putGunObjectAndWaitForField(lifecycleChain, {
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: 2,
+      canonical_source_count: 2,
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      retryable: false,
+      synthesis_id: 'syn-old',
+      epoch: 1,
+      updated_at: 301,
+    }, 'status', 'pending');
+
+    const pending = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
+    );
+    expect(pending.body.story_states[story.story_id]).toMatchObject({
+      synthesis_state: 'synthesis_pending',
+      frame_table_state: 'frame_table_pending',
+      lifecycle_status: 'pending',
+    });
+    expect(pending.body.composition).toMatchObject({
+      total_visible: 1,
+      multi_source_visible: 1,
+      pending_synthesis: 1,
+      accepted_synthesis_available: 0,
+      frame_table_ready: 0,
+    });
+
+    await putGunObjectAndWaitForField(lifecycleChain, {
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: 2,
+      canonical_source_count: 2,
+      status: 'accepted_available',
+      frame_table_state: 'frame_table_ready',
+      retryable: false,
+      synthesis_id: 'syn-old',
+      epoch: 1,
+      updated_at: 302,
+    }, 'status', 'accepted_available');
+
+    const accepted = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
+    );
+    expect(accepted.body.story_states[story.story_id]).toMatchObject({
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: 'frame_table_ready',
+      lifecycle_status: 'accepted_available',
+      synthesis_id: 'syn-old',
+      epoch: 1,
+    });
+    expect(accepted.body.composition).toMatchObject({
+      total_visible: 1,
+      multi_source_visible: 1,
+      pending_synthesis: 0,
+      accepted_synthesis_available: 1,
+      frame_table_ready: 1,
+    });
+    gun.off();
+  }, 20_000);
+
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',

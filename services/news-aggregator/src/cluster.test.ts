@@ -453,6 +453,13 @@ describe('clusterItems', () => {
     expect(run3).toHaveLength(1);
     expect(run1[0]!.topic_id).toBe(run2[0]!.topic_id);
     expect(run2[0]!.topic_id).toBe(run3[0]!.topic_id);
+    expect(run1[0]!.story_id).toBe(run2[0]!.story_id);
+    expect(run2[0]!.story_id).toBe(run3[0]!.story_id);
+    expect(run1[0]!.created_at).toBe(FIXED_NOW);
+    expect(run2[0]!.cluster_window_end).toBe(second.publishedAt);
+    expect(run3[0]!.cluster_window_end).toBe(third.publishedAt);
+    expect(run1[0]!.provenance_hash).not.toBe(run2[0]!.provenance_hash);
+    expect(run2[0]!.provenance_hash).not.toBe(run3[0]!.provenance_hash);
     expect(run1[0]!.cluster_features.entity_keys).toEqual([
       'canada',
       'ottawa',
@@ -503,6 +510,8 @@ describe('clusterItems', () => {
     expect(run3).toHaveLength(1);
     expect(run1[0]!.topic_id).toBe(run2[0]!.topic_id);
     expect(run2[0]!.topic_id).toBe(run3[0]!.topic_id);
+    expect(run1[0]!.story_id).toBe(run2[0]!.story_id);
+    expect(run2[0]!.story_id).toBe(run3[0]!.story_id);
     expect(run1[0]!.cluster_features.entity_keys).toEqual([
       'bridge',
       'collapse',
