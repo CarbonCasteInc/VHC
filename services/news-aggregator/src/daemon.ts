@@ -68,6 +68,15 @@ function hasReadableMesh(client: VennClient): boolean {
   return Boolean(client.mesh && typeof client.mesh.get === 'function');
 }
 
+const DEFAULT_PRODUCT_FEED_RECONCILE_INTERVAL_MS = 10 * 60 * 1000;
+
+function normalizeProductFeedReconcileIntervalMs(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : DEFAULT_PRODUCT_FEED_RECONCILE_INTERVAL_MS;
+}
+
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
   feedSources: FeedSource[];
@@ -86,6 +95,7 @@ export interface NewsAggregatorDaemonConfig {
   writeLanes?: DaemonWriteLaneRegistry;
   replayAcceptedSynthesis?: (client: VennClient) => Promise<unknown>;
   reconcileProductFeed?: (client: VennClient) => Promise<unknown>;
+  productFeedReconcileIntervalMs?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -136,7 +146,11 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
   let acceptedSynthesisReplayAttempted = false;
-  let productFeedReconciliationAttempted = false;
+  const productFeedReconcileIntervalMs = normalizeProductFeedReconcileIntervalMs(
+    config.productFeedReconcileIntervalMs
+    ?? parseOptionalPositiveInt(readEnvVar('VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS')),
+  );
+  let nextProductFeedReconciliationAt = Number.NEGATIVE_INFINITY;
   const reconcileProductFeed = config.reconcileProductFeed ?? ((client: VennClient) =>
     hasReadableMesh(client)
       ? reconcileProductFeedFromRawStories(client, {
@@ -306,10 +320,16 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
       }
     }
-    if (!productFeedReconciliationAttempted) {
-      productFeedReconciliationAttempted = true;
+    if (nowMs >= nextProductFeedReconciliationAt) {
+      nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
       try {
-        await reconcileProductFeed(config.client);
+        const result = await reconcileProductFeed(config.client);
+        logger.info('[vh:news-daemon] product feed reconciliation attempted', {
+          holder_id: holderId,
+          next_reconcile_at: nextProductFeedReconciliationAt,
+          interval_ms: productFeedReconcileIntervalMs,
+          result,
+        });
       } catch (error) {
         logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
       }
