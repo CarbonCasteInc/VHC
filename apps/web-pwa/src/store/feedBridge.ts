@@ -83,10 +83,13 @@ function syncNewsFeedItems(items: ReadonlyArray<FeedItem>, discoveryStore: Disco
   mergeIntoDiscovery(items, discoveryStore);
 }
 
-function readBridgeFlag(flag: BridgeFlag): boolean {
+function readBridgeFlag(flag: BridgeFlag, defaultValue = false): boolean {
   const nodeValue = typeof process !== 'undefined' ? process.env?.[flag] : undefined;
   const viteValue = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[flag];
-  return (nodeValue ?? viteValue) === 'true';
+  const rawValue = nodeValue ?? viteValue;
+  if (rawValue === 'true') return true;
+  if (rawValue === 'false') return false;
+  return defaultValue;
 }
 
 async function resolveBridgeStores(): Promise<BridgeStores> {
@@ -296,7 +299,7 @@ export function stopBridges(): void {
  * Bootstrap feed bridges behind feature flags.
  */
 export async function bootstrapFeedBridges(): Promise<void> {
-  if (readBridgeFlag('VITE_NEWS_BRIDGE_ENABLED')) {
+  if (readBridgeFlag('VITE_NEWS_BRIDGE_ENABLED', true)) {
     await startNewsBridge();
     console.info('[vh:feed-bridge] News bridge started');
   }

@@ -66,14 +66,20 @@ describe('index.html content security policy', () => {
     expect(directivesWithUnsafeInline).toEqual(['style-src']);
 
     expect(connectSrc).toContain("'self'");
+    expect(connectSrc).toContain('https://gun-a.carboncaste.io');
+    expect(connectSrc).toContain('https://gun-b.carboncaste.io');
+    expect(connectSrc).toContain('https://gun-c.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-a.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-b.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-c.carboncaste.io');
     expect(connectSrc).toContain('http://localhost:*');
     expect(connectSrc).toContain('ws://localhost:*');
     expect(connectSrc).toContain('http://127.0.0.1:*');
     expect(connectSrc).toContain('ws://127.0.0.1:*');
     expect(connectSrc).toContain('http://100.75.18.26:7777');
     expect(connectSrc).toContain('ws://100.75.18.26:7777');
-    expect(connectSrc).not.toContain('https:');
-    expect(connectSrc).not.toContain('wss:');
+    expect(connectSrc.split(/\s+/)).not.toContain('https:');
+    expect(connectSrc.split(/\s+/)).not.toContain('wss:');
 
     expect(frameSrc).toContain("'self'");
     expect(frameSrc).toContain('https:');
@@ -99,11 +105,23 @@ describe('index.html content security policy', () => {
 
     expect(connectSrc).toBe([
       "'self'",
+      'https://gun-a.carboncaste.io',
+      'https://gun-b.carboncaste.io',
+      'https://gun-c.carboncaste.io',
+      'wss://gun-a.carboncaste.io',
+      'wss://gun-b.carboncaste.io',
+      'wss://gun-c.carboncaste.io',
       'wss://relay-a.mesh.example',
       'wss://relay-b.mesh.example',
       'wss://relay-c.mesh.example',
       'https://mesh-config.example',
     ].join(' '));
+    expect(connectSrc).toContain('https://gun-a.carboncaste.io');
+    expect(connectSrc).toContain('https://gun-b.carboncaste.io');
+    expect(connectSrc).toContain('https://gun-c.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-a.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-b.carboncaste.io');
+    expect(connectSrc).toContain('wss://gun-c.carboncaste.io');
     expect(connectSrc).toContain('wss://relay-a.mesh.example');
     expect(connectSrc).toContain('wss://relay-b.mesh.example');
     expect(connectSrc).toContain('wss://relay-c.mesh.example');

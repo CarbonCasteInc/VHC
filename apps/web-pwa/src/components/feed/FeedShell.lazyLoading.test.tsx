@@ -9,6 +9,7 @@ import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
 import { useDiscoveryFeed } from '../../hooks/useDiscoveryFeed';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useDiscoveryStore } from '../../store/discovery';
+import { useAppStore } from '../../store';
 import { useNewsStore } from '../../store/news';
 import {
   bootstrapNewsSnapshotIfConfigured,
@@ -141,6 +142,13 @@ describe('FeedShell lazy loading', () => {
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
     stopNewsSnapshotRefresh();
+    useAppStore.setState({
+      client: null,
+      profile: null,
+      initializing: false,
+      identityStatus: 'idle',
+      error: undefined,
+    });
 
     vi.stubGlobal(
       'IntersectionObserver',
@@ -194,6 +202,13 @@ describe('FeedShell lazy loading', () => {
     stopNewsSnapshotRefresh();
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
+    useAppStore.setState({
+      client: null,
+      profile: null,
+      initializing: false,
+      identityStatus: 'idle',
+      error: undefined,
+    });
     intersectionCallback = null;
     mockNavigate.mockReset();
     mockSearch = {};
@@ -246,6 +261,65 @@ describe('FeedShell lazy loading', () => {
 
     expect(screen.getAllByTestId(/feed-item-fit-/)).toHaveLength(FEED_PAGE_SIZE);
     expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
+  });
+
+  it('requests a deeper public latest-index window when visible news fits one page', async () => {
+    vi.useFakeTimers();
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({
+      stories: [makeSnapshotStory(1) as any],
+      latestIndex: { 'story-existing': NOW },
+      refreshLatest,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          topic_id: 'story-existing',
+          story_id: 'story-existing',
+          title: 'Visible singleton story',
+        }),
+      ])} />);
+
+      expect(screen.getByTestId('feed-load-sentinel')).toBeInTheDocument();
+
+      act(() => {
+        intersectionCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(refreshLatest).toHaveBeenCalledWith(100);
+      expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('auto-refreshes public news once when the app client is ready and the feed is empty', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(50);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
   });
 
   it('falls back to timed load when IntersectionObserver is unavailable', () => {

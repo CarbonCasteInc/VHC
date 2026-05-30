@@ -1,5 +1,15 @@
+export const PUBLIC_MESH_CONNECT_SRC = [
+  'https://gun-a.carboncaste.io',
+  'https://gun-b.carboncaste.io',
+  'https://gun-c.carboncaste.io',
+  'wss://gun-a.carboncaste.io',
+  'wss://gun-b.carboncaste.io',
+  'wss://gun-c.carboncaste.io',
+] as const;
+
 export const BASE_CONNECT_SRC = [
   "'self'",
+  ...PUBLIC_MESH_CONNECT_SRC,
   'http://localhost:2048',
   'ws://localhost:2048',
   'http://100.75.18.26:2048',
@@ -39,7 +49,9 @@ export function parseExtraConnectSrc(raw: string | undefined): string[] {
 }
 
 export function buildConnectSrc(extraConnectSrc?: string, options: BuildCspOptions = {}): string {
-  const baseConnectSrc = options.strictConnectSrc ? ["'self'"] : BASE_CONNECT_SRC;
+  const baseConnectSrc = options.strictConnectSrc
+    ? ["'self'", ...PUBLIC_MESH_CONNECT_SRC]
+    : BASE_CONNECT_SRC;
   return Array.from(new Set([
     ...baseConnectSrc,
     ...parseExtraConnectSrc(extraConnectSrc),
