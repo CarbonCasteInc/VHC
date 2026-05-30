@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   startNewsRuntime: vi.fn(),
   createNodeMeshClient: vi.fn(),
   readNewsIngestionLease: vi.fn(),
+  readNewsSynthesisLifecycleStatus: vi.fn(),
   removeNewsBundle: vi.fn(),
   writeNewsBundle: vi.fn(),
   writeNewsIngestionLease: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@vh/gun-client', async () => {
   return {
     ...actual,
     readNewsIngestionLease: mocks.readNewsIngestionLease,
+    readNewsSynthesisLifecycleStatus: mocks.readNewsSynthesisLifecycleStatus,
     removeNewsBundle: mocks.removeNewsBundle,
     writeNewsBundle: mocks.writeNewsBundle,
     writeNewsIngestionLease: mocks.writeNewsIngestionLease,
@@ -57,6 +59,7 @@ describe('news daemon production wiring', () => {
     });
 
     mocks.readNewsIngestionLease.mockResolvedValue(null);
+    mocks.readNewsSynthesisLifecycleStatus.mockResolvedValue(null);
     mocks.removeNewsBundle.mockResolvedValue(undefined);
     mocks.writeNewsIngestionLease.mockImplementation(async (_client: unknown, lease: unknown) => lease);
     mocks.writeNewsBundle.mockImplementation(async (_client: unknown, bundle: unknown) => bundle);
@@ -202,12 +205,140 @@ describe('news daemon production wiring', () => {
       await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toEqual(bundle);
 
       expect(mocks.writeNewsBundle).toHaveBeenCalledWith({ id: 'mock-client' }, bundle);
+      expect(mocks.readNewsSynthesisLifecycleStatus).toHaveBeenCalledWith({ id: 'mock-client' }, 'story-raw');
       expect(mocks.writeNewsSynthesisLifecycleStatus).toHaveBeenCalledWith(
         { id: 'mock-client' },
         expect.objectContaining({
           schemaVersion: 'vh-news-synthesis-lifecycle-v1',
           story_id: 'story-raw',
           source_set_revision: 'prov-raw',
+          status: 'pending',
+          frame_table_state: 'frame_table_pending',
+        }),
+      );
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  it('does not downgrade accepted synthesis lifecycle when republishing an unchanged source set', async () => {
+    primeHealthyEnv();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+    mocks.readNewsSynthesisLifecycleStatus.mockResolvedValue({
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: 'story-accepted',
+      topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+      source_set_revision: 'prov-accepted',
+      source_count: 1,
+      canonical_source_count: 1,
+      status: 'accepted_available',
+      retryable: false,
+      synthesis_id: 'synthesis-accepted',
+      epoch: 3,
+      frame_table_state: 'frame_table_ready',
+      updated_at: 456,
+    });
+
+    const handle = await startNewsAggregatorDaemonFromEnv();
+    try {
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
+      };
+      const bundle = {
+        schemaVersion: 'story-bundle-v0',
+        story_id: 'story-accepted',
+        topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+        headline: 'Accepted story',
+        cluster_window_start: 100,
+        cluster_window_end: 123,
+        sources: [{
+          source_id: 'src-1',
+          publisher: 'Publisher',
+          url: 'https://example.com/accepted',
+          url_hash: 'hash-accepted',
+          title: 'Accepted story',
+        }],
+        cluster_features: {
+          entity_keys: ['accepted'],
+          time_bucket: '2026-05-30T12',
+          semantic_signature: 'sig-accepted',
+        },
+        provenance_hash: 'prov-accepted',
+        created_at: 100,
+      };
+
+      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toEqual(bundle);
+
+      expect(mocks.writeNewsBundle).toHaveBeenCalledWith({ id: 'mock-client' }, bundle);
+      expect(mocks.writeNewsSynthesisLifecycleStatus).not.toHaveBeenCalled();
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  it('resets lifecycle to pending when the story source-set revision changes', async () => {
+    primeHealthyEnv();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+    mocks.readNewsSynthesisLifecycleStatus.mockResolvedValue({
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: 'story-grown',
+      topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+      source_set_revision: 'prov-old',
+      source_count: 1,
+      canonical_source_count: 1,
+      status: 'accepted_available',
+      retryable: false,
+      synthesis_id: 'synthesis-old',
+      epoch: 1,
+      frame_table_state: 'frame_table_ready',
+      updated_at: 456,
+    });
+
+    const handle = await startNewsAggregatorDaemonFromEnv();
+    try {
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
+      };
+      const bundle = {
+        schemaVersion: 'story-bundle-v0',
+        story_id: 'story-grown',
+        topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+        headline: 'Grown story',
+        cluster_window_start: 100,
+        cluster_window_end: 200,
+        sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Publisher One',
+            url: 'https://example.com/grown-a',
+            url_hash: 'hash-grown-a',
+            title: 'Grown story',
+          },
+          {
+            source_id: 'src-2',
+            publisher: 'Publisher Two',
+            url: 'https://example.org/grown-b',
+            url_hash: 'hash-grown-b',
+            title: 'Grown story',
+          },
+        ],
+        cluster_features: {
+          entity_keys: ['grown'],
+          time_bucket: '2026-05-30T12',
+          semantic_signature: 'sig-grown',
+        },
+        provenance_hash: 'prov-new',
+        created_at: 100,
+      };
+
+      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toEqual(bundle);
+
+      expect(mocks.writeNewsSynthesisLifecycleStatus).toHaveBeenCalledWith(
+        { id: 'mock-client' },
+        expect.objectContaining({
+          story_id: 'story-grown',
+          source_set_revision: 'prov-new',
+          source_count: 2,
           status: 'pending',
           frame_table_state: 'frame_table_pending',
         }),
