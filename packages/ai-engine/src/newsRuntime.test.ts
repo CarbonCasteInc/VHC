@@ -330,6 +330,50 @@ describe('newsRuntime', () => {
     ]);
   });
 
+  it('trusts production remote StoryCluster output instead of applying local title filters', async () => {
+    const weakByLocalTitleHeuristic = storyBundle('production-two-source', {
+      sourceCount: 2,
+      confidenceScore: 0.57,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakByLocalTitleHeuristic)).toBe(false);
+    expect(__internal.selectBundlesForPublication(
+      [weakByLocalTitleHeuristic],
+      null,
+      { trustClusterOutput: true },
+    )).toEqual([weakByLocalTitleHeuristic]);
+    expect(__internal.trustsClusterOutputForPublication({
+      ...BASE_CONFIG,
+      orchestratorOptions: {
+        productionMode: true,
+        allowHeuristicFallback: false,
+      },
+    })).toBe(true);
+
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([weakByLocalTitleHeuristic]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+      orchestratorOptions: {
+        productionMode: true,
+        allowHeuristicFallback: false,
+      },
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, weakByLocalTitleHeuristic);
+
+    handle.stop();
+  });
+
   it('keeps two-source bundles with explicit same-action title support below the strong-confidence line', () => {
     const legalSameEvent = storyBundle('legal-same-event', {
       sourceCount: 2,

@@ -293,10 +293,13 @@ function refineBundleForPublication(bundle: StoryBundle): StoryBundle {
 function selectBundlesForPublication(
   bundles: readonly StoryBundle[],
   maxPublishedBundles: number | null,
+  options: { readonly trustClusterOutput?: boolean } = {},
 ): StoryBundle[] {
-  const eligibleBundles = bundles
-    .map(refineBundleForPublication)
-    .filter(isPublicationEligibleBundle);
+  const eligibleBundles = options.trustClusterOutput
+    ? [...bundles]
+    : bundles
+        .map(refineBundleForPublication)
+        .filter(isPublicationEligibleBundle);
   if (!maxPublishedBundles || eligibleBundles.length <= maxPublishedBundles) {
     return [...eligibleBundles];
   }
@@ -325,6 +328,11 @@ function runtimeTrace(event: string, detail: Record<string, unknown>): void {
     return;
   }
   console.info(`[vh:news-runtime] ${event}`, detail);
+}
+
+function trustsClusterOutputForPublication(config: NewsRuntimeConfig): boolean {
+  return config.orchestratorOptions?.productionMode === true
+    && config.orchestratorOptions.allowHeuristicFallback === false;
 }
 
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
@@ -365,13 +373,19 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         config.orchestratorOptions,
       );
       const { bundles, storylines } = result;
-      const bundlesToPublish = selectBundlesForPublication(bundles, maxPublishedBundles);
-      const publicationEligibleBundleCount = bundles.filter(isPublicationEligibleBundle).length;
+      const trustClusterOutput = trustsClusterOutputForPublication(config);
+      const bundlesToPublish = selectBundlesForPublication(bundles, maxPublishedBundles, {
+        trustClusterOutput,
+      });
+      const publicationEligibleBundleCount = trustClusterOutput
+        ? bundles.length
+        : bundles.filter(isPublicationEligibleBundle).length;
       runtimeTrace('tick_clustered', {
         bundle_count: bundles.length,
         storyline_count: storylines.length,
         published_bundle_limit: maxPublishedBundles,
         prune_stale_bundles: pruneStaleBundles,
+        trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
         selected_bundle_count: bundlesToPublish.length,
       });
@@ -540,5 +554,6 @@ export const __internal = {
   selectBundlesForPublication,
   readEnvVar,
   readOptionalPositiveIntEnv,
+  trustsClusterOutputForPublication,
   titlesHaveMatchingAction,
 };
