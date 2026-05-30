@@ -181,6 +181,11 @@ Public story-node storage contract:
   suppress the row and record a bounded repair/tombstone reason. A missing
   story body outside that explicit repair window is a public-beta release gate
   failure, not a normal empty-feed state.
+- Relay/origin latest-index consistency repair MUST also synthesize a
+  product-metadata-complete response row from the readable story body when the
+  stored latest row is a legacy scalar/object or carries stale/mismatched
+  `vh-news-product-feed-index-v1` metadata. The repair reason must be explicit;
+  daemon reconciliation remains responsible for durable mesh rewrite.
 - Feed hydration must parse signed system-writer index records with the same
   acceptance semantics as the shared Gun client adapter. Direct subscriptions
   and relay REST fallback must agree on `story_id` and `latest_activity_at`
@@ -383,6 +388,10 @@ Public lifecycle storage contract:
   optional `epoch`, `updated_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
   `_systemSignature`.
+- Relay/origin daemon write surfaces MAY accept the same lifecycle record at
+  `POST /vh/news/synthesis-lifecycle` and MUST durably write/readback-confirm it
+  to `vh/news/stories/<storyId>/synthesis_lifecycle/latest` without adding user
+  identity, token, or private author fields.
 - `status` is one of `pending`, `in_progress`, `accepted_available`,
   `retryable_failure`, `terminal_unavailable`, or `suppressed`.
 - `frame_table_state` is one of `frame_table_pending`, `frame_table_ready`, or
@@ -410,6 +419,10 @@ Public lifecycle storage contract:
   `pending`/`in_progress`, any older topic latest synthesis remains non-votable
   historical data until the new source-set revision reaches accepted or
   terminal state.
+- Public relay readers SHOULD reread lifecycle scalar fields before declaring
+  an accepted topic synthesis stale when the parent lifecycle object appears
+  older than the current accepted synthesis; the accepted-state rule above still
+  applies to the reread record.
 - `terminal_unavailable` is product-visible and must carry an auditable reason.
   It is not a silent feed filter. `retryable_failure` is also product-visible
   and must not enable point-stance controls.

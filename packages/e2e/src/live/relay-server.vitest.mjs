@@ -767,6 +767,42 @@ describe('infra relay server', () => {
           records: {},
         }),
       });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: {},
+    })).resolves.toMatchObject({
+      statusCode: 400,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-synthesis-lifecycle-record-required',
+      }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: {
+        record: {
+          schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+          story_id: 'story-private-lifecycle',
+          topic_id: 'topic-private-lifecycle',
+          source_set_revision: 'source-set-private',
+          source_count: 1,
+          canonical_source_count: 1,
+          status: 'pending',
+          frame_table_state: 'frame_table_pending',
+          retryable: false,
+          updated_at: 1,
+          sessionRef: 'private-session',
+        },
+      },
+    })).resolves.toMatchObject({
+      statusCode: 400,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-synthesis-lifecycle-record-private-field',
+      }),
+    });
   });
 
   it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {
@@ -851,10 +887,28 @@ describe('infra relay server', () => {
     const gun = createRelayGunClient(port);
 
     const goodStory = {
+      schemaVersion: 'story-bundle-v0',
       story_id: 'story-good',
       topic_id: 'topic-good',
       headline: 'Good story',
+      cluster_window_start: 100,
       cluster_window_end: 200,
+      sources: [
+        {
+          source_id: 'src-good',
+          publisher: 'Good Source',
+          url: 'https://example.com/good',
+          url_hash: 'hash-good',
+          published_at: 100,
+          title: 'Good story source',
+        },
+      ],
+      cluster_features: {
+        entity_keys: ['good'],
+        time_bucket: 'tb-good',
+        semantic_signature: 'sig-good',
+      },
+      provenance_hash: 'prov-good',
       created_at: 100,
     };
     const latestIndexRoot = gun.get('vh').get('news').get('index').get('latest');
@@ -906,14 +960,27 @@ describe('infra relay server', () => {
             reason: 'story_body_missing',
           }),
         ],
+        repaired_records: [
+          expect.objectContaining({
+            story_id: 'story-good',
+            reason: 'latest_index_product_metadata_missing_from_story_body',
+            latest_activity_at: 200,
+          }),
+        ],
       }),
     });
     const goodRecord = latest.body.records['story-good'];
-    expect(
-      goodRecord === 200
-      || goodRecord?.latest_activity_at === 200
-      || goodRecord?.cluster_window_end === 200,
-    ).toBe(true);
+    expect(goodRecord).toMatchObject({
+      story_id: 'story-good',
+      latest_activity_at: 200,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: goodStory.topic_id,
+      source_set_revision: goodStory.provenance_hash,
+      source_count: 1,
+      canonical_source_count: 1,
+      story_created_at: 100,
+      cluster_window_start: 100,
+    });
     expect(latest.body.records).not.toHaveProperty('story-missing');
     gun.off();
   }, 20_000);
@@ -929,8 +996,6 @@ describe('infra relay server', () => {
       VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '250',
       VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
     });
-    const gun = createRelayGunClient(port);
-    const latestIndexRoot = gun.get('vh').get('news').get('index').get('latest');
     const story = {
       schemaVersion: 'story-bundle-v0',
       story_id: 'story-grown',
@@ -982,34 +1047,51 @@ describe('infra relay server', () => {
       warnings: [],
       created_at: 300,
     };
-    const lifecycleChain = gun
-      .get('vh')
-      .get('news')
-      .get('stories')
-      .get(story.story_id)
-      .get('synthesis_lifecycle')
-      .get('latest');
-
-    await putGunValueAndWaitForReadback(
-      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
-      JSON.stringify(story),
-    );
-    await putGunObjectAndWaitForField(latestIndexRoot.get(story.story_id), {
-      story_id: story.story_id,
-      latest_activity_at: story.cluster_window_end,
-      product_state_schema_version: 'vh-news-product-feed-index-v1',
-      topic_id: story.topic_id,
-      source_set_revision: story.provenance_hash,
-      source_count: 2,
-      canonical_source_count: 2,
-      story_created_at: story.created_at,
-      cluster_window_start: story.cluster_window_start,
-    }, 'source_set_revision', story.provenance_hash);
-    await putGunValueAndWaitForReadback(
-      gun.get('vh').get('topics').get(story.topic_id).get('latest').get('__topic_synthesis_json'),
-      JSON.stringify(acceptedSynthesis),
-    );
-    await putGunObjectAndWaitForField(lifecycleChain, {
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+      method: 'POST',
+      body: {
+        record: {
+          __story_bundle_json: JSON.stringify(story),
+          story_id: story.story_id,
+          created_at: story.created_at,
+          schemaVersion: story.schemaVersion,
+        },
+      },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`, {
+      method: 'POST',
+      body: {
+        record: {
+          story_id: story.story_id,
+          latest_activity_at: story.cluster_window_end,
+          product_state_schema_version: 'vh-news-product-feed-index-v1',
+          topic_id: story.topic_id,
+          source_set_revision: story.provenance_hash,
+          source_count: 2,
+          canonical_source_count: 2,
+          story_created_at: story.created_at,
+          cluster_window_start: story.cluster_window_start,
+        },
+      },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis`, {
+      method: 'POST',
+      body: { synthesis: acceptedSynthesis },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: story.topic_id,
+        synthesis_id: acceptedSynthesis.synthesis_id,
+      }),
+    });
+    const pendingLifecycle = {
       schemaVersion: 'vh-news-synthesis-lifecycle-v1',
       story_id: story.story_id,
       topic_id: story.topic_id,
@@ -1022,11 +1104,25 @@ describe('infra relay server', () => {
       synthesis_id: 'syn-old',
       epoch: 1,
       updated_at: 301,
-    }, 'status', 'pending');
+    };
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: { record: pendingLifecycle },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id, status: 'pending' }),
+    });
 
-    const pending = await requestJson(
-      `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
-    );
+    let pending;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      pending = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
+      );
+      if (pending.body?.story_states?.[story.story_id]) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     expect(pending.body.story_states[story.story_id]).toMatchObject({
       synthesis_state: 'synthesis_pending',
       frame_table_state: 'frame_table_pending',
@@ -1040,7 +1136,7 @@ describe('infra relay server', () => {
       frame_table_ready: 0,
     });
 
-    await putGunObjectAndWaitForField(lifecycleChain, {
+    const acceptedLifecycle = {
       schemaVersion: 'vh-news-synthesis-lifecycle-v1',
       story_id: story.story_id,
       topic_id: story.topic_id,
@@ -1053,11 +1149,25 @@ describe('infra relay server', () => {
       synthesis_id: 'syn-old',
       epoch: 1,
       updated_at: 302,
-    }, 'status', 'accepted_available');
+    };
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: { record: acceptedLifecycle },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id, status: 'accepted_available' }),
+    });
 
-    const accepted = await requestJson(
-      `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
-    );
+    let accepted;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      accepted = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
+      );
+      if (accepted.body?.story_states?.[story.story_id]?.synthesis_state === 'accepted_synthesis_available') {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     expect(accepted.body.story_states[story.story_id]).toMatchObject({
       synthesis_state: 'accepted_synthesis_available',
       frame_table_state: 'frame_table_ready',
@@ -1072,8 +1182,7 @@ describe('infra relay server', () => {
       accepted_synthesis_available: 1,
       frame_table_ready: 1,
     });
-    gun.off();
-  }, 20_000);
+  }, 60_000);
 
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
     const { port } = await startRelay(children, tempDirs, {

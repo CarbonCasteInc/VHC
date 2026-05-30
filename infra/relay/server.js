@@ -833,6 +833,78 @@ function buildNewsLatestIndexGraph(write) {
   return graph;
 }
 
+function sanitizeNewsSynthesisLifecycleWrite(body) {
+  const record = isPlainRecord(body?.record)
+    ? body.record
+    : isPlainRecord(body?.lifecycle)
+      ? body.lifecycle
+      : null;
+  if (!record) {
+    throw new Error('news-synthesis-lifecycle-record-required');
+  }
+  const forbiddenField = Object.keys(record).find((key) => {
+    const normalized = key.toLowerCase();
+    return normalized === '_authorscheme'
+      || normalized === 'signedwriteenvelope'
+      || normalized === 'sessionref'
+      || normalized === 'voter_id'
+      || normalized === 'identity_id'
+      || normalized === 'user_id'
+      || normalized === 'device_pub'
+      || normalized.includes('token')
+      || normalized.includes('oauth')
+      || normalized.includes('bearer')
+      || normalized.includes('nullifier');
+  });
+  if (forbiddenField) {
+    throw new Error('news-synthesis-lifecycle-record-private-field');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const topicId = typeof record.topic_id === 'string' ? record.topic_id.trim() : '';
+  const sourceSetRevision = typeof record.source_set_revision === 'string'
+    ? record.source_set_revision.trim()
+    : '';
+  const status = typeof record.status === 'string' ? record.status.trim() : '';
+  const frameTableState = typeof record.frame_table_state === 'string'
+    ? record.frame_table_state.trim()
+    : '';
+  const sourceCount = Number(record.source_count);
+  const canonicalSourceCount = Number(record.canonical_source_count);
+  const updatedAt = Number(record.updated_at);
+  if (
+    record.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
+    || !storyId
+    || !topicId
+    || !sourceSetRevision
+    || !['pending', 'in_progress', 'accepted_available', 'retryable_failure', 'terminal_unavailable', 'suppressed'].includes(status)
+    || !['frame_table_pending', 'frame_table_ready', 'frame_table_unavailable'].includes(frameTableState)
+    || !Number.isFinite(sourceCount)
+    || sourceCount < 0
+    || !Number.isFinite(canonicalSourceCount)
+    || canonicalSourceCount < 0
+    || !Number.isFinite(updatedAt)
+    || updatedAt < 0
+  ) {
+    throw new Error('news-synthesis-lifecycle-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsSynthesisLifecycleGraph(write) {
+  const state = Gun.state();
+  const storySoul = `vh/news/stories/${write.story_id}`;
+  const lifecycleRootSoul = `${storySoul}/synthesis_lifecycle`;
+  const lifecycleLatestSoul = `${lifecycleRootSoul}/latest`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'stories', 'vh/news/stories', state);
+  linkNode(graph, 'vh/news/stories', write.story_id, storySoul, state);
+  linkNode(graph, storySoul, 'synthesis_lifecycle', lifecycleRootSoul, state);
+  linkNode(graph, lifecycleRootSoul, 'latest', lifecycleLatestSoul, state);
+  writeScalarFields(graph, lifecycleLatestSoul, state, write.record);
+  return graph;
+}
+
 function buildAggregateVoterGraph(write) {
   const state = Gun.state();
   const topicRootSoul = `vh/aggregates/topics/${write.topic_id}`;
@@ -1082,6 +1154,19 @@ function parseStoryBundleEnvelope(value) {
   }
 }
 
+function parseNewsSynthesisLifecycleRecord(value, storyId) {
+  const direct = stripGunMetadata(value);
+  if (!direct || typeof direct !== 'object') return null;
+  if (
+    direct.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
+    || direct.story_id !== storyId
+    || typeof direct.status !== 'string'
+  ) {
+    return null;
+  }
+  return direct;
+}
+
 async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
@@ -1118,16 +1203,57 @@ async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
     .get('synthesis_lifecycle')
     .get('latest');
   const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
-  const direct = stripGunMetadata(await readOnce(lifecycleChain, timeoutMs));
-  if (!direct || typeof direct !== 'object') return null;
-  if (
-    direct.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
-    || direct.story_id !== storyId
-    || typeof direct.status !== 'string'
-  ) {
-    return null;
+  return parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
+}
+
+async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fields = [
+    'schemaVersion',
+    'story_id',
+    'topic_id',
+    'source_set_revision',
+    'source_count',
+    'canonical_source_count',
+    'status',
+    'retryable',
+    'reason',
+    'synthesis_id',
+    'epoch',
+    'frame_table_state',
+    'updated_at',
+  ];
+  const values = await Promise.all(
+    fields.map((field) => readOnce(lifecycleChain.get(field), timeoutMs)),
+  );
+  const record = {};
+  for (let index = 0; index < fields.length; index += 1) {
+    const value = stripGunMetadata(values[index]);
+    if (value !== null && value !== undefined) {
+      record[fields[index]] = value;
+    }
   }
-  return direct;
+  return parseNewsSynthesisLifecycleRecord(record, storyId);
+}
+
+async function refreshPotentiallyStaleLifecycleRecord(gun, story, synthesis, lifecycle) {
+  if (!hasAcceptedTopicSynthesisPayload(synthesis) || !synthesisInputsIncludeStory(synthesis, story)) {
+    return lifecycle;
+  }
+  if (acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle)) {
+    return lifecycle;
+  }
+  const timeoutMs = numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fieldLifecycle = await readNewsSynthesisLifecycleRecordFromFields(gun, story.story_id, { timeoutMs })
+    .catch(() => null);
+  return fieldLifecycle ?? lifecycle;
 }
 
 async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
@@ -1136,6 +1262,24 @@ async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
   while (Date.now() < deadline) {
     latest = await readNewsStoryRecord(gun, storyId, { timeoutMs: 1_500 });
     if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
+async function pollNewsSynthesisLifecycleBack(gun, storyId, expected, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsSynthesisLifecycleRecord(gun, storyId, { timeoutMs: 1_500 });
+    if (
+      latest
+      && latest.story_id === storyId
+      && latest.status === expected.status
+      && Number(latest.updated_at) === Number(expected.updated_at)
+    ) {
+      return latest;
+    }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return latest;
@@ -1207,6 +1351,36 @@ function latestIndexRecordHasTimestamp(record) {
     const value = Number(record[key]);
     return Number.isFinite(value) && value >= 0;
   });
+}
+
+function finiteNonNegativeInteger(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function latestIndexProductMetadataStatus(record, story) {
+  if (!story || typeof story !== 'object') return 'story_missing';
+  if (!record || typeof record !== 'object') return 'missing';
+  const sourceCount = Array.isArray(story.sources) ? story.sources.length : 0;
+  const canonicalSourceCount = Array.isArray(story.primary_sources)
+    ? story.primary_sources.length
+    : sourceCount;
+  const hasSchema = record.product_state_schema_version === 'vh-news-product-feed-index-v1';
+  const hasStory = String(record.story_id ?? '').trim() === String(story.story_id ?? '').trim();
+  const hasTopic = String(record.topic_id ?? '').trim() === String(story.topic_id ?? '').trim();
+  const hasRevision = String(record.source_set_revision ?? '').trim() === String(story.provenance_hash ?? '').trim();
+  const hasSourceCounts =
+    finiteNonNegativeInteger(record.source_count) === sourceCount &&
+    finiteNonNegativeInteger(record.canonical_source_count) === canonicalSourceCount;
+  const hasTimestamps =
+    finiteNonNegativeInteger(record.story_created_at) === finiteNonNegativeInteger(story.created_at) &&
+    finiteNonNegativeInteger(record.cluster_window_start) === finiteNonNegativeInteger(story.cluster_window_start);
+  if (hasSchema && hasStory && hasTopic && hasRevision && hasSourceCounts && hasTimestamps) {
+    return 'complete';
+  }
+  return hasSchema || hasTopic || finiteNonNegativeInteger(record.source_count) !== null
+    ? 'partial_or_mismatch'
+    : 'missing';
 }
 
 function storySourceCount(story) {
@@ -1505,14 +1679,38 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       };
     }
 
-    const [synthesisResult, lifecycle] = await Promise.all([
+    const [synthesisResult, initialLifecycle] = await Promise.all([
       readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id).catch(() => null),
       readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
     ]);
+    const lifecycle = await refreshPotentiallyStaleLifecycleRecord(
+      gun,
+      storyResult.story,
+      synthesisResult?.synthesis,
+      initialLifecycle,
+    );
     const storyState = derivePublicFeedStoryState(storyResult.story, synthesisResult?.synthesis, lifecycle);
 
     if (record !== null && record !== undefined && latestIndexRecordHasTimestamp(record)) {
-      return { entry: [storyId, record], story: storyResult.story, storyState };
+      const metadataStatus = latestIndexProductMetadataStatus(record, storyResult.story);
+      if (metadataStatus === 'complete') {
+        return { entry: [storyId, record], story: storyResult.story, storyState };
+      }
+      const synthesized = synthesizeLatestIndexRecordFromStory(
+        storyId,
+        storyResult.story,
+        indexEntryPriority(readableRoot, storyId),
+      );
+      return {
+        entry: [storyId, synthesized],
+        story: storyResult.story,
+        storyState,
+        repaired: {
+          story_id: storyId,
+          reason: `latest_index_product_metadata_${metadataStatus}_from_story_body`,
+          latest_activity_at: synthesized.latest_activity_at,
+        },
+      };
     }
 
     const synthesized = synthesizeLatestIndexRecordFromStory(
@@ -2367,6 +2565,24 @@ async function writeNewsLatestIndexRecord(gun, body) {
   return clean;
 }
 
+async function writeNewsSynthesisLifecycleRecord(gun, body) {
+  const clean = sanitizeNewsSynthesisLifecycleWrite(body);
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(clean.story_id)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  await putScalarRecord(lifecycleChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
+  injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
+  const readback = await pollNewsSynthesisLifecycleBack(gun, clean.story_id, clean.record, 5_000);
+  if (!readback) {
+    throw new Error('news-synthesis-lifecycle-readback-failed');
+  }
+  return clean;
+}
+
 async function writeAggregateVoter(gun, write) {
   const clean = sanitizeAggregateVoterWrite(write);
   injectGraph(gun, buildAggregateVoterGraph(clean));
@@ -2409,7 +2625,9 @@ async function handleWriteRoute(req, res, pathname, kind, write) {
     incMap(metrics.writeSuccesses, label);
     sendJson(res, 200, { ok: true, ...payload });
   } catch (error) {
-    const status = error?.statusCode || (String(error?.message || '').includes('required') ? 400 : 500);
+    const message = String(error?.message || '');
+    const status = error?.statusCode
+      || (/(required|invalid|mismatch|private-field)/.test(message) ? 400 : 500);
     if (status === 401 || status === 403 || status === 503) {
       metrics.authRejects += 1;
     }
@@ -2759,6 +2977,17 @@ const server = http.createServer((req, res) => {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
       const write = await writeNewsLatestIndexRecord(gun, body);
       return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/synthesis-lifecycle') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsSynthesisLifecycleRecord(gun, body);
+      return {
+        story_id: write.story_id,
+        status: write.record.status,
+      };
     });
     return;
   }
