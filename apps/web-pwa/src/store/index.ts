@@ -354,12 +354,32 @@ function shouldBootstrapFeedBridges(): boolean {
       ? process.env
       : undefined;
 
-  const newsEnabled =
-    (nodeEnv?.VITE_NEWS_BRIDGE_ENABLED ?? viteEnv?.VITE_NEWS_BRIDGE_ENABLED) === 'true';
-  const synthesisEnabled =
-    (nodeEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED ?? viteEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED) === 'true';
-  const socialEnabled =
-    (nodeEnv?.VITE_LINKED_SOCIAL_ENABLED ?? viteEnv?.VITE_LINKED_SOCIAL_ENABLED) === 'true';
+  const readFeatureFlag = (
+    nodeValue: string | undefined,
+    viteValue: string | undefined,
+    defaultValue: boolean,
+  ): boolean => {
+    const rawValue = nodeValue ?? viteValue;
+    if (rawValue === 'true') return true;
+    if (rawValue === 'false') return false;
+    return defaultValue;
+  };
+
+  const newsEnabled = readFeatureFlag(
+    nodeEnv?.VITE_NEWS_BRIDGE_ENABLED,
+    viteEnv?.VITE_NEWS_BRIDGE_ENABLED,
+    true,
+  );
+  const synthesisEnabled = readFeatureFlag(
+    nodeEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED,
+    viteEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED,
+    false,
+  );
+  const socialEnabled = readFeatureFlag(
+    nodeEnv?.VITE_LINKED_SOCIAL_ENABLED,
+    viteEnv?.VITE_LINKED_SOCIAL_ENABLED,
+    false,
+  );
 
   return newsEnabled || synthesisEnabled || socialEnabled;
 }

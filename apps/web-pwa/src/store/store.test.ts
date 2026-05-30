@@ -241,12 +241,20 @@ describe('useAppStore', () => {
     expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
   });
 
-  it('init still starts browser feed bridges when enabled outside daemon-first isolation', async () => {
-    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
-
+  it('init starts browser news feed bridges by default outside daemon-first isolation', async () => {
     await useAppStore.getState().init();
 
     expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+  });
+
+  it('init does not start browser feed bridges when all bridge flags are explicitly disabled', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
   });
 
   it('marks the hydration barrier ready when init continues after timeout', async () => {
