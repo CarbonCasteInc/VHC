@@ -6,6 +6,12 @@ export const SYSTEM_WRITER_KIND = 'system' as const;
 export const SYSTEM_WRITER_VALIDATION_EVENT = 'system-writer-validation-failed' as const;
 
 const ED25519 = 'Ed25519';
+const LEGACY_SYSTEM_SIGNATURE_FIELDS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+] as const;
 
 export type SystemWriterValidationReason =
   | 'invalid-record-shape'
@@ -294,6 +300,9 @@ export function canonicalizeSystemWriterRecordForSigning(record: unknown): strin
     throw new Error('system writer record must be an object');
   }
   const { _systemSignature: _omittedSignature, ...unsignedRecord } = record;
+  for (const legacyField of LEGACY_SYSTEM_SIGNATURE_FIELDS) {
+    delete unsignedRecord[legacyField];
+  }
   assertJsonCanonicalizable(unsignedRecord, 'system writer record');
   return canonicalize(unsignedRecord) as string;
 }
@@ -316,6 +325,10 @@ export async function buildSignedSystemWriterRecord<T extends Record<string, unk
   });
   const unsignedRecord: T & UnsignedSystemWriterRecordFields = {
     ...input.payload,
+    _system: null,
+    _Signature: null,
+    _WriterId: null,
+    _IssuedAt: null,
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
     _writerKind: SYSTEM_WRITER_KIND,
     _systemWriterId: writerId,

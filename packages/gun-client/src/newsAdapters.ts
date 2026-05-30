@@ -111,6 +111,12 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
 const NEWS_SYNTHESIS_LIFECYCLE_SCHEMA_VERSION = 'vh-news-synthesis-lifecycle-v1';
 const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const LEGACY_SYSTEM_SIGNATURE_KEYS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+] as const;
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
@@ -871,9 +877,14 @@ function carriesLumaProtocolFields(value: unknown): boolean {
     || '_systemWriterId' in value
     || '_systemSignature' in value
     || '_systemIssuedAt' in value
+    || carriesLegacySystemSignatureFields(value)
     || '_authorScheme' in value
     || 'signedWriteEnvelope' in value
   );
+}
+
+function carriesLegacySystemSignatureFields(value: Record<string, unknown>): boolean {
+  return LEGACY_SYSTEM_SIGNATURE_KEYS.some((key) => key in value);
 }
 
 function carriesLumaProtocolFieldsForIndexEntry(value: unknown): boolean {
@@ -885,6 +896,7 @@ function carriesLumaProtocolFieldsForIndexEntry(value: unknown): boolean {
     '_systemWriterId' in value
     || '_systemSignature' in value
     || '_systemIssuedAt' in value
+    || carriesLegacySystemSignatureFields(value)
     || '_authorScheme' in value
     || 'signedWriteEnvelope' in value;
 

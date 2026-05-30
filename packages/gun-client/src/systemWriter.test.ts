@@ -143,6 +143,40 @@ describe('system writer validation foundation', () => {
       .toBe(canonicalizeSystemWriterRecordForSigning(signed));
   });
 
+  it('ignores only legacy signature residue when validating rewritten Gun records', async () => {
+    const { pin, privateKey } = await createTestPin();
+    const signed = await signRecord(baseRecord(), privateKey);
+    const staleLegacyResidue = {
+      ...signed,
+      _system: 'legacy-user-envelope-signature-from-prior-row-version',
+      _Signature: 'legacy-camelcase-signature-from-prior-row-version',
+      _WriterId: WRITER_ID,
+      _IssuedAt: ISSUED_AT - 1,
+    };
+
+    expect(canonicalizeSystemWriterRecordForSigning(staleLegacyResidue)).not.toContain('"_system":');
+    expect(canonicalizeSystemWriterRecordForSigning(staleLegacyResidue)).not.toContain('"_Signature":');
+    expect(canonicalizeSystemWriterRecordForSigning(staleLegacyResidue)).not.toContain('"_WriterId":');
+    expect(canonicalizeSystemWriterRecordForSigning(staleLegacyResidue)).not.toContain('"_IssuedAt":');
+    expect(canonicalizeSystemWriterRecordForSigning(staleLegacyResidue))
+      .toBe(canonicalizeSystemWriterRecordForSigning(signed));
+
+    await expect(validateSystemWriterRecord({
+      path: 'vh/news/stories/story-1',
+      record: staleLegacyResidue,
+      pin,
+    })).resolves.toMatchObject({ valid: true });
+
+    await expect(validateSystemWriterRecord({
+      path: 'vh/news/stories/story-1',
+      record: { ...staleLegacyResidue, title: 'tampered despite legacy residue' },
+      pin,
+    })).resolves.toMatchObject({
+      valid: false,
+      reason: 'signature-invalid',
+    });
+  });
+
   it('accepts only the explicit system writer path matrix', () => {
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1')).toBe('news-story');
     expect(getSystemWriterAllowedClass('vh/news/index/latest/story-1')).toBe('news-latest-index');
@@ -537,6 +571,10 @@ describe('system writer validation foundation', () => {
     expect(record).toMatchObject({
       schemaVersion: 'news-story-v1',
       story_id: 'story-1',
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
       _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
       _writerKind: SYSTEM_WRITER_KIND,
       _systemWriterId: WRITER_ID,

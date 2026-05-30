@@ -180,8 +180,12 @@ Public story-node storage contract:
   'luma-public-v1'`, `_writerKind: 'system'`, `_systemWriterId`,
   `_systemIssuedAt`, and `_systemSignature`.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`. New system-writer rewrites MUST
+  tombstone legacy signature residue so Gun field-merge behavior cannot
+  invalidate otherwise current signed rows.
 - The signed story node MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; story bundles are system-published, not user-authored.
 - Legacy bare `story-bundle-v0` nodes remain read-compatible. A node carrying
@@ -279,8 +283,10 @@ Public storyline-node storage contract:
   `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'system'`,
   `_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`.
 - The signed storyline node MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; storyline groups are system-published, not
   user-authored.
@@ -345,8 +351,12 @@ Public latest/hot index-entry storage contract:
   transitional-reader compatible but is not sufficient proof for new
   story-backed product hot rows.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`. New index rewrites MUST tombstone
+  legacy signature residue so public readers do not reject a current
+  `_systemSignature` because an older field survived Gun merge semantics.
 - Signed latest/hot index entries MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; they are system-published, not user-authored.
 - Legacy scalar, string, object, and explicit legacy-marked entries remain
