@@ -151,6 +151,11 @@ Canonical publication contract:
   local title-overlap heuristic that drops a remote multi-source `StoryBundle`
   before raw story publication. Heuristic publication filters may still protect
   local/non-production fallback clustering;
+- raw publication failures MUST be scoped to the failing `story_id` and surfaced
+  through daemon/runtime error telemetry. One failed story write MUST NOT abort
+  publication of later selected singleton or multi-source bundles in the same
+  tick. If every selected bundle fails to publish, the tick is failed rather
+  than reported as a successful empty publication;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
