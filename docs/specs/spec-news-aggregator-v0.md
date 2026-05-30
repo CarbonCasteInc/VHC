@@ -162,6 +162,11 @@ Canonical publication contract:
   evidence-admitted starter source slate and source-health policy, because an
   accidental empty source override is a setup error, not a valid singleton-only
   public feed state;
+- when the production remote StoryCluster request must be split by
+  `remoteClusterMaxItemsPerRequest`, the orchestrator MUST pack likely
+  same-event reports into the same request chunk before slicing. Request size
+  limits must not turn a clusterable multi-source event into separate singleton
+  requests merely because unrelated feed items appeared between the reports;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 

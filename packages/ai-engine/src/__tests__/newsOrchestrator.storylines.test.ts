@@ -69,7 +69,7 @@ function storyline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
   };
 }
 
-function normalizedItem(id: string) {
+function normalizedItem(id: string, overrides: Record<string, unknown> = {}) {
   return {
     sourceId: 'source-1',
     publisher: 'Source 1',
@@ -78,6 +78,7 @@ function normalizedItem(id: string) {
     title: `${id} headline`,
     url_hash: `${id}-hash`,
     entity_keys: ['entity'],
+    ...overrides,
   };
 }
 
@@ -307,5 +308,99 @@ describe('newsOrchestrator storyline batches', () => {
         updated_at: 30,
       }),
     ]);
+  });
+
+  it('keeps likely same-event reports in the same remote chunk before slicing', async () => {
+    const eventLeft = normalizedItem('event-left', {
+      sourceId: 'source-a',
+      publisher: 'Source A',
+      title: 'City council approves waterfront tax plan',
+      entity_keys: ['city', 'council', 'waterfront'],
+      publishedAt: 1_700_000_000_000,
+    });
+    const fillerOne = normalizedItem('filler-one', {
+      title: 'Central bank releases inflation minutes',
+      entity_keys: ['central', 'bank', 'inflation'],
+      publishedAt: 1_700_000_010_000,
+    });
+    const fillerTwo = normalizedItem('filler-two', {
+      title: 'Hospital opens new pediatric wing',
+      entity_keys: ['hospital', 'pediatric', 'wing'],
+      publishedAt: 1_700_000_020_000,
+    });
+    const eventRight = normalizedItem('event-right', {
+      sourceId: 'source-b',
+      publisher: 'Source B',
+      title: 'Waterfront tax plan approved by city council',
+      entity_keys: ['city', 'council', 'waterfront'],
+      publishedAt: 1_700_000_030_000,
+    });
+    normalizeAndDedupMock.mockReturnValue([
+      eventLeft,
+      fillerOne,
+      fillerTwo,
+      eventRight,
+    ]);
+
+    const chunkTitles: string[][] = [];
+    const clusterEngine = {
+      engineId: 'storycluster-affinity-chunk-test',
+      async clusterBatch() {
+        return [];
+      },
+      async clusterStoryBatch(input: { items: Array<{ title: string }> }) {
+        chunkTitles.push(input.items.map((item) => item.title));
+        const titles = new Set(input.items.map((item) => item.title));
+        if (
+          titles.has('City council approves waterfront tax plan')
+          && titles.has('Waterfront tax plan approved by city council')
+        ) {
+          return {
+            bundles: [
+              bundle('story-waterfront-tax', {
+                sources: [
+                  {
+                    source_id: 'source-a',
+                    publisher: 'Source A',
+                    url: 'https://example.com/event-left',
+                    url_hash: 'event-left-hash',
+                    title: 'City council approves waterfront tax plan',
+                    published_at: 1_700_000_000_000,
+                  },
+                  {
+                    source_id: 'source-b',
+                    publisher: 'Source B',
+                    url: 'https://example.com/event-right',
+                    url_hash: 'event-right-hash',
+                    title: 'Waterfront tax plan approved by city council',
+                    published_at: 1_700_000_030_000,
+                  },
+                ],
+              }),
+            ],
+            storylines: [],
+          };
+        }
+        return { bundles: [], storylines: [] };
+      },
+    };
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [FEED_SOURCE],
+        topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+      },
+      {
+        clusterEngine,
+        remoteClusterMaxItemsPerRequest: 2,
+      },
+    );
+
+    expect(chunkTitles[0]).toEqual([
+      'City council approves waterfront tax plan',
+      'Waterfront tax plan approved by city council',
+    ]);
+    expect(result.bundles).toHaveLength(1);
+    expect(result.bundles[0]?.sources).toHaveLength(2);
   });
 });
