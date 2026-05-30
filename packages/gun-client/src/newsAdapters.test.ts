@@ -71,6 +71,7 @@ interface FakeMesh {
   setReadHang: (path: string) => void;
   setReadDelay: (path: string, delayMs: number) => void;
   setOnSequence: (path: string, values: Array<{ value: unknown; delayMs?: number }>) => void;
+  setMapEntries: (path: string, values: Array<{ key: string; value: unknown; delayMs?: number }>) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutDoubleAck: (path: string) => void;
@@ -81,6 +82,7 @@ function createFakeMesh(): FakeMesh {
   const readHangs = new Set<string>();
   const readDelays = new Map<string, number>();
   const onSequences = new Map<string, Array<{ value: unknown; delayMs?: number }>>();
+  const mapEntries = new Map<string, Array<{ key: string; value: unknown; delayMs?: number }>>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putDoubleAcks = new Set<string>();
@@ -129,6 +131,26 @@ function createFakeMesh(): FakeMesh {
         }
       }),
       off: vi.fn(),
+      map: vi.fn(() => {
+        const entries = mapEntries.get(path) ?? [];
+        return {
+          on: vi.fn((cb?: (data: unknown, key?: string) => void) => {
+            if (!cb) {
+              return;
+            }
+            for (const entry of entries) {
+              const delayMs = entry.delayMs ?? 0;
+              setTimeout(() => {
+                cb(entry.value, entry.key);
+              }, delayMs);
+            }
+          }),
+          off: vi.fn(),
+          once: vi.fn(),
+          put: vi.fn(),
+          get: vi.fn((key: string) => makeNode([...segments, key])),
+        };
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -159,6 +181,9 @@ function createFakeMesh(): FakeMesh {
     },
     setOnSequence(path: string, values: Array<{ value: unknown; delayMs?: number }>) {
       onSequences.set(path, values);
+    },
+    setMapEntries(path: string, values: Array<{ key: string; value: unknown; delayMs?: number }>) {
+      mapEntries.set(path, values);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -940,6 +965,30 @@ describe('newsAdapters', () => {
 
     await expect(readNewsStoryIds(client, { limit: 1 })).resolves.toEqual(['story-a']);
     await expect(readNewsStoryIds(client)).resolves.toEqual(['story-a', 'story-b']);
+  });
+
+  it('readNewsStoryIds supplements sparse roots from Gun map events for product-feed repair scans', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories', {
+      _: {
+        '>': {
+          'story-a': 123,
+        },
+      },
+    });
+    mesh.setMapEntries('news/stories', [
+      { key: 'story-corroborated', value: { '#': 'vh/news/stories/story-corroborated' } },
+      { key: 'story-b', value: { '#': 'vh/news/stories/story-b' } },
+      { key: '_', value: { '#': 'metadata' } },
+    ]);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStoryIds(client, { limit: 3 })).resolves.toEqual([
+      'story-a',
+      'story-b',
+      'story-corroborated',
+    ]);
   });
 
   it('readNewsStory parses encoded bundle payloads', async () => {

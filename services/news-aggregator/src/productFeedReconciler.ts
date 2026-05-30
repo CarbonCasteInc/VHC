@@ -29,6 +29,8 @@ export interface ProductFeedReconciliationFailure {
 export interface ProductFeedReconciliationResult {
   readonly sampled: number;
   readonly eligible: number;
+  readonly singleton_eligible: number;
+  readonly multi_source_eligible: number;
   readonly skipped_invalid_story: number;
   readonly repaired_story_body: number;
   readonly repaired_latest_index: number;
@@ -60,7 +62,7 @@ export interface ProductFeedReconcilerOptions {
 
 function normalizeSampleLimit(value: unknown): number {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 240;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1000;
 }
 
 function isEligibleRawStory(story: StoryBundle | null): story is StoryBundle {
@@ -125,6 +127,8 @@ export async function reconcileProductFeedFromRawStories(
   const storyIds = await readStoryIds(client, { limit: sampleLimit });
 
   let eligible = 0;
+  let singletonEligible = 0;
+  let multiSourceEligible = 0;
   let skippedInvalidStory = 0;
   let repairedStoryBody = 0;
   let repairedLatestIndex = 0;
@@ -147,6 +151,11 @@ export async function reconcileProductFeedFromRawStories(
         repairedStoryBody += 1;
       }
       eligible += 1;
+      if (canonicalSourceCount(story) > 1) {
+        multiSourceEligible += 1;
+      } else {
+        singletonEligible += 1;
+      }
 
       const latestIndexRecord = await readLatestIndexEntry(client, story.story_id).catch(() => null);
       if (latestIndexNeedsRepair(latestIndexRecord, story)) {
@@ -182,6 +191,8 @@ export async function reconcileProductFeedFromRawStories(
   const result: ProductFeedReconciliationResult = {
     sampled: storyIds.length,
     eligible,
+    singleton_eligible: singletonEligible,
+    multi_source_eligible: multiSourceEligible,
     skipped_invalid_story: skippedInvalidStory,
     repaired_story_body: repairedStoryBody,
     repaired_latest_index: repairedLatestIndex,

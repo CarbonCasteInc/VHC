@@ -485,6 +485,66 @@ function hasMissingIndexChildEntries(
   );
 }
 
+function readMappedChildKeys(
+  chain: ChainWithGet<unknown>,
+  options: {
+    readonly limit: number;
+    readonly timeoutMs?: number;
+    readonly existingKeys?: ReadonlySet<string>;
+  },
+): Promise<string[]> {
+  const mapped = chain.map?.();
+  if (!mapped || typeof mapped.on !== 'function') {
+    return Promise.resolve([]);
+  }
+  const subscribe = mapped.on.bind(mapped);
+
+  const limit = Math.max(0, Math.floor(options.limit));
+  if (limit <= 0) {
+    return Promise.resolve([]);
+  }
+
+  const timeoutMs = Math.max(0, Math.floor(options.timeoutMs ?? READ_ONCE_TIMEOUT_MS));
+  const existingKeys = options.existingKeys ?? new Set<string>();
+  return new Promise((resolve) => {
+    const keys = new Set<string>();
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      try {
+        mapped.off?.();
+      } catch {
+        // Best-effort cleanup for Gun map listeners.
+      }
+      resolve([...keys].sort().slice(0, limit));
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+    try {
+      subscribe((data: unknown, key?: string) => {
+        if (settled || !key || key === '_' || !key.trim()) {
+          return;
+        }
+        if (data === null || data === undefined) {
+          return;
+        }
+        const normalizedKey = key.trim();
+        keys.add(normalizedKey);
+        const mergedCount = new Set([...existingKeys, ...keys]).size;
+        if (mergedCount >= limit) {
+          clearTimeout(timeout);
+          finish();
+        }
+      });
+    } catch {
+      clearTimeout(timeout);
+      finish();
+    }
+  });
+}
+
 const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
 const NEWS_ACK_WARN_INTERVAL_MS = 15_000;
 let lastNewsAckWarnAt = Number.NEGATIVE_INFINITY;
@@ -1539,11 +1599,25 @@ export async function readNewsStoryIds(
   options: NewsStoryRootReadOptions = {},
 ): Promise<string[]> {
   const limit = normalizeLatestIndexReadLimit(options.limit, 200);
+  const storyRoot = getNewsStoriesChain(client) as unknown as ChainWithGet<unknown>;
   const raw = await readSettledRoot(
-    getNewsStoriesChain(client) as unknown as ChainWithGet<unknown>,
+    storyRoot,
     hasSettledStoryRootPayload,
   );
-  return extractIndexChildKeys(raw).slice(0, limit);
+  const rootKeys = extractIndexChildKeys(raw);
+  if (rootKeys.length >= limit) {
+    return rootKeys.slice(0, limit);
+  }
+
+  const mappedKeys = await readMappedChildKeys(storyRoot, {
+    limit,
+    existingKeys: new Set(rootKeys),
+    timeoutMs: rootKeys.length > 0 ? Math.min(READ_ONCE_TIMEOUT_MS, 1_000) : READ_ONCE_TIMEOUT_MS,
+  });
+  if (mappedKeys.length === 0) {
+    return rootKeys.slice(0, limit);
+  }
+  return [...new Set([...rootKeys, ...mappedKeys])].sort().slice(0, limit);
 }
 
 /* v8 ignore start -- bounded async race helper; callers cover outcomes while stale settlement branches are host-scheduler defensive. */
