@@ -404,12 +404,24 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       const nextPublishedStoryIds = new Set<string>();
       const nextPublishedStorylineIds = new Set<string>();
+      let failedStoryPublishCount = 0;
 
       for (const bundle of bundlesToPublish) {
         const request = buildRemoteRequest(createPrompt(bundle));
         const workItems = buildEnrichmentWorkItems(bundle);
 
-        await writeStoryBundle(config.gunClient, bundle);
+        try {
+          await writeStoryBundle(config.gunClient, bundle);
+        } catch (error) {
+          failedStoryPublishCount += 1;
+          runtimeTrace('bundle_write_failed', {
+            story_id: bundle.story_id,
+            source_count: canonicalSourceCount(bundle),
+            error: error instanceof Error ? error.message : String(error),
+          });
+          config.onError?.(error);
+          continue;
+        }
         nextPublishedStoryIds.add(bundle.story_id);
         publishedStoryIds.add(bundle.story_id);
 
@@ -437,6 +449,12 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             config.onError?.(error);
           });
         }
+      }
+
+      if (bundlesToPublish.length > 0 && nextPublishedStoryIds.size === 0 && failedStoryPublishCount > 0) {
+        throw new Error(
+          `news runtime failed to publish any selected bundles (${failedStoryPublishCount}/${bundlesToPublish.length} failed)`,
+        );
       }
 
       if (writeStorylineGroup) {
@@ -480,7 +498,9 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       lastRunAt = new Date();
       runtimeTrace('tick_completed', {
         duration_ms: Math.max(0, Date.now() - startedAt),
+        selected_story_count: bundlesToPublish.length,
         published_story_count: nextPublishedStoryIds.size,
+        failed_story_count: failedStoryPublishCount,
         published_storyline_count: nextPublishedStorylineIds.size,
       });
     } catch (error) {

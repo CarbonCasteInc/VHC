@@ -770,6 +770,43 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('continues publishing later bundles when one story write fails', async () => {
+    const first = storyBundle('write-fails', { sourceCount: 2, clusterWindowEnd: 200 });
+    const second = storyBundle('write-succeeds', { sourceCount: 1, clusterWindowEnd: 100 });
+    const writeError = new Error('latest index readback failed');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([first, second]));
+
+    const writeStoryBundle = vi.fn()
+      .mockRejectedValueOnce(writeError)
+      .mockResolvedValueOnce(undefined);
+    const onError = vi.fn();
+    const onSynthesisCandidate = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onSynthesisCandidate,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'write-fails',
+      'write-succeeds',
+    ]);
+    expect(onError).toHaveBeenCalledWith(writeError);
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+    expect(onSynthesisCandidate).toHaveBeenCalledTimes(1);
+    expect(onSynthesisCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({ story_id: 'write-succeeds' }),
+    );
+
+    handle.stop();
+  });
+
   it('emits runtime trace logs when VH_NEWS_RUNTIME_TRACE is enabled', async () => {
     vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
