@@ -147,6 +147,7 @@ describe('system writer validation foundation', () => {
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1')).toBe('news-story');
     expect(getSystemWriterAllowedClass('vh/news/index/latest/story-1')).toBe('news-latest-index');
     expect(getSystemWriterAllowedClass('vh/news/index/hot/story-1')).toBe('news-hot-index');
+    expect(getSystemWriterAllowedClass('vh/news/stories/story-1/synthesis_lifecycle/latest')).toBe('news-synthesis-lifecycle');
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1/analysis/a1')).toBe('news-story-analysis');
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1/analysis_latest')).toBe('news-story-analysis-latest');
     expect(getSystemWriterAllowedClass('vh/news/storylines/storyline-1')).toBe('news-storyline');

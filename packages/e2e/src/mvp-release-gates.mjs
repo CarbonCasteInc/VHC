@@ -12,7 +12,7 @@ const repoRoot = path.resolve(__dirname, '../../..');
 const latestDir = path.join(repoRoot, '.tmp/mvp-release-gates/latest');
 const latestReportPath = path.join(latestDir, 'mvp-release-gates-report.json');
 
-const GATES = [
+export const GATES = [
   {
     id: 'source_health',
     label: 'Source health',
@@ -54,6 +54,79 @@ const GATES = [
       'packages/e2e/src/live/public-feed-browser-smoke.mjs',
       '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
       '.tmp/analysis-frame-pipeline',
+    ],
+  },
+  {
+    id: 'public_feed_composition_freshness',
+    label: 'Public feed composition and freshness',
+    command: ['pnpm', ['check:public-feed:composition-freshness']],
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-composition-freshness-gate.mjs',
+      '.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json',
+    ],
+  },
+  {
+    id: 'public_feed_lifecycle_accountability',
+    label: 'Raw story, product feed, and synthesis lifecycle accountability',
+    command: ['pnpm', ['check:public-feed:lifecycle-accountability']],
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-lifecycle-accountability.mjs',
+      '.tmp/release-evidence/public-feed-lifecycle-accountability/latest/public-feed-lifecycle-accountability-summary.json',
+    ],
+  },
+  {
+    id: 'story_identity_growth',
+    label: 'Story identity remains stable when singleton stories gain corroborating sources',
+    command: [
+      'pnpm',
+      [
+        '--filter',
+        '@vh/storycluster-engine',
+        'exec',
+        'vitest',
+        'run',
+        'src/remoteContract.test.ts',
+        'src/storyclusterBatchReplayIdentityDrift.test.ts',
+        '--config',
+        './vitest.config.ts',
+      ],
+    ],
+    artifactRefs: [
+      'services/storycluster-engine/src/remoteContract.test.ts',
+      'services/storycluster-engine/src/storyclusterBatchReplayIdentityDrift.test.ts',
+    ],
+  },
+  {
+    id: 'public_feed_pagination_refresh',
+    label: 'Public feed refresh and load-more pagination from mesh',
+    command: ['pnpm', ['test:public-feed:browser-smoke']],
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-browser-smoke.mjs',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      'apps/web-pwa/src/components/feed/FeedShell.lazyLoading.test.tsx',
+    ],
+  },
+  {
+    id: 'stance_aggregate_decay_public_mesh',
+    label: 'Stance persistence, public aggregate snapshots, and capped decay math',
+    command: [
+      'pnpm',
+      [
+        'exec',
+        'vitest',
+        'run',
+        'apps/web-pwa/src/components/feed/voteSemantics.test.ts',
+        'apps/web-pwa/src/hooks/useSentimentState.test.ts',
+        'packages/gun-client/src/aggregateAdapters.test.ts',
+        'packages/gun-client/src/topicEngagementAdapters.test.ts',
+      ],
+    ],
+    artifactRefs: [
+      'apps/web-pwa/src/components/feed/voteSemantics.ts',
+      'apps/web-pwa/src/hooks/useSentimentState.ts',
+      'packages/gun-client/src/aggregateAdapters.ts',
+      'packages/gun-client/src/topicEngagementAdapters.ts',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
     ],
   },
   {
@@ -215,10 +288,19 @@ function commandToString(command) {
 export function classifyGateFailure(output) {
   const text = String(output ?? '').toLowerCase();
   if (
+    text.includes('eligible_raw_story_hidden_without_allowed_reason') ||
+    text.includes('multi_source_raw_story_hidden_by_synthesis_state')
+  ) {
+    return 'fail';
+  }
+  if (
     text.includes('blocked_setup_scarcity') ||
     text.includes('setup_scarcity') ||
     text.includes('vote-capable-preflight-failed') ||
     text.includes('feed_stage_outage') ||
+    text.includes('public-relay-feed-composition-missing-multi-source') ||
+    text.includes('public_feed_composition_missing_multi_source') ||
+    text.includes('missing_multi_source') ||
     text.includes('source health') && text.includes('insufficient')
   ) {
     return 'setup_scarcity';

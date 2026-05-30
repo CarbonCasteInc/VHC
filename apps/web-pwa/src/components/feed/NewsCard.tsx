@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StorylineGroup } from '@vh/data-model';
+import {
+  readNewsSynthesisLifecycleStatus,
+  type NewsSynthesisLifecycleRecord,
+} from '@vh/gun-client';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
+import { resolveClientFromAppStore } from '../../store/clientResolver';
 import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCardBack } from './NewsCardBack';
 import { sanitizePublicationNeutralSummary } from './newsCardAnalysis';
@@ -154,19 +159,36 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   );
   const synthesisFrameRows = effectiveSynthesis?.frames ?? [];
   const frameRows = synthesisFrameRows;
-  const summaryBasisLabel = correctionBlocksSynthesis
-    ? 'Operator correction'
-    : hasSynthesisSummary
-    ? 'Topic synthesis v2'
-    : synthesisLoading
-      ? 'Publish-time synthesis loading'
-      : story?.summary_hint?.trim()
-        ? 'Feed summary hint; synthesis pending'
-        : 'Publish-time synthesis pending';
+  const [synthesisLifecycle, setSynthesisLifecycle] = useState<NewsSynthesisLifecycleRecord | null>(null);
+  const [synthesisLifecycleLoading, setSynthesisLifecycleLoading] = useState(false);
+  const lifecycleStatus = synthesisLifecycle?.status ?? null;
+  const lifecycleReason = synthesisLifecycle?.reason ?? null;
+  const summaryBasisLabel = (() => {
+    if (correctionBlocksSynthesis) return 'Operator correction';
+    if (hasSynthesisSummary) return 'Topic synthesis v2';
+    if (synthesisLoading || synthesisLifecycleLoading || lifecycleStatus === 'in_progress') {
+      return 'Publish-time synthesis loading';
+    }
+    if (lifecycleStatus === 'terminal_unavailable') {
+      return 'Publish-time synthesis terminal unavailable';
+    }
+    if (lifecycleStatus === 'retryable_failure') {
+      return 'Publish-time synthesis retryable';
+    }
+    return story?.summary_hint?.trim()
+      ? 'Feed summary hint; synthesis pending'
+      : 'Publish-time synthesis pending';
+  })();
   const frameBasisLabel = synthesisFrameRows.length > 0
     ? 'Topic synthesis frames'
     : undefined;
-  const synthesisUnavailable = !synthesisLoading && !effectiveSynthesis && !synthesisError && !correctionBlocksSynthesis;
+  const synthesisUnavailable = !synthesisLoading
+    && !synthesisLifecycleLoading
+    && !effectiveSynthesis
+    && !synthesisError
+    && !correctionBlocksSynthesis
+    && lifecycleStatus !== 'terminal_unavailable'
+    && lifecycleStatus !== 'retryable_failure';
   const [synthesisReadinessTimedOut, setSynthesisReadinessTimedOut] = useState(false);
   const relatedLinks = useMemo(
     () => mergeRelatedLinks(story, null),
@@ -199,6 +221,40 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
   }, [isExpanded, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
+
+  useEffect(() => {
+    if (!isExpanded || !storyId || effectiveSynthesis || synthesisCorrection) {
+      return;
+    }
+
+    const client = resolveClientFromAppStore();
+    if (!client) {
+      return;
+    }
+
+    let cancelled = false;
+    setSynthesisLifecycleLoading(true);
+    void readNewsSynthesisLifecycleStatus(client, storyId)
+      .then((record) => {
+        if (!cancelled) {
+          setSynthesisLifecycle(record);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSynthesisLifecycle(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSynthesisLifecycleLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveSynthesis, isExpanded, storyId, synthesisCorrection]);
 
   useEffect(() => {
     if (!isExpanded || effectiveSynthesis || synthesisCorrection || synthesisLoading || synthesisError) {
@@ -252,6 +308,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   useEffect(() => {
     if (effectiveSynthesis || synthesisCorrection || synthesisError) {
       setSynthesisReadinessTimedOut(false);
+      setSynthesisLifecycle(null);
     }
   }, [effectiveSynthesis, synthesisCorrection, synthesisError]);
 
@@ -372,6 +429,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               synthesisError={synthesisError}
               synthesisUnavailable={synthesisUnavailable}
               synthesisReadinessTimedOut={synthesisReadinessTimedOut}
+              synthesisLifecycleStatus={lifecycleStatus}
+              synthesisLifecycleReason={lifecycleReason}
               synthesisCorrection={correctionBlocksSynthesis ? synthesisCorrection : null}
               analysis={null}
               analysisId={null}

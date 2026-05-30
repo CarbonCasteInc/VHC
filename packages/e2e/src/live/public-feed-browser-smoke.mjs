@@ -699,6 +699,12 @@ async function readPublicRelaySynthesisCandidates({
     : index?.index && typeof index.index === 'object'
       ? index.index
       : {};
+  const storyStates = index?.story_states && typeof index.story_states === 'object'
+    ? index.story_states
+    : {};
+  const relayComposition = index?.composition && typeof index.composition === 'object'
+    ? index.composition
+    : null;
   const records = Object.entries(rawRecords)
     .map(([storyId, record]) => ({
       storyId: latestIndexEntryStoryId(storyId, record),
@@ -724,9 +730,13 @@ async function readPublicRelaySynthesisCandidates({
   let frameRows = 0;
   const missingAcceptedSynthesisStories = [];
   const terminalUnavailableReasonCounts = {};
+  const publicStateCounts = {};
   for (const entry of records.slice(0, scanLimit)) {
     const record = entry.record;
     const storyId = entry.storyId;
+    const relayStoryState = storyStates[storyId] && typeof storyStates[storyId] === 'object'
+      ? storyStates[storyId]
+      : null;
     if (!storyId) continue;
     sampledStoryIds.push(storyId);
     const storyUrl = new URL('/vh/news/story', root);
@@ -770,6 +780,10 @@ async function readPublicRelaySynthesisCandidates({
       synthesisStatusCounts[status] = (synthesisStatusCounts[status] ?? 0) + 1;
     }
     const synthesis = synthesisPayload?.synthesis;
+    const relaySynthesisState = String(relayStoryState?.synthesis_state ?? '').trim();
+    if (relaySynthesisState) {
+      publicStateCounts[relaySynthesisState] = (publicStateCounts[relaySynthesisState] ?? 0) + 1;
+    }
     const rows = Array.isArray(synthesis?.frames) ? synthesis.frames : [];
     frameRows += rows.length;
     frameCountDistribution[String(rows.length)] = (frameCountDistribution[String(rows.length)] ?? 0) + 1;
@@ -780,16 +794,21 @@ async function readPublicRelaySynthesisCandidates({
     if (!acceptedSynthesisReady(synthesis)) {
       const articleTextStatus = await readArticleTextSampleStatus({ root, story, timeoutMs });
       articleTextSampleStatusCounts[articleTextStatus] = (articleTextSampleStatusCounts[articleTextStatus] ?? 0) + 1;
-      const terminalReason = durableTerminalUnavailableReason(storyPayload, record, story, synthesisPayload);
+      const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
       if (terminalReason) {
         terminalUnavailableReasonCounts[terminalReason] = (terminalUnavailableReasonCounts[terminalReason] ?? 0) + 1;
-      } else if ((mediaClass === 'text' || mediaClass === 'mixed') && articleTextStatus === '200_text') {
+      } else if (
+        !['synthesis_pending', 'synthesis_loading', 'accepted_synthesis_suppressed'].includes(relaySynthesisState)
+        && (mediaClass === 'text' || mediaClass === 'mixed')
+        && articleTextStatus === '200_text'
+      ) {
         missingAcceptedSynthesisStories.push({
           storyId: story.story_id,
           topicId: story.topic_id,
           headline: trimText(story.headline, 160),
           mediaClass,
           articleTextStatus,
+          relaySynthesisState: relaySynthesisState || null,
         });
       }
       continue;
@@ -812,6 +831,8 @@ async function readPublicRelaySynthesisCandidates({
     sampledTopicIds: [...new Set(sampledTopicIds)],
     storyBodyStatusCounts,
     synthesisStatusCounts,
+    publicStateCounts,
+    relayComposition,
     mediaClassCounts,
     sourceFilterStatusCounts,
     articleTextSampleStatusCounts,
@@ -834,6 +855,34 @@ async function readPublicRelaySynthesisCandidates({
 }
 
 function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env = process.env) {
+  const requireMixedComposition = String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false';
+  const singletonReadableCount = Number(publicRelaySynthesisReadback.singletonReadableCount ?? 0);
+  const multiSourceReadableCount = Number(publicRelaySynthesisReadback.multiSourceReadableCount ?? 0);
+  if (requireMixedComposition) {
+    if (singletonReadableCount <= 0) {
+      throw new Error('public-relay-feed-composition-missing-singleton');
+    }
+    if (multiSourceReadableCount <= 0) {
+      throw new Error('public-relay-feed-composition-missing-multi-source');
+    }
+  }
+
+  const freshnessWindowMs = parseNonNegativeInt(
+    env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS,
+    72 * 60 * 60 * 1000,
+    0,
+  );
+  const relayFreshnessAge = Number(publicRelaySynthesisReadback.relayComposition?.freshness_age_ms ?? Number.NaN);
+  const sampledLatestActivity = Math.max(
+    0,
+    ...(publicRelaySynthesisReadback.topStories ?? []).map((story) => Number(story.updatedAt)).filter(Number.isFinite),
+  );
+  const sampledFreshnessAge = sampledLatestActivity > 0 ? Math.max(0, Date.now() - sampledLatestActivity) : Number.NaN;
+  const freshnessAge = Number.isFinite(relayFreshnessAge) ? relayFreshnessAge : sampledFreshnessAge;
+  if (freshnessWindowMs > 0 && Number.isFinite(freshnessAge) && freshnessAge > freshnessWindowMs) {
+    throw new Error(`public-relay-feed-stale:${freshnessAge}/${freshnessWindowMs}`);
+  }
+
   const acceptedRepairWindowStory404Threshold = parseNonNegativeInt(
     env.VH_PUBLIC_FEED_REPAIR_WINDOW_STORY_404_THRESHOLD,
     0,
@@ -1900,6 +1949,8 @@ async function runPublicFeedBrowserSmoke({
       storyReadbackCount: publicRelaySynthesisReadback.storyReadbackCount,
       storyBodyStatusCounts: publicRelaySynthesisReadback.storyBodyStatusCounts,
       synthesisStatusCounts: publicRelaySynthesisReadback.synthesisStatusCounts,
+      publicStateCounts: publicRelaySynthesisReadback.publicStateCounts,
+      relayComposition: publicRelaySynthesisReadback.relayComposition,
       singletonReadableCount: publicRelaySynthesisReadback.singletonReadableCount,
       multiSourceReadableCount: publicRelaySynthesisReadback.multiSourceReadableCount,
       mediaClassCounts: publicRelaySynthesisReadback.mediaClassCounts,
@@ -1936,6 +1987,7 @@ async function runPublicFeedBrowserSmoke({
     progress('initial-feed-screenshot', { count: initialCards.length });
     const cardsWithSources = initialCards.filter((card) => card.sourceLabels.length > 0);
     const cardsWithTimestamps = initialCards.filter((card) => /Created .+Updated /i.test(card.meta));
+    const initialStoryIds = new Set(initialCards.map((card) => card.storyId).filter(Boolean));
     if (cardsWithSources.length < minHeadlines) throw new Error(`source-labels-missing:${cardsWithSources.length}/${minHeadlines}`);
     if (cardsWithTimestamps.length < minHeadlines) throw new Error(`timestamps-missing:${cardsWithTimestamps.length}/${minHeadlines}`);
 
@@ -1948,8 +2000,23 @@ async function runPublicFeedBrowserSmoke({
     await page.waitForTimeout(1_500);
     const afterScrollCards = await visibleCards(page);
     await page.screenshot(viewportScreenshotOptions(screenshots.afterScroll));
-    progress('scroll-screenshot', { count: afterScrollCards.length });
+    const afterScrollNewStoryIds = afterScrollCards
+      .map((card) => card.storyId)
+      .filter((storyId) => storyId && !initialStoryIds.has(storyId));
+    const meshIndexCount = Math.max(
+      Number(gunReadback.latestIndexCount ?? 0),
+      Number(publicRelaySynthesisReadback.latestIndexCount ?? 0),
+    );
+    progress('scroll-screenshot', {
+      count: afterScrollCards.length,
+      newStoryIds: afterScrollNewStoryIds.slice(0, 12),
+      meshIndexCount,
+      initialCount: initialCards.length,
+    });
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
+    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length === 0) {
+      throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}`);
+    }
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const topCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
@@ -2102,6 +2169,9 @@ async function runPublicFeedBrowserSmoke({
         },
         scrollWorks: {
           count: afterScrollCards.length,
+          initialCount: initialCards.length,
+          meshIndexCount,
+          newStoryIds: afterScrollNewStoryIds.slice(0, 24),
         },
         storyDetailOpens: {
           storyId: target.storyId,

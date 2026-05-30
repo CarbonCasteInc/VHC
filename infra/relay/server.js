@@ -1039,6 +1039,16 @@ function hasAcceptedTopicSynthesisPayload(synthesis) {
   ));
 }
 
+function hasFrameTableReadyPayload(synthesis) {
+  return hasAcceptedTopicSynthesisPayload(synthesis)
+    && synthesis.frames.every((row) => (
+      typeof row.frame_point_id === 'string'
+      && row.frame_point_id.trim().length > 0
+      && typeof row.reframe_point_id === 'string'
+      && row.reframe_point_id.trim().length > 0
+    ));
+}
+
 function parseStoryBundleEnvelope(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   try {
@@ -1074,6 +1084,27 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
     };
   }
   return null;
+}
+
+async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
+  const direct = stripGunMetadata(await readOnce(lifecycleChain, timeoutMs));
+  if (!direct || typeof direct !== 'object') return null;
+  if (
+    direct.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
+    || direct.story_id !== storyId
+    || typeof direct.status !== 'string'
+  ) {
+    return null;
+  }
+  return direct;
 }
 
 async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
@@ -1153,6 +1184,123 @@ function latestIndexRecordHasTimestamp(record) {
     const value = Number(record[key]);
     return Number.isFinite(value) && value >= 0;
   });
+}
+
+function storySourceCount(story) {
+  if (!story || typeof story !== 'object') return 0;
+  const canonical = Array.isArray(story.primary_sources) ? story.primary_sources : null;
+  const sources = canonical ?? (Array.isArray(story.sources) ? story.sources : []);
+  return sources.length;
+}
+
+function derivePublicFeedStoryState(story, synthesis, lifecycle) {
+  const acceptedAvailable = hasAcceptedTopicSynthesisPayload(synthesis);
+  const frameReady = hasFrameTableReadyPayload(synthesis);
+  if (acceptedAvailable) {
+    return {
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: frameReady ? 'frame_table_ready' : 'frame_table_unavailable',
+      synthesis_id: synthesis.synthesis_id ?? null,
+      epoch: Number.isFinite(synthesis.epoch) ? synthesis.epoch : null,
+      lifecycle_status: lifecycle?.status ?? 'accepted_available',
+      terminal_unavailable_reason: null,
+      retryable: false,
+    };
+  }
+  if (lifecycle?.status === 'terminal_unavailable') {
+    return {
+      synthesis_state: 'synthesis_terminal_unavailable',
+      frame_table_state: 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      terminal_unavailable_reason: lifecycle.reason ?? 'terminal_unavailable',
+      retryable: false,
+    };
+  }
+  if (lifecycle?.status === 'retryable_failure') {
+    return {
+      synthesis_state: 'synthesis_loading',
+      frame_table_state: 'frame_table_pending',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      terminal_unavailable_reason: null,
+      retryable: true,
+    };
+  }
+  if (lifecycle?.status === 'suppressed') {
+    return {
+      synthesis_state: 'accepted_synthesis_suppressed',
+      frame_table_state: 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      terminal_unavailable_reason: lifecycle.reason ?? 'suppressed',
+      retryable: false,
+    };
+  }
+  return {
+    synthesis_state: lifecycle?.status === 'in_progress' ? 'synthesis_loading' : 'synthesis_pending',
+    frame_table_state: 'frame_table_pending',
+    synthesis_id: lifecycle?.synthesis_id ?? null,
+    epoch: Number.isFinite(lifecycle?.epoch) ? lifecycle.epoch : null,
+    lifecycle_status: lifecycle?.status ?? 'pending',
+    terminal_unavailable_reason: null,
+    retryable: lifecycle?.retryable === true,
+  };
+}
+
+function createFeedCompositionAccumulator(now = Date.now()) {
+  return {
+    total_visible: 0,
+    singleton_visible: 0,
+    multi_source_visible: 0,
+    pending_synthesis: 0,
+    synthesis_loading: 0,
+    accepted_synthesis_available: 0,
+    terminal_unavailable: 0,
+    accepted_synthesis_suppressed: 0,
+    frame_table_ready: 0,
+    frame_table_unavailable: 0,
+    source_count_total: 0,
+    average_source_count: 0,
+    max_source_count: 0,
+    latest_activity_at: null,
+    freshness_age_ms: null,
+    now_ms: now,
+  };
+}
+
+function accumulateFeedComposition(composition, story, record, state) {
+  const sourceCount = storySourceCount(story);
+  const latestActivityAt = Number(record?.latest_activity_at ?? resolveLatestActivityFromStory(story) ?? 0);
+  composition.total_visible += 1;
+  if (sourceCount <= 1) composition.singleton_visible += 1;
+  else composition.multi_source_visible += 1;
+  composition.source_count_total += sourceCount;
+  composition.max_source_count = Math.max(composition.max_source_count, sourceCount);
+  if (state.synthesis_state === 'synthesis_pending') composition.pending_synthesis += 1;
+  if (state.synthesis_state === 'synthesis_loading') composition.synthesis_loading += 1;
+  if (state.synthesis_state === 'accepted_synthesis_available') composition.accepted_synthesis_available += 1;
+  if (state.synthesis_state === 'synthesis_terminal_unavailable') composition.terminal_unavailable += 1;
+  if (state.synthesis_state === 'accepted_synthesis_suppressed') composition.accepted_synthesis_suppressed += 1;
+  if (state.frame_table_state === 'frame_table_ready') composition.frame_table_ready += 1;
+  if (state.frame_table_state === 'frame_table_unavailable') composition.frame_table_unavailable += 1;
+  if (Number.isFinite(latestActivityAt) && latestActivityAt > 0) {
+    composition.latest_activity_at = Math.max(composition.latest_activity_at ?? 0, Math.floor(latestActivityAt));
+  }
+}
+
+function finalizeFeedComposition(composition) {
+  if (composition.total_visible > 0) {
+    composition.average_source_count = Number((composition.source_count_total / composition.total_visible).toFixed(3));
+  }
+  if (composition.latest_activity_at !== null) {
+    composition.freshness_age_ms = Math.max(0, composition.now_ms - composition.latest_activity_at);
+  }
+  delete composition.source_count_total;
+  return composition;
 }
 
 function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) {
@@ -1280,8 +1428,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const scanLimit = requestedScanLimit;
   const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, scanLimit));
   const records = {};
+  const storyStates = {};
   const excludedRecords = [];
   const repairedRecords = [];
+  const composition = createFeedCompositionAccumulator();
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
     const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
       ? stripGunMetadata(readableRoot[storyId])
@@ -1312,20 +1462,14 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       };
     }
 
-    const synthesisResult = await readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id);
-    if (!hasAcceptedTopicSynthesisPayload(synthesisResult?.synthesis)) {
-      return {
-        excluded: {
-          story_id: storyId,
-          topic_id: storyResult.story.topic_id,
-          reason: 'accepted_synthesis_missing',
-          latest_activity_at: indexEntryPriority(readableRoot, storyId) || null,
-        },
-      };
-    }
+    const [synthesisResult, lifecycle] = await Promise.all([
+      readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id).catch(() => null),
+      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+    ]);
+    const storyState = derivePublicFeedStoryState(storyResult.story, synthesisResult?.synthesis, lifecycle);
 
     if (record !== null && record !== undefined && latestIndexRecordHasTimestamp(record)) {
-      return [storyId, record];
+      return { entry: [storyId, record], story: storyResult.story, storyState };
     }
 
     const synthesized = synthesizeLatestIndexRecordFromStory(
@@ -1335,6 +1479,8 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     );
     return {
       entry: [storyId, synthesized],
+      story: storyResult.story,
+      storyState,
       repaired: {
         story_id: storyId,
         reason: record === null || record === undefined
@@ -1363,6 +1509,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     }
     if (entry.entry && Object.keys(records).length < maxRecords) {
       records[entry.entry[0]] = entry.entry[1];
+      if (entry.story && entry.storyState) {
+        storyStates[entry.entry[0]] = entry.storyState;
+        accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
+      }
     }
   }
   return {
@@ -1378,6 +1528,8 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       repaired_count: repairedRecords.length,
       story_body_timeout_ms: consistencyFilter ? storyTimeoutMs : null,
     },
+    composition: finalizeFeedComposition(composition),
+    storyStates,
     excludedRecords,
     repairedRecords,
     records,
@@ -2398,6 +2550,8 @@ const server = http.createServer((req, res) => {
           scanned_key_count: result.scannedKeyCount,
           truncated: result.truncated,
           consistency: result.consistency,
+          composition: result.composition,
+          story_states: result.storyStates,
           records: result.records,
         };
         if (result.root) payload.root = result.root;

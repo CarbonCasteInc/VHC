@@ -88,6 +88,7 @@ Operator handling rules:
 | Telemetry/remote AI consent exists | Implemented | `/telemetry` route and Engine Settings policy link. |
 | Content/copyright boundaries exist | Implemented | `/copyright` route and user copy restrictions. |
 | Minimum trusted operator gate exists | Implemented | `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `/admin/reports`, Gun adapter authorization checks, and the `operator_trust_gate` MVP release gate require trusted beta operator capability records before reviewed reports, synthesis corrections, or comment moderation records are written. |
+| Public feed release gates distinguish live evidence from fixtures | Implemented | `public_feed_composition_freshness`, `public_feed_lifecycle_accountability`, `public_feed_pagination_refresh`, and `stance_aggregate_decay_public_mesh` are tracked in `pnpm check:mvp-release-gates`; fixture-only gates remain labeled as fixture/snapshot evidence in the closeout. |
 | Deterministic release check exists | Implemented | `pnpm check:public-beta-compliance` verifies route wiring, support-channel wiring, operator trust-gate wiring, no-overclaim language, and private escalation protocol coverage. |
 | Public-beta launch closeout exists | Implemented | `docs/ops/public-beta-launch-readiness-closeout.md` maps launch gates to deterministic commands/reports, classifies remaining work as `ship_blocker` or `post_beta_follow_up`, and is checked by `pnpm check:public-beta-launch-closeout`. |
 
@@ -100,7 +101,7 @@ Operator handling rules:
 - Public reports are workflow records, not a private support inbox.
 - Support requests are public workflow records, not private correspondence.
 - The private escalation protocol is an operator handoff rule, not a private support desk, user account system, full RBAC system, or trust-and-safety operations console.
-- The validated snapshot does not prove live-feed freshness.
+- The validated snapshot does not prove live-feed freshness, mixed live source composition, public mesh pagination, or public stance aggregate convergence; those require the live public feed gates in the closeout packet.
 - Native App Store or TestFlight readiness remains out of scope because no native shell is present.
 - Remote model cost governance and broader launch operations visibility remain separate from these policy pages.
 - LUMA production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness remain separate gates from the public-beta MVP LUMA layer.

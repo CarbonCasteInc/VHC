@@ -20,6 +20,7 @@ export type SystemWriterAllowedClass =
   | 'news-story'
   | 'news-latest-index'
   | 'news-hot-index'
+  | 'news-synthesis-lifecycle'
   | 'news-story-analysis'
   | 'news-story-analysis-latest'
   | 'news-storyline'
@@ -150,6 +151,16 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && segments[2] === 'index'
       && segments[3] === 'hot'
       && hasPathValue(pathSegment(segments, 4)),
+  },
+  {
+    recordClass: 'news-synthesis-lifecycle',
+    matches: (segments) => segments.length === 6
+      && segments[0] === 'vh'
+      && segments[1] === 'news'
+      && segments[2] === 'stories'
+      && hasPathValue(pathSegment(segments, 3))
+      && segments[4] === 'synthesis_lifecycle'
+      && segments[5] === 'latest',
   },
   {
     recordClass: 'news-story-analysis',

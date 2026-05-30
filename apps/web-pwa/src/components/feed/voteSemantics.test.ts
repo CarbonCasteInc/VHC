@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_TOPIC_ENGAGEMENT_IMPACT,
+  TOPIC_ENGAGEMENT_DECAY_ALPHA,
+  decayTowardsTopicImpactCap,
   legacyWeightForActiveCount,
   resolveNextAgreement,
 } from './voteSemantics';
@@ -17,6 +19,13 @@ describe('resolveNextAgreement', () => {
 });
 
 describe('legacyWeightForActiveCount', () => {
+  it('matches the civic sentiment cap and decay alpha from the MVP spec', () => {
+    expect(MAX_TOPIC_ENGAGEMENT_IMPACT).toBe(1.95);
+    expect(MAX_TOPIC_ENGAGEMENT_IMPACT).toBeLessThan(2);
+    expect(TOPIC_ENGAGEMENT_DECAY_ALPHA).toBe(0.3);
+    expect(decayTowardsTopicImpactCap(1)).toBeCloseTo(1.285, 5);
+  });
+
   it('is bounded, monotonic, and capped below 2', () => {
     const w0 = legacyWeightForActiveCount(0);
     const w1 = legacyWeightForActiveCount(1);

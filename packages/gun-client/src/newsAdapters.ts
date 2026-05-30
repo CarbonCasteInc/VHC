@@ -21,6 +21,33 @@ import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
+export type NewsSynthesisLifecycleStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'accepted_available'
+  | 'retryable_failure'
+  | 'terminal_unavailable'
+  | 'suppressed';
+export type NewsFrameTableReadinessState =
+  | 'frame_table_pending'
+  | 'frame_table_ready'
+  | 'frame_table_unavailable';
+
+export interface NewsSynthesisLifecycleRecord extends Record<string, unknown> {
+  readonly schemaVersion: 'vh-news-synthesis-lifecycle-v1';
+  readonly story_id: string;
+  readonly topic_id: string;
+  readonly source_set_revision: string;
+  readonly source_count: number;
+  readonly canonical_source_count: number;
+  readonly status: NewsSynthesisLifecycleStatus;
+  readonly retryable: boolean;
+  readonly reason?: string;
+  readonly synthesis_id?: string;
+  readonly epoch?: number;
+  readonly frame_table_state: NewsFrameTableReadinessState;
+  readonly updated_at: number;
+}
 
 export interface NewsHotnessConfig {
   readonly version: 'storycluster-hot-v1';
@@ -75,6 +102,7 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
 ]);
 
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+const NEWS_SYNTHESIS_LIFECYCLE_SCHEMA_VERSION = 'vh-news-synthesis-lifecycle-v1';
 const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
@@ -193,6 +221,10 @@ function hotIndexPath(): string {
 
 function hotIndexEntryPath(storyId: string): string {
   return `vh/news/index/hot/${storyId}/`;
+}
+
+function synthesisLifecycleLatestPath(storyId: string): string {
+  return `vh/news/stories/${storyId}/synthesis_lifecycle/latest/`;
 }
 
 function sanitizeLeaseScope(value: unknown): string | null {
@@ -598,6 +630,18 @@ async function buildSystemWriterHotIndexRecord(
   ) as Promise<SystemWriterHotIndexRecord>;
 }
 
+async function buildSystemWriterSynthesisLifecycleRecord(
+  client: VennClient,
+  record: NewsSynthesisLifecycleRecord,
+): Promise<NewsSynthesisLifecycleRecord & SystemWriterRecordFields> {
+  return signSystemWriterRecord(
+    client,
+    synthesisLifecycleLatestPath(record.story_id),
+    record,
+    'system writer signer is required for news synthesis lifecycle writes',
+  ) as Promise<NewsSynthesisLifecycleRecord & SystemWriterRecordFields>;
+}
+
 function decodeStoryBundlePayload(payload: unknown): unknown {
   if (!isRecord(payload)) {
     return payload;
@@ -625,6 +669,89 @@ function parseLegacyStoryBundle(data: unknown): StoryBundle | null {
     return null;
   }
   return parsed.data;
+}
+
+function normalizeLifecycleStatus(value: unknown): NewsSynthesisLifecycleStatus | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  switch (value) {
+    case 'pending':
+    case 'in_progress':
+    case 'accepted_available':
+    case 'retryable_failure':
+    case 'terminal_unavailable':
+    case 'suppressed':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeFrameTableState(value: unknown): NewsFrameTableReadinessState | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  switch (value) {
+    case 'frame_table_pending':
+    case 'frame_table_ready':
+    case 'frame_table_unavailable':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function normalizeLifecycleString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function parseNewsSynthesisLifecyclePayload(payload: unknown, storyId: string): NewsSynthesisLifecycleRecord | null {
+  if (!isRecord(payload) || hasForbiddenNewsPayloadFields(payload)) {
+    return null;
+  }
+  const schemaVersion = payload.schemaVersion;
+  const normalizedStoryId = normalizeLifecycleString(payload.story_id);
+  const topicId = normalizeLifecycleString(payload.topic_id);
+  const sourceSetRevision = normalizeLifecycleString(payload.source_set_revision);
+  const status = normalizeLifecycleStatus(payload.status);
+  const frameTableState = normalizeFrameTableState(payload.frame_table_state);
+  const sourceCount = Number(payload.source_count);
+  const canonicalSourceCount = Number(payload.canonical_source_count);
+  const updatedAt = Number(payload.updated_at);
+  const epoch = payload.epoch === undefined ? undefined : Number(payload.epoch);
+  if (
+    schemaVersion !== NEWS_SYNTHESIS_LIFECYCLE_SCHEMA_VERSION
+    || normalizedStoryId !== storyId
+    || !topicId
+    || !sourceSetRevision
+    || !status
+    || !frameTableState
+    || !Number.isFinite(sourceCount)
+    || sourceCount < 0
+    || !Number.isFinite(canonicalSourceCount)
+    || canonicalSourceCount < 0
+    || !Number.isFinite(updatedAt)
+    || updatedAt < 0
+    || (epoch !== undefined && (!Number.isFinite(epoch) || epoch < 0))
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: NEWS_SYNTHESIS_LIFECYCLE_SCHEMA_VERSION,
+    story_id: normalizedStoryId,
+    topic_id: topicId,
+    source_set_revision: sourceSetRevision,
+    source_count: Math.floor(sourceCount),
+    canonical_source_count: Math.floor(canonicalSourceCount),
+    status,
+    retryable: payload.retryable === true,
+    ...(normalizeLifecycleString(payload.reason) ? { reason: normalizeLifecycleString(payload.reason)! } : {}),
+    ...(normalizeLifecycleString(payload.synthesis_id) ? { synthesis_id: normalizeLifecycleString(payload.synthesis_id)! } : {}),
+    ...(epoch !== undefined ? { epoch: Math.floor(epoch) } : {}),
+    frame_table_state: frameTableState,
+    updated_at: Math.floor(updatedAt),
+  };
 }
 
 function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
@@ -711,6 +838,33 @@ async function parseStoryBundleFromStoredRecord(
 
   const parsed = parseLegacyStoryBundle(payload);
   return parsed?.story_id === storyId ? parsed : null;
+}
+
+async function parseNewsSynthesisLifecycleFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  data: unknown,
+): Promise<NewsSynthesisLifecycleRecord | null> {
+  const payload = stripGunMetadata(data);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: synthesisLifecycleLatestPath(storyId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+    return parseNewsSynthesisLifecyclePayload(payload, storyId);
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  return parseNewsSynthesisLifecyclePayload(payload, storyId);
 }
 
 async function parseNewsIndexEntryFromStoredRecord(
@@ -882,6 +1036,19 @@ export function getNewsStoriesChain(client: VennClient): ChainWithGet<StoryBundl
 export function getNewsStoryChain(client: VennClient, storyId: string): ChainWithGet<StoryBundle> {
   const chain = client.mesh.get('news').get('stories').get(storyId) as unknown as ChainWithGet<StoryBundle>;
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, storyPath(storyId));
+}
+
+export function getNewsSynthesisLifecycleChain(
+  client: VennClient,
+  storyId: string,
+): ChainWithGet<NewsSynthesisLifecycleRecord> {
+  const chain = client.mesh
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest') as unknown as ChainWithGet<NewsSynthesisLifecycleRecord>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, synthesisLifecycleLatestPath(storyId));
 }
 
 /**
@@ -1161,6 +1328,97 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
     }
   );
   return normalized;
+}
+
+function canonicalSourceCount(story: StoryBundle): number {
+  return (story.primary_sources ?? story.sources).length;
+}
+
+export function buildNewsSynthesisLifecycleRecord(input: {
+  readonly story: StoryBundle;
+  readonly status: NewsSynthesisLifecycleStatus;
+  readonly frameTableState?: NewsFrameTableReadinessState;
+  readonly retryable?: boolean;
+  readonly reason?: string;
+  readonly synthesisId?: string;
+  readonly epoch?: number;
+  readonly updatedAt?: number;
+}): NewsSynthesisLifecycleRecord {
+  const status = input.status;
+  const frameTableState = input.frameTableState
+    ?? (status === 'accepted_available' ? 'frame_table_unavailable' : 'frame_table_pending');
+  const reason = input.reason?.trim();
+  const synthesisId = input.synthesisId?.trim();
+  const epoch = input.epoch;
+  return {
+    schemaVersion: NEWS_SYNTHESIS_LIFECYCLE_SCHEMA_VERSION,
+    story_id: input.story.story_id,
+    topic_id: input.story.topic_id,
+    source_set_revision: input.story.provenance_hash,
+    source_count: input.story.sources.length,
+    canonical_source_count: canonicalSourceCount(input.story),
+    status,
+    retryable: input.retryable ?? status === 'retryable_failure',
+    ...(reason ? { reason } : {}),
+    ...(synthesisId ? { synthesis_id: synthesisId } : {}),
+    ...(epoch !== undefined ? { epoch: Math.max(0, Math.floor(epoch)) } : {}),
+    frame_table_state: frameTableState,
+    updated_at: Math.max(0, Math.floor(input.updatedAt ?? Date.now())),
+  };
+}
+
+export async function readNewsSynthesisLifecycleStatus(
+  client: VennClient,
+  storyId: string,
+): Promise<NewsSynthesisLifecycleRecord | null> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  const raw = await readOnce(getNewsSynthesisLifecycleChain(client, normalizedId) as unknown as ChainWithGet<unknown>);
+  if (raw === null) {
+    return null;
+  }
+  return parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, raw);
+}
+
+export async function writeNewsSynthesisLifecycleStatus(
+  client: VennClient,
+  record: unknown,
+): Promise<NewsSynthesisLifecycleRecord> {
+  assertNoNewsIdentityOrTokenFields(record);
+  if (!isRecord(record)) {
+    throw new Error('news synthesis lifecycle record is required');
+  }
+  const storyId = normalizeLifecycleString(record.story_id);
+  if (!storyId) {
+    throw new Error('news synthesis lifecycle story_id is required');
+  }
+  const sanitized = parseNewsSynthesisLifecyclePayload(record, storyId);
+  if (!sanitized) {
+    throw new Error('news synthesis lifecycle record is invalid');
+  }
+  const encoded = await buildSystemWriterSynthesisLifecycleRecord(client, sanitized);
+  await putWithAck(
+    getNewsSynthesisLifecycleChain(client, sanitized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded,
+    {
+      writeClass: 'news-synthesis-lifecycle',
+      timeoutError: 'news synthesis lifecycle write timed out and readback did not confirm persistence',
+      readback: () => readNewsSynthesisLifecycleStatus(client, sanitized.story_id),
+      readbackPredicate: (observed) => {
+        const candidate = observed as NewsSynthesisLifecycleRecord | null;
+        return Boolean(
+          candidate
+          && candidate.story_id === sanitized.story_id
+          && candidate.source_set_revision === sanitized.source_set_revision
+          && candidate.status === sanitized.status
+          && candidate.updated_at === sanitized.updated_at
+        );
+      },
+    },
+  );
+  return sanitized;
 }
 
 /**
