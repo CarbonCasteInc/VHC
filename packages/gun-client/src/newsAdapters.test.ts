@@ -28,6 +28,7 @@ import {
   getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
   newsAdapterInternal,
+  parseNewsLatestIndexEntryRecord,
   parseRemovalEntry,
   readLatestStoryIds,
   readNewsHotIndex,
@@ -945,6 +946,27 @@ describe('newsAdapters', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('validates protocol-shaped latest-index subscription records with the same pinned writer semantics', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-live', 456.9);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-live', 456);
+
+    await expect(parseNewsLatestIndexEntryRecord(signingClient, 'story-live', record)).resolves.toBe(456);
+
+    const readerWithoutPin = createClient(createFakeMesh(), guard);
+    await expect(parseNewsLatestIndexEntryRecord(readerWithoutPin, 'story-live', record)).resolves.toBeNull();
+    await expect(parseNewsLatestIndexEntryRecord(signingClient, '   ', record)).resolves.toBeNull();
+    await expect(
+      parseNewsLatestIndexEntryRecord(signingClient, 'other-story', record),
+    ).resolves.toBeNull();
   });
 
   it('readNewsLatestIndexWithRelayRestFallback prefers validated REST records before scanning the direct root', async () => {

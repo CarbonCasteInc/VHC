@@ -1021,6 +1021,24 @@ async function readTopicLatestSynthesisRecord(gun, topicId) {
   return null;
 }
 
+function hasAcceptedTopicSynthesisPayload(synthesis) {
+  if (!synthesis || typeof synthesis !== 'object') return false;
+  if (typeof synthesis.facts_summary !== 'string' || synthesis.facts_summary.trim().length === 0) {
+    return false;
+  }
+  if (!Array.isArray(synthesis.frames) || synthesis.frames.length === 0) {
+    return false;
+  }
+  return synthesis.frames.every((row) => (
+    row
+    && typeof row === 'object'
+    && typeof row.frame === 'string'
+    && row.frame.trim().length > 0
+    && typeof row.reframe === 'string'
+    && row.reframe.trim().length > 0
+  ));
+}
+
 function parseStoryBundleEnvelope(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   try {
@@ -1289,6 +1307,18 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
         excluded: {
           story_id: storyId,
           reason: 'story_body_missing',
+          latest_activity_at: indexEntryPriority(readableRoot, storyId) || null,
+        },
+      };
+    }
+
+    const synthesisResult = await readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id);
+    if (!hasAcceptedTopicSynthesisPayload(synthesisResult?.synthesis)) {
+      return {
+        excluded: {
+          story_id: storyId,
+          topic_id: storyResult.story.topic_id,
+          reason: 'accepted_synthesis_missing',
           latest_activity_at: indexEntryPriority(readableRoot, storyId) || null,
         },
       };

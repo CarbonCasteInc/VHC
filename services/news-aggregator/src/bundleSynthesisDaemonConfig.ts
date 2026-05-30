@@ -1,6 +1,11 @@
 import os from 'node:os';
 import path from 'node:path';
-import type { VennClient } from '@vh/gun-client';
+import {
+  computeStoryHotness,
+  writeNewsHotIndexEntry,
+  writeNewsLatestIndexEntry,
+  type VennClient,
+} from '@vh/gun-client';
 import {
   parsePositiveInt,
   readEnvVar,
@@ -77,6 +82,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
     return {};
   }
 
+  const runWrite = options.runWrite ?? (<T>(_: string, __: Record<string, unknown>, task: () => Promise<T>) => task());
   const queueDepth = parsePositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH'), 32);
   const worker = createBundleSynthesisWorker({
     client,
@@ -94,6 +100,18 @@ export function createBundleSynthesisEnrichmentFromEnv(
     pipelineVersion: readEnvVar('VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION') ?? DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
     logger,
     runWrite: options.runWrite,
+    publishReadyStory: async (publishClient, bundle) => {
+      await runWrite(
+        'news_latest_index',
+        { story_id: bundle.story_id, topic_id: bundle.topic_id },
+        () => writeNewsLatestIndexEntry(publishClient, bundle.story_id, bundle.cluster_window_end),
+      );
+      await runWrite(
+        'news_hot_index',
+        { story_id: bundle.story_id, topic_id: bundle.topic_id },
+        () => writeNewsHotIndexEntry(publishClient, bundle.story_id, computeStoryHotness(bundle)),
+      );
+    },
   });
   const queuePersistenceDir = resolveBundleSynthesisQueueDirFromEnv();
   const lifecycleLedgerPath = resolveBundleSynthesisLifecycleLedgerPathFromEnv(queuePersistenceDir);

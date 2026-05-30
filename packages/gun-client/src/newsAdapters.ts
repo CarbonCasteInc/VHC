@@ -759,6 +759,18 @@ async function parseLatestIndexEntry(
   );
 }
 
+export async function parseNewsLatestIndexEntryRecord(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<number | null> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  return parseLatestIndexEntry(client, normalizedId, value);
+}
+
 async function parseHotIndexEntry(
   client: VennClient,
   storyId: string,

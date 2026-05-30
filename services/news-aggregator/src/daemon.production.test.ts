@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   readNewsIngestionLease: vi.fn(),
   removeNewsBundle: vi.fn(),
   writeNewsIngestionLease: vi.fn(),
-  writeStoryBundle: vi.fn(),
+  writeNewsStory: vi.fn(),
 }));
 
 vi.mock('@vh/ai-engine', async () => {
@@ -24,7 +24,7 @@ vi.mock('@vh/gun-client', async () => {
     readNewsIngestionLease: mocks.readNewsIngestionLease,
     removeNewsBundle: mocks.removeNewsBundle,
     writeNewsIngestionLease: mocks.writeNewsIngestionLease,
-    writeStoryBundle: mocks.writeStoryBundle,
+    writeNewsStory: mocks.writeNewsStory,
   };
 });
 
@@ -57,7 +57,7 @@ describe('news daemon production wiring', () => {
     mocks.readNewsIngestionLease.mockResolvedValue(null);
     mocks.removeNewsBundle.mockResolvedValue(undefined);
     mocks.writeNewsIngestionLease.mockImplementation(async (_client: unknown, lease: unknown) => lease);
-    mocks.writeStoryBundle.mockResolvedValue(undefined);
+    mocks.writeNewsStory.mockResolvedValue(undefined);
     mocks.createNodeMeshClient.mockReturnValue({
       id: 'mock-client',
       shutdown: vi.fn().mockResolvedValue(undefined),
@@ -159,6 +159,25 @@ describe('news daemon production wiring', () => {
           authorization: 'Bearer token-123',
         },
       });
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  it('uses raw story writes for daemon runtime publication before synthesis readiness', async () => {
+    primeHealthyEnv();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    const handle = await startNewsAggregatorDaemonFromEnv();
+    try {
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
+      };
+      const bundle = { story_id: 'story-raw', cluster_window_end: 123 };
+
+      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toBeUndefined();
+
+      expect(mocks.writeNewsStory).toHaveBeenCalledWith({ id: 'mock-client' }, bundle);
     } finally {
       await handle.stop();
     }
