@@ -1128,6 +1128,18 @@ async function parseHotIndexEntry(
   return (await parseHotIndexEntryRecordFromStoredRecord(client, storyId, value))?.hotness ?? null;
 }
 
+export async function parseNewsHotIndexProductRecord(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<NewsHotIndexEntryRecord | null> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    return null;
+  }
+  return parseHotIndexEntryRecordFromStoredRecord(client, normalizedId, value);
+}
+
 async function parseHotIndexEntryRecordFromStoredRecord(
   client: VennClient,
   storyId: string,

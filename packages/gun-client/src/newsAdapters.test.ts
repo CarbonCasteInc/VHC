@@ -30,6 +30,7 @@ import {
   getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
   newsAdapterInternal,
+  parseNewsHotIndexProductRecord,
   parseNewsLatestIndexEntryRecord,
   parseNewsLatestIndexProductRecord,
   parseRemovalEntry,
@@ -1122,6 +1123,28 @@ describe('newsAdapters', () => {
       story_created_at: STORY.created_at,
       cluster_window_start: STORY.cluster_window_start,
     });
+
+    await writeNewsHotIndexEntry(signingClient, STORY.story_id, 0.625, STORY);
+    const hotProductRecord = expectSystemHotIndexRecord(
+      mesh.writes.at(-1)?.value,
+      STORY.story_id,
+      0.625,
+      STORY,
+    );
+    await expect(
+      parseNewsHotIndexProductRecord(signingClient, STORY.story_id, hotProductRecord),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      hotness: 0.625,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+    await expect(parseNewsHotIndexProductRecord(signingClient, 'other-story', hotProductRecord)).resolves.toBeNull();
   });
 
   it('readNewsLatestIndexWithRelayRestFallback prefers validated REST records before scanning the direct root', async () => {
