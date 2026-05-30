@@ -146,6 +146,11 @@ Canonical publication contract:
 - `StoryBundle` publication may also represent a single-source publisher-hosted video/watch story from an admitted source when no corroborating article bundle exists yet;
 - later corroborating coverage may widen the bundle if and only if it is the same incident or same developing episode;
 - adding later sources must not churn the existing `story_id`;
+- in production mode, the remote StoryCluster service is the same-event
+  authority for publication. The runtime MUST NOT silently apply an additional
+  local title-overlap heuristic that drops a remote multi-source `StoryBundle`
+  before raw story publication. Heuristic publication filters may still protect
+  local/non-production fallback clustering;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
