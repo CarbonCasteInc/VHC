@@ -156,6 +156,12 @@ Canonical publication contract:
   publication of later selected singleton or multi-source bundles in the same
   tick. If every selected bundle fails to publish, the tick is failed rather
   than reported as a successful empty publication;
+- production daemon source configuration MUST NOT collapse to an empty source
+  slate merely because `VITE_NEWS_FEED_SOURCES` is present but empty, malformed,
+  or contains no valid feed sources. In that case the daemon falls back to the
+  evidence-admitted starter source slate and source-health policy, because an
+  accidental empty source override is a setup error, not a valid singleton-only
+  public feed state;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
