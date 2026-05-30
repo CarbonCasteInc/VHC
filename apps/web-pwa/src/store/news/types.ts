@@ -6,6 +6,11 @@ export function getNewsStoreTypesVersion(): string {
   return NEWS_STORE_TYPES_VERSION;
 }
 
+export interface NewsRefreshRequest {
+  readonly limit?: number;
+  readonly before?: number;
+}
+
 export interface NewsState {
   /** Story bundles keyed and sorted for feed consumption. */
   readonly stories: ReadonlyArray<StoryBundle>;
@@ -41,7 +46,7 @@ export interface NewsState {
   upsertStoryline(storyline: StorylineGroup): void;
   removeStoryline(storylineId: string): void;
   ensureStory(storyId: string): Promise<boolean>;
-  refreshLatest(limit?: number): Promise<void>;
+  refreshLatest(request?: number | NewsRefreshRequest): Promise<void>;
   startHydration(): void;
   setLoading(loading: boolean): void;
   setError(error: string | null): void;

@@ -11,7 +11,7 @@ import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
 import { loadStorylinesForStories } from './storylines';
 import { createStorylineRecord, removeOrphanedStoryline } from './storylineState';
-import type { NewsState, NewsDeps } from './types';
+import type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 import {
   buildSeedIndex,
   dedupeStories,
@@ -25,7 +25,7 @@ import {
   sortStories,
 } from './storeHelpers';
 
-export type { NewsState, NewsDeps } from './types';
+export type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 
 const INITIAL_STATE: Pick<NewsState,
   'stories' | 'latestIndex' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
@@ -47,6 +47,15 @@ function selectLatestStoryIds(latestIndex: Record<string, number>, limit = 50): 
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, Math.floor(limit))
     .map(([storyId]) => storyId);
+}
+
+function normalizeRefreshRequest(request: number | NewsRefreshRequest | undefined): Required<NewsRefreshRequest> {
+  const limit = request === undefined ? 50 : typeof request === 'number' ? request : request.limit ?? 50;
+  const before = typeof request === 'number' ? undefined : request?.before;
+  return {
+    limit: Number.isFinite(limit) && (limit as number) > 0 ? Math.floor(limit as number) : 0,
+    before: Number.isFinite(before) && (before as number) >= 0 ? Math.floor(before as number) : Number.POSITIVE_INFINITY,
+  };
 }
 
 function readNewsStoreNumber(
@@ -522,13 +531,15 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }
     },
 
-    async refreshLatest(limit = 50) {
+    async refreshLatest(request = 50) {
       const client = deps.resolveClient();
       if (!client) {
         set({ loading: false, error: null });
         return;
       }
 
+      const refreshRequest = normalizeRefreshRequest(request);
+      const isCursorWindow = Number.isFinite(refreshRequest.before);
       get().startHydration();
       const generation = ++refreshGeneration;
       set({ loading: true, error: null });
@@ -536,7 +547,10 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       try {
         const { filteredStories, hotIndex, latestIndex, storylines } =
           await withNewsRefreshTimeout((async () => {
-            const nextLatestIndex = await readNewsLatestIndexWithRelayRestFallback(client)
+            const nextLatestIndex = await readNewsLatestIndexWithRelayRestFallback(client, {
+              limit: refreshRequest.limit,
+              ...(isCursorWindow ? { before: refreshRequest.before } : {}),
+            })
               .then(sanitizeLatestIndex);
 
             const currentState = get();
@@ -553,7 +567,13 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
               };
             }
 
-            const storyIds = selectLatestStoryIds(nextLatestIndex, limit);
+            const effectiveLatestIndex = isCursorWindow
+              ? { ...currentState.latestIndex, ...nextLatestIndex }
+              : nextLatestIndex;
+            const storyIds = selectLatestStoryIds(
+              isCursorWindow ? nextLatestIndex : effectiveLatestIndex,
+              refreshRequest.limit,
+            );
             const stories = await readLatestStoriesBounded(client, storyIds);
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
@@ -573,7 +593,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             return {
               filteredStories: nextFilteredStories,
               hotIndex: nextHotIndex,
-              latestIndex: nextLatestIndex,
+              latestIndex: effectiveLatestIndex,
               storylines: nextStorylines,
             };
           })());
@@ -583,19 +603,26 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         }
 
         let mergedStories: StoryBundle[] = [];
+        let mergedStorylinesById: Record<string, StorylineGroup> = {};
         set((state) => {
-          mergedStories = dedupeStories(filteredStories, state.stories);
+          mergedStories = dedupeStories(
+            isCursorWindow ? [...state.stories, ...filteredStories] : filteredStories,
+            state.stories,
+          );
+          mergedStorylinesById = isCursorWindow
+            ? createStorylineRecord([...Object.values(state.storylinesById), ...storylines])
+            : createStorylineRecord(storylines);
           return {
             latestIndex,
             hotIndex,
-            storylinesById: createStorylineRecord(storylines),
+            storylinesById: mergedStorylinesById,
             stories: sortStories(mergedStories, latestIndex),
             loading: false,
             error: null,
           };
         });
 
-        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, createStorylineRecord(storylines));
+        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, mergedStorylinesById);
       } catch (error: unknown) {
         if (generation !== refreshGeneration) {
           return;

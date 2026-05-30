@@ -4,7 +4,7 @@ import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenNewsPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readLatestStoryIdsMock = vi.fn<(client: unknown, limit?: number) => Promise<string[]>>();
-const readNewsLatestIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
+const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number>>>();
 const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
 const readNewsStorylineMock = vi.fn<(client: unknown, storylineId: string) => Promise<unknown>>();
@@ -749,6 +749,31 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest merges an older cursor window into the existing feed', async () => {
+    const client = { id: 'client-cursor-window' };
+    readNewsLatestIndexMock
+      .mockResolvedValueOnce({ newer: 300, current: 200 })
+      .mockResolvedValueOnce({ older: 100 });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({
+        story_id: storyId,
+        headline: `Story ${storyId}`,
+        cluster_window_end: storyId === 'older' ? 100 : storyId === 'current' ? 200 : 300,
+      }),
+    );
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(2);
+    await store.getState().refreshLatest({ limit: 1, before: 200 });
+
+    expect(readNewsLatestIndexMock).toHaveBeenNthCalledWith(2, client, { limit: 1, before: 200 });
+    expect(store.getState().latestIndex).toEqual({ newer: 300, current: 200, older: 100 });
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['newer', 'current', 'older']);
   });
 
   it('refreshLatest bounds concurrent story reads for large live indexes', async () => {

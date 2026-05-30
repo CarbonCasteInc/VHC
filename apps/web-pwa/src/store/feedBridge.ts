@@ -23,7 +23,7 @@ interface NewsBridgeState {
   hotIndex: Readonly<Record<string, number>>;
   storylinesById: Readonly<Record<string, StorylineGroup>>;
   startHydration: () => void;
-  refreshLatest: (limit?: number) => Promise<void>;
+  refreshLatest: (request?: number | { readonly limit?: number; readonly before?: number }) => Promise<void>;
 }
 
 interface SynthesisTopicBridgeState {

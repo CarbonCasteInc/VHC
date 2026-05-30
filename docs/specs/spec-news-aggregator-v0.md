@@ -282,6 +282,10 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
 Public latest/hot index-entry storage contract:
 - Product code continues to consume `Record<string, number>` DTOs from
   `readNewsLatestIndex` and `readNewsHotIndex`.
+- Relay REST reads of `vh/news/index/latest` MUST support bounded older windows
+  using an exclusive `before=<latest_activity_at>` cursor. Web PWA load-more
+  must use this cursor/window path and merge the returned older rows into the
+  existing feed state rather than relying only on a larger initial top-N window.
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and

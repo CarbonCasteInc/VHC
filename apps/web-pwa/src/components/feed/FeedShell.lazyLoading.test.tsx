@@ -263,7 +263,7 @@ describe('FeedShell lazy loading', () => {
     expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
   });
 
-  it('requests a deeper public latest-index window when visible news fits one page', async () => {
+  it('requests an older public latest-index cursor window when visible news fits one page', async () => {
     vi.useFakeTimers();
     const originalRefreshLatest = useNewsStore.getState().refreshLatest;
     const refreshLatest = vi.fn(async () => undefined);
@@ -295,7 +295,7 @@ describe('FeedShell lazy loading', () => {
         await vi.advanceTimersByTimeAsync(100);
       });
 
-      expect(refreshLatest).toHaveBeenCalledWith(100);
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: 50, before: NOW });
       expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });
