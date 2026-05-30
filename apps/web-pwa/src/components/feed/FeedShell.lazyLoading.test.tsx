@@ -322,6 +322,32 @@ describe('FeedShell lazy loading', () => {
     }
   });
 
+  it('auto-refreshes public news when launch content contains no news stories', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          kind: 'USER_TOPIC',
+          topic_id: 'launch-topic',
+          title: 'Launch topic without public news',
+        }),
+      ])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(50);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
   it('falls back to timed load when IntersectionObserver is unavailable', () => {
     vi.useFakeTimers();
     vi.stubGlobal('IntersectionObserver', undefined);

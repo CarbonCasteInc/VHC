@@ -224,7 +224,35 @@ describe('useAppStore', () => {
     expect((createClient as unknown as Mock).mock.calls[0]?.[0]?.gunLocalStorage).toBe(false);
   });
 
-  it('init sets client after hydration', async () => {
+  it('exposes the public client before storage hydration resolves', async () => {
+    vi.useFakeTimers();
+    let pending: Promise<void> | null = null;
+    try {
+      mockHydration.ready = false;
+      mockHydration.prepare.mockReturnValueOnce(new Promise(() => {}));
+
+      pending = useAppStore.getState().init();
+      await Promise.resolve();
+
+      expect(useAppStore.getState().client).toBeTruthy();
+      expect(useAppStore.getState().initializing).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await pending;
+
+      expect(mockHydration.markReady).toHaveBeenCalled();
+      expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().initializing).toBe(false);
+    } finally {
+      if (pending) {
+        await vi.advanceTimersByTimeAsync(15_000);
+        await pending.catch(() => undefined);
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('init completes identity state after storage hydration', async () => {
     await useAppStore.getState().init();
     const state = useAppStore.getState();
     expect(state.client).toBeTruthy();

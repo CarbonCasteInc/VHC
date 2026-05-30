@@ -118,6 +118,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     () => pagedFeed.filter((item) => item.kind === 'NEWS_STORY').length,
     [pagedFeed],
   );
+  const composedNewsCount = useMemo(
+    () => feed.filter((item) => item.kind === 'NEWS_STORY').length,
+    [feed],
+  );
   const topicCount = useMemo(
     () => pagedFeed.filter((item) => item.kind === 'USER_TOPIC').length,
     [pagedFeed],
@@ -250,8 +254,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       !publicNewsClientReady ||
       loading ||
       publicNewsLoading ||
-      feed.length > 0 ||
-      pagedFeed.length > 0
+      loadedPublicNewsStoryCount > 0 ||
+      composedNewsCount > 0 ||
+      newsCount > 0
     ) {
       return;
     }
@@ -279,9 +284,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     };
   }, [
     applyDeferredFeed,
-    feed.length,
+    composedNewsCount,
     loading,
-    pagedFeed.length,
+    loadedPublicNewsStoryCount,
+    newsCount,
     publicNewsClientReady,
     publicNewsLoading,
     refreshLatest,
