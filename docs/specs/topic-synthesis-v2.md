@@ -175,6 +175,7 @@ Public mesh paths:
 - `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 - `vh/topics/<topicId>/latest` (pointer)
 - `vh/topics/<topicId>/digests/<digestId>`
+- `vh/news/stories/<storyId>/synthesis_lifecycle/latest` (news story/source-set lifecycle; owned by `spec-news-aggregator-v0.md`)
 
 Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 
@@ -191,6 +192,10 @@ unavailable analysis:
   for those rows.
 - `accepted_synthesis_pending`: the story is readable and eligible, but the
   worker has not yet reached a written or terminal lifecycle outcome.
+- `accepted_synthesis_retryable_failure`: the worker recorded a durable
+  retryable infrastructure/schema/write failure and may replay. The story stays
+  visible, and stance controls stay unavailable until accepted synthesis and
+  frame-table readiness are published.
 - `accepted_synthesis_terminal_unavailable`: the worker recorded a durable
   terminal domain reason such as missing story, no analysis-capable sources, or
   source text unavailable. Public UI may show the reason class, but must not
@@ -206,6 +211,11 @@ pending, rejected, skipped, written, latest-write skipped/failed, readback
 failed, or terminal unavailable. Retry/replay is allowed only for retryable
 infrastructure/schema/write classes; terminal domain outcomes must not be
 retried indefinitely.
+
+News-story lifecycle status is published separately from the accepted synthesis
+record at `vh/news/stories/<storyId>/synthesis_lifecycle/latest`. This keeps
+raw story publication, product feed visibility, accepted synthesis, and
+frame-table votability as separate states.
 
 Current storage contract: new `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 and `vh/topics/<topicId>/latest` writes are system-writer signed records.

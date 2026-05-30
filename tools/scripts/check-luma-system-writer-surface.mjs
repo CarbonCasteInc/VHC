@@ -95,6 +95,7 @@ for (const token of [
   'validateSystemWriterRecord',
   'canonicalizeSystemWriterRecordForSigning',
   'isSystemWriterAllowedPath',
+  'news-synthesis-lifecycle',
   'news-story-analysis',
   'topic-engagement-summary',
   'path-not-allowed',
@@ -161,6 +162,7 @@ for (const token of [
   'apps/web-pwa/src/luma/system-writer-pin.json',
   'packages/gun-client/src/systemWriter.ts',
   'vh/news/stories/<storyId>/analysis/<analysisId>',
+  'vh/news/stories/<storyId>/synthesis_lifecycle/latest',
   'vh/aggregates/topics/<topicId>/engagement/summary',
   'system-writer-validation-failed',
 ]) {

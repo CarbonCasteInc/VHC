@@ -177,6 +177,12 @@ Public story-node storage contract:
   acceptance semantics as the shared Gun client adapter. Direct subscriptions
   and relay REST fallback must agree on `story_id` and `latest_activity_at`
   before the Web PWA tries to hydrate a story card.
+- Product visibility is a downstream state of a readable, eligible story body
+  and source-set admission. It MUST NOT require accepted synthesis. Eligible
+  singleton stories and corroborated multi-source bundles both remain valid
+  feed rows while synthesis is pending, retrying, terminally unavailable, or
+  suppressed by correction. Relay/latest-index responses MUST expose the public
+  synthesis lifecycle and frame-table state rather than silently filtering rows.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
@@ -222,6 +228,7 @@ Analysis frame/reframe output contract:
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
 - analysis artifacts: `vh/news/stories/<storyId>/analysis/<analysisKey>`
 - latest analysis pointer: `vh/news/stories/<storyId>/analysis_latest`
+- synthesis lifecycle latest record: `vh/news/stories/<storyId>/synthesis_lifecycle/latest`
 
 Storyline publication contract:
 
@@ -327,6 +334,40 @@ Public analysis storage contract:
 - The `vh/news/stories/<storyId>/analysis/` root map, `analysis_pending`, and
   removal tombstones are not part of this M0.B analysis-node migration and do
   not gain system-writer metadata in this slice.
+
+### 5.3 Synthesis lifecycle contract
+
+Accepted synthesis is a downstream state of a published story/source-set
+revision. Raw story publication and product feed visibility MUST NOT depend on
+accepted synthesis.
+
+Public lifecycle storage contract:
+- New writes to `vh/news/stories/<storyId>/synthesis_lifecycle/latest` MUST
+  store an object carrying `schemaVersion: 'vh-news-synthesis-lifecycle-v1'`,
+  `story_id`, `topic_id`, `source_set_revision`, `status`,
+  `frame_table_state`, `retryable`, optional `reason`, optional `synthesis_id`,
+  optional `epoch`, `updated_at`, `_protocolVersion: 'luma-public-v1'`,
+  `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
+  `_systemSignature`.
+- `status` is one of `pending`, `in_progress`, `accepted_available`,
+  `retryable_failure`, `terminal_unavailable`, or `suppressed`.
+- `frame_table_state` is one of `frame_table_pending`, `frame_table_ready`, or
+  `frame_table_unavailable`.
+- `source_set_revision` is the StoryBundle provenance/source-set revision. If
+  a singleton story gains corroborating sources, the existing `story_id`
+  remains stable, `source_set_revision` advances, and synthesis lifecycle
+  returns to `pending`/`in_progress` until the revised source set reaches an
+  accepted or terminal state.
+- `accepted_available` means accepted `TopicSynthesisV2` exists for the
+  current story/source-set revision. `frame_table_ready` additionally requires a
+  non-empty facts summary, non-empty frames, and persisted `frame_point_id` and
+  `reframe_point_id` for every visible row.
+- `terminal_unavailable` is product-visible and must carry an auditable reason.
+  It is not a silent feed filter. `retryable_failure` is also product-visible
+  and must not enable point-stance controls.
+- Signed lifecycle records MUST NOT carry `_authorScheme`,
+  `SignedWriteEnvelope`, identity fields, tokens, private proof material, or
+  local vote-intent fields.
 
 ## 6. Privacy and safety
 

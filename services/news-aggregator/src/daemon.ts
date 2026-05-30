@@ -12,12 +12,15 @@ import {
   readNewsIngestionLease,
   removeNewsBundle,
   removeNewsStoryline,
-  writeNewsStory,
+  buildNewsSynthesisLifecycleRecord,
+  writeNewsBundle,
   writeNewsIngestionLease,
+  writeNewsSynthesisLifecycleStatus,
   writeNewsStoryline,
   type NewsIngestionLease,
   type VennClient,
 } from '@vh/gun-client';
+import { StoryBundleSchema } from '@vh/data-model';
 import { createNodeMeshClient } from '@vh/gun-client/node';
 import {
   buildLeasePayload,
@@ -99,7 +102,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const startRuntime = config.startRuntime ?? startNewsRuntime;
   const readLease = config.readLease ?? readNewsIngestionLease;
   const writeLease = config.writeLease ?? writeNewsIngestionLease;
-  const writeBundle = config.writeBundle ?? writeNewsStory;
+  const writeBundle = config.writeBundle ?? writeNewsBundle;
   const removeBundle = config.removeBundle ?? removeNewsBundle;
   const nowFn = config.now ?? Date.now;
   const randomFn = config.random ?? Math.random;
@@ -160,7 +163,23 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         const storyId = typeof bundle === 'object' && bundle !== null ? (bundle as { story_id?: unknown }).story_id : null;
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle', { story_id: storyId ?? null }, async () => {
-          return writeBundle(runtimeClient as VennClient, bundle);
+          const written = await writeBundle(runtimeClient as VennClient, bundle);
+          const parsedWritten = StoryBundleSchema.safeParse(written).success
+            ? StoryBundleSchema.parse(written)
+            : StoryBundleSchema.safeParse(bundle).success
+              ? StoryBundleSchema.parse(bundle)
+              : null;
+          if (parsedWritten) {
+            await writeLanes.run('news_synthesis_lifecycle', { story_id: parsedWritten.story_id, status: 'pending' }, async () =>
+              writeNewsSynthesisLifecycleStatus(runtimeClient as VennClient, buildNewsSynthesisLifecycleRecord({
+                story: parsedWritten,
+                status: 'pending',
+                frameTableState: 'frame_table_pending',
+                updatedAt: nowFn(),
+              })),
+            );
+          }
+          return written;
         });
       },
       removeStoryBundle: async (runtimeClient: unknown, storyId: string) => {

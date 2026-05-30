@@ -856,6 +856,18 @@ describe('infra relay server', () => {
         records: expect.objectContaining({
           'story-good': expect.anything(),
         }),
+        story_states: expect.objectContaining({
+          'story-good': expect.objectContaining({
+            synthesis_state: 'synthesis_pending',
+            frame_table_state: 'frame_table_pending',
+            lifecycle_status: 'pending',
+          }),
+        }),
+        composition: expect.objectContaining({
+          total_visible: 1,
+          singleton_visible: 1,
+          pending_synthesis: 1,
+        }),
         excluded_records: [
           expect.objectContaining({
             story_id: 'story-missing',

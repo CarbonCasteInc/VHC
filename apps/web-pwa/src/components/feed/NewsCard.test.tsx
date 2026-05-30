@@ -7,6 +7,7 @@ import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
+import { setClientResolver } from '../../store/clientResolver';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCard } from './NewsCard';
@@ -15,6 +16,14 @@ import {
   getCachedSynthesisForStory,
   synthesizeStoryFromAnalysisPipeline,
 } from './newsCardAnalysis';
+const readNewsSynthesisLifecycleStatusMock = vi.hoisted(() => vi.fn());
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    readNewsSynthesisLifecycleStatus: readNewsSynthesisLifecycleStatusMock,
+  };
+});
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
@@ -160,6 +169,9 @@ describe('NewsCard', () => {
       signals: [],
     });
     localStorage.clear();
+    setClientResolver(() => null);
+    readNewsSynthesisLifecycleStatusMock.mockReset();
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(null);
     mockUseViewTracking.mockReturnValue(false);
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
@@ -195,6 +207,7 @@ describe('NewsCard', () => {
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    setClientResolver(() => null);
     resetExpandedCardStore();
     useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
     mockUseViewTracking.mockReset();
@@ -783,6 +796,44 @@ describe('NewsCard', () => {
       'Synthesis unavailable.',
     );
   });
+
+  it('renders terminal lifecycle state without enabling stance controls', async () => {
+    const startHydrationSpy = vi.spyOn(useSynthesisStore.getState(), 'startHydration').mockImplementation(() => undefined);
+    const refreshSpy = vi.spyOn(useSynthesisStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    setClientResolver(() => ({}) as never);
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue({
+      schemaVersion: 'news-synthesis-lifecycle-v1',
+      story_id: 'story-news-1',
+      topic_id: CANONICAL_TOPIC_ID,
+      source_set_revision: 'prov-1',
+      status: 'terminal_unavailable',
+      frame_table_state: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      synthesis_id: null,
+      epoch: null,
+      updated_at: NOW,
+    });
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-synthesis-terminal-news-1')).toHaveTextContent(
+      'source_text_unavailable',
+    );
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Publish-time synthesis terminal unavailable',
+    );
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis is unavailable for this story.',
+    );
+    expect(screen.queryByRole('button', { name: /Agree with /i })).not.toBeInTheDocument();
+    expect(readNewsSynthesisLifecycleStatusMock).toHaveBeenCalledWith(expect.anything(), 'story-news-1');
+    refreshSpy.mockRestore();
+    startHydrationSpy.mockRestore();
+  });
+
   it('renders story-detail stance controls from accepted synthesis point IDs', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);

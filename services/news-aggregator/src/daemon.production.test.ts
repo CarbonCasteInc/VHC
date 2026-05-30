@@ -5,8 +5,9 @@ const mocks = vi.hoisted(() => ({
   createNodeMeshClient: vi.fn(),
   readNewsIngestionLease: vi.fn(),
   removeNewsBundle: vi.fn(),
+  writeNewsBundle: vi.fn(),
   writeNewsIngestionLease: vi.fn(),
-  writeNewsStory: vi.fn(),
+  writeNewsSynthesisLifecycleStatus: vi.fn(),
 }));
 
 vi.mock('@vh/ai-engine', async () => {
@@ -23,8 +24,9 @@ vi.mock('@vh/gun-client', async () => {
     ...actual,
     readNewsIngestionLease: mocks.readNewsIngestionLease,
     removeNewsBundle: mocks.removeNewsBundle,
+    writeNewsBundle: mocks.writeNewsBundle,
     writeNewsIngestionLease: mocks.writeNewsIngestionLease,
-    writeNewsStory: mocks.writeNewsStory,
+    writeNewsSynthesisLifecycleStatus: mocks.writeNewsSynthesisLifecycleStatus,
   };
 });
 
@@ -57,7 +59,8 @@ describe('news daemon production wiring', () => {
     mocks.readNewsIngestionLease.mockResolvedValue(null);
     mocks.removeNewsBundle.mockResolvedValue(undefined);
     mocks.writeNewsIngestionLease.mockImplementation(async (_client: unknown, lease: unknown) => lease);
-    mocks.writeNewsStory.mockResolvedValue(undefined);
+    mocks.writeNewsBundle.mockImplementation(async (_client: unknown, bundle: unknown) => bundle);
+    mocks.writeNewsSynthesisLifecycleStatus.mockImplementation(async (_client: unknown, record: unknown) => record);
     mocks.createNodeMeshClient.mockReturnValue({
       id: 'mock-client',
       shutdown: vi.fn().mockResolvedValue(undefined),
@@ -164,7 +167,7 @@ describe('news daemon production wiring', () => {
     }
   });
 
-  it('uses raw story writes for daemon runtime publication before synthesis readiness', async () => {
+  it('publishes raw stories to product indexes before synthesis readiness and records pending lifecycle', async () => {
     primeHealthyEnv();
     vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
 
@@ -173,11 +176,42 @@ describe('news daemon production wiring', () => {
       const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
         writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
       };
-      const bundle = { story_id: 'story-raw', cluster_window_end: 123 };
+      const bundle = {
+        schemaVersion: 'story-bundle-v0',
+        story_id: 'story-raw',
+        topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+        headline: 'Raw story',
+        cluster_window_start: 100,
+        cluster_window_end: 123,
+        sources: [{
+          source_id: 'src-1',
+          publisher: 'Publisher',
+          url: 'https://example.com/raw',
+          url_hash: 'hash-raw',
+          title: 'Raw story',
+        }],
+        cluster_features: {
+          entity_keys: ['raw'],
+          time_bucket: '2026-05-30T12',
+          semantic_signature: 'sig-raw',
+        },
+        provenance_hash: 'prov-raw',
+        created_at: 100,
+      };
 
-      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toBeUndefined();
+      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).resolves.toEqual(bundle);
 
-      expect(mocks.writeNewsStory).toHaveBeenCalledWith({ id: 'mock-client' }, bundle);
+      expect(mocks.writeNewsBundle).toHaveBeenCalledWith({ id: 'mock-client' }, bundle);
+      expect(mocks.writeNewsSynthesisLifecycleStatus).toHaveBeenCalledWith(
+        { id: 'mock-client' },
+        expect.objectContaining({
+          schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+          story_id: 'story-raw',
+          source_set_revision: 'prov-raw',
+          status: 'pending',
+          frame_table_state: 'frame_table_pending',
+        }),
+      );
     } finally {
       await handle.stop();
     }

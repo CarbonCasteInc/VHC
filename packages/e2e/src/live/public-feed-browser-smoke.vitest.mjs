@@ -405,7 +405,29 @@ describe('public feed browser smoke helpers', () => {
         framePointIdsPresent: 3,
         reframePointIdsPresent: 3,
       },
-    }, {})).toThrow('public-relay-readable-text-synthesis-missing:2:story-readable-a,story-readable-b');
+    }, { VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION: 'false' })).toThrow(
+      'public-relay-readable-text-synthesis-missing:2:story-readable-a,story-readable-b',
+    );
+  });
+
+  it('fails coverage when the public relay feed is singleton-only', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      storyBodyStatusCounts: { 200: 3 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 3,
+      multiSourceReadableCount: 0,
+      relayComposition: {
+        total_visible: 3,
+        singleton_visible: 3,
+        multi_source_visible: 0,
+        freshness_age_ms: 1_000,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-feed-composition-missing-multi-source');
   });
 
   it('does not count terminal unavailable synthesis outcomes as ambiguous missing synthesis', async () => {
@@ -468,6 +490,76 @@ describe('public feed browser smoke helpers', () => {
         acceptedSynthesisStoryCount: 0,
         missingAcceptedSynthesisStoryCount: 0,
         terminalUnavailableReasonCounts: { source_text_unavailable: 1 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not count honest pending synthesis lifecycle state as ambiguous missing synthesis', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-pending': { story_id: 'story-pending', latest_activity_at: 20 },
+            },
+            story_states: {
+              'story-pending': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+                lifecycle_status: 'pending',
+              },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-pending',
+              topic_id: 'topic-pending',
+              headline: 'Readable text story with pending synthesis status',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 1,
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        missingAcceptedSynthesisStoryCount: 0,
+        publicStateCounts: { synthesis_pending: 1 },
+        articleTextSampleStatusCounts: { '200_text': 1 },
       });
     } finally {
       vi.unstubAllGlobals();

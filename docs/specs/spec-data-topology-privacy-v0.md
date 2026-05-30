@@ -236,6 +236,7 @@ allowed namespaces, allowed record classes, and signature shape.
 | Storyline | `spec-news-aggregator-v0.md` | `vh/news/storylines/<storylineId>` |
 | Story analysis artifact | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis/<analysisId>` |
 | Story analysis latest pointer | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis_latest` |
+| News synthesis lifecycle | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/synthesis_lifecycle/latest` |
 | Synthesis latest pointer | `topic-synthesis-v2.md` | `vh/topics/<topicId>/latest` |
 | Topic synthesis epoch | `topic-synthesis-v2.md` | `vh/topics/<topicId>/epochs/<epoch>/synthesis` |
 | Topic digest | `topic-synthesis-v2.md` | `vh/topics/<topicId>/digests/<digestId>` |
@@ -264,6 +265,12 @@ Implementation status:
   latest-pointer writes use the shared validator contract and carry
   system-writer metadata on the stored public child nodes. Legacy bare and
   explicit safe legacy-marked analysis records remain read-compatible.
+- `vh/news/stories/<storyId>/synthesis_lifecycle/latest` is the news-domain
+  public lifecycle record for synthesis and frame-table readiness. New writes
+  use the shared validator contract and carry system-writer metadata on the
+  stored public child node. The lifecycle record is public/auditable status
+  only; it must not carry identity fields, tokens, private proof material, or
+  local vote-intent fields.
 - Topic synthesis epoch record nodes at
   `vh/topics/<topicId>/epochs/<epoch>/synthesis` and Topic synthesis latest record
   nodes at `vh/topics/<topicId>/latest` are the fifth concrete M0.B

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { HermesNewsReportReasonCode, TopicSynthesisCorrection } from '@vh/data-model';
+import type { NewsSynthesisLifecycleStatus } from '@vh/gun-client';
 import type { HermesThread } from '@vh/types';
 import { useNewsReportStore } from '../../store/newsReports';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
@@ -66,6 +67,8 @@ export interface NewsCardBackProps {
   readonly synthesisError: string | null;
   readonly synthesisUnavailable?: boolean;
   readonly synthesisReadinessTimedOut?: boolean;
+  readonly synthesisLifecycleStatus?: NewsSynthesisLifecycleStatus | null;
+  readonly synthesisLifecycleReason?: string | null;
   readonly synthesisCorrection?: TopicSynthesisCorrection | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
@@ -116,6 +119,8 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   synthesisError,
   synthesisUnavailable = false,
   synthesisReadinessTimedOut = false,
+  synthesisLifecycleStatus = null,
+  synthesisLifecycleReason = null,
   synthesisCorrection = null,
   analysis,
   analysisId,
@@ -129,25 +134,30 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   onCollapse,
 }) => {
   const submitSynthesisReport = useNewsReportStore((state) => state.submitSynthesisReport);
-  const hasAcceptedStanceTargets = frameRows.some(
-    (row) => Boolean(row.frame_point_id?.trim() || row.reframe_point_id?.trim()),
+  const hasAcceptedStanceTargets = frameRows.length > 0 && frameRows.every(
+    (row) => Boolean(row.frame_point_id?.trim() && row.reframe_point_id?.trim()),
   );
   const correctionBlocksSynthesis = Boolean(synthesisCorrection);
   const correctionTimestamp = synthesisCorrection ? new Date(synthesisCorrection.created_at).toISOString() : null;
   const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
     ? 'Accepted synthesis suppressed'
     : 'Accepted synthesis unavailable';
-  const acceptedSynthesisState = synthesisCorrection
-    ? synthesisCorrection.status === 'suppressed'
-      ? 'accepted_synthesis_suppressed_by_correction'
-      : 'accepted_synthesis_terminal_unavailable'
-    : synthesisId
-      ? 'accepted_synthesis_available'
-      : synthesisLoading
-        ? 'accepted_synthesis_loading'
-        : 'accepted_synthesis_pending';
+  const acceptedSynthesisState = (() => {
+    if (synthesisCorrection) {
+      return synthesisCorrection.status === 'suppressed'
+        ? 'accepted_synthesis_suppressed_by_correction'
+        : 'accepted_synthesis_terminal_unavailable';
+    }
+    if (synthesisId) return 'accepted_synthesis_available';
+    if (synthesisLifecycleStatus === 'terminal_unavailable') return 'accepted_synthesis_terminal_unavailable';
+    if (synthesisLifecycleStatus === 'retryable_failure') return 'accepted_synthesis_retryable_failure';
+    if (synthesisLoading) return 'accepted_synthesis_loading';
+    return 'accepted_synthesis_pending';
+  })();
   const frameEmptyMessage = acceptedSynthesisState === 'accepted_synthesis_loading'
     ? 'Accepted synthesis frame rows are loading.'
+    : acceptedSynthesisState === 'accepted_synthesis_retryable_failure'
+      ? 'Accepted synthesis is retrying after a transient failure; stance controls remain unavailable until frame rows are ready.'
     : acceptedSynthesisState === 'accepted_synthesis_terminal_unavailable'
       ? 'Accepted synthesis is unavailable for this story.'
       : acceptedSynthesisState === 'accepted_synthesis_suppressed_by_correction'
@@ -465,6 +475,22 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             data-testid={`news-card-synthesis-error-${topicId}`}
           >
             Synthesis unavailable.
+          </p>
+        )}
+        {synthesisLifecycleStatus === 'terminal_unavailable' && !synthesisLoading && !analysis && !correctionBlocksSynthesis && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            data-testid={`news-card-synthesis-terminal-${topicId}`}
+          >
+            Accepted synthesis is unavailable for this story{synthesisLifecycleReason ? `: ${synthesisLifecycleReason}` : '.'}
+          </p>
+        )}
+        {synthesisLifecycleStatus === 'retryable_failure' && !synthesisLoading && !analysis && !correctionBlocksSynthesis && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            data-testid={`news-card-synthesis-retryable-${topicId}`}
+          >
+            Accepted synthesis is retrying after a transient failure{synthesisLifecycleReason ? `: ${synthesisLifecycleReason}` : '.'}
           </p>
         )}
         {synthesisUnavailable && !analysis && !correctionBlocksSynthesis && (

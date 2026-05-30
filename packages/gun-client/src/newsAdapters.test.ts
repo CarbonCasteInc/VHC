@@ -20,9 +20,11 @@ import {
 } from './systemWriter';
 import {
   DEFAULT_NEWS_HOTNESS_CONFIG,
+  buildNewsSynthesisLifecycleRecord,
   computeStoryHotness,
   getNewsHotIndexChain,
   getNewsIngestionLeaseChain,
+  getNewsSynthesisLifecycleChain,
   getNewsStoryChain,
   getNewsStoriesChain,
   getNewsRemovalChain,
@@ -37,6 +39,7 @@ import {
   readNewsLatestIndexViaRelayRest,
   readNewsLatestIndexWithRelayRestFallback,
   readNewsRemoval,
+  readNewsSynthesisLifecycleStatus,
   readNewsStory,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
@@ -51,6 +54,7 @@ import {
   writeNewsHotIndexEntry,
   writeNewsIngestionLease,
   writeNewsLatestIndexEntry,
+  writeNewsSynthesisLifecycleStatus,
   writeNewsStory
 } from './newsAdapters';
 
@@ -313,6 +317,23 @@ function expectSystemHotIndexRecord(
   return value as SystemWriterHotIndexRecord;
 }
 
+function expectSystemLifecycleRecord(value: unknown, storyId: string) {
+  expect(value).toMatchObject({
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: TEST_SYSTEM_WRITER_ID,
+    _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+    _systemSignature: expect.any(String),
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: storyId,
+    topic_id: STORY.topic_id,
+    source_set_revision: STORY.provenance_hash,
+  });
+  expect(value).not.toHaveProperty('_authorScheme');
+  expect(value).not.toHaveProperty('signedWriteEnvelope');
+  return value as Record<string, unknown>;
+}
+
 const STORY: StoryBundle = {
   schemaVersion: 'story-bundle-v0',
   story_id: 'story-123',
@@ -374,6 +395,25 @@ describe('newsAdapters', () => {
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/index/hot/story-xyz/', 0.625);
   });
 
+  it('builds synthesis lifecycle chain and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const record = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      updatedAt: 1_700_000_040_000,
+    });
+
+    const lifecycleChain = getNewsSynthesisLifecycleChain(client, STORY.story_id);
+    await lifecycleChain.put(record);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/news/stories/story-123/synthesis_lifecycle/latest/',
+      record,
+    );
+  });
+
   it('detects forbidden payload fields recursively', () => {
     expect(hasForbiddenNewsPayloadFields({ ok: true })).toBe(false);
     expect(hasForbiddenNewsPayloadFields({ access_token: 'x' })).toBe(true);
@@ -405,6 +445,56 @@ describe('newsAdapters', () => {
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
     ).toEqual(STORY);
+  });
+
+  it('writes and reads signed synthesis lifecycle records for story source revisions', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const { pin, sign } = await createRealSystemWriterHooks();
+    const verify = vi.fn(async () => true);
+    const client = createClient(mesh, guard, {
+      systemWriterPin: pin,
+      systemWriterSign: sign,
+      systemWriterVerify: verify,
+    });
+    const pending = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      frameTableState: 'frame_table_pending',
+      updatedAt: 1_700_000_040_000,
+    });
+
+    await expect(writeNewsSynthesisLifecycleStatus(client, pending)).resolves.toEqual(pending);
+
+    expect(mesh.writes).toHaveLength(1);
+    expect(mesh.writes[0].path).toBe('news/stories/story-123/synthesis_lifecycle/latest');
+    const signed = expectSystemLifecycleRecord(mesh.writes[0].value, STORY.story_id);
+    expect(signed.status).toBe('pending');
+    mesh.setRead('news/stories/story-123/synthesis_lifecycle/latest', signed);
+
+    await expect(readNewsSynthesisLifecycleStatus(client, STORY.story_id)).resolves.toMatchObject({
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: STORY.story_id,
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: 1,
+      canonical_source_count: 1,
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      updated_at: 1_700_000_040_000,
+    });
+  });
+
+  it('does not infer frame-table readiness for accepted synthesis without an explicit readiness check', () => {
+    const record = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'accepted_available',
+      synthesisId: 'synthesis-1',
+      epoch: 4,
+      updatedAt: 1_700_000_040_000,
+    });
+
+    expect(record.frame_table_state).toBe('frame_table_unavailable');
   });
 
   it('removeNewsStory clears a story node', async () => {
