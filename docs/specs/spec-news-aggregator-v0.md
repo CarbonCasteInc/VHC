@@ -259,8 +259,12 @@ Public storyline-node storage contract:
 
 Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest activity** timestamps.
 
-- Target write shape: system-writer signed child node with `story_id` and
-  `latest_activity_at` (activity, aligned with `cluster_window_end`).
+- Target write shape: system-writer signed child node with `story_id`,
+  `latest_activity_at` (activity, aligned with `cluster_window_end`), and when
+  the publishing path has the `StoryBundle`, product feed metadata:
+  `product_state_schema_version: 'vh-news-product-feed-index-v1'`, `topic_id`,
+  `source_set_revision`, `source_count`, `canonical_source_count`,
+  `story_created_at`, and `cluster_window_start`.
 - Transitional read compatibility (must be supported):
   - scalar timestamp string/number
   - object payloads carrying `cluster_window_end` or `latest_activity_at`
@@ -281,7 +285,11 @@ Public latest/hot index-entry storage contract:
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
-  `_systemSignature`.
+  `_systemSignature`. Story publication and accepted-synthesis republish paths
+  MUST include the product feed metadata above so public readers and release
+  gates can audit singleton versus multi-source composition without relying on
+  in-memory daemon state. Older minimal signed latest entries remain
+  read-compatible but are insufficient as new publication output.
 - New writes to `vh/news/index/hot/<storyId>` MUST store an object carrying
   `story_id`, `hotness`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and

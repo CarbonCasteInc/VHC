@@ -1305,9 +1305,22 @@ function finalizeFeedComposition(composition) {
 
 function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) {
   const latestActivityAt = resolveLatestActivityFromStory(story) ?? Math.max(0, Math.floor(fallbackPriority || 0));
+  const sourceCount = Array.isArray(story?.sources) ? story.sources.length : 0;
+  const canonicalSourceCount = Array.isArray(story?.primary_sources)
+    ? story.primary_sources.length
+    : sourceCount;
   return {
     story_id: storyId,
     latest_activity_at: latestActivityAt,
+    product_state_schema_version: 'vh-news-product-feed-index-v1',
+    topic_id: typeof story?.topic_id === 'string' ? story.topic_id : null,
+    source_set_revision: typeof story?.provenance_hash === 'string' ? story.provenance_hash : null,
+    source_count: sourceCount,
+    canonical_source_count: canonicalSourceCount,
+    story_created_at: Number.isFinite(Number(story?.created_at)) ? Math.max(0, Math.floor(Number(story.created_at))) : null,
+    cluster_window_start: Number.isFinite(Number(story?.cluster_window_start))
+      ? Math.max(0, Math.floor(Number(story.cluster_window_start)))
+      : null,
   };
 }
 

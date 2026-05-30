@@ -129,6 +129,13 @@ export interface SystemWriterStoryBundleRecord extends Record<string, unknown>, 
 export interface SystemWriterLatestIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
   readonly story_id: string;
   readonly latest_activity_at: number;
+  readonly product_state_schema_version?: 'vh-news-product-feed-index-v1';
+  readonly topic_id?: string;
+  readonly source_set_revision?: string;
+  readonly source_count?: number;
+  readonly canonical_source_count?: number;
+  readonly story_created_at?: number;
+  readonly cluster_window_start?: number;
 }
 
 export interface SystemWriterHotIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
@@ -602,13 +609,26 @@ async function buildSystemWriterLatestIndexRecord(
   client: VennClient,
   storyId: string,
   latestActivityAt: number,
+  story?: StoryBundle,
 ): Promise<SystemWriterLatestIndexRecord> {
+  const metadata = story && story.story_id === storyId
+    ? {
+        product_state_schema_version: 'vh-news-product-feed-index-v1' as const,
+        topic_id: story.topic_id,
+        source_set_revision: story.provenance_hash,
+        source_count: story.sources.length,
+        canonical_source_count: canonicalSourceCount(story),
+        story_created_at: Math.max(0, Math.floor(story.created_at)),
+        cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
+      }
+    : {};
   return signSystemWriterRecord(
     client,
     latestIndexEntryPath(storyId),
     {
       story_id: storyId,
       latest_activity_at: latestActivityAt,
+      ...metadata,
     },
     'system writer signer is required for news latest-index writes',
   ) as Promise<SystemWriterLatestIndexRecord>;
@@ -1605,14 +1625,18 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
 export async function writeNewsLatestIndexEntry(
   client: VennClient,
   storyId: string,
-  latestTimestamp: number
+  latestTimestamp: number,
+  story?: StoryBundle,
 ): Promise<void> {
   const normalizedId = storyId.trim();
   if (!normalizedId) {
     throw new Error('storyId is required');
   }
+  if (story && story.story_id !== normalizedId) {
+    throw new Error('latest-index story metadata must match storyId');
+  }
   const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
-  const encoded = await buildSystemWriterLatestIndexRecord(client, normalizedId, normalizedLatestTimestamp);
+  const encoded = await buildSystemWriterLatestIndexRecord(client, normalizedId, normalizedLatestTimestamp, story);
   const chain = getNewsLatestIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
   await putWithAck(chain, encoded, {
     writeClass: 'news-latest-index',
@@ -1691,7 +1715,7 @@ export async function removeNewsHotIndexEntry(
  */
 export async function writeNewsBundle(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = await writeNewsStory(client, story);
-  await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end);
+  await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end, sanitized);
   await writeNewsHotIndexEntry(client, sanitized.story_id, computeStoryHotness(sanitized));
   return sanitized;
 }
