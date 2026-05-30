@@ -289,7 +289,12 @@ export function classifyGateFailure(output) {
   const text = String(output ?? '').toLowerCase();
   if (
     text.includes('eligible_raw_story_hidden_without_allowed_reason') ||
-    text.includes('multi_source_raw_story_hidden_by_synthesis_state')
+    text.includes('multi_source_raw_story_hidden_by_synthesis_state') ||
+    text.includes('public-feed-initial-open-headlines-timeout') ||
+    text.includes('public-feed-load-more-not-from-mesh') ||
+    text.includes('scroll-feed-lost-headlines') ||
+    text.includes('source-labels-missing') ||
+    text.includes('timestamps-missing')
   ) {
     return 'fail';
   }
