@@ -1420,6 +1420,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     && boolEnv('VH_RELAY_NEWS_INDEX_REST_CONSISTENCY_FILTER', true);
   const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK', consistencyFilter);
   const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
+  const beforeCursor = options.before === undefined || options.before === null || String(options.before).trim() === ''
+    ? Number.NaN
+    : Number(options.before);
+  const hasBeforeCursor = Number.isFinite(beforeCursor) && beforeCursor >= 0;
   const rawRoot = await readOnce(indexChain, rootTimeoutMs);
   const requestedScanLimit = consistencyFilter
     ? positiveInteger(
@@ -1438,8 +1442,11 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     }
     : rawRoot;
   const sourceKeys = extractIndexChildKeys(readableRoot);
+  const windowedSourceKeys = hasBeforeCursor
+    ? sourceKeys.filter((storyId) => indexEntryPriority(readableRoot, storyId) < beforeCursor)
+    : sourceKeys;
   const scanLimit = requestedScanLimit;
-  const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, scanLimit));
+  const keys = windowedSourceKeys.slice(0, Math.min(windowedSourceKeys.length, scanLimit));
   const records = {};
   const storyStates = {};
   const excludedRecords = [];
@@ -1531,8 +1538,14 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
+    windowSourceKeyCount: windowedSourceKeys.length,
     scannedKeyCount: keys.length,
-    truncated: sourceKeys.length > keys.length || Object.keys(records).length >= maxRecords,
+    truncated: windowedSourceKeys.length > keys.length || Object.keys(records).length >= maxRecords,
+    before: hasBeforeCursor ? Math.floor(beforeCursor) : null,
+    nextCursor: Object.values(records)
+      .map((record) => Number(record?.latest_activity_at ?? record?.cluster_window_end ?? record?.created_at ?? record))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .sort((a, b) => a - b)[0] ?? null,
     consistency: {
       enabled: consistencyFilter,
       mode: consistencyFilter ? 'relay_visible_filter' : 'disabled',
@@ -2554,14 +2567,18 @@ const server = http.createServer((req, res) => {
       ? false
       : undefined;
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
-    void readNewsLatestIndexRecords(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit })
+    const before = parsedUrl.searchParams.get('before');
+    void readNewsLatestIndexRecords(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before })
       .then((result) => {
         const payload = {
           ok: true,
           record_count: Object.keys(result.records).length,
           source_key_count: result.sourceKeyCount,
+          window_source_key_count: result.windowSourceKeyCount,
           scanned_key_count: result.scannedKeyCount,
           truncated: result.truncated,
+          before: result.before,
+          next_cursor: result.nextCursor,
           consistency: result.consistency,
           composition: result.composition,
           story_states: result.storyStates,

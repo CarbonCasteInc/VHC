@@ -21,6 +21,10 @@ import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
+export interface NewsLatestIndexReadOptions {
+  readonly limit?: number;
+  readonly before?: number;
+}
 export type NewsSynthesisLifecycleStatus =
   | 'pending'
   | 'in_progress'
@@ -118,6 +122,32 @@ const RELAY_REST_INDEX_LIMIT = readGunTimeoutMs(
   4,
 );
 const ROOT_INDEX_SETTLE_MS = 150;
+
+function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_INDEX_LIMIT): number {
+  const parsed = Number(limit);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(parsed));
+}
+
+function normalizeLatestIndexBeforeCursor(before: unknown): number | null {
+  const parsed = Number(before);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function filterLatestIndexWindow(
+  index: NewsLatestIndex,
+  options: NewsLatestIndexReadOptions = {},
+): NewsLatestIndex {
+  const limit = normalizeLatestIndexReadLimit(options.limit);
+  const before = normalizeLatestIndexBeforeCursor(options.before);
+  const entries = Object.entries(index)
+    .filter(([, timestamp]) => before === null || timestamp < before)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit);
+  return Object.fromEntries(entries);
+}
 
 export interface SystemWriterStoryBundleRecord extends Record<string, unknown>, SystemWriterRecordFields {
   readonly [STORY_BUNDLE_JSON_KEY]: string;
@@ -1511,14 +1541,23 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
  * validated locally with the pinned system-writer key before becoming index
  * evidence.
  */
-export async function readNewsLatestIndexViaRelayRest(client: VennClient): Promise<NewsLatestIndex> {
+export async function readNewsLatestIndexViaRelayRest(
+  client: VennClient,
+  options: NewsLatestIndexReadOptions = {},
+): Promise<NewsLatestIndex> {
   const peer = client.config.peers[0];
   if (!peer || typeof fetch !== 'function') {
     return {};
   }
+  const limit = normalizeLatestIndexReadLimit(options.limit);
+  const before = normalizeLatestIndexBeforeCursor(options.before);
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (before !== null) {
+    query.set('before', String(before));
+  }
   const endpoint = resolveRelayRestEndpointFromPeer(
     peer,
-    `/vh/news/latest-index?limit=${encodeURIComponent(String(RELAY_REST_INDEX_LIMIT))}`,
+    `/vh/news/latest-index?${query.toString()}`,
   );
   if (!endpoint) {
     return {};
@@ -1562,20 +1601,23 @@ export async function readNewsLatestIndexViaRelayRest(client: VennClient): Promi
   }
 }
 
-export async function readNewsLatestIndexWithRelayRestFallback(client: VennClient): Promise<NewsLatestIndex> {
+export async function readNewsLatestIndexWithRelayRestFallback(
+  client: VennClient,
+  options: NewsLatestIndexReadOptions = {},
+): Promise<NewsLatestIndex> {
   const relayed = await timeoutAsNull(
-    readNewsLatestIndexViaRelayRest(client),
+    readNewsLatestIndexViaRelayRest(client, options),
     RELAY_REST_READ_TIMEOUT_MS + 1_000,
   );
   if (relayed && Object.keys(relayed).length > 0) {
-    return relayed;
+    return filterLatestIndexWindow(relayed, options);
   }
   const direct = await timeoutAsNull(
     readNewsLatestIndex(client),
     Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
   );
   /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; empty fallback is defensive. */
-  return direct ?? {};
+  return direct ? filterLatestIndexWindow(direct, options) : {};
 }
 
 /**

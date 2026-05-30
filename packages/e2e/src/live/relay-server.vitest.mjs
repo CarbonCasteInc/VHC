@@ -807,6 +807,38 @@ describe('infra relay server', () => {
     });
   });
 
+  it('serves older latest-index windows with an exclusive before cursor', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+    });
+    const gun = createRelayGunClient(port);
+    const latestIndexRoot = gun.get('vh').get('news').get('index').get('latest');
+    await putGunValueAndWaitForReadback(latestIndexRoot.get('story-new'), 300);
+    await putGunValueAndWaitForReadback(latestIndexRoot.get('story-mid'), 200);
+    await putGunValueAndWaitForReadback(latestIndexRoot.get('story-old'), 100);
+
+    const latest = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=2&before=250&consistency=false`,
+    );
+
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        before: 250,
+        record_count: 2,
+        window_source_key_count: 2,
+        next_cursor: 100,
+        records: {
+          'story-mid': 200,
+          'story-old': 100,
+        },
+      }),
+    });
+    expect(latest.body.records).not.toHaveProperty('story-new');
+    gun.off();
+  }, 10_000);
+
   it('filters latest-index rows whose story body is unavailable and reports repair evidence', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '4',

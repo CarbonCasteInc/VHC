@@ -1,5 +1,5 @@
 interface RefreshableNewsState {
-  refreshLatest: (limit?: number) => Promise<void>;
+  refreshLatest: (request?: number | { readonly limit?: number; readonly before?: number }) => Promise<void>;
 }
 
 function readBridgeNumber(

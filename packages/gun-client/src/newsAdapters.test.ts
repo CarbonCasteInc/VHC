@@ -1253,6 +1253,43 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('readNewsLatestIndexWithRelayRestFallback requests and enforces older cursor windows', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      records: {
+        'story-new': 300,
+        'story-mid': 200,
+        'story-old': 100,
+      },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsLatestIndexWithRelayRestFallback(client, { limit: 2, before: 250 }),
+      ).resolves.toEqual({
+        'story-mid': 200,
+        'story-old': 100,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/latest-index?limit=2&before=250',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('falls back to the unscoped ingestion lease when a configured scope normalizes empty', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/runtime/lease/ingester', {
