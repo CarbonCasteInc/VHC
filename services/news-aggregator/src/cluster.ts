@@ -114,9 +114,8 @@ function computeSemanticSignature(items: NormalizedFeedItem[]): string {
 function generateStoryId(
   entityKeys: string[],
   timeBucket: string,
-  semanticSig: string,
 ): string {
-  const payload = `${entityKeys.join(',')}|${timeBucket}|${semanticSig}`;
+  const payload = `${entityKeys.join(',')}|${timeBucket}`;
   return `story-${fnv1a32(payload)}`;
 }
 
@@ -304,7 +303,7 @@ function clusterItemsHeuristic(
 
     return {
       schemaVersion: STORY_BUNDLE_VERSION,
-      story_id: generateStoryId(entityKeys, timeBucket, semanticSig),
+      story_id: generateStoryId(entityKeys, timeBucket),
       topic_id: generateTopicId(entityKeys),
       headline: first.title,
       summary_hint: first.summary,

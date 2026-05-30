@@ -39,6 +39,47 @@ export interface NewsCardProps {
 const PENDING_SYNTHESIS_REFRESH_INTERVAL_MS = 2_000;
 const PENDING_SYNTHESIS_REFRESH_ATTEMPTS = 45;
 
+function synthesisInputsIncludeStory(
+  synthesis: NonNullable<ReturnType<typeof useSynthesisStore.getState>['topics'][string]>['synthesis'],
+  storyId: string | null,
+): boolean {
+  if (!synthesis || !storyId) {
+    return false;
+  }
+  return (synthesis.inputs.story_bundle_ids ?? []).includes(storyId);
+}
+
+function acceptedSynthesisMatchesStoryRevision({
+  synthesis,
+  story,
+  storyId,
+  lifecycle,
+}: {
+  readonly synthesis: NonNullable<ReturnType<typeof useSynthesisStore.getState>['topics'][string]>['synthesis'];
+  readonly story: ReturnType<typeof resolveStoryBundle>;
+  readonly storyId: string | null;
+  readonly lifecycle: NewsSynthesisLifecycleRecord | null;
+}): boolean {
+  if (!synthesisInputsIncludeStory(synthesis, storyId)) {
+    return false;
+  }
+  if (!story?.provenance_hash?.trim()) {
+    return false;
+  }
+  return Boolean(
+    lifecycle
+    && lifecycle.status === 'accepted_available'
+    && lifecycle.story_id === story.story_id
+    && lifecycle.source_set_revision === story.provenance_hash
+    && lifecycle.synthesis_id === synthesis?.synthesis_id
+    && (
+      lifecycle.epoch === undefined
+      || lifecycle.epoch === null
+      || lifecycle.epoch === synthesis?.epoch
+    ),
+  );
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
@@ -118,19 +159,32 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisCorrection = synthesisTopicState?.correction ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
-  const correctionBlocksSynthesis = Boolean(
+  const [synthesisLifecycle, setSynthesisLifecycle] = useState<NewsSynthesisLifecycleRecord | null>(null);
+  const [synthesisLifecycleLoading, setSynthesisLifecycleLoading] = useState(false);
+  const lifecycleStatus = synthesisLifecycle?.status ?? null;
+  const lifecycleReason = synthesisLifecycle?.reason ?? null;
+  const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
+  const storySourceSetRevision = story?.provenance_hash ?? null;
+  const acceptedSynthesisCurrent = acceptedSynthesisMatchesStoryRevision({
+    synthesis,
+    story,
+    storyId,
+    lifecycle: synthesisLifecycle,
+  });
+  const correctionAppliesToLatestSynthesis = Boolean(
     synthesisCorrection
-      && (!synthesis
-        || (
-          synthesisCorrection.synthesis_id === synthesis.synthesis_id
-          && synthesisCorrection.epoch === synthesis.epoch
-          && synthesisCorrection.topic_id === synthesis.topic_id
-        ))
+    && synthesis !== null
+    && synthesisCorrection.synthesis_id === synthesis.synthesis_id
+    && synthesisCorrection.epoch === synthesis.epoch
+    && synthesisCorrection.topic_id === synthesis.topic_id
   );
-  const effectiveSynthesis = correctionBlocksSynthesis ? null : synthesis;
+  const correctionBlocksSynthesis = Boolean(
+    correctionAppliesToLatestSynthesis
+    && (acceptedSynthesisCurrent || lifecycleStatus === 'suppressed')
+  );
+  const effectiveSynthesis = correctionBlocksSynthesis || !acceptedSynthesisCurrent ? null : synthesis;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
-  const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
   const synthesisId = effectiveSynthesis?.synthesis_id ?? null;
   const synthesisEpoch = effectiveSynthesis?.epoch;
   const synthesisProvenance = effectiveSynthesis
@@ -159,10 +213,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   );
   const synthesisFrameRows = effectiveSynthesis?.frames ?? [];
   const frameRows = synthesisFrameRows;
-  const [synthesisLifecycle, setSynthesisLifecycle] = useState<NewsSynthesisLifecycleRecord | null>(null);
-  const [synthesisLifecycleLoading, setSynthesisLifecycleLoading] = useState(false);
-  const lifecycleStatus = synthesisLifecycle?.status ?? null;
-  const lifecycleReason = synthesisLifecycle?.reason ?? null;
   const summaryBasisLabel = (() => {
     if (correctionBlocksSynthesis) return 'Operator correction';
     if (hasSynthesisSummary) return 'Topic synthesis v2';
@@ -223,7 +273,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   }, [isExpanded, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
-    if (!isExpanded || !storyId || effectiveSynthesis || synthesisCorrection) {
+    if (!isExpanded || !storyId) {
       return;
     }
 
@@ -254,7 +304,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSynthesis, isExpanded, storyId, synthesisCorrection]);
+  }, [isExpanded, storyId, storySourceSetRevision]);
 
   useEffect(() => {
     if (!isExpanded || effectiveSynthesis || synthesisCorrection || synthesisLoading || synthesisError) {
@@ -308,9 +358,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   useEffect(() => {
     if (effectiveSynthesis || synthesisCorrection || synthesisError) {
       setSynthesisReadinessTimedOut(false);
-      setSynthesisLifecycle(null);
     }
   }, [effectiveSynthesis, synthesisCorrection, synthesisError]);
+
+  useEffect(() => {
+    setSynthesisLifecycle(null);
+    setSynthesisLifecycleLoading(false);
+  }, [storyId, storySourceSetRevision]);
 
   useEffect(() => {
     if (!isExpanded) return;

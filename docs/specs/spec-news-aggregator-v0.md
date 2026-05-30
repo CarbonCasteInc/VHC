@@ -135,14 +135,17 @@ interface StoryBundle {
 }
 ```
 
-`story_id` and `topic_id` must be stable for the same cluster window and feature set.
+`story_id` and `topic_id` must be stable for the same cluster window and event
+identity. `story_id` MUST NOT be derived from the complete current source URL
+set: source-set growth changes `provenance_hash` / `source_set_revision`, not
+the public story card identity.
 `storyline_id`, when present, identifies a broader narrative grouping and must not widen canonical event-bundle membership.
 
 Canonical publication contract:
 - `StoryBundle` publication may represent a single-source story when only one readable canonical report exists;
 - `StoryBundle` publication may also represent a single-source publisher-hosted video/watch story from an admitted source when no corroborating article bundle exists yet;
 - later corroborating coverage may widen the bundle if and only if it is the same incident or same developing episode;
-- adding later sources must not churn the existing `story_id`.
+- adding later sources must not churn the existing `story_id`;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
@@ -377,6 +380,15 @@ Public lifecycle storage contract:
   current story/source-set revision. `frame_table_ready` additionally requires a
   non-empty facts summary, non-empty frames, and persisted `frame_point_id` and
   `reframe_point_id` for every visible row.
+- Public relay and app readers MUST NOT treat a topic latest synthesis as
+  accepted for a visible story unless the story's latest lifecycle record is
+  `accepted_available`, its `source_set_revision` equals the current
+  `StoryBundle.provenance_hash`, its `synthesis_id`/`epoch` match the accepted
+  `TopicSynthesisV2`, and the synthesis inputs include the current
+  `story_id`. If a singleton grows into a bundle and lifecycle returns to
+  `pending`/`in_progress`, any older topic latest synthesis remains non-votable
+  historical data until the new source-set revision reaches accepted or
+  terminal state.
 - `terminal_unavailable` is product-visible and must carry an auditable reason.
   It is not a silent feed filter. `retryable_failure` is also product-visible
   and must not enable point-stance controls.

@@ -154,6 +154,44 @@ function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): Topi
     ...overrides,
   };
 }
+function makeAcceptedLifecycle(overrides: Partial<import('@vh/gun-client').NewsSynthesisLifecycleRecord> = {}) {
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1' as const,
+    story_id: 'story-news-1',
+    topic_id: CANONICAL_TOPIC_ID,
+    source_set_revision: 'prov-1',
+    source_count: 1,
+    canonical_source_count: 1,
+    status: 'accepted_available' as const,
+    frame_table_state: 'frame_table_ready' as const,
+    retryable: false,
+    synthesis_id: 'syn-1',
+    epoch: 2,
+    updated_at: NOW,
+    ...overrides,
+  };
+}
+function makeReadableMockClient() {
+  const chain = {
+    get: vi.fn(() => chain),
+    once: vi.fn((callback: (value: unknown) => void) => {
+      callback(null);
+      return chain;
+    }),
+    on: vi.fn(() => chain),
+    off: vi.fn(() => undefined),
+    map: vi.fn(() => chain),
+    put: vi.fn((_value: unknown, callback?: (ack?: { err?: string }) => void) => {
+      callback?.({});
+      return chain;
+    }),
+  };
+  return {
+    mesh: chain,
+    hydrationBarrier: { prepare: vi.fn().mockResolvedValue(undefined) },
+    topologyGuard: { validateWrite: vi.fn() },
+  };
+}
 describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
@@ -169,9 +207,9 @@ describe('NewsCard', () => {
       signals: [],
     });
     localStorage.clear();
-    setClientResolver(() => null);
+    setClientResolver(() => makeReadableMockClient() as never);
     readNewsSynthesisLifecycleStatusMock.mockReset();
-    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(null);
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle());
     mockUseViewTracking.mockReturnValue(false);
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
@@ -456,6 +494,50 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 
+  it('treats topic synthesis from an old source-set revision as pending for a grown story', async () => {
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle({
+      source_set_revision: 'prov-2',
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      synthesis_id: 'syn-1',
+      epoch: 2,
+    }));
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        provenance_hash: 'prov-2',
+        sources: [
+          ...makeStoryBundle().sources,
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW,
+            title: 'Metro desk corroborates transit plan vote',
+          },
+        ],
+      }),
+    ]);
+    useSynthesisStore
+      .getState()
+      .setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Feed summary hint; synthesis pending',
+    );
+    expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Transit vote split council members along budget priorities.',
+    );
+    expect(screen.queryByTestId('news-card-synthesis-provenance-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis frame rows are pending for this story.',
+    );
+  });
+
   it('renders accepted frame rows without point ids but keeps stance controls unavailable', async () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.setState({
@@ -532,6 +614,10 @@ describe('NewsCard', () => {
   });
 
   it('ignores stale corrections when a newer accepted synthesis is current', async () => {
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle({
+      synthesis_id: 'syn-2',
+      epoch: 3,
+    }));
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ synthesis_id: 'syn-2', epoch: 3 }));
     useSynthesisStore.getState().setTopicCorrection('news-1', makeCorrection());
@@ -800,7 +886,7 @@ describe('NewsCard', () => {
   it('renders terminal lifecycle state without enabling stance controls', async () => {
     const startHydrationSpy = vi.spyOn(useSynthesisStore.getState(), 'startHydration').mockImplementation(() => undefined);
     const refreshSpy = vi.spyOn(useSynthesisStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
-    setClientResolver(() => ({}) as never);
+    setClientResolver(() => makeReadableMockClient() as never);
     readNewsSynthesisLifecycleStatusMock.mockResolvedValue({
       schemaVersion: 'news-synthesis-lifecycle-v1',
       story_id: 'story-news-1',

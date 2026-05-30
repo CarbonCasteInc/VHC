@@ -1049,6 +1049,29 @@ function hasFrameTableReadyPayload(synthesis) {
     ));
 }
 
+function synthesisInputsIncludeStory(synthesis, story) {
+  const storyId = typeof story?.story_id === 'string' ? story.story_id.trim() : '';
+  if (!storyId) return false;
+  const storyBundleIds = Array.isArray(synthesis?.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  return storyBundleIds.some((candidate) => String(candidate ?? '').trim() === storyId);
+}
+
+function acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle) {
+  if (!hasAcceptedTopicSynthesisPayload(synthesis)) return false;
+  if (!synthesisInputsIncludeStory(synthesis, story)) return false;
+  if (!lifecycle || typeof lifecycle !== 'object') return false;
+  if (lifecycle.status !== 'accepted_available') return false;
+  if (typeof story?.provenance_hash !== 'string' || !story.provenance_hash.trim()) return false;
+  if (lifecycle.source_set_revision !== story.provenance_hash) return false;
+  if (typeof synthesis.synthesis_id !== 'string' || lifecycle.synthesis_id !== synthesis.synthesis_id) return false;
+  if (Number.isFinite(Number(synthesis.epoch)) && Number.isFinite(Number(lifecycle.epoch))) {
+    return Math.floor(Number(synthesis.epoch)) === Math.floor(Number(lifecycle.epoch));
+  }
+  return true;
+}
+
 function parseStoryBundleEnvelope(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return null;
   try {
@@ -1194,8 +1217,19 @@ function storySourceCount(story) {
 }
 
 function derivePublicFeedStoryState(story, synthesis, lifecycle) {
-  const acceptedAvailable = hasAcceptedTopicSynthesisPayload(synthesis);
+  const acceptedAvailable = acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle);
   const frameReady = hasFrameTableReadyPayload(synthesis);
+  if (lifecycle?.status === 'suppressed') {
+    return {
+      synthesis_state: 'accepted_synthesis_suppressed',
+      frame_table_state: 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      terminal_unavailable_reason: lifecycle.reason ?? 'suppressed',
+      retryable: false,
+    };
+  }
   if (acceptedAvailable) {
     return {
       synthesis_state: 'accepted_synthesis_available',
@@ -1227,17 +1261,6 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
       lifecycle_status: lifecycle.status,
       terminal_unavailable_reason: null,
       retryable: true,
-    };
-  }
-  if (lifecycle?.status === 'suppressed') {
-    return {
-      synthesis_state: 'accepted_synthesis_suppressed',
-      frame_table_state: 'frame_table_unavailable',
-      synthesis_id: lifecycle.synthesis_id ?? null,
-      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
-      lifecycle_status: lifecycle.status,
-      terminal_unavailable_reason: lifecycle.reason ?? 'suppressed',
-      retryable: false,
     };
   }
   return {

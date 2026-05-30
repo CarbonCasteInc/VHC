@@ -838,14 +838,16 @@ async function readPublicRelaySynthesisCandidates({
     if (relaySynthesisState) {
       publicStateCounts[relaySynthesisState] = (publicStateCounts[relaySynthesisState] ?? 0) + 1;
     }
-    const rows = Array.isArray(synthesis?.frames) ? synthesis.frames : [];
+    const relayAcceptedSynthesis = relaySynthesisState === 'accepted_synthesis_available';
+    const currentAcceptedSynthesisReady = relayAcceptedSynthesis && acceptedSynthesisReady(synthesis);
+    const rows = currentAcceptedSynthesisReady && Array.isArray(synthesis?.frames) ? synthesis.frames : [];
     frameRows += rows.length;
     frameCountDistribution[String(rows.length)] = (frameCountDistribution[String(rows.length)] ?? 0) + 1;
     for (const row of rows) {
       if (typeof row?.frame_point_id === 'string' && row.frame_point_id.trim()) framePointIdsPresent += 1;
       if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) reframePointIdsPresent += 1;
     }
-    if (!acceptedSynthesisReady(synthesis)) {
+    if (!currentAcceptedSynthesisReady) {
       const articleTextStatus = await readArticleTextSampleStatus({ root, story, timeoutMs });
       articleTextSampleStatusCounts[articleTextStatus] = (articleTextSampleStatusCounts[articleTextStatus] ?? 0) + 1;
       const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
