@@ -5,9 +5,11 @@ import {
   readNewsLatestIndexProductRecord,
   readNewsStory,
   readNewsStoryIds,
+  readNewsStoryRepairCandidate,
   readNewsSynthesisLifecycleStatus,
   writeNewsHotIndexEntry,
   writeNewsLatestIndexEntry,
+  writeNewsStory,
   writeNewsSynthesisLifecycleStatus,
   type NewsLatestIndexEntryRecord,
   type NewsSynthesisLifecycleRecord,
@@ -28,6 +30,7 @@ export interface ProductFeedReconciliationResult {
   readonly sampled: number;
   readonly eligible: number;
   readonly skipped_invalid_story: number;
+  readonly repaired_story_body: number;
   readonly repaired_latest_index: number;
   readonly repaired_hot_index: number;
   readonly repaired_lifecycle: number;
@@ -39,7 +42,9 @@ export interface ProductFeedReconcilerDependencies {
   readonly readStoryIds?: typeof readNewsStoryIds;
   readonly readLatestIndexEntry?: typeof readNewsLatestIndexProductRecord;
   readonly readStory?: typeof readNewsStory;
+  readonly readStoryRepairCandidate?: typeof readNewsStoryRepairCandidate;
   readonly readLifecycle?: typeof readNewsSynthesisLifecycleStatus;
+  readonly writeStory?: typeof writeNewsStory;
   readonly writeLatestIndexEntry?: typeof writeNewsLatestIndexEntry;
   readonly writeHotIndexEntry?: typeof writeNewsHotIndexEntry;
   readonly writeLifecycle?: typeof writeNewsSynthesisLifecycleStatus;
@@ -106,7 +111,9 @@ export async function reconcileProductFeedFromRawStories(
   const readStoryIds = dependencies.readStoryIds ?? readNewsStoryIds;
   const readLatestIndexEntry = dependencies.readLatestIndexEntry ?? readNewsLatestIndexProductRecord;
   const readStory = dependencies.readStory ?? readNewsStory;
+  const readStoryRepairCandidate = dependencies.readStoryRepairCandidate ?? readNewsStoryRepairCandidate;
   const readLifecycle = dependencies.readLifecycle ?? readNewsSynthesisLifecycleStatus;
+  const writeStory = dependencies.writeStory ?? writeNewsStory;
   const writeLatestIndex = dependencies.writeLatestIndexEntry ?? writeNewsLatestIndexEntry;
   const writeHotIndex = dependencies.writeHotIndexEntry ?? writeNewsHotIndexEntry;
   const writeLifecycle = dependencies.writeLifecycle ?? writeNewsSynthesisLifecycleStatus;
@@ -119,6 +126,7 @@ export async function reconcileProductFeedFromRawStories(
 
   let eligible = 0;
   let skippedInvalidStory = 0;
+  let repairedStoryBody = 0;
   let repairedLatestIndex = 0;
   let repairedHotIndex = 0;
   let repairedLifecycle = 0;
@@ -127,10 +135,16 @@ export async function reconcileProductFeedFromRawStories(
 
   for (const storyId of storyIds.slice(0, sampleLimit)) {
     try {
-      const story = await readStory(client, storyId);
+      let story = await readStory(client, storyId);
       if (!isEligibleRawStory(story)) {
-        skippedInvalidStory += 1;
-        continue;
+        const repairCandidate = await readStoryRepairCandidate(client, storyId).catch(() => null);
+        if (!isEligibleRawStory(repairCandidate)) {
+          skippedInvalidStory += 1;
+          continue;
+        }
+        const rewritten = await writeStory(client, repairCandidate);
+        story = isEligibleRawStory(rewritten) ? rewritten : repairCandidate;
+        repairedStoryBody += 1;
       }
       eligible += 1;
 
@@ -169,6 +183,7 @@ export async function reconcileProductFeedFromRawStories(
     sampled: storyIds.length,
     eligible,
     skipped_invalid_story: skippedInvalidStory,
+    repaired_story_body: repairedStoryBody,
     repaired_latest_index: repairedLatestIndex,
     repaired_hot_index: repairedHotIndex,
     repaired_lifecycle: repairedLifecycle,

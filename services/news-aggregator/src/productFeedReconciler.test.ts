@@ -79,7 +79,9 @@ function makeDependencies(story: StoryBundle, lifecycle: NewsSynthesisLifecycleR
     readStoryIds: vi.fn(async () => [story.story_id]),
     readLatestIndexEntry: vi.fn(async () => null as NewsLatestIndexEntryRecord | null),
     readStory: vi.fn(async () => story),
+    readStoryRepairCandidate: vi.fn(async () => null as StoryBundle | null),
     readLifecycle: vi.fn(async () => lifecycle),
+    writeStory: vi.fn(async (_client: VennClient, value: unknown) => value as StoryBundle),
     writeLatestIndexEntry: vi.fn(async () => undefined),
     writeHotIndexEntry: vi.fn(async () => 0.42),
     writeLifecycle: vi.fn(async (_client: VennClient, record: unknown) => record as NewsSynthesisLifecycleRecord),
@@ -101,6 +103,7 @@ describe('product feed reconciler', () => {
     expect(result).toMatchObject({
       sampled: 1,
       eligible: 1,
+      repaired_story_body: 0,
       repaired_latest_index: 1,
       repaired_hot_index: 1,
       repaired_lifecycle: 1,
@@ -139,6 +142,7 @@ describe('product feed reconciler', () => {
     expect(result).toMatchObject({
       sampled: 1,
       eligible: 1,
+      repaired_story_body: 0,
       repaired_latest_index: 0,
       repaired_hot_index: 1,
       repaired_lifecycle: 0,
@@ -165,10 +169,42 @@ describe('product feed reconciler', () => {
 
     expect(result).toMatchObject({
       eligible: 1,
+      repaired_story_body: 0,
       repaired_latest_index: 1,
       repaired_lifecycle: 0,
       preserved_lifecycle: 1,
     });
+    expect(dependencies.writeLatestIndexEntry).toHaveBeenCalledWith(
+      { id: 'client' },
+      story.story_id,
+      story.cluster_window_end,
+      story,
+    );
+  });
+
+  it('repairs malformed signed story bodies from verified repair candidates before indexing', async () => {
+    const story = makeStory();
+    const dependencies = makeDependencies(story);
+    dependencies.readStory.mockResolvedValue(null);
+    dependencies.readStoryRepairCandidate.mockResolvedValue(story);
+    dependencies.writeStory.mockResolvedValue(story);
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toMatchObject({
+      sampled: 1,
+      eligible: 1,
+      skipped_invalid_story: 0,
+      repaired_story_body: 1,
+      repaired_latest_index: 1,
+      repaired_hot_index: 1,
+      repaired_lifecycle: 1,
+    });
+    expect(dependencies.writeStory).toHaveBeenCalledWith({ id: 'client' }, story);
     expect(dependencies.writeLatestIndexEntry).toHaveBeenCalledWith(
       { id: 'client' },
       story.story_id,

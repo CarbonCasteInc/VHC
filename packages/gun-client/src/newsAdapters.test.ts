@@ -46,6 +46,7 @@ import {
   readNewsSynthesisLifecycleStatus,
   readNewsStory,
   readNewsStoryIds,
+  readNewsStoryRepairCandidate,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
   removeNewsBundle,
@@ -1488,6 +1489,41 @@ describe('newsAdapters', () => {
       mesh.setRead('news/stories/story-123', tampered);
       await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
     }
+  });
+
+  it('readNewsStoryRepairCandidate recovers only signature-valid rows missing story mirror fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    const {
+      story_id: _omittedStoryId,
+      created_at: _omittedCreatedAt,
+      schemaVersion: _omittedSchemaVersion,
+      ...missingMirrors
+    } = record;
+
+    mesh.setRead('news/stories/story-123', missingMirrors);
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toEqual(STORY);
+
+    mesh.setRead('news/stories/story-123', {
+      ...missingMirrors,
+      [STORY_BUNDLE_JSON_KEY]: JSON.stringify({ ...STORY, headline: 'tampered' }),
+    });
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toBeNull();
+
+    mesh.setRead('news/stories/story-123', {
+      ...missingMirrors,
+      signedWriteEnvelope: { signature: 'not-for-system-repair' },
+    });
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toBeNull();
   });
 
   it('readNewsStory rejects system records whose signed story id does not match the path', async () => {
