@@ -1,0 +1,160 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { StoryBundle } from '@vh/data-model';
+import type {
+  NewsSynthesisLifecycleRecord,
+  VennClient,
+} from '@vh/gun-client';
+import { reconcileProductFeedFromRawStories } from './productFeedReconciler';
+
+const TOPIC_ID = '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7';
+
+function makeStory(overrides: Partial<StoryBundle> = {}): StoryBundle {
+  return {
+    schemaVersion: 'story-bundle-v0',
+    story_id: 'story-raw',
+    topic_id: TOPIC_ID,
+    headline: 'Raw story',
+    cluster_window_start: 100,
+    cluster_window_end: 200,
+    sources: [{
+      source_id: 'src-1',
+      publisher: 'Publisher',
+      url: 'https://example.com/story',
+      url_hash: 'hash-story',
+      title: 'Raw story',
+    }],
+    cluster_features: {
+      entity_keys: ['raw-story'],
+      time_bucket: '2026-05-30T12',
+      semantic_signature: 'sig-raw-story',
+    },
+    provenance_hash: 'prov-raw',
+    created_at: 100,
+    ...overrides,
+  };
+}
+
+function makeLifecycle(
+  story: StoryBundle,
+  overrides: Partial<NewsSynthesisLifecycleRecord> = {},
+): NewsSynthesisLifecycleRecord {
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: story.sources.length,
+    canonical_source_count: story.sources.length,
+    status: 'accepted_available',
+    retryable: false,
+    synthesis_id: 'synthesis-current',
+    epoch: 1,
+    frame_table_state: 'frame_table_ready',
+    updated_at: 300,
+    ...overrides,
+  };
+}
+
+function makeDependencies(story: StoryBundle, lifecycle: NewsSynthesisLifecycleRecord | null = null) {
+  return {
+    readStoryIds: vi.fn(async () => [story.story_id]),
+    readLatestIndex: vi.fn(async () => ({})),
+    readHotIndex: vi.fn(async () => ({})),
+    readStory: vi.fn(async () => story),
+    readLifecycle: vi.fn(async () => lifecycle),
+    writeLatestIndexEntry: vi.fn(async () => undefined),
+    writeHotIndexEntry: vi.fn(async () => 0.42),
+    writeLifecycle: vi.fn(async (_client: VennClient, record: unknown) => record as NewsSynthesisLifecycleRecord),
+    computeHotness: vi.fn(() => 0.42),
+  };
+}
+
+describe('product feed reconciler', () => {
+  it('repairs missing latest/hot indexes and missing lifecycle for eligible raw stories', async () => {
+    const story = makeStory();
+    const dependencies = makeDependencies(story);
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toMatchObject({
+      sampled: 1,
+      eligible: 1,
+      repaired_latest_index: 1,
+      repaired_hot_index: 1,
+      repaired_lifecycle: 1,
+      preserved_lifecycle: 0,
+    });
+    expect(dependencies.writeLatestIndexEntry).toHaveBeenCalledWith(
+      { id: 'client' },
+      story.story_id,
+      story.cluster_window_end,
+      story,
+    );
+    expect(dependencies.writeHotIndexEntry).toHaveBeenCalledWith({ id: 'client' }, story.story_id, 0.42);
+    expect(dependencies.writeLifecycle).toHaveBeenCalledWith(
+      { id: 'client' },
+      expect.objectContaining({
+        story_id: story.story_id,
+        source_set_revision: story.provenance_hash,
+        status: 'pending',
+        frame_table_state: 'frame_table_pending',
+      }),
+    );
+  });
+
+  it('preserves current lifecycle when the story source-set revision is unchanged', async () => {
+    const story = makeStory();
+    const lifecycle = makeLifecycle(story);
+    const dependencies = makeDependencies(story, lifecycle);
+    dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
+    dependencies.readHotIndex.mockResolvedValue({ [story.story_id]: 0.3 });
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toMatchObject({
+      sampled: 1,
+      eligible: 1,
+      repaired_latest_index: 0,
+      repaired_hot_index: 0,
+      repaired_lifecycle: 0,
+      preserved_lifecycle: 1,
+    });
+    expect(dependencies.writeLifecycle).not.toHaveBeenCalled();
+  });
+
+  it('resets lifecycle to pending when raw story provenance advances', async () => {
+    const story = makeStory({ provenance_hash: 'prov-new' });
+    const lifecycle = makeLifecycle(story, {
+      source_set_revision: 'prov-old',
+      status: 'accepted_available',
+    });
+    const dependencies = makeDependencies(story, lifecycle);
+    dependencies.readLatestIndex.mockResolvedValue({ [story.story_id]: story.cluster_window_end });
+    dependencies.readHotIndex.mockResolvedValue({ [story.story_id]: 0.3 });
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 1_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result.repaired_lifecycle).toBe(1);
+    expect(dependencies.writeLifecycle).toHaveBeenCalledWith(
+      { id: 'client' },
+      expect.objectContaining({
+        story_id: story.story_id,
+        source_set_revision: 'prov-new',
+        status: 'pending',
+      }),
+    );
+  });
+});
+

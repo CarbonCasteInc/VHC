@@ -186,6 +186,12 @@ Public story-node storage contract:
   feed rows while synthesis is pending, retrying, terminally unavailable, or
   suppressed by correction. Relay/latest-index responses MUST expose the public
   synthesis lifecycle and frame-table state rather than silently filtering rows.
+- The daemon MUST reconcile durable raw stories back into product feed indexes
+  after acquiring the ingestion lease. If an eligible `vh/news/stories/<storyId>`
+  body exists but latest/hot index rows are missing or stale, the daemon rewrites
+  those product rows with system-writer readback. Missing lifecycle records are
+  initialized to `pending`; lifecycle records for an unchanged
+  `source_set_revision` are preserved.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.

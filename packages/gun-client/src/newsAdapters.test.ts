@@ -42,6 +42,7 @@ import {
   readNewsRemoval,
   readNewsSynthesisLifecycleStatus,
   readNewsStory,
+  readNewsStoryIds,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
   removeNewsBundle,
@@ -905,6 +906,24 @@ describe('newsAdapters', () => {
 
     const story = await readNewsStory(client, 'story-123');
     expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStoryIds lists durable raw story root keys without treating metadata as stories', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories', {
+      'story-b': { '#': 'vh/news/stories/story-b' },
+      _: {
+        '>': {
+          'story-a': 123,
+          _: 456,
+        },
+      },
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStoryIds(client, { limit: 1 })).resolves.toEqual(['story-a']);
+    await expect(readNewsStoryIds(client)).resolves.toEqual(['story-a', 'story-b']);
   });
 
   it('readNewsStory parses encoded bundle payloads', async () => {

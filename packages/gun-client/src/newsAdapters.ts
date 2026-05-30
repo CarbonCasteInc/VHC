@@ -25,6 +25,9 @@ export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
   readonly before?: number;
 }
+export interface NewsStoryRootReadOptions {
+  readonly limit?: number;
+}
 export type NewsSynthesisLifecycleStatus =
   | 'pending'
   | 'in_progress'
@@ -383,6 +386,10 @@ function hasSettledHotIndexPayload(value: unknown): boolean {
     Object.entries(value).some(([storyId, entry]) => storyId !== '_' && parseHotnessScore(entry) !== null) ||
     extractIndexChildKeys(value).length > 0
   );
+}
+
+function hasSettledStoryRootPayload(value: unknown): boolean {
+  return isRecord(value) && extractIndexChildKeys(value).length > 0;
 }
 
 function extractIndexChildKeys(value: unknown): string[] {
@@ -1364,6 +1371,18 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   }
 }
 
+export async function readNewsStoryIds(
+  client: VennClient,
+  options: NewsStoryRootReadOptions = {},
+): Promise<string[]> {
+  const limit = normalizeLatestIndexReadLimit(options.limit, 200);
+  const raw = await readSettledRoot(
+    getNewsStoriesChain(client) as unknown as ChainWithGet<unknown>,
+    hasSettledStoryRootPayload,
+  );
+  return extractIndexChildKeys(raw).slice(0, limit);
+}
+
 /* v8 ignore start -- bounded async race helper; callers cover outcomes while stale settlement branches are host-scheduler defensive. */
 function timeoutAsNull<T>(work: Promise<T>, timeoutMs: number): Promise<T | null> {
   return new Promise((resolve) => {
@@ -1977,6 +1996,7 @@ export const newsAdapterInternal = {
   readSettledRoot,
   hasSettledLatestIndexPayload,
   hasSettledHotIndexPayload,
+  hasSettledStoryRootPayload,
   extractIndexChildKeys,
   readIndexedEntries,
 };
