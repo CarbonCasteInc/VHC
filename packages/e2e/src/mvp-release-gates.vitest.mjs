@@ -12,6 +12,8 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('publisher-canary-feed_stage_outage')).toBe('setup_scarcity');
     expect(classifyGateFailure('public-relay-feed-composition-missing-multi-source')).toBe('setup_scarcity');
     expect(classifyGateFailure('fail:eligible_raw_story_hidden_without_allowed_reason,public_feed_composition_missing_multi_source')).toBe('fail');
+    expect(classifyGateFailure('public-feed-initial-open-headlines-timeout public-relay-feed-composition-missing-multi-source')).toBe('fail');
+    expect(classifyGateFailure('public-feed-load-more-not-from-mesh public-relay-feed-composition-missing-multi-source')).toBe('fail');
     expect(classifyGateFailure('expected story detail to render accepted synthesis')).toBe('fail');
   });
 
