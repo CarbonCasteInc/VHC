@@ -59,10 +59,15 @@ import {
   replayAcceptedAnalysisEvalSyntheses,
   resolveAnalysisEvalReplayArtifactDirFromEnv,
 } from './analysisEvalReplay';
+import { reconcileProductFeedFromRawStories } from './productFeedReconciler';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
 };
+function hasReadableMesh(client: VennClient): boolean {
+  return Boolean(client.mesh && typeof client.mesh.get === 'function');
+}
+
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
   feedSources: FeedSource[];
@@ -80,6 +85,7 @@ export interface NewsAggregatorDaemonConfig {
   enrichmentQueueOptions?: AsyncEnrichmentQueueOptions;
   writeLanes?: DaemonWriteLaneRegistry;
   replayAcceptedSynthesis?: (client: VennClient) => Promise<unknown>;
+  reconcileProductFeed?: (client: VennClient) => Promise<unknown>;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -130,6 +136,15 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
   let acceptedSynthesisReplayAttempted = false;
+  let productFeedReconciliationAttempted = false;
+  const reconcileProductFeed = config.reconcileProductFeed ?? ((client: VennClient) =>
+    hasReadableMesh(client)
+      ? reconcileProductFeedFromRawStories(client, {
+          logger,
+          now: nowFn,
+          sampleLimit: parseOptionalPositiveInt(readEnvVar('VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT')),
+        })
+      : Promise.resolve({ skipped: 'mesh_unavailable' }));
   const leaseGuard = createLeaseGuard({ client: config.client, readLease, verificationWindowMs: leaseVerificationWindowMs });
   const stopRuntime = () => {
     if (!runtimeHandle) {
@@ -289,6 +304,14 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         await config.replayAcceptedSynthesis(config.client);
       } catch (error) {
         logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
+      }
+    }
+    if (!productFeedReconciliationAttempted) {
+      productFeedReconciliationAttempted = true;
+      try {
+        await reconcileProductFeed(config.client);
+      } catch (error) {
+        logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
       }
     }
     startRuntimeIfNeeded();
