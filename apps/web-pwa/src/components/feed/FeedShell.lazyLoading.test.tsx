@@ -348,6 +348,33 @@ describe('FeedShell lazy loading', () => {
     }
   });
 
+  it('auto-refreshes public news when launch content contains stale news but no public mesh stories', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest, stories: [], latestIndex: {} });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          kind: 'NEWS_STORY',
+          topic_id: 'launch-news-topic',
+          story_id: 'launch-news-story',
+          title: 'Stale launch news should not suppress public refresh',
+        }),
+      ])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(50);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
   it('falls back to timed load when IntersectionObserver is unavailable', () => {
     vi.useFakeTimers();
     vi.stubGlobal('IntersectionObserver', undefined);
