@@ -835,6 +835,18 @@ describe('newsAdapters', () => {
     await expect(writeNewsStory(client, STORY)).rejects.toThrow('write failed');
   });
 
+  it('writeNewsStory accepts an ack error only when required readback confirms persistence', async () => {
+    const mesh = createFakeMesh();
+    mesh.setPutError('news/stories/story-123', 'JSON error!');
+    mesh.setRead('news/stories/story-123', STORY);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    delete client.config.requireNewsWriteReadback;
+
+    await expect(writeNewsStory(client, STORY)).resolves.toEqual(STORY);
+    expect(mesh.writes).toHaveLength(1);
+  });
+
   it('writeNewsStory requires readback after ack for default production clients', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 

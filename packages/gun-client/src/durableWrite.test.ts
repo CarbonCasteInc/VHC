@@ -78,6 +78,52 @@ describe('writeWithDurability', () => {
     expect(events).toEqual(['acked', 'failed']);
   });
 
+  it('recovers an ack error when required readback confirms persistence', async () => {
+    const events: string[] = [];
+    const readback = vi.fn(async () => ({ id: 'durable-after-ack-error' }));
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({ err: 'JSON error!' }));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'durable-after-ack-error' },
+      writeClass: 'test-ack-error-readback',
+      timeoutMs: 100,
+      readback,
+      readbackPredicate: (observed) => (
+        (observed as { id?: string } | null)?.id === 'durable-after-ack-error'
+      ),
+      requireReadback: true,
+      onEvent: (event) => events.push(event.stage),
+    })).resolves.toMatchObject({
+      ack: { acknowledged: false, timedOut: false, error: 'JSON error!' },
+      readback_confirmed: true,
+      relay_fallback: false,
+    });
+    expect(readback).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['ack-error', 'readback-confirmed']);
+  });
+
+  it('rejects an ack error when required readback does not confirm persistence', async () => {
+    const events: Array<{ stage: string; error?: string }> = [];
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({ err: 'JSON error!' }));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'not-durable-after-ack-error' },
+      writeClass: 'test-ack-error-fail',
+      timeoutMs: 100,
+      readbackAttempts: 1,
+      readback: async () => null,
+      readbackPredicate: () => false,
+      requireReadback: true,
+      onEvent: (event) => events.push({ stage: event.stage, error: event.error }),
+    })).rejects.toThrow('JSON error!');
+    expect(events).toEqual([
+      { stage: 'ack-error', error: 'JSON error!' },
+      { stage: 'failed', error: 'JSON error!' },
+    ]);
+  });
+
   it('recovers a timed-out write when readback confirms persistence', async () => {
     vi.useFakeTimers();
     const events: string[] = [];

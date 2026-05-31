@@ -119,3 +119,33 @@ describe('createGuardedChain', () => {
     vi.useRealTimers();
   });
 });
+
+describe('putWithAckTimeout', () => {
+  it('rejects ack errors by default', async () => {
+    const chain = {
+      once: vi.fn(),
+      get: vi.fn().mockReturnThis(),
+      put: vi.fn((_value: unknown, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'write failed' })),
+    };
+
+    await expect(
+      putWithAckTimeout(chain as any, { id: 'bad' }, { timeoutMs: 250 }),
+    ).rejects.toThrow('write failed');
+  });
+
+  it('can resolve ack errors for callers that perform mandatory readback', async () => {
+    const chain = {
+      once: vi.fn(),
+      get: vi.fn().mockReturnThis(),
+      put: vi.fn((_value: unknown, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'JSON error!' })),
+    };
+
+    await expect(
+      putWithAckTimeout(chain as any, { id: 'durable' }, { timeoutMs: 250, resolveOnAckError: true }),
+    ).resolves.toMatchObject({
+      acknowledged: false,
+      timedOut: false,
+      error: 'JSON error!',
+    });
+  });
+});
