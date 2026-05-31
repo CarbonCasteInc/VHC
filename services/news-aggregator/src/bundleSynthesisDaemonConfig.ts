@@ -48,6 +48,32 @@ export function isTruthyFlag(value: string | undefined): boolean {
   return normalized.length > 0 && !['0', 'false', 'off', 'no'].includes(normalized);
 }
 
+function isExplicitDisabledFlag(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  return ['0', 'false', 'off', 'no'].includes(value.trim().toLowerCase());
+}
+
+function hasBundleSynthesisCredential(): boolean {
+  return Boolean(
+    readEnvVar('VH_BUNDLE_SYNTHESIS_API_KEY')
+      || readEnvVar('ANALYSIS_RELAY_API_KEY')
+      || readEnvVar('OPENAI_API_KEY'),
+  );
+}
+
+export function shouldEnableBundleSynthesisFromEnv(): boolean {
+  const explicit = readEnvVar('VH_BUNDLE_SYNTHESIS_ENABLED');
+  if (isExplicitDisabledFlag(explicit)) {
+    return false;
+  }
+  if (isTruthyFlag(explicit)) {
+    return true;
+  }
+  return hasBundleSynthesisCredential();
+}
+
 function parseFiniteNumber(raw: string | undefined, fallback: number): number {
   if (!raw) {
     return fallback;
@@ -77,7 +103,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
   logger: LoggerLike = console,
   options: BundleSynthesisDaemonOptions = {},
 ): BundleSynthesisDaemonEnrichment {
-  const enabled = isTruthyFlag(readEnvVar('VH_BUNDLE_SYNTHESIS_ENABLED'));
+  const enabled = shouldEnableBundleSynthesisFromEnv();
   if (!enabled) {
     return {};
   }
