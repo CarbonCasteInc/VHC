@@ -122,6 +122,23 @@ describe('bundleSynthesisDaemonConfig', () => {
     );
   });
 
+  it('can wire explicit relay REST synthesis writers for public daemon deployments', () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_ENABLED', 'true');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+
+    createBundleSynthesisEnrichmentFromEnv(
+      { config: { peers: ['wss://gun-a.example.test/gun'] } } as VennClient,
+      logger,
+    );
+
+    expect(workerConfigs).toHaveLength(1);
+    expect(typeof workerConfigs[0]?.writeSynthesis).toBe('function');
+    expect(typeof workerConfigs[0]?.writeLatest).toBe('function');
+    expect(typeof workerConfigs[0]?.writeLifecycle).toBe('function');
+  });
+
   it('publishes accepted stories with product metadata on latest and hot indexes', async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const runWrite = vi.fn(async <T,>(_writeClass: string, _attrs: Record<string, unknown>, task: () => Promise<T>) =>

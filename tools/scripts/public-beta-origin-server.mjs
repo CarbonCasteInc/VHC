@@ -27,6 +27,7 @@ const NEWS_FANOUT_READ_PATHS = new Set([
   '/vh/news/latest-index',
   '/vh/news/hot-index',
   '/vh/news/story',
+  '/vh/news/synthesis-lifecycle',
   '/vh/topics/synthesis',
 ]);
 
@@ -150,6 +151,7 @@ function isRelayProxyRoute(pathname) {
     || pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
     || pathname === '/vh/news/hot-index'
+    || pathname === '/vh/news/synthesis-lifecycle'
     || pathname === '/vh/aggregates/point'
     || pathname === '/vh/aggregates/voter'
     || pathname === '/vh/aggregates/point-snapshot';
@@ -160,6 +162,7 @@ function isRelayProxyMethodAllowed(pathname, method) {
     pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
     || pathname === '/vh/news/hot-index'
+    || pathname === '/vh/news/synthesis-lifecycle'
     || pathname === '/vh/aggregates/point'
   ) {
     return method === 'GET';
