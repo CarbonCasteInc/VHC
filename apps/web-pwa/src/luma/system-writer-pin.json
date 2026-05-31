@@ -5,11 +5,11 @@
   "signatureSuite": "jcs-ed25519-sha256-v1",
   "writers": [
     {
-      "id": "vh-system-writer-dev-v1",
+      "id": "vh-public-beta-news-system-writer-v1",
       "status": "active",
       "publicKey": {
         "encoding": "spki-base64url",
-        "material": "MCowBQYDK2VwAyEAT4VbH05BneR1LcEJwKI8dc_NU-kiwKqGcOdct9dwihU"
+        "material": "MCowBQYDK2VwAyEAVNCCiVH0cjaQMrng-qmBQJLrzJ-vE54EjSk8xPWrNGc"
       }
     }
   ]

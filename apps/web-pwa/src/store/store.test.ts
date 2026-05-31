@@ -169,6 +169,19 @@ describe('useAppStore', () => {
     });
   });
 
+  it('uses the public-beta news system writer as the baked distribution pin', () => {
+    expect(resolveClientSystemWriterPin().writers).toEqual([
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'MCowBQYDK2VwAyEAVNCCiVH0cjaQMrng-qmBQJLrzJ-vE54EjSk8xPWrNGc',
+        },
+      }),
+    ]);
+  });
+
   it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     (globalThis as any).__VH_GUN_PEERS__ = [
