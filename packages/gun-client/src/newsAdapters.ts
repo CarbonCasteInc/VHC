@@ -1288,6 +1288,25 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
   return parseNewsSynthesisLifecyclePayload(payload, storyId);
 }
 
+function parseNewsSynthesisLifecycleFromRelayPayload(
+  storyId: string,
+  data: unknown,
+): NewsSynthesisLifecycleRecord | null {
+  const payload = stripGunMetadata(data);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validationRecord = normalizeSystemWriterLifecycleRecordForValidation(payload);
+    return validationRecord
+      ? parseNewsSynthesisLifecyclePayload(validationRecord, storyId)
+      : null;
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  return parseNewsSynthesisLifecyclePayload(payload, storyId);
+}
+
 function normalizeOptionalIndexInt(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined;
@@ -2075,13 +2094,12 @@ export async function readNewsSynthesisLifecycleStatusViaRelayRest(
         continue;
       }
       const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
-      const record = isRecord(payload.record)
-        ? payload.record
-        : isRecord(payload.lifecycle)
-          ? payload.lifecycle
-          : null;
-      const parsed = record
-        ? parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, record)
+      const relayParsed = parseNewsSynthesisLifecycleFromRelayPayload(normalizedId, payload.lifecycle);
+      if (relayParsed) {
+        return relayParsed;
+      }
+      const parsed = isRecord(payload.record)
+        ? await parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, payload.record)
         : null;
       if (parsed) {
         return parsed;

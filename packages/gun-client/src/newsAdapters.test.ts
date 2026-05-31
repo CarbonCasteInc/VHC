@@ -1873,6 +1873,61 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('readNewsSynthesisLifecycleStatusViaRelayRest accepts relay-validated lifecycle bodies without a local writer pin', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: null,
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle-relay-validated',
+      topic_id: 'topic-lifecycle-relay-validated',
+      provenance_hash: 'source-set-relay-validated',
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'accepted_available',
+      frameTableState: 'frame_table_ready',
+      retryable: false,
+      synthesisId: 'synthesis-relay-validated',
+      epoch: 0,
+      updatedAt: 600,
+    });
+    const signedLifecycle = {
+      ...lifecycle,
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: 'unconfigured-public-writer',
+      _systemIssuedAt: 600,
+      _systemSignature: 'not-locally-verifiable',
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      lifecycle: signedLifecycle,
+      record: signedLifecycle,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle-relay-validated'),
+      ).resolves.toEqual(lifecycle);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('reads synthesis lifecycle from a later configured relay when the first peer is stale', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
