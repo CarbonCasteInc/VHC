@@ -109,18 +109,7 @@ export const GATES = [
   {
     id: 'stance_aggregate_decay_public_mesh',
     label: 'Stance persistence, public aggregate snapshots, and capped decay math',
-    command: [
-      'pnpm',
-      [
-        'exec',
-        'vitest',
-        'run',
-        'apps/web-pwa/src/components/feed/voteSemantics.test.ts',
-        'apps/web-pwa/src/hooks/useSentimentState.test.ts',
-        'packages/gun-client/src/aggregateAdapters.test.ts',
-        'packages/gun-client/src/topicEngagementAdapters.test.ts',
-      ],
-    ],
+    command: ['pnpm', ['check:public-feed:stance-aggregate-decay']],
     artifactRefs: [
       'apps/web-pwa/src/components/feed/voteSemantics.ts',
       'apps/web-pwa/src/hooks/useSentimentState.ts',
@@ -299,6 +288,7 @@ export function classifyGateFailure(output) {
     text.includes('public-relay-latest-index-missing-composition') ||
     text.includes('public-relay-latest-index-missing-story-states') ||
     text.includes('public-relay-latest-index-product-metadata-missing') ||
+    text.includes('public-relay-current-accepted-synthesis-missing') ||
     text.includes('public-relay-peer-readback-not-configured') ||
     text.includes('public-relay-peer-readback-failed') ||
     text.includes('fail:public-relay-feed-composition-missing-multi-source') ||

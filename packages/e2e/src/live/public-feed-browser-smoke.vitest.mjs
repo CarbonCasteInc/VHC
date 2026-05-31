@@ -329,6 +329,33 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.isAcceptedSynthesisText('Accepted summary without controls.', 0)).toBe(false);
   });
 
+  it('requires at least one current accepted synthesis for release smoke coverage by default', () => {
+    const pendingOnlyCoverage = {
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+      },
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      storyBodyStatusCounts: { 200: 2 },
+      acceptedSynthesisStoryCount: 0,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    };
+
+    expect(internal.capturePublicRelayAnalysisFrameCoverage(pendingOnlyCoverage)).toMatchObject({
+      status: 'fail',
+      errorMessage: 'public-relay-current-accepted-synthesis-missing',
+    });
+    expect(internal.capturePublicRelayAnalysisFrameCoverage(pendingOnlyCoverage, {
+      VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS: 'false',
+    })).toEqual({ status: 'pass' });
+  });
+
   it('counts direct Gun accepted synthesis only when lifecycle matches the current story revision', () => {
     const story = {
       story_id: 'story-1',

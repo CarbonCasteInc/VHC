@@ -15,6 +15,7 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('public-relay-latest-index-missing-composition')).toBe('fail');
     expect(classifyGateFailure('public-relay-latest-index-missing-story-states')).toBe('fail');
     expect(classifyGateFailure('public-relay-latest-index-product-metadata-missing:2')).toBe('fail');
+    expect(classifyGateFailure('public-relay-current-accepted-synthesis-missing')).toBe('fail');
     expect(classifyGateFailure('public-relay-peer-readback-not-configured')).toBe('fail');
     expect(classifyGateFailure('public-relay-peer-readback-failed:https://gun-b.example/:story_states_missing')).toBe('fail');
     expect(classifyGateFailure('fail:eligible_raw_story_hidden_without_allowed_reason,public_feed_composition_missing_multi_source')).toBe('fail');
@@ -33,5 +34,10 @@ describe('mvp-release-gates runner helpers', () => {
       'public_feed_pagination_refresh',
       'stance_aggregate_decay_public_mesh',
     ]));
+  });
+
+  it('uses the live public browser smoke for stance aggregate decay public mesh evidence', () => {
+    expect(GATES.find((gate) => gate.id === 'stance_aggregate_decay_public_mesh')?.command)
+      .toEqual(['pnpm', ['check:public-feed:stance-aggregate-decay']]);
   });
 });
