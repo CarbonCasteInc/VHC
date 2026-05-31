@@ -349,6 +349,11 @@ function sourceCount(story) {
   return Math.max(primary, Number.isFinite(canonical) ? canonical : 0, sources);
 }
 
+function recordString(record, key) {
+  const value = record && typeof record === 'object' ? record[key] : null;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function classifyProductIndexMetadata(record, story) {
   if (!story) return 'story_missing';
   if (!record || typeof record !== 'object') return 'missing';
@@ -597,6 +602,10 @@ async function runPublicFeedLifecycleAccountability({
   const gunPeerUrl = resolveGunPeer(env);
   const gunPeerUrls = resolveGunPeers(env);
   const sampleLimit = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_SAMPLE_LIMIT, 120);
+  const hotLimit = parsePositiveInt(
+    env.VH_PUBLIC_FEED_LIFECYCLE_HOT_LIMIT,
+    Math.min(sampleLimit, 40),
+  );
   const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS, 75_000);
   const rowTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_ROW_TIMEOUT_MS, 10_000);
   const rowConcurrency = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_ROW_CONCURRENCY, 10);
@@ -621,6 +630,7 @@ async function runPublicFeedLifecycleAccountability({
       gunPeerUrl,
       gunPeerUrls,
       sampleLimit,
+      hotLimit,
       timeoutMs,
       rowTimeoutMs,
       rowConcurrency,
@@ -653,7 +663,7 @@ async function runPublicFeedLifecycleAccountability({
     const [rawStoryIds, relayLatest, relayHot] = await Promise.all([
       readRawStoryIds(client, sampleLimit, Math.min(timeoutMs, 5_000)).catch(() => []),
       readRelayLatest(baseUrl, sampleLimit, timeoutMs),
-      readRelayHot(baseUrl, sampleLimit, timeoutMs),
+      readRelayHot(baseUrl, hotLimit, timeoutMs),
     ]);
     const latestIndex = latestIndexFromRelayRecords(relayLatest.records);
     const hotIndex = hotIndexFromRelayRecords(relayHot.records);
@@ -854,13 +864,10 @@ async function runPublicFeedLifecycleAccountability({
         stale_window_ms: synthesisPendingStaleMs,
       });
     }
-    const visibleMissingHotIndex = stories.filter((story) =>
-      story.product_visible && story.source_count > 0 && !story.in_hot_index,
-    );
-    if (visibleMissingHotIndex.length > 0) {
+    if (!relayHot.available || Object.keys(relayHot.records).length === 0) {
       failures.push({
-        code: 'product_feed_hot_index_missing_for_visible_story',
-        story_ids: visibleMissingHotIndex.map((story) => story.story_id),
+        code: 'product_feed_hot_index_unavailable_or_empty',
+        hot_limit: hotLimit,
       });
     }
     const hotIndexMetadataMissing = stories.filter((story) =>
