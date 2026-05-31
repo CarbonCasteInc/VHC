@@ -143,6 +143,7 @@ async function readRelayLatest(baseUrl, limit, timeoutMs) {
   return {
     records,
     storyStates: payload?.story_states && typeof payload.story_states === 'object' ? payload.story_states : {},
+    stories: payload?.stories && typeof payload.stories === 'object' ? payload.stories : {},
     composition: payload?.composition && typeof payload.composition === 'object' ? payload.composition : null,
   };
 }
@@ -487,7 +488,10 @@ async function runPublicFeedLifecycleAccountability({
     const staleCutoffMs = Date.now() - staleWindowMs;
     const stories = [];
     for (const storyId of sampledIds) {
-      const story = await readNewsStory(client, storyId).catch(() => null);
+      const relayStory = relayLatest.stories?.[storyId] && typeof relayLatest.stories[storyId] === 'object'
+        ? relayLatest.stories[storyId]
+        : null;
+      const story = relayStory ?? await readNewsStory(client, storyId).catch(() => null);
       const lifecycle = story ? await readNewsLifecycleStatus(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null) : null;
       const synthesis = story?.topic_id
         ? await readTopicLatestSynthesis(client, story.topic_id).catch(() => null)

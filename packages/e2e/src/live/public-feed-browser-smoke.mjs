@@ -5,7 +5,7 @@ import {
   createClient,
   readAggregateVoterRows,
   readAggregatesWithRelayRestFallback as readAggregates,
-  readNewsLatestIndex,
+  readNewsLatestIndexPageWithRelayRestFallback,
   readNewsStory,
   readTopicLatestSynthesis,
 } from '@vh/gun-client';
@@ -457,14 +457,22 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
     const indexReadTimeoutMs = Math.min(10_000, Math.max(2_000, Math.floor(timeoutMs / 12)));
     const storyReadTimeoutMs = Math.min(5_000, Math.max(1_500, Math.floor(timeoutMs / 24)));
     return await waitFor('gun-latest-index-readback', async () => {
-      const latestIndex = await withTimeout('gun-latest-index-read', readNewsLatestIndex(client), indexReadTimeoutMs);
+      const latestPage = await withTimeout(
+        'gun-latest-index-read',
+        readNewsLatestIndexPageWithRelayRestFallback(client, {
+          limit: Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT),
+        }),
+        indexReadTimeoutMs,
+      );
+      const latestIndex = latestPage.index ?? {};
       const entries = Object.entries(latestIndex)
         .filter(([, timestamp]) => Number.isFinite(timestamp))
         .sort((left, right) => right[1] - left[1]);
       if (entries.length < minHeadlines) return null;
       const stories = [];
       for (const [storyId, updatedAt] of entries.slice(0, Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT))) {
-        const story = await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
+        const embeddedStory = latestPage.stories?.[storyId] ?? null;
+        const story = embeddedStory ?? await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
         if (story) {
           const synthesis = story.topic_id
             ? await withTimeout(
@@ -1423,6 +1431,58 @@ async function readPublicNewsStoreSnapshot(page) {
       error: store.error ? String(store.error).slice(0, 240) : null,
     };
   }).catch(() => null);
+}
+
+async function waitForPublicNewsStoreIdle(page, timeoutMs, progress, label) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction(() => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    return !store || store.loading === false;
+  }, null, { timeout: timeoutMs }).then(
+    () => ({ status: 'idle', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('news-store-idle-wait', { label, ...result });
+  return result;
+}
+
+async function waitForPublicNewsStoreGrowth(page, initialCount, timeoutMs, progress) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction((count) => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    if (!store) return false;
+    const storyCount = Array.isArray(store.stories) ? store.stories.length : 0;
+    return storyCount > count && store.loading === false;
+  }, initialCount, { timeout: timeoutMs }).then(
+    () => ({ status: 'grew', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('news-store-growth-wait', { initialCount, ...result });
+  return result;
+}
+
+async function waitForVisibleCardGrowth(page, initialCount, timeoutMs, progress) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction((count) => (
+    document.querySelectorAll('article[data-testid^="news-card-"]').length > count
+  ), initialCount, { timeout: timeoutMs }).then(
+    () => ({ status: 'grew', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('visible-card-growth-wait', { initialCount, ...result });
+  return result;
 }
 
 async function visibleCards(page) {
@@ -2486,13 +2546,23 @@ async function runPublicFeedBrowserSmoke({
 
     await clickFeedRefresh(page);
     const afterRefreshCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
+    await waitForPublicNewsStoreIdle(page, 60_000, progress, 'after-refresh-before-scroll');
     await page.screenshot(viewportScreenshotOptions(screenshots.afterRefresh));
     progress('refresh-screenshot', { count: afterRefreshCards.length });
 
     const beforeScrollNewsStore = await readPublicNewsStoreSnapshot(page);
     const refreshRecorder = await installRefreshLatestRecorder(page);
+    const meshIndexCount = Math.max(
+      Number(gunReadback.latestIndexCount ?? 0),
+      Number(publicRelaySynthesisReadback.latestIndexCount ?? 0),
+    );
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(1_500);
+    if (meshIndexCount > initialCards.length) {
+      await waitForPublicNewsStoreGrowth(page, initialCards.length, 45_000, progress);
+      await waitForVisibleCardGrowth(page, initialCards.length, 15_000, progress);
+    } else {
+      await page.waitForTimeout(1_500);
+    }
     const afterScrollCards = await visibleCards(page);
     const loadMoreRefreshCalls = await readRefreshLatestRecorder(page);
     const afterScrollNewsStore = await readPublicNewsStoreSnapshot(page);
@@ -2500,10 +2570,6 @@ async function runPublicFeedBrowserSmoke({
     const afterScrollNewStoryIds = afterScrollCards
       .map((card) => card.storyId)
       .filter((storyId) => storyId && !initialStoryIds.has(storyId));
-    const meshIndexCount = Math.max(
-      Number(gunReadback.latestIndexCount ?? 0),
-      Number(publicRelaySynthesisReadback.latestIndexCount ?? 0),
-    );
     progress('scroll-screenshot', {
       count: afterScrollCards.length,
       newStoryIds: afterScrollNewStoryIds.slice(0, 12),

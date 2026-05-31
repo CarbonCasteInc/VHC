@@ -56,6 +56,7 @@ vi.mock('./newsCardAnalysis', () => ({
 
 const NOW = 1_700_000_000_000;
 const HOUR_MS = 3_600_000;
+const TOP_SCROLL_THRESHOLD_FOR_TEST = 24;
 
 function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -299,6 +300,86 @@ describe('FeedShell lazy loading', () => {
       expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW - 10 });
       expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
     } finally {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('renders mesh-loaded stories while the user is scrolled away from the top', async () => {
+    vi.useFakeTimers();
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const initialItem = makeFeedItem({
+      topic_id: 'story-existing',
+      story_id: 'story-existing',
+      title: 'Visible singleton story',
+    });
+    const olderItem = makeFeedItem({
+      topic_id: 'story-older',
+      story_id: 'story-older',
+      title: 'Older mesh story',
+      created_at: NOW - 10,
+      latest_activity_at: NOW - 10,
+    });
+    let setHarnessItems: React.Dispatch<React.SetStateAction<FeedItem[]>> | null = null;
+    const refreshLatest = vi.fn(() => new Promise<void>((resolve) => {
+      useNewsStore.setState({ loading: true });
+      setHarnessItems?.([initialItem, olderItem]);
+      window.setTimeout(() => {
+        useNewsStore.setState({
+          stories: [makeSnapshotStory(1) as any, makeSnapshotStory(2, { story_id: 'story-older' }) as any],
+          latestIndex: { 'story-existing': NOW, 'story-older': NOW - 10 },
+          latestIndexCursor: NOW - 10,
+          loading: false,
+        });
+        resolve();
+      }, 20);
+    }));
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      value: TOP_SCROLL_THRESHOLD_FOR_TEST + 1,
+    });
+    useNewsStore.setState({
+      stories: [makeSnapshotStory(1) as any],
+      latestIndex: { 'story-existing': NOW },
+      latestIndexCursor: NOW - 10,
+      refreshLatest,
+    });
+
+    function Harness(): React.JSX.Element {
+      const [items, setItems] = React.useState<FeedItem[]>([initialItem]);
+      setHarnessItems = setItems;
+      return <FeedShell feedResult={makeFeedResult(items)} />;
+    }
+
+    try {
+      render(<Harness />);
+      window.dispatchEvent(new Event('scroll'));
+
+      expect(screen.getByTestId('feed-item-story-existing')).toBeInTheDocument();
+      expect(screen.getByTestId('feed-load-sentinel')).toBeInTheDocument();
+
+      await act(async () => {
+        intersectionCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW - 10 });
+      expect(screen.getByTestId('feed-item-story-older')).toBeInTheDocument();
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });
     }
   });
