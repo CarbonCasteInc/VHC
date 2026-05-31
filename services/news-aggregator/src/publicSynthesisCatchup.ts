@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { VennClientConfig } from '@vh/gun-client';
 import { createNodeMeshClient } from '@vh/gun-client/node';
 import {
   createBundleSynthesisEnrichmentFromEnv,
@@ -106,6 +107,18 @@ function resultStatus(results: PublicSynthesisCatchupReport['results'], candidat
   return 'fail';
 }
 
+export function assertPublicSynthesisCatchupSystemWriterPin(
+  systemWriterConfig: Pick<VennClientConfig, 'systemWriterPin'>,
+): void {
+  if (!systemWriterConfig.systemWriterPin) {
+    throw new Error(
+      'Public synthesis catch-up requires VH_SYSTEM_WRITER_PIN_JSON, VH_NEWS_SYSTEM_WRITER_PIN_JSON, '
+        + 'VH_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL, or VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL '
+        + 'so signed public lifecycle rows can be verified before enqueueing work',
+    );
+  }
+}
+
 async function currentCommitSha(): Promise<string | null> {
   try {
     const { execFile } = await import('node:child_process');
@@ -136,6 +149,7 @@ export async function runPublicSynthesisCatchup(
   }
 
   const systemWriterConfig = await resolveSystemWriterClientConfigFromEnv();
+  assertPublicSynthesisCatchupSystemWriterPin(systemWriterConfig);
   const client = createNodeMeshClient({
     peers,
     requireSession: false,
