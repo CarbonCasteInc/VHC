@@ -542,8 +542,13 @@ export {
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error('[vh:public-feed-composition-freshness] failed', error);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      // Gun/browser helper code can leave sockets/timers alive after the artifact is written.
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('[vh:public-feed-composition-freshness] failed', error);
+      process.exit(1);
+    });
 }

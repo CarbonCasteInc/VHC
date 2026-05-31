@@ -704,8 +704,13 @@ export {
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error('[vh:public-feed-lifecycle-accountability] failed', error);
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      // Gun can leave relay sockets/timers alive after all evidence is written.
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('[vh:public-feed-lifecycle-accountability] failed', error);
+      process.exit(1);
+    });
 }
