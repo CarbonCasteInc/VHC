@@ -24,11 +24,13 @@ export interface PutAckResult {
   readonly acknowledged: boolean;
   readonly timedOut: boolean;
   readonly latencyMs?: number;
+  readonly error?: string;
 }
 
 export interface PutWithAckTimeoutOptions {
   readonly timeoutMs: number;
   readonly onTimeout?: () => void;
+  readonly resolveOnAckError?: boolean;
 }
 
 const PREPARE_PHYSICAL_PUT = Symbol('vh.gun-client.preparePhysicalPut');
@@ -125,6 +127,15 @@ export async function putWithAckTimeout<T>(
         settled = true;
         clearTimeout(timer);
         if (ack?.err) {
+          if (options.resolveOnAckError) {
+            resolve({
+              acknowledged: false,
+              timedOut: false,
+              latencyMs: Math.max(0, Date.now() - startedAt),
+              error: String(ack.err),
+            });
+            return;
+          }
           reject(new Error(ack.err));
           return;
         }

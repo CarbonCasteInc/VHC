@@ -3,6 +3,7 @@ import { readGunTimeoutMs } from './runtimeConfig';
 
 export type DurableWriteEventStage =
   | 'acked'
+  | 'ack-error'
   | 'ack-timeout'
   | 'readback-confirmed'
   | 'relay-fallback'
@@ -39,7 +40,11 @@ export interface DurableWriteOptions<T> {
   readonly onEvent?: (event: DurableWriteEvent) => void;
 }
 
-const DEFAULT_READBACK_ATTEMPTS = 6;
+const DEFAULT_READBACK_ATTEMPTS = readGunTimeoutMs(
+  ['VITE_VH_GUN_DURABLE_WRITE_READBACK_ATTEMPTS', 'VH_GUN_DURABLE_WRITE_READBACK_ATTEMPTS'],
+  6,
+  1,
+);
 const DEFAULT_READBACK_RETRY_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_DURABLE_WRITE_READBACK_RETRY_MS', 'VH_GUN_DURABLE_WRITE_READBACK_RETRY_MS'],
   250,
@@ -68,7 +73,7 @@ function emitDefaultDurableWriteEvent(event: DurableWriteEvent): void {
     error: event.error,
   };
   const label = '[vh:mesh:durable-write]';
-  if (event.stage === 'failed') {
+  if (event.stage === 'failed' || event.stage === 'ack-error') {
     console.warn(label, payload);
     return;
   }
@@ -123,9 +128,44 @@ export async function writeWithDurability<T>(options: DurableWriteOptions<T>): P
   const ack = await putWithAckTimeout(options.chain, options.value, {
     timeoutMs: options.timeoutMs,
     onTimeout: options.onAckTimeout,
+    resolveOnAckError: Boolean(options.requireReadback && options.readback && options.readbackPredicate),
   });
 
   if (!ack.timedOut) {
+    if (ack.error) {
+      emitEvent(options as DurableWriteOptions<unknown>, {
+        writeClass: options.writeClass,
+        stage: 'ack-error',
+        ack,
+        error: ack.error,
+      });
+      if (options.requireReadback && await confirmReadback(options)) {
+        return {
+          ack,
+          readback_confirmed: true,
+          relay_fallback: false,
+        };
+      }
+      if (options.relayFallback && await options.relayFallback()) {
+        emitEvent(options as DurableWriteOptions<unknown>, {
+          writeClass: options.writeClass,
+          stage: 'relay-fallback',
+          ack,
+        });
+        return {
+          ack,
+          readback_confirmed: false,
+          relay_fallback: true,
+        };
+      }
+      emitEvent(options as DurableWriteOptions<unknown>, {
+        writeClass: options.writeClass,
+        stage: 'failed',
+        ack,
+        error: ack.error,
+      });
+      throw new Error(ack.error);
+    }
     emitEvent(options as DurableWriteOptions<unknown>, {
       writeClass: options.writeClass,
       stage: 'acked',

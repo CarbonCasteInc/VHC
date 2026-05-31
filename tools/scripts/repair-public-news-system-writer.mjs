@@ -131,6 +131,15 @@ function parseRepairMode(value) {
   throw new Error(`unsupported repair mode: ${value}`);
 }
 
+function parseBooleanEnv(name, fallback = false) {
+  const value = optionalEnv(name);
+  if (!value) return fallback;
+  const normalized = value.toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  throw new Error(`${name} must be a boolean value`);
+}
+
 function deriveGunPeer(origin) {
   const url = new URL(origin);
   url.pathname = '/gun';
@@ -325,6 +334,28 @@ async function repairStoryViaGun({ client, story }) {
   ));
 }
 
+async function repairStoryViaGunPeers({ peerClients, story }) {
+  const failures = [];
+  for (const { peer, client } of peerClients) {
+    try {
+      await repairStoryViaGun({ client, story });
+    } catch (error) {
+      failures.push({
+        peer,
+        repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
+        error_name: error && typeof error === 'object' ? error.name ?? null : null,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (failures.length > 0) {
+    const error = new Error(`direct Gun repair failed on ${failures.length}/${peerClients.length} peer(s)`);
+    error.repair_step = 'gun_peer_readback';
+    error.peer_failures = failures;
+    throw error;
+  }
+}
+
 async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, sign, pin, writerId, timeoutMs }) {
   const records = {
     story: await signRecord({
@@ -402,49 +433,74 @@ async function main() {
       relayOrigins.map(deriveGunPeer),
     ).map(String).map((item) => item.trim()).filter(Boolean)
     : [];
-  const client = repairMode === 'gun'
+  const requireEachGunPeer = repairMode === 'gun'
+    && parseBooleanEnv('VH_PUBLIC_NEWS_REPAIR_REQUIRE_EACH_GUN_PEER', false);
+  if (requireEachGunPeer && gunPeers.length === 0) {
+    throw new Error('at least one Gun peer is required for per-peer gun repair mode');
+  }
+  const client = repairMode === 'gun' && !requireEachGunPeer
     ? createRepairClient({ peers: gunPeers, pin, writerId, sign })
     : null;
+  const peerClients = requireEachGunPeer
+    ? gunPeers.map((peer) => ({
+      peer,
+      client: createRepairClient({ peers: [peer], pin, writerId, sign }),
+    }))
+    : [];
   const { storyIds, stories } = await readLatestStories(appUrl, limit, offset, httpTimeoutMs);
 
   const repaired = [];
   const failures = [];
-  for (const storyId of storyIds) {
-    const story = stories[storyId];
-    if (!story?.story_id || !story?.topic_id || !Array.isArray(story.sources)) {
-      failures.push({ story_id: storyId, reason: 'story-body-unavailable-or-invalid' });
-      continue;
-    }
-    try {
-      if (repairMode === 'gun') {
-        await repairStoryViaGun({ client, story });
-      } else {
-        await repairStoryViaRelayRest({
-          relayOrigins,
-          relayToken,
-          story,
-          sign,
-          pin,
-          writerId,
-          timeoutMs: httpTimeoutMs,
+  try {
+    for (const storyId of storyIds) {
+      const story = stories[storyId];
+      if (!story?.story_id || !story?.topic_id || !Array.isArray(story.sources)) {
+        failures.push({ story_id: storyId, reason: 'story-body-unavailable-or-invalid' });
+        continue;
+      }
+      try {
+        if (repairMode === 'gun') {
+          if (requireEachGunPeer) {
+            await repairStoryViaGunPeers({ peerClients, story });
+          } else {
+            await repairStoryViaGun({ client, story });
+          }
+        } else {
+          await repairStoryViaRelayRest({
+            relayOrigins,
+            relayToken,
+            story,
+            sign,
+            pin,
+            writerId,
+            timeoutMs: httpTimeoutMs,
+          });
+        }
+        repaired.push({
+          story_id: storyId,
+          topic_id: story.topic_id,
+          source_count: story.sources.length,
+          source_set_revision: story.provenance_hash,
+          ...(requireEachGunPeer ? { repaired_peer_count: peerClients.length } : {}),
+        });
+      } catch (error) {
+        failures.push({
+          story_id: storyId,
+          repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
+          error_name: error && typeof error === 'object' ? error.name ?? null : null,
+          reason: error instanceof Error ? error.message : String(error),
+          ...(error && typeof error === 'object' && Array.isArray(error.peer_failures)
+            ? { peer_failures: error.peer_failures }
+            : {}),
         });
       }
-      repaired.push({
-        story_id: storyId,
-        topic_id: story.topic_id,
-        source_count: story.sources.length,
-        source_set_revision: story.provenance_hash,
-      });
-    } catch (error) {
-      failures.push({
-        story_id: storyId,
-        repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
-        error_name: error && typeof error === 'object' ? error.name ?? null : null,
-        reason: error instanceof Error ? error.message : String(error),
-      });
     }
+  } finally {
+    await Promise.all([
+      ...(client ? [client] : []),
+      ...peerClients.map(({ client: peerClient }) => peerClient),
+    ].map((repairClient) => repairClient.shutdown?.().catch(() => undefined)));
   }
-  await client?.shutdown?.();
 
   await mkdir(artifactDir, { recursive: true });
   const summary = {
@@ -453,6 +509,7 @@ async function main() {
     app_url: appUrl,
     relay_origin_count: relayOrigins.length,
     gun_peer_count: gunPeers.length,
+    require_each_gun_peer: requireEachGunPeer,
     writer_id: writerId,
     offset,
     limit,
