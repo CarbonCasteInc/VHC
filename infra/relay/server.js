@@ -123,6 +123,7 @@ const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000)
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const healthProbeCompactionMaxRecords = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_MAX_RECORDS', 0);
 const aggregatePointReadCacheTtlMs = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_TTL_MS', 5_000);
 const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_MAX_ENTRIES', 1_000);
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
@@ -2504,7 +2505,7 @@ async function readNewsHotIndexRecords(gun, options = {}) {
     numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32));
   const requestedScanLimit = positiveInteger(
     options.scanLimit,
-    numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS', Math.max(maxRecords * 4, maxRecords)),
+    numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS', maxRecords),
   );
   const rootScanLimit = Math.min(
     requestedScanLimit,
@@ -2553,7 +2554,7 @@ async function readNewsHotIndexRecords(gun, options = {}) {
   const mergedEntries = [...visibleEntries];
   const seenStoryIds = new Set(mergedEntries.map((entry) => String(entry[0])));
   let latestFallbackInfo = null;
-  if (mergedEntries.length < maxRecords) {
+  if (maxRecords > 0) {
     const latestFallback = await readNewsLatestIndexRecordsWithEmptyRetry(gun, {
       limit: maxRecords,
       scanLimit: Math.max(maxRecords, rootScanLimit),
@@ -2568,9 +2569,18 @@ async function readNewsHotIndexRecords(gun, options = {}) {
     if (latestFallback) {
       let added = 0;
       for (const [storyId, story] of Object.entries(latestFallback.stories ?? {})) {
-        if (seenStoryIds.has(storyId)) continue;
         const hotRecord = synthesizeHotIndexRecordFromStory(storyId, story);
         if (hotIndexRecordHotness(hotRecord) === null) continue;
+        if (seenStoryIds.has(storyId)) {
+          const existingIndex = mergedEntries.findIndex((entry) => String(entry[0]) === storyId);
+          if (
+            existingIndex >= 0
+            && latestIndexProductMetadataStatus(mergedEntries[existingIndex][1], story) !== 'complete'
+          ) {
+            mergedEntries[existingIndex] = [storyId, hotRecord];
+          }
+          continue;
+        }
         mergedEntries.push([storyId, hotRecord]);
         seenStoryIds.add(storyId);
         added += 1;
@@ -3444,10 +3454,19 @@ async function writeAggregatePointSnapshot(gun, snapshot) {
 }
 
 function compactHistoricalHealthProbes(gun) {
+  if (healthProbeCompactionMaxRecords <= 0) {
+    logEvent('info', 'health_probe_compaction_skipped', {
+      reason: 'max-records-not-configured',
+    });
+    return;
+  }
   metrics.compactionRuns += 1;
   let tombstoned = 0;
   try {
     gun.get('vh').get('__health').map().once((value, key) => {
+      if (tombstoned >= healthProbeCompactionMaxRecords) {
+        return;
+      }
       if (typeof key !== 'string' || !key.startsWith('__vh_health_probe_')) {
         return;
       }

@@ -10,7 +10,7 @@ const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
 const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 30_000;
-const DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS = 12_000;
+const DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS = 60_000;
 const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
@@ -454,14 +454,22 @@ async function proxyRelayFanout(req, res, relayTargets, timeoutMs) {
 async function proxyRelayOrderedNewsRead(req, res, relayTargets, timeoutMs) {
   const pathname = new URL(req.url || '/', 'http://vh-public-origin.local').pathname;
   const results = [];
-  for (const target of relayTargets) {
-    const result = await fetchRelayTarget(req, target, timeoutMs);
+  let pending = relayTargets.map((target) => {
+    const item = {};
+    item.promise = fetchRelayTarget(req, target, timeoutMs).then((result) => ({ item, result }));
+    return item;
+  });
+
+  while (pending.length > 0) {
+    const { item, result } = await Promise.race(pending.map((candidate) => candidate.promise));
+    pending = pending.filter((candidate) => candidate !== item);
     results.push(result);
     if (isUsableOrderedNewsRead(result, pathname)) {
       writeRelayResult(res, result);
       return;
     }
   }
+
   writeRelayResult(res, selectBestNewsRead(results, pathname));
 }
 
@@ -632,6 +640,10 @@ export function createPublicBetaOriginHandler(options) {
         )
       ) {
         if (isNewsFanoutRead) {
+          if (pathname === '/vh/news/hot-index') {
+            await proxyRelayFanout(req, res, relayTargets, relayNewsFanoutTimeoutMs);
+            return;
+          }
           await proxyRelayOrderedNewsRead(req, res, relayTargets, relayNewsFanoutTimeoutMs);
           return;
         }

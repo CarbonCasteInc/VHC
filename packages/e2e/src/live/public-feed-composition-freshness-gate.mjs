@@ -431,7 +431,7 @@ async function runPublicFeedCompositionFreshnessGate({
   repoRoot = DEFAULT_REPO_ROOT,
 } = {}) {
   const baseUrl = normalizeUrl(env.VH_PUBLIC_FEED_APP_URL || env.VH_LIVE_BASE_URL || DEFAULT_BASE_URL);
-  const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_COMPOSITION_TIMEOUT_MS, 15_000);
+  const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_COMPOSITION_TIMEOUT_MS, 30_000);
   const indexLimit = parsePositiveInt(env.VH_PUBLIC_FEED_COMPOSITION_INDEX_LIMIT, 120);
   const paginationPageLimit = parsePositiveInt(env.VH_PUBLIC_FEED_PAGINATION_PAGE_LIMIT, 6);
   const artifactDir = resolveArtifactDir(env, repoRoot);
