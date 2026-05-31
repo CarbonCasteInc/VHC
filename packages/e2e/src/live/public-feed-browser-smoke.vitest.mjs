@@ -596,7 +596,7 @@ describe('public feed browser smoke helpers', () => {
         acceptedSynthesisStoryCount: 0,
         storyBodyStatusCounts: { 200: 1, 404: 1 },
         synthesisStatusCounts: { 404: 1 },
-        articleTextSampleStatusCounts: { '200_text': 1 },
+        articleTextSampleStatusCounts: { not_checked_synthesis_pending: 1 },
       });
     } finally {
       vi.unstubAllGlobals();
@@ -868,7 +868,7 @@ describe('public feed browser smoke helpers', () => {
         acceptedSynthesisStoryCount: 0,
         missingAcceptedSynthesisStoryCount: 0,
         publicStateCounts: { synthesis_pending: 1 },
-        articleTextSampleStatusCounts: { '200_text': 1 },
+        articleTextSampleStatusCounts: { not_checked_synthesis_pending: 1 },
       });
     } finally {
       vi.unstubAllGlobals();

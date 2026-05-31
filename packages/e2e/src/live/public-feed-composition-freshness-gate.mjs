@@ -492,6 +492,7 @@ async function runPublicFeedCompositionFreshnessGate({
     storyBodyStatusCounts: readback.storyBodyStatusCounts,
     synthesisStatusCounts: readback.synthesisStatusCounts,
     publicStateCounts: readback.publicStateCounts,
+    articleTextSampleStatusCounts: readback.articleTextSampleStatusCounts,
     latestIndexProductMetadataStatusCounts: readback.latestIndexProductMetadataStatusCounts,
     missingLatestIndexProductMetadataStoryCount: readback.missingLatestIndexProductMetadataStoryCount,
     missingLatestIndexProductMetadataStories: readback.missingLatestIndexProductMetadataStories,

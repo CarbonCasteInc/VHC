@@ -224,6 +224,60 @@ describe('public feed composition freshness gate', () => {
     }
   });
 
+  it('does not scrape article text for honest pending synthesis rows', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-composition-gate-'));
+    const artifactDir = path.join(repoRoot, 'artifacts');
+    const fixtures = mixedFeedFixtures();
+    for (const state of Object.values(fixtures.latestIndex.story_states)) {
+      state.synthesis_state = 'synthesis_pending';
+      state.frame_table_state = 'frame_table_pending';
+      state.lifecycle_status = 'pending';
+    }
+    fixtures.latestIndex.composition.pending_synthesis = 2;
+    fixtures.latestIndex.composition.accepted_synthesis_available = 0;
+    const fetchSpy = vi.fn(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/article-text') {
+        throw new Error('unexpected-article-text-probe');
+      }
+      if (parsed.pathname === '/vh/news/latest-index') {
+        return jsonResponse(fixtures.latestIndex);
+      }
+      if (parsed.pathname === '/vh/news/story') {
+        const storyId = parsed.searchParams.get('story_id');
+        const story = fixtures.stories[storyId];
+        return story
+          ? jsonResponse({ story })
+          : jsonResponse({ ok: false, error: 'story-not-found' }, { ok: false, status: 404 });
+      }
+      if (parsed.pathname === '/vh/topics/synthesis') {
+        return jsonResponse({ ok: false, error: 'topic-synthesis-not-found' }, { ok: false, status: 404 });
+      }
+      return jsonResponse({ ok: false, error: 'not-found' }, { ok: false, status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    try {
+      const summary = await runPublicFeedCompositionFreshnessGate({
+        repoRoot,
+        env: {
+          VH_PUBLIC_FEED_APP_URL: 'https://venn.example/',
+          VH_PUBLIC_FEED_COMPOSITION_ARTIFACT_DIR: artifactDir,
+          VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION: 'false',
+          VH_PUBLIC_FEED_REQUIRE_PUBLIC_PEER_READBACK: 'false',
+        },
+      });
+
+      expect(summary.status).toBe('pass');
+      expect(summary.articleTextSampleStatusCounts).toEqual({
+        not_checked_synthesis_pending: 2,
+      });
+      expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('/article-text'))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('fails deployed public gates when public peer readback is required but not configured', async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-composition-gate-'));
     const artifactDir = path.join(repoRoot, 'artifacts');
