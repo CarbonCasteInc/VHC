@@ -186,7 +186,7 @@ describe('useAppStore', () => {
     ]));
   });
 
-  it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
+  it('requires async signed peer config resolution in strict mode and ignores runtime global peers', () => {
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     (globalThis as any).__VH_GUN_PEERS__ = [
       'https://runtime-a.example/gun',
@@ -194,7 +194,7 @@ describe('useAppStore', () => {
       'https://runtime-c.example/gun',
     ];
 
-    expect(() => resolveGunPeers('app.example')).toThrow('strict peer config requires explicit Gun peers');
+    expect(() => resolveGunPeers('app.example')).toThrow('remote Gun peer config requires async');
   });
 
   it('requires three secure peers by default in strict mode', () => {
