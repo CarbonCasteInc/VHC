@@ -2157,7 +2157,53 @@ describe('aggregateAdapters', () => {
     }
   });
 
-  it('readAggregatesWithRelayRestFallback returns a non-zero relay aggregate without waiting for slow direct fan-in', async () => {
+  it('readAggregatesWithRelayRestFallback keeps newer direct voter evidence over a stale non-zero relay snapshot', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 5,
+      disagree: 0,
+      weight: 5,
+      participants: 5,
+      version: 3,
+      computed_at: 3,
+      source_window: { from_seq: 1, to_seq: 5 },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, ['wss://gun-a.example.test/gun']);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        aggregate: {
+          point_id: 'pointA',
+          agree: 1,
+          disagree: 0,
+          weight: 1,
+          participants: 1,
+        },
+      }),
+    })));
+    try {
+      await expect(readAggregatesWithRelayRestFallback(client, 'topic-1', 'synth-1', 4, 'pointA'))
+        .resolves.toEqual({
+          point_id: 'pointA',
+          agree: 5,
+          disagree: 0,
+          weight: 5,
+          participants: 5,
+        });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readAggregatesWithRelayRestFallback returns a non-zero relay aggregate after bounded direct comparison', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -2185,7 +2231,7 @@ describe('aggregateAdapters', () => {
           weight: 9,
           participants: 9,
         });
-      expect(Date.now() - startedAt).toBeLessThan(500);
+      expect(Date.now() - startedAt).toBeLessThan(4_500);
     } finally {
       vi.unstubAllGlobals();
     }
