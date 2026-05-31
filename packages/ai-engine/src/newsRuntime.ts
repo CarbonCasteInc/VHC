@@ -300,18 +300,20 @@ function selectBundlesForPublication(
     : bundles
         .map(refineBundleForPublication)
         .filter(isPublicationEligibleBundle);
-  if (!maxPublishedBundles || eligibleBundles.length <= maxPublishedBundles) {
-    return [...eligibleBundles];
+  const orderedBundles = [...eligibleBundles].sort(compareBundlesForPublication);
+
+  if (!maxPublishedBundles || orderedBundles.length <= maxPublishedBundles) {
+    return orderedBundles;
   }
 
-  return [...eligibleBundles]
-    .sort((left, right) => (
-      canonicalSourceCount(right) - canonicalSourceCount(left)
-      || right.cluster_window_end - left.cluster_window_end
-      || right.created_at - left.created_at
-      || left.story_id.localeCompare(right.story_id)
-    ))
-    .slice(0, maxPublishedBundles);
+  return orderedBundles.slice(0, maxPublishedBundles);
+}
+
+function compareBundlesForPublication(left: StoryBundle, right: StoryBundle): number {
+  return canonicalSourceCount(right) - canonicalSourceCount(left)
+    || right.cluster_window_end - left.cluster_window_end
+    || right.created_at - left.created_at
+    || left.story_id.localeCompare(right.story_id);
 }
 
 function defaultPrompt(bundle: StoryBundle): string {
@@ -388,6 +390,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
         selected_bundle_count: bundlesToPublish.length,
+        selected_singleton_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) === 1).length,
+        selected_multi_source_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) > 1).length,
+        first_selected_story_ids: bundlesToPublish.slice(0, 10).map((bundle) => bundle.story_id),
       });
 
       const writeStoryBundle = config.writeStoryBundle;
@@ -571,6 +578,7 @@ export const __internal = {
   isPublicationEligibleBundle,
   refineBundleForPublication,
   resolvePruneStaleBundles,
+  compareBundlesForPublication,
   selectBundlesForPublication,
   readEnvVar,
   readOptionalPositiveIntEnv,
