@@ -247,9 +247,7 @@ if (isDirectExecution(import.meta.url)) {
         enqueued: report.scan.enqueued,
         results: report.results.length,
       }));
-      if (report.status === 'fail') {
-        process.exitCode = 1;
-      }
+      process.exit(report.status === 'fail' ? 1 : 0);
     })
     .catch((error) => {
       console.error('[vh:public-synthesis-catchup] failed', error);
