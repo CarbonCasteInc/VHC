@@ -280,6 +280,22 @@ async function writeRelayLatestIndexRecord(port, storyId, latestActivityAt) {
   });
 }
 
+async function writeRelayHotIndexRecord(port, storyId, hotness, metadata = {}) {
+  expect(await requestJson(`http://127.0.0.1:${port}/vh/news/hot-index`, {
+    method: 'POST',
+    body: {
+      record: {
+        story_id: storyId,
+        hotness,
+        ...metadata,
+      },
+    },
+  })).toMatchObject({
+    statusCode: 200,
+    body: expect.objectContaining({ ok: true, story_id: storyId }),
+  });
+}
+
 describe('infra relay server', () => {
   const children = new Set();
   const tempDirs = new Set();
@@ -934,8 +950,8 @@ describe('infra relay server', () => {
       hot = await requestJson(hotUrl);
       if (
         hot.body?.record_count === 2
-        && hot.body?.records?.['story-hot'] === 0.91
-        && hot.body?.records?.['story-warm'] === 0.25
+        && hot.body?.records?.['story-hot']?.hotness === 0.91
+        && hot.body?.records?.['story-warm']?.hotness === 0.25
       ) {
         break;
       }
@@ -951,8 +967,8 @@ describe('infra relay server', () => {
         scanned_key_count: 3,
         truncated: true,
         records: {
-          'story-hot': 0.91,
-          'story-warm': 0.25,
+          'story-hot': expect.objectContaining({ story_id: 'story-hot', hotness: 0.91 }),
+          'story-warm': expect.objectContaining({ story_id: 'story-warm', hotness: 0.25 }),
         },
       }),
     });
@@ -967,6 +983,224 @@ describe('infra relay server', () => {
     });
     gun.off();
   }, 10_000);
+
+  it('accepts daemon hot-index writes with product metadata', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS: '4',
+    });
+    const story = makeRelayNewsStory('story-hot-product', 200, [
+      {
+        source_id: 'src-hot-product',
+        publisher: 'Hot Product Source',
+        url: 'https://example.com/hot-product',
+        url_hash: 'hash-hot-product',
+        published_at: 190,
+        title: 'Hot product story',
+      },
+    ]);
+    await writeRelayHotIndexRecord(port, story.story_id, 0.73, {
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: story.sources.length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    });
+
+    let hot = null;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5_000) {
+      hot = await requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=4`);
+      if (hot.body?.records?.[story.story_id]?.product_state_schema_version === 'vh-news-product-feed-index-v1') {
+        break;
+      }
+      await delay(100);
+    }
+
+    expect(hot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        records: {
+          [story.story_id]: expect.objectContaining({
+            story_id: story.story_id,
+            hotness: 0.73,
+            product_state_schema_version: 'vh-news-product-feed-index-v1',
+            source_set_revision: story.provenance_hash,
+          }),
+        },
+      }),
+    });
+  }, 10_000);
+
+  it('derives product hot-index rows from verified latest-index stories when hot root is sparse', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_STORY_FALLBACK: 'true',
+    });
+    const bundled = makeRelayNewsStory('story-hot-fallback-bundle', 500, [
+      {
+        source_id: 'src-hot-fallback-a',
+        publisher: 'Hot Fallback Source A',
+        url: 'https://example.com/hot-fallback-a',
+        url_hash: 'hash-hot-fallback-a',
+        published_at: 480,
+        title: 'Hot fallback A',
+      },
+      {
+        source_id: 'src-hot-fallback-b',
+        publisher: 'Hot Fallback Source B',
+        url: 'https://example.com/hot-fallback-b',
+        url_hash: 'hash-hot-fallback-b',
+        published_at: 490,
+        title: 'Hot fallback B',
+      },
+    ]);
+    const singleton = makeRelayNewsStory('story-hot-fallback-singleton', 490, [
+      {
+        source_id: 'src-hot-fallback-singleton',
+        publisher: 'Hot Fallback Singleton',
+        url: 'https://example.com/hot-fallback-singleton',
+        url_hash: 'hash-hot-fallback-singleton',
+        published_at: 485,
+        title: 'Hot fallback singleton',
+      },
+    ]);
+    await writeRelayNewsStory(port, bundled);
+    await writeRelayNewsStory(port, singleton);
+    await writeRelayLatestIndexRecord(port, bundled.story_id, bundled.cluster_window_end);
+    await writeRelayLatestIndexRecord(port, singleton.story_id, singleton.cluster_window_end);
+
+    let hot = null;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5_000) {
+      hot = await requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=2&scan_limit=4`);
+      if (
+        hot.body?.record_count === 2
+        && hot.body?.records?.[bundled.story_id]?.product_state_schema_version === 'vh-news-product-feed-index-v1'
+        && hot.body?.records?.[singleton.story_id]?.product_state_schema_version === 'vh-news-product-feed-index-v1'
+      ) {
+        break;
+      }
+      await delay(100);
+    }
+
+    expect(hot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 2,
+        source_key_count: 0,
+        latest_fallback: expect.objectContaining({
+          attempted: true,
+          added_count: 2,
+        }),
+        records: {
+          [bundled.story_id]: expect.objectContaining({
+            story_id: bundled.story_id,
+            product_state_schema_version: 'vh-news-product-feed-index-v1',
+            source_count: 2,
+            canonical_source_count: 2,
+            source_set_revision: bundled.provenance_hash,
+          }),
+          [singleton.story_id]: expect.objectContaining({
+            story_id: singleton.story_id,
+            product_state_schema_version: 'vh-news-product-feed-index-v1',
+            source_count: 1,
+            canonical_source_count: 1,
+            source_set_revision: singleton.provenance_hash,
+          }),
+        },
+      }),
+    });
+    expect(hot.body.records[bundled.story_id].hotness).toEqual(expect.any(Number));
+    expect(hot.body.records[singleton.story_id].hotness).toEqual(expect.any(Number));
+  }, 10_000);
+
+  it('bounds stale hot-root scans and still derives product hot rows from latest stories', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS: '20',
+      VH_RELAY_NEWS_HOT_INDEX_REST_ROOT_SCAN_RECORDS: '1',
+      VH_RELAY_NEWS_HOT_INDEX_REST_CHILD_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '2',
+      VH_RELAY_NEWS_INDEX_REST_STORY_FALLBACK: 'true',
+    });
+    const gun = createRelayGunClient(port);
+    try {
+      for (let index = 0; index < 4; index += 1) {
+        await putGunObjectAndWaitForField(
+          gun.get('vh').get('news').get('index').get('hot').get(`story-stale-hot-${index}`),
+          { stale_marker: `legacy-${index}` },
+          'stale_marker',
+          `legacy-${index}`,
+        );
+      }
+      const first = makeRelayNewsStory('story-hot-bounded-first', 600, [
+        {
+          source_id: 'src-hot-bounded-first',
+          publisher: 'Hot Bounded First',
+          url: 'https://example.com/hot-bounded-first',
+          url_hash: 'hash-hot-bounded-first',
+          published_at: 590,
+          title: 'Hot bounded first',
+        },
+      ]);
+      const second = makeRelayNewsStory('story-hot-bounded-second', 590, [
+        {
+          source_id: 'src-hot-bounded-second-a',
+          publisher: 'Hot Bounded Second A',
+          url: 'https://example.com/hot-bounded-second-a',
+          url_hash: 'hash-hot-bounded-second-a',
+          published_at: 585,
+          title: 'Hot bounded second A',
+        },
+        {
+          source_id: 'src-hot-bounded-second-b',
+          publisher: 'Hot Bounded Second B',
+          url: 'https://example.com/hot-bounded-second-b',
+          url_hash: 'hash-hot-bounded-second-b',
+          published_at: 590,
+          title: 'Hot bounded second B',
+        },
+      ]);
+      await writeRelayNewsStory(port, first);
+      await writeRelayNewsStory(port, second);
+      await writeRelayLatestIndexRecord(port, first.story_id, first.cluster_window_end);
+      await writeRelayLatestIndexRecord(port, second.story_id, second.cluster_window_end);
+
+      const hot = await requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=2&scan_limit=20`);
+      expect(hot).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          record_count: 2,
+          scanned_key_count: expect.any(Number),
+          latest_fallback: expect.objectContaining({
+            attempted: true,
+            added_count: 2,
+          }),
+          records: {
+            [first.story_id]: expect.objectContaining({
+              story_id: first.story_id,
+              product_state_schema_version: 'vh-news-product-feed-index-v1',
+            }),
+            [second.story_id]: expect.objectContaining({
+              story_id: second.story_id,
+              product_state_schema_version: 'vh-news-product-feed-index-v1',
+              source_count: 2,
+            }),
+          },
+        }),
+      });
+      expect(hot.body.scanned_key_count).toBeLessThanOrEqual(1);
+    } finally {
+      gun.off();
+    }
+  }, 15_000);
 
   it('serves older latest-index windows with an exclusive before cursor', async () => {
     const { port } = await startRelay(children, tempDirs, {
@@ -1789,6 +2023,96 @@ describe('infra relay server', () => {
       frame_table_ready: 1,
     });
   }, 60_000);
+
+  it('serves persisted latest-index snapshot stories when the local story body path is sparse', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const snapshotEnv = {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '300',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '300',
+      VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS: '60000',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+    };
+    const { port: writerPort } = await startRelay(children, tempDirs, snapshotEnv);
+    const story = makeRelayNewsStory('story-snapshot-body-fallback', 500, [
+      {
+        source_id: 'source-snapshot-body',
+        publisher: 'Snapshot Body Source',
+        url: 'https://example.com/snapshot-body',
+        url_hash: 'hash-snapshot-body',
+        published_at: 490,
+        title: 'Snapshot body story',
+      },
+      {
+        source_id: 'source-snapshot-body-b',
+        publisher: 'Snapshot Body Source B',
+        url: 'https://example.com/snapshot-body-b',
+        url_hash: 'hash-snapshot-body-b',
+        published_at: 500,
+        title: 'Snapshot body story B',
+      },
+    ]);
+    await writeRelayNewsStory(writerPort, story);
+    await writeRelayLatestIndexRecord(writerPort, story.story_id, story.cluster_window_end);
+    await expect(requestJson(`http://127.0.0.1:${writerPort}/vh/news/latest-index?limit=3&scan_limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          record_count: 1,
+          stories: {
+            [story.story_id]: expect.objectContaining({ story_id: story.story_id }),
+          },
+        }),
+      });
+
+    const { port: sparsePort } = await startRelay(children, tempDirs, {
+      ...snapshotEnv,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'true',
+    });
+    await expect(requestJson(`http://127.0.0.1:${sparsePort}/vh/news/story?story_id=${story.story_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          source: 'latest-index-snapshot',
+          story_id: story.story_id,
+          story: expect.objectContaining({
+            story_id: story.story_id,
+            headline: story.headline,
+          }),
+        }),
+      });
+    await expect(requestJson(`http://127.0.0.1:${sparsePort}/vh/news/latest-index?limit=1&scan_limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          record_count: 1,
+          consistency: expect.objectContaining({
+            empty_read_cache: expect.objectContaining({
+              served_from: 'preferred_latest_index_snapshot',
+            }),
+            snapshot_story_body_readback: expect.objectContaining({
+              enabled: true,
+              selected_count: 1,
+              verified_count: 1,
+              dropped_count: 0,
+            }),
+          }),
+          stories: {
+            [story.story_id]: expect.objectContaining({
+              story_id: story.story_id,
+              sources: expect.arrayContaining([
+                expect.objectContaining({ source_id: 'source-snapshot-body' }),
+              ]),
+            }),
+          },
+        }),
+      });
+  }, 30_000);
 
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
     const { port } = await startRelay(children, tempDirs, {

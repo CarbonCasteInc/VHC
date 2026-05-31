@@ -838,6 +838,32 @@ function buildNewsLatestIndexGraph(write) {
   return graph;
 }
 
+function sanitizeNewsHotIndexWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-hot-index-record-required');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const hotness = Number(record.hotness);
+  if (!storyId || !Number.isFinite(hotness) || hotness < 0) {
+    throw new Error('news-hot-index-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsHotIndexGraph(write) {
+  const state = Gun.state();
+  const hotRootSoul = 'vh/news/index/hot';
+  const hotSoul = `${hotRootSoul}/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'index', 'vh/news/index', state);
+  linkNode(graph, 'vh/news/index', 'hot', hotRootSoul, state);
+  linkNode(graph, hotRootSoul, write.story_id, hotSoul, state);
+  writeScalarFields(graph, hotSoul, state, write.record);
+  return graph;
+}
+
 function sanitizeNewsSynthesisLifecycleWrite(body) {
   const record = isPlainRecord(body?.record)
     ? body.record
@@ -1175,6 +1201,8 @@ function parseNewsSynthesisLifecycleRecord(value, storyId) {
 async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const allowSnapshotFallback = options.allowSnapshotFallback !== false
+    && boolEnv('VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK', true);
   const parseReadResult = (result) => {
     if (result.kind === 'direct') {
       const direct = stripGunMetadata(result.value);
@@ -1205,7 +1233,9 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
   const parsedFirst = parseReadResult(first);
   if (parsedFirst) return parsedFirst;
   const second = first.kind === 'direct' ? await scalarRead : await directRead;
-  return parseReadResult(second);
+  const parsedSecond = parseReadResult(second);
+  if (parsedSecond) return parsedSecond;
+  return allowSnapshotFallback ? readNewsStoryRecordFromLatestIndexSnapshot(storyId) : null;
 }
 
 async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
@@ -1274,7 +1304,10 @@ async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   let latest = null;
   while (Date.now() < deadline) {
-    latest = await readNewsStoryRecord(gun, storyId, { timeoutMs: 1_500 });
+    latest = await readNewsStoryRecord(gun, storyId, {
+      timeoutMs: 1_500,
+      allowSnapshotFallback: false,
+    });
     if (latest) return latest;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -1388,6 +1421,25 @@ function hotIndexRecordHotness(record) {
   if (!record || typeof record !== 'object') return null;
   const value = Number(record.hotness);
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function normalizeHotIndexRecordForResponse(storyId, record) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return null;
+  const hotness = hotIndexRecordHotness(record);
+  if (hotness === null) return null;
+  if (!record || typeof record !== 'object') {
+    return { story_id: normalizedStoryId, hotness };
+  }
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  if (recordStoryId && recordStoryId !== normalizedStoryId) {
+    return null;
+  }
+  return {
+    ...record,
+    story_id: normalizedStoryId,
+    hotness,
+  };
 }
 
 function finiteNonNegativeInteger(value) {
@@ -1558,6 +1610,72 @@ function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) 
   };
 }
 
+const RELAY_HOTNESS_ROUNDING_SCALE = 1_000_000;
+const RELAY_HOTNESS_MS_PER_HOUR = 3_600_000;
+const RELAY_HOTNESS_CONFIG = {
+  decayHalfLifeHours: 8,
+  breakingWindowHours: 3,
+  breakingVelocityBoost: 0.75,
+  weights: {
+    coverage: 0.32,
+    velocity: 0.38,
+    confidence: 0.12,
+    sourceDiversity: 0.08,
+    freshness: 0.1,
+  },
+};
+
+function relayClamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function relayNormalizeUnitInterval(value, fallback) {
+  return typeof value === 'number' ? relayClamp01(value) : relayClamp01(fallback);
+}
+
+function relaySourceDiversityScore(sourceCount) {
+  if (!Number.isFinite(sourceCount) || sourceCount <= 0) return 0;
+  return relayClamp01(Math.log1p(sourceCount) / Math.log(8));
+}
+
+function computeRelayStoryHotness(story, nowMs = Date.now()) {
+  const latestActivityAt = Math.max(0, Math.floor(Number(story?.cluster_window_end) || 0));
+  const normalizedNow = Number.isFinite(nowMs) && nowMs >= 0 ? Math.floor(nowMs) : latestActivityAt;
+  const ageHours = Math.max(0, normalizedNow - latestActivityAt) / RELAY_HOTNESS_MS_PER_HOUR;
+  const freshness = Math.pow(2, -ageHours / Math.max(0.25, RELAY_HOTNESS_CONFIG.decayHalfLifeHours));
+  const features = story?.cluster_features && typeof story.cluster_features === 'object'
+    ? story.cluster_features
+    : {};
+  const coverage = relayNormalizeUnitInterval(features.coverage_score, 0.35);
+  const velocity = relayNormalizeUnitInterval(features.velocity_score, 0.2);
+  const confidence = relayNormalizeUnitInterval(features.confidence_score, 0.5);
+  const sourceDiversity = relaySourceDiversityScore(Array.isArray(story?.sources) ? story.sources.length : 0);
+  const weightedBase =
+    RELAY_HOTNESS_CONFIG.weights.coverage * coverage +
+    RELAY_HOTNESS_CONFIG.weights.velocity * velocity +
+    RELAY_HOTNESS_CONFIG.weights.confidence * confidence +
+    RELAY_HOTNESS_CONFIG.weights.sourceDiversity * sourceDiversity +
+    RELAY_HOTNESS_CONFIG.weights.freshness * freshness;
+  const breakingMultiplier = ageHours <= Math.max(0, RELAY_HOTNESS_CONFIG.breakingWindowHours)
+    ? 1 + Math.max(0, RELAY_HOTNESS_CONFIG.breakingVelocityBoost) * velocity
+    : 1;
+  return Math.round(Math.max(0, weightedBase * breakingMultiplier) * RELAY_HOTNESS_ROUNDING_SCALE)
+    / RELAY_HOTNESS_ROUNDING_SCALE;
+}
+
+function synthesizeHotIndexRecordFromStory(storyId, story) {
+  const latestMetadata = synthesizeLatestIndexRecordFromStory(storyId, story, resolveLatestActivityFromStory(story));
+  const { latest_activity_at: _latestActivityAt, ...productMetadata } = latestMetadata;
+  return {
+    story_id: storyId,
+    hotness: computeRelayStoryHotness(story),
+    ...productMetadata,
+  };
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -1592,6 +1710,19 @@ async function readNewsLatestIndexRecord(gun, storyId, timeoutMs = 1_500) {
   return null;
 }
 
+async function readNewsHotIndexRecord(gun, storyId, timeoutMs = 1_500) {
+  const indexChain = gun.get('vh').get('news').get('index').get('hot');
+  const raw = stripGunMetadata(await readOnce(indexChain.get(storyId), timeoutMs));
+  const record = stripGunMetadata(await readLinkedGunRecord(gun, raw, timeoutMs));
+  if (!record || typeof record !== 'object') return null;
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const hotness = Number(record.hotness);
+  if (recordStoryId === storyId && Number.isFinite(hotness) && hotness >= 0) {
+    return record;
+  }
+  return null;
+}
+
 async function pollNewsLatestIndexBack(gun, storyId, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   let latest = null;
@@ -1601,6 +1732,17 @@ async function pollNewsLatestIndexBack(gun, storyId, timeoutMs = 5_000) {
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
   return latest;
+}
+
+async function pollNewsHotIndexBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let hot = null;
+  while (Date.now() < deadline) {
+    hot = await readNewsHotIndexRecord(gun, storyId, 1_500);
+    if (hot) return hot;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return hot;
 }
 
 async function readIndexMapSnapshots(indexChain, timeoutMs, maxKeys) {
@@ -1991,6 +2133,36 @@ function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
   }
 }
 
+function readNewsStoryRecordFromLatestIndexSnapshot(storyId) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return null;
+  const cacheTtlMs = Math.max(
+    0,
+    numberEnv(
+      'VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK_TTL_MS',
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS', 5 * 60_000),
+    ),
+  );
+  const snapshotKey = latestIndexSnapshotCacheKey({ consistencyFilter: true });
+  const snapshot = newsLatestIndexSnapshotCache.get(snapshotKey)
+    ?? readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs);
+  const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+  const matched = entries.find((entry) =>
+    String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim() === normalizedStoryId
+    && entry?.story?.story_id === normalizedStoryId);
+  if (!matched?.story) return null;
+  const story = parseStoryBundleEnvelope(JSON.stringify(matched.story));
+  if (!story || story.story_id !== normalizedStoryId) return null;
+  return {
+    record: {
+      story_id: normalizedStoryId,
+      __story_bundle_json: JSON.stringify(story),
+    },
+    story,
+    source: 'latest-index-snapshot',
+  };
+}
+
 async function refreshSnapshotEntryStoryState(gun, entry) {
   if (!gun || !entry?.story || !entry?.entry?.[0]) {
     return { entry, refreshed: false };
@@ -2334,6 +2506,13 @@ async function readNewsHotIndexRecords(gun, options = {}) {
     options.scanLimit,
     numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS', Math.max(maxRecords * 4, maxRecords)),
   );
+  const rootScanLimit = Math.min(
+    requestedScanLimit,
+    positiveInteger(
+      options.rootScanLimit,
+      numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_ROOT_SCAN_RECORDS', Math.min(requestedScanLimit, 32)),
+    ),
+  );
   const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_HOT_INDEX_REST_MAP_FALLBACK', true);
   const rawRoot = await readOnce(indexChain, rootTimeoutMs);
   const rootKeys = extractIndexChildKeys(rawRoot);
@@ -2347,7 +2526,7 @@ async function readNewsHotIndexRecords(gun, options = {}) {
     }
     : rawRoot;
   const sourceKeys = extractIndexChildKeys(readableRoot);
-  const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, requestedScanLimit));
+  const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, rootScanLimit));
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
     const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
       ? stripGunMetadata(readableRoot[storyId])
@@ -2362,7 +2541,8 @@ async function readNewsHotIndexRecords(gun, options = {}) {
       : direct !== null && direct !== undefined
         ? await readLinkedGunRecord(gun, direct, childTimeoutMs)
         : null;
-    return hotIndexRecordHotness(record) !== null ? [storyId, record] : null;
+    const normalized = normalizeHotIndexRecordForResponse(storyId, record);
+    return normalized ? [storyId, normalized] : null;
   });
   const visibleEntries = entries
     .filter(Boolean)
@@ -2370,15 +2550,53 @@ async function readNewsHotIndexRecords(gun, options = {}) {
       (hotIndexRecordHotness(right[1]) ?? 0) - (hotIndexRecordHotness(left[1]) ?? 0)
       || String(left[0]).localeCompare(String(right[0])),
     );
+  const mergedEntries = [...visibleEntries];
+  const seenStoryIds = new Set(mergedEntries.map((entry) => String(entry[0])));
+  let latestFallbackInfo = null;
+  if (mergedEntries.length < maxRecords) {
+    const latestFallback = await readNewsLatestIndexRecordsWithEmptyRetry(gun, {
+      limit: maxRecords,
+      scanLimit: Math.max(maxRecords, rootScanLimit),
+      consistencyFilter: true,
+    }).catch((error) => {
+      latestFallbackInfo = {
+        attempted: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      return null;
+    });
+    if (latestFallback) {
+      let added = 0;
+      for (const [storyId, story] of Object.entries(latestFallback.stories ?? {})) {
+        if (seenStoryIds.has(storyId)) continue;
+        const hotRecord = synthesizeHotIndexRecordFromStory(storyId, story);
+        if (hotIndexRecordHotness(hotRecord) === null) continue;
+        mergedEntries.push([storyId, hotRecord]);
+        seenStoryIds.add(storyId);
+        added += 1;
+      }
+      latestFallbackInfo = {
+        attempted: true,
+        added_count: added,
+        latest_record_count: Object.keys(latestFallback.records ?? {}).length,
+      };
+    }
+  }
+  const sortedEntries = mergedEntries
+    .sort((left, right) =>
+      (hotIndexRecordHotness(right[1]) ?? 0) - (hotIndexRecordHotness(left[1]) ?? 0)
+      || String(left[0]).localeCompare(String(right[0])),
+    );
   const records = {};
-  for (const entry of visibleEntries.slice(0, maxRecords)) {
+  for (const entry of sortedEntries.slice(0, maxRecords)) {
     records[entry[0]] = entry[1];
   }
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
     scannedKeyCount: keys.length,
-    truncated: sourceKeys.length > keys.length || visibleEntries.length > Object.keys(records).length,
+    truncated: sourceKeys.length > keys.length || sortedEntries.length > Object.keys(records).length,
+    latestFallback: latestFallbackInfo,
     records,
   };
 }
@@ -3173,6 +3391,23 @@ async function writeNewsLatestIndexRecord(gun, body) {
   return clean;
 }
 
+async function writeNewsHotIndexRecord(gun, body) {
+  const clean = sanitizeNewsHotIndexWrite(body);
+  const hotChain = gun.get('vh').get('news').get('index').get('hot').get(clean.story_id);
+  await putScalarRecord(hotChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
+  injectGraph(gun, buildNewsHotIndexGraph(clean));
+  const readback = await pollNewsHotIndexBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
+      numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
+  );
+  if (!readback) {
+    throw new Error('news-hot-index-readback-failed');
+  }
+  return clean;
+}
+
 async function writeNewsSynthesisLifecycleRecord(gun, body) {
   const clean = sanitizeNewsSynthesisLifecycleWrite(body);
   const lifecycleChain = gun
@@ -3397,6 +3632,7 @@ const server = http.createServer((req, res) => {
           ok: true,
           story_id: result.story.story_id,
           topic_id: result.story.topic_id,
+          source: result.source ?? 'story-body',
           story: result.story,
           record: result.record,
         });
@@ -3469,6 +3705,7 @@ const server = http.createServer((req, res) => {
           source_key_count: result.sourceKeyCount,
           scanned_key_count: result.scannedKeyCount,
           truncated: result.truncated,
+          latest_fallback: result.latestFallback,
           records: result.records,
         };
         if (result.root) payload.root = result.root;
@@ -3658,6 +3895,14 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && pathname === '/vh/news/latest-index') {
     void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
       const write = await writeNewsLatestIndexRecord(gun, body);
+      return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/hot-index') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsHotIndexRecord(gun, body);
       return { story_id: write.story_id };
     });
     return;

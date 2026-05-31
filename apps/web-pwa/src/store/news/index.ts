@@ -598,9 +598,13 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             const stories = await readLatestStoriesBounded(client, storyIds, latestPage.stories ?? {});
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
+            const hotIndexLimit = Math.max(
+              refreshRequest.limit,
+              Object.keys(effectiveLatestIndex).length,
+            );
             const [nextHotIndex, nextStorylines] = await Promise.all([
               withOptionalNewsTimeout(
-                readNewsHotIndexWithRelayRestFallback(client).then(sanitizeHotIndex),
+                readNewsHotIndexWithRelayRestFallback(client, { limit: hotIndexLimit }).then(sanitizeHotIndex),
                 {},
                 NEWS_OPTIONAL_INDEX_TIMEOUT_MS,
               ),
@@ -634,10 +638,13 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           mergedStorylinesById = isCursorWindow
             ? createStorylineRecord([...Object.values(state.storylinesById), ...storylines])
             : createStorylineRecord(storylines);
+          const mergedHotIndex = isCursorWindow
+            ? { ...state.hotIndex, ...hotIndex }
+            : hotIndex;
           return {
             latestIndex,
             latestIndexCursor,
-            hotIndex,
+            hotIndex: mergedHotIndex,
             storylinesById: mergedStorylinesById,
             stories: sortStories(mergedStories, latestIndex),
             loading: false,
@@ -645,7 +652,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           };
         });
 
-        await mirrorStoriesIntoDiscovery(mergedStories, hotIndex, mergedStorylinesById);
+        await mirrorStoriesIntoDiscovery(mergedStories, get().hotIndex, mergedStorylinesById);
       } catch (error: unknown) {
         if (generation !== refreshGeneration) {
           return;

@@ -2095,7 +2095,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
   let nextCursor: number | null = null;
   let sourceKeyCount: number | undefined;
   let composition: unknown;
-  for (const endpoint of endpoints) {
+  const endpointPayloads = await Promise.all(endpoints.map(async (endpoint) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
     try {
@@ -2105,9 +2105,9 @@ export async function readNewsLatestIndexPageViaRelayRest(
         signal: controller.signal,
       });
       if (!response.ok) {
-        continue;
+        return null;
       }
-      const payload = await response.json() as {
+      return await response.json() as {
         records?: unknown;
         index?: unknown;
         next_cursor?: unknown;
@@ -2116,6 +2116,18 @@ export async function readNewsLatestIndexPageViaRelayRest(
         composition?: unknown;
         stories?: unknown;
       };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+
+  for (const payload of endpointPayloads) {
+    if (!payload) {
+      continue;
+    }
+    try {
       const records = isRecord(payload.records)
         ? payload.records
         : isRecord(payload.index)
@@ -2168,8 +2180,6 @@ export async function readNewsLatestIndexPageViaRelayRest(
       }
     } catch {
       continue;
-    } finally {
-      clearTimeout(timeout);
     }
   }
   return {
@@ -2278,7 +2288,7 @@ export async function readNewsHotIndexViaRelayRest(
   }
 
   const index: NewsHotIndex = {};
-  for (const endpoint of endpoints) {
+  const endpointPayloads = await Promise.all(endpoints.map(async (endpoint) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
     try {
@@ -2288,9 +2298,21 @@ export async function readNewsHotIndexViaRelayRest(
         signal: controller.signal,
       });
       if (!response.ok) {
-        continue;
+        return null;
       }
-      const payload = await response.json() as { records?: unknown; index?: unknown };
+      return await response.json() as { records?: unknown; index?: unknown };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+
+  for (const payload of endpointPayloads) {
+    if (!payload) {
+      continue;
+    }
+    try {
       const records = isRecord(payload.records)
         ? payload.records
         : isRecord(payload.index)
@@ -2310,8 +2332,6 @@ export async function readNewsHotIndexViaRelayRest(
       }
     } catch {
       continue;
-    } finally {
-      clearTimeout(timeout);
     }
   }
   return filterHotIndexWindow(index, options);

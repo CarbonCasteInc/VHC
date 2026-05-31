@@ -388,7 +388,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     const mustPrimeRestoredRouteState =
       (detailToEnsure !== null && !pagedFeedHasDetail) ||
       (searchStoryId !== null && !pagedFeedHasFocusedStory);
-    const deferUpdates = (expandedStoryId !== null || !isNearTop) && !mustPrimeRestoredRouteState;
+    const deferUpdates =
+      (expandedStoryId !== null || (!isNearTop && !meshLoadingMore)) &&
+      !mustPrimeRestoredRouteState;
     if (deferUpdates && !modeChanged) {
       deferredFeedRef.current = feed;
       setHasDeferredUpdates(true);
@@ -407,6 +409,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     feed,
     filter,
     isNearTop,
+    meshLoadingMore,
     searchDetailId,
     searchStoryId,
     setDiscoveryFeed,

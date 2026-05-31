@@ -10,7 +10,7 @@ const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Pr
   recordCount: number;
   stories?: Record<string, StoryBundle>;
 }>>();
-const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
+const readNewsHotIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
 const readNewsStorylineMock = vi.fn<(client: unknown, storylineId: string) => Promise<unknown>>();
 
@@ -761,7 +761,7 @@ describe('news store', () => {
     expect(hydrateNewsStoreMock).toHaveBeenCalled();
     expect(readNewsLatestIndexMock).toHaveBeenCalledTimes(1);
     expect(readLatestStoryIdsMock).not.toHaveBeenCalled();
-    expect(readNewsHotIndexMock).toHaveBeenCalledWith(client);
+    expect(readNewsHotIndexMock).toHaveBeenCalledWith(client, { limit: 25 });
     expect(store.getState().hydrated).toBe(true);
     expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
     expect(store.getState().latestIndexCursor).toBe(100);
@@ -806,7 +806,9 @@ describe('news store', () => {
     readNewsLatestIndexMock
       .mockResolvedValueOnce({ newer: 300, current: 200 })
       .mockResolvedValueOnce({ older: 100 });
-    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsHotIndexMock
+      .mockResolvedValueOnce({ newer: 0.7, current: 0.4 })
+      .mockResolvedValueOnce({ older: 0.2 });
     readNewsStoryMock.mockImplementation(async (_client, storyId) =>
       story({
         story_id: storyId,
@@ -822,7 +824,9 @@ describe('news store', () => {
     await store.getState().refreshLatest({ limit: 1, before: 200 });
 
     expect(readNewsLatestIndexMock).toHaveBeenNthCalledWith(2, client, { limit: 1, before: 200 });
+    expect(readNewsHotIndexMock).toHaveBeenNthCalledWith(2, client, { limit: 3 });
     expect(store.getState().latestIndex).toEqual({ newer: 300, current: 200, older: 100 });
+    expect(store.getState().hotIndex).toEqual({ newer: 0.7, current: 0.4, older: 0.2 });
     expect(store.getState().stories.map((item) => item.story_id)).toEqual(['newer', 'current', 'older']);
   });
 

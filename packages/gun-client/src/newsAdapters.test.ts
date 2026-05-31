@@ -1280,6 +1280,53 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('starts latest-index relay peer reads without waiting for a slow first peer', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-fast', 456);
+    const storyFastRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-fast', 456);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-slow.example/gun', 'wss://gun-fast.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    let releaseSlowPeer!: (response: Response) => void;
+    const slowPeer = new Promise<Response>((resolve) => {
+      releaseSlowPeer = resolve;
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('https://gun-slow.example/')) {
+        return slowPeer;
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-fast': storyFastRecord },
+      }), { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const readPromise = readNewsLatestIndexViaRelayRest(reader);
+      for (let attempt = 0; attempt < 20 && fetchMock.mock.calls.length < 2; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      releaseSlowPeer(new Response(JSON.stringify({
+        ok: true,
+        record_count: 0,
+        records: {},
+      }), { status: 200 }));
+      await expect(readPromise).resolves.toEqual({ 'story-fast': 456 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('merges hot-index rows across configured relay peers', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
