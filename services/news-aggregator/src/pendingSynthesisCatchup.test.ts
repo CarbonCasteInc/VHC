@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
 import type { NewsSynthesisLifecycleRecord, VennClient } from '@vh/gun-client';
 import {
+  DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
   buildPendingSynthesisCandidate,
   collectPendingSynthesisCatchupCandidates,
   isStoryPendingSynthesisCatchup,
@@ -77,13 +78,31 @@ function lifecycle(overrides: Partial<NewsSynthesisLifecycleRecord> = {}): NewsS
 }
 
 describe('pending synthesis catch-up', () => {
-  it('selects only current pending or retryable lifecycle rows', () => {
+  it('selects only current pending, retryable, or stale in-progress lifecycle rows', () => {
     const currentStory = story();
     expect(isStoryPendingSynthesisCatchup({ story: currentStory, lifecycle: lifecycle() })).toBe(true);
     expect(isStoryPendingSynthesisCatchup({
       story: currentStory,
       lifecycle: lifecycle({ status: 'retryable_failure', retryable: true }),
     })).toBe(true);
+    expect(isStoryPendingSynthesisCatchup({
+      story: currentStory,
+      lifecycle: lifecycle({
+        status: 'in_progress',
+        updated_at: 1_700_000_000_000 - DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS - 1,
+      }),
+    }, {
+      nowMs: 1_700_000_000_000,
+    })).toBe(true);
+    expect(isStoryPendingSynthesisCatchup({
+      story: currentStory,
+      lifecycle: lifecycle({
+        status: 'in_progress',
+        updated_at: 1_700_000_000_000 - DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS + 1,
+      }),
+    }, {
+      nowMs: 1_700_000_000_000,
+    })).toBe(false);
     expect(isStoryPendingSynthesisCatchup({
       story: currentStory,
       lifecycle: lifecycle({ status: 'accepted_available', frame_table_state: 'frame_table_ready' }),
@@ -177,7 +196,68 @@ describe('pending synthesis catch-up', () => {
     expect(result.scanned).toBe(3);
     expect(result.enqueued).toBe(1);
     expect(result.skipped).toBe(2);
+    expect(result.staleInProgress).toBe(0);
     expect(result.candidates.map((candidate) => candidate.story.story_id)).toEqual(['story-1']);
     expect(result.candidates[0]?.candidate.request.model).toBe('gpt-test');
+  });
+
+  it('re-enqueues stale in-progress current source-set rows without downgrading lifecycle state', async () => {
+    const currentStory = story({
+      story_id: 'story-stale-progress',
+      topic_id: 'topic-stale-progress',
+      provenance_hash: 'source-set-stale-progress',
+    });
+    const freshInProgressStory = story({
+      story_id: 'story-fresh-progress',
+      topic_id: 'topic-fresh-progress',
+      provenance_hash: 'source-set-fresh-progress',
+    });
+    const readLatestPage = vi.fn().mockResolvedValue({
+      index: {
+        'story-stale-progress': 1_700_000_100_000,
+        'story-fresh-progress': 1_700_000_090_000,
+      },
+      stories: {
+        'story-stale-progress': currentStory,
+        'story-fresh-progress': freshInProgressStory,
+      },
+      nextCursor: null,
+      recordCount: 2,
+    });
+    const readStory = vi.fn().mockResolvedValue(null);
+    const readLifecycle = vi.fn(async (_client: VennClient, storyId: string) => {
+      if (storyId === 'story-stale-progress') {
+        return lifecycle({
+          story_id: 'story-stale-progress',
+          topic_id: 'topic-stale-progress',
+          source_set_revision: 'source-set-stale-progress',
+          status: 'in_progress',
+          updated_at: 1_700_000_000_000,
+        });
+      }
+      return lifecycle({
+        story_id: 'story-fresh-progress',
+        topic_id: 'topic-fresh-progress',
+        source_set_revision: 'source-set-fresh-progress',
+        status: 'in_progress',
+        updated_at: 1_700_000_599_000,
+      });
+    });
+
+    const result = await collectPendingSynthesisCatchupCandidates({ id: 'client' } as VennClient, {
+      limit: 2,
+      now: () => 1_700_000_601_000,
+      staleInProgressMs: 10 * 60 * 1000,
+      readLatestPage,
+      readStory,
+      readLifecycle,
+    });
+
+    expect(result.scanned).toBe(2);
+    expect(result.enqueued).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.staleInProgress).toBe(1);
+    expect(result.candidates[0]?.story.story_id).toBe('story-stale-progress');
+    expect(result.candidates[0]?.lifecycle.status).toBe('in_progress');
   });
 });

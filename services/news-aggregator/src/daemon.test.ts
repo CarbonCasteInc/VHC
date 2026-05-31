@@ -327,6 +327,7 @@ describe('news aggregator daemon', () => {
       scanned: 1,
       enqueued: 1,
       skipped: 0,
+      staleInProgress: 0,
       candidates: [
         {
           story: { story_id: CANDIDATE.story_id },
@@ -351,6 +352,7 @@ describe('news aggregator daemon', () => {
       enrichmentWorker,
       collectPendingSynthesisCandidates,
       synthesisCatchupSampleLimit: 7,
+      synthesisInProgressStaleMs: 123_456,
       logger,
       setIntervalFn: timers.setIntervalFn,
       clearIntervalFn: timers.clearIntervalFn,
@@ -365,6 +367,8 @@ describe('news aggregator daemon', () => {
     expect(collectPendingSynthesisCandidates).toHaveBeenCalledWith(client, {
       limit: 7,
       logger,
+      now: expect.any(Function),
+      staleInProgressMs: 123_456,
     });
     expect(collectPendingSynthesisCandidates.mock.invocationCallOrder[0]).toBeLessThan(
       startRuntime.mock.invocationCallOrder[0],

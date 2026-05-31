@@ -25,6 +25,7 @@ export interface PendingSynthesisCatchupResult {
   readonly scanned: number;
   readonly enqueued: number;
   readonly skipped: number;
+  readonly staleInProgress: number;
   readonly candidates: readonly PendingSynthesisCatchupCandidate[];
 }
 
@@ -32,6 +33,7 @@ export interface PendingSynthesisCatchupOptions {
   readonly limit?: number;
   readonly now?: () => number;
   readonly model?: string;
+  readonly staleInProgressMs?: number;
   readonly logger?: LoggerLike;
   readonly readLatestPage?: typeof readNewsLatestIndexPageWithRelayRestFallback;
   readonly readStory?: typeof readNewsStoryWithRelayRestFallback;
@@ -40,21 +42,50 @@ export interface PendingSynthesisCatchupOptions {
 
 const SYNTHESIS_CATCHUP_PROMPT = 'public-news-bundle-synthesis-catchup';
 const SYNTHESIS_CATCHUP_PROVIDER_ID = 'remote-analysis';
+export const DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS = 10 * 60 * 1000;
 
 function positiveLimit(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) && Number(value) > 0 ? Math.floor(Number(value)) : fallback;
 }
 
+function staleInProgressMs(value: number | undefined): number {
+  return positiveLimit(value, DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS);
+}
+
+function lifecycleIsStaleInProgress(
+  lifecycle: NewsSynthesisLifecycleRecord,
+  nowMs: number,
+  staleWindowMs: number,
+): boolean {
+  if (lifecycle.status !== 'in_progress') {
+    return false;
+  }
+  const updatedAt = Number(lifecycle.updated_at);
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) {
+    return true;
+  }
+  return Math.max(0, Math.floor(nowMs - updatedAt)) > staleWindowMs;
+}
+
 export function isStoryPendingSynthesisCatchup(input: {
   readonly story: StoryBundle;
   readonly lifecycle: NewsSynthesisLifecycleRecord | null;
-}): input is { story: StoryBundle; lifecycle: NewsSynthesisLifecycleRecord } {
-  return Boolean(
-    input.lifecycle
-      && input.lifecycle.story_id === input.story.story_id
-      && input.lifecycle.source_set_revision === input.story.provenance_hash
-      && (input.lifecycle.status === 'pending' || input.lifecycle.status === 'retryable_failure'),
-  );
+}, options: {
+  readonly nowMs?: number;
+  readonly staleInProgressMs?: number;
+} = {}): input is { story: StoryBundle; lifecycle: NewsSynthesisLifecycleRecord } {
+  if (
+    !input.lifecycle
+    || input.lifecycle.story_id !== input.story.story_id
+    || input.lifecycle.source_set_revision !== input.story.provenance_hash
+  ) {
+    return false;
+  }
+  if (input.lifecycle.status === 'pending' || input.lifecycle.status === 'retryable_failure') {
+    return true;
+  }
+  const nowMs = Math.max(0, Math.floor(options.nowMs ?? Date.now()));
+  return lifecycleIsStaleInProgress(input.lifecycle, nowMs, staleInProgressMs(options.staleInProgressMs));
 }
 
 export function buildPendingSynthesisCandidate(input: {
@@ -104,10 +135,13 @@ export async function collectPendingSynthesisCatchupCandidates(
   const readLatestPage = options.readLatestPage ?? readNewsLatestIndexPageWithRelayRestFallback;
   const readStory = options.readStory ?? readNewsStoryWithRelayRestFallback;
   const readLifecycle = options.readLifecycle ?? readNewsSynthesisLifecycleStatusWithRelayRestFallback;
+  const nowMs = Math.max(0, Math.floor((options.now ?? Date.now)()));
+  const inProgressStaleMs = staleInProgressMs(options.staleInProgressMs);
   const page = await readLatestPage(client, { limit });
   const storyIds = Object.keys(page.index);
   const candidates: PendingSynthesisCatchupCandidate[] = [];
   let skipped = 0;
+  let staleInProgress = 0;
 
   for (const storyId of storyIds) {
     const story = page.stories?.[storyId] ?? await readStory(client, storyId).catch(() => null);
@@ -117,9 +151,12 @@ export async function collectPendingSynthesisCatchupCandidates(
     }
     const lifecycle = await readLifecycle(client, storyId).catch(() => null);
     const eligibility = { story, lifecycle };
-    if (!isStoryPendingSynthesisCatchup(eligibility)) {
+    if (!isStoryPendingSynthesisCatchup(eligibility, { nowMs, staleInProgressMs: inProgressStaleMs })) {
       skipped += 1;
       continue;
+    }
+    if (eligibility.lifecycle.status === 'in_progress') {
+      staleInProgress += 1;
     }
     candidates.push({
       story,
@@ -137,12 +174,15 @@ export async function collectPendingSynthesisCatchupCandidates(
     enqueued: candidates.length,
     skipped,
     limit,
+    stale_in_progress: staleInProgress,
+    in_progress_stale_ms: inProgressStaleMs,
   });
 
   return {
     scanned: storyIds.length,
     enqueued: candidates.length,
     skipped,
+    staleInProgress,
     candidates,
   };
 }
