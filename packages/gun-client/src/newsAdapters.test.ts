@@ -1933,6 +1933,119 @@ describe('newsAdapters', () => {
     await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
   });
 
+  it('readNewsStory ignores Gun structural links and stale story mirror fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    mesh.setRead('news/stories/story-123', {
+      ...record,
+      synthesis_lifecycle: { '#': 'vh/news/stories/story-123/synthesis_lifecycle' },
+      topic_id: STORY.topic_id,
+      provenance_hash: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      s: STORY.schemaVersion,
+    });
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+  });
+
+  it('readNewsLatestIndexProductRecord ignores stale non-contract fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY);
+    const record = expectSystemLatestIndexRecord(
+      mesh.writes[0].value,
+      STORY.story_id,
+      STORY.cluster_window_end,
+      STORY,
+    );
+    mesh.setRead('news/index/latest/story-123', {
+      ...record,
+      sset_revision: 'stale-legacy-alias',
+    });
+
+    await expect(readNewsLatestIndexProductRecord(client, STORY.story_id)).resolves.toEqual({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+  });
+
+  it('readNewsHotIndexProductRecord ignores stale non-contract fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, STORY.story_id, 0.5, STORY);
+    const record = expectSystemHotIndexRecord(mesh.writes[0].value, STORY.story_id, 0.5, STORY);
+    mesh.setRead('news/index/hot/story-123', {
+      ...record,
+      sset_revision: 'stale-legacy-alias',
+    });
+
+    await expect(readNewsHotIndexProductRecord(client, STORY.story_id)).resolves.toEqual({
+      story_id: STORY.story_id,
+      hotness: 0.5,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+  });
+
+  it('readNewsSynthesisLifecycleStatus ignores stale accepted fields on signed pending lifecycle records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    const pending = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      reason: 'storycluster_public_feed_repair',
+      updatedAt: 1_700_000_020_000,
+    });
+
+    await writeNewsSynthesisLifecycleStatus(client, pending);
+    const record = expectSystemLifecycleRecord(mesh.writes[0].value, STORY.story_id);
+    mesh.setRead('news/stories/story-123/synthesis_lifecycle/latest', {
+      ...record,
+      synthesis_id: 'stale-accepted-synthesis',
+      epoch: 0,
+    });
+
+    await expect(readNewsSynthesisLifecycleStatus(client, STORY.story_id)).resolves.toEqual(pending);
+  });
+
   it('readNewsStory rejects unsigned legacy records carrying old system signature fields', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;

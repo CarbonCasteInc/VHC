@@ -895,6 +895,123 @@ describe('infra relay server', () => {
     });
   });
 
+  it('persists signed news story and index records through the relay fallback writer', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '500',
+    });
+    const story = makeRelayNewsStory('story-signed-relay', 1778991000000, [
+      {
+        source_id: 'ap-topnews',
+        publisher: 'AP',
+        url: 'https://example.com/signed-relay',
+        url_hash: 'signed-relay',
+        published_at: 1778991000000,
+        title: 'Signed relay story',
+      },
+    ]);
+    const signedFields = {
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-test',
+      _systemIssuedAt: 1778991000100,
+      _systemSignature: 'test-signature',
+    };
+    const storyRecord = {
+      __story_bundle_json: JSON.stringify(story),
+      story_id: story.story_id,
+      created_at: story.created_at,
+      schemaVersion: story.schemaVersion,
+      ...signedFields,
+    };
+    const latestRecord = {
+      story_id: story.story_id,
+      latest_activity_at: story.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: story.sources.length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+      ...signedFields,
+    };
+    const lifecycleRecord = {
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: story.sources.length,
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      retryable: false,
+      updated_at: 1778991000200,
+      ...signedFields,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+      method: 'POST',
+      body: { record: storyRecord },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`, {
+      method: 'POST',
+      body: { record: latestRecord },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: { record: lifecycleRecord },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id, status: 'pending' }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: story.story_id,
+          story: expect.objectContaining({
+            story_id: story.story_id,
+            provenance_hash: story.provenance_hash,
+          }),
+        }),
+      });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=3&include_root=true`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          records: expect.objectContaining({
+            [story.story_id]: expect.objectContaining({
+              _systemWriterId: 'vh-public-beta-news-system-writer-test',
+              _writerKind: 'system',
+              story_id: story.story_id,
+            }),
+          }),
+          story_states: expect.objectContaining({
+            [story.story_id]: expect.objectContaining({
+              synthesis_state: 'synthesis_pending',
+              frame_table_state: 'frame_table_pending',
+            }),
+          }),
+        }),
+      });
+  });
+
   it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',

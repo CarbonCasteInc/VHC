@@ -6,10 +6,18 @@
   "writers": [
     {
       "id": "vh-public-beta-news-system-writer-v1",
-      "status": "active",
+      "status": "retired",
       "publicKey": {
         "encoding": "spki-base64url",
         "material": "MCowBQYDK2VwAyEAVNCCiVH0cjaQMrng-qmBQJLrzJ-vE54EjSk8xPWrNGc"
+      }
+    },
+    {
+      "id": "vh-public-beta-news-system-writer-v2",
+      "status": "active",
+      "publicKey": {
+        "encoding": "spki-base64url",
+        "material": "MCowBQYDK2VwAyEAm1-w-xW6TSxF1tHwrfWA5oay-59qZaq2L_fsqZPfghM"
       }
     }
   ]

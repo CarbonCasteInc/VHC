@@ -1011,6 +1011,133 @@ function carriesLegacySystemSignatureFields(value: Record<string, unknown>): boo
   return LEGACY_SYSTEM_SIGNATURE_KEYS.some((key) => key in value);
 }
 
+const SYSTEM_WRITER_STORY_VALIDATION_KEYS = new Set([
+  STORY_BUNDLE_JSON_KEY,
+  'story_id',
+  'created_at',
+  'schemaVersion',
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+  '_protocolVersion',
+  '_writerKind',
+  '_systemWriterId',
+  '_systemIssuedAt',
+  '_systemSignature',
+]);
+
+const SYSTEM_WRITER_SIGNED_METADATA_VALIDATION_KEYS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+  '_protocolVersion',
+  '_writerKind',
+  '_systemWriterId',
+  '_systemIssuedAt',
+  '_systemSignature',
+] as const;
+
+const SYSTEM_WRITER_INDEX_METADATA_VALIDATION_KEYS = [
+  'product_state_schema_version',
+  'topic_id',
+  'source_set_revision',
+  'source_count',
+  'canonical_source_count',
+  'story_created_at',
+  'cluster_window_start',
+] as const;
+
+const SYSTEM_WRITER_LATEST_INDEX_VALIDATION_KEYS = new Set([
+  ...SYSTEM_WRITER_SIGNED_METADATA_VALIDATION_KEYS,
+  ...SYSTEM_WRITER_INDEX_METADATA_VALIDATION_KEYS,
+  'story_id',
+  'latest_activity_at',
+]);
+
+const SYSTEM_WRITER_HOT_INDEX_VALIDATION_KEYS = new Set([
+  ...SYSTEM_WRITER_SIGNED_METADATA_VALIDATION_KEYS,
+  ...SYSTEM_WRITER_INDEX_METADATA_VALIDATION_KEYS,
+  'story_id',
+  'hotness',
+]);
+
+const SYSTEM_WRITER_LIFECYCLE_COMMON_VALIDATION_KEYS = new Set([
+  ...SYSTEM_WRITER_SIGNED_METADATA_VALIDATION_KEYS,
+  'schemaVersion',
+  'story_id',
+  'topic_id',
+  'source_set_revision',
+  'source_count',
+  'canonical_source_count',
+  'status',
+  'retryable',
+  'reason',
+  'frame_table_state',
+  'updated_at',
+]);
+
+const SYSTEM_WRITER_LIFECYCLE_SYNTHESIS_STATUSES = new Set([
+  'accepted_available',
+  'suppressed',
+]);
+
+function normalizeSystemWriterStoryRecordForValidation(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if ('_authorScheme' in payload || 'signedWriteEnvelope' in payload || hasForbiddenNewsPayloadFields(payload)) {
+    return null;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (SYSTEM_WRITER_STORY_VALIDATION_KEYS.has(key)) {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+function normalizeSystemWriterRecordForValidation(
+  payload: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): Record<string, unknown> | null {
+  if ('_authorScheme' in payload || 'signedWriteEnvelope' in payload || hasForbiddenNewsPayloadFields(payload)) {
+    return null;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (allowedKeys.has(key)) {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+function normalizeSystemWriterLifecycleRecordForValidation(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const normalized = normalizeSystemWriterRecordForValidation(
+    payload,
+    SYSTEM_WRITER_LIFECYCLE_COMMON_VALIDATION_KEYS,
+  );
+  if (!normalized) {
+    return null;
+  }
+
+  if (SYSTEM_WRITER_LIFECYCLE_SYNTHESIS_STATUSES.has(String(payload.status))) {
+    if ('synthesis_id' in payload) {
+      normalized.synthesis_id = payload.synthesis_id;
+    }
+    if ('epoch' in payload) {
+      normalized.epoch = payload.epoch;
+    }
+  }
+  return normalized;
+}
+
 function carriesLumaProtocolFieldsForIndexEntry(value: unknown): boolean {
   if (!isRecord(value)) {
     return false;
@@ -1055,9 +1182,13 @@ async function parseStoryBundleFromStoredRecord(
 ): Promise<StoryBundle | null> {
   const payload = stripGunMetadata(data);
   if (isSystemWriterMarkedRecord(payload)) {
+    const validationRecord = normalizeSystemWriterStoryRecordForValidation(payload);
+    if (!validationRecord) {
+      return null;
+    }
     const validation = await validateSystemWriterRecord({
       path: storyPath(storyId),
-      record: payload,
+      record: validationRecord,
       pin: client.config.systemWriterPin,
       verify: client.config.systemWriterVerify,
     });
@@ -1126,9 +1257,13 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
 ): Promise<NewsSynthesisLifecycleRecord | null> {
   const payload = stripGunMetadata(data);
   if (isSystemWriterMarkedRecord(payload)) {
+    const validationRecord = normalizeSystemWriterLifecycleRecordForValidation(payload);
+    if (!validationRecord) {
+      return null;
+    }
     const validation = await validateSystemWriterRecord({
       path: synthesisLifecycleLatestPath(storyId),
-      record: payload,
+      record: validationRecord,
       pin: client.config.systemWriterPin,
       verify: client.config.systemWriterVerify,
     });
@@ -1136,7 +1271,7 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
       emitSystemWriterValidationFailure(validation);
       return null;
     }
-    return parseNewsSynthesisLifecyclePayload(payload, storyId);
+    return parseNewsSynthesisLifecyclePayload(validationRecord, storyId);
   }
 
   if (carriesLumaProtocolFields(payload)) {
@@ -1242,9 +1377,16 @@ async function parseLatestIndexEntryRecordFromStoredRecord(
 ): Promise<NewsLatestIndexEntryRecord | null> {
   const payload = stripGunMetadata(value);
   if (isSystemWriterMarkedRecord(payload)) {
+    const validationRecord = normalizeSystemWriterRecordForValidation(
+      payload,
+      SYSTEM_WRITER_LATEST_INDEX_VALIDATION_KEYS,
+    );
+    if (!validationRecord) {
+      return null;
+    }
     const validation = await validateSystemWriterRecord({
       path: latestIndexEntryPath(storyId),
-      record: payload,
+      record: validationRecord,
       pin: client.config.systemWriterPin,
       verify: client.config.systemWriterVerify,
     });
@@ -1252,10 +1394,10 @@ async function parseLatestIndexEntryRecordFromStoredRecord(
       emitSystemWriterValidationFailure(validation);
       return null;
     }
-    if (payload.story_id !== storyId) {
+    if (validationRecord.story_id !== storyId) {
       return null;
     }
-    return parseLatestIndexEntryPayload(payload, storyId);
+    return parseLatestIndexEntryPayload(validationRecord, storyId);
   }
 
   if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
@@ -1324,9 +1466,16 @@ async function parseHotIndexEntryRecordFromStoredRecord(
 ): Promise<NewsHotIndexEntryRecord | null> {
   const payload = stripGunMetadata(value);
   if (isSystemWriterMarkedRecord(payload)) {
+    const validationRecord = normalizeSystemWriterRecordForValidation(
+      payload,
+      SYSTEM_WRITER_HOT_INDEX_VALIDATION_KEYS,
+    );
+    if (!validationRecord) {
+      return null;
+    }
     const validation = await validateSystemWriterRecord({
       path: hotIndexEntryPath(storyId),
-      record: payload,
+      record: validationRecord,
       pin: client.config.systemWriterPin,
       verify: client.config.systemWriterVerify,
     });
@@ -1334,10 +1483,10 @@ async function parseHotIndexEntryRecordFromStoredRecord(
       emitSystemWriterValidationFailure(validation);
       return null;
     }
-    if (payload.story_id !== storyId) {
+    if (validationRecord.story_id !== storyId) {
       return null;
     }
-    return parseHotIndexEntryPayload(payload, storyId);
+    return parseHotIndexEntryPayload(validationRecord, storyId);
   }
 
   if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
