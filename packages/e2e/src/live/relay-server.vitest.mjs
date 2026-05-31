@@ -85,6 +85,10 @@ function requestJson(url, { method = 'GET', headers = {}, body = undefined } = {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function websocketUpgradeStatus(port, pathname = '/gun') {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: '127.0.0.1', port }, () => {
@@ -923,9 +927,20 @@ describe('infra relay server', () => {
     await putGunValueAndWaitForReadback(latestIndexRoot.get('story-mid'), 200);
     await putGunValueAndWaitForReadback(latestIndexRoot.get('story-old'), 100);
 
-    const latest = await requestJson(
-      `http://127.0.0.1:${port}/vh/news/latest-index?limit=2&before=250&consistency=false`,
-    );
+    let latest = null;
+    const latestUrl = `http://127.0.0.1:${port}/vh/news/latest-index?limit=2&before=250&consistency=false`;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5_000) {
+      latest = await requestJson(latestUrl);
+      if (
+        latest.body?.record_count === 2
+        && latest.body?.records?.['story-mid'] === 200
+        && latest.body?.records?.['story-old'] === 100
+      ) {
+        break;
+      }
+      await delay(100);
+    }
 
     expect(latest).toMatchObject({
       statusCode: 200,
