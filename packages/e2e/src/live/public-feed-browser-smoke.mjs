@@ -1006,13 +1006,22 @@ async function readPublicRelaySynthesisCandidates({
       if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) reframePointIdsPresent += 1;
     }
     if (!currentAcceptedSynthesisReady) {
-      const articleTextStatus = await readArticleTextSampleStatus({ root, story, timeoutMs });
+      const honestNonAcceptedState = [
+        'synthesis_pending',
+        'synthesis_loading',
+        'synthesis_retryable',
+        'synthesis_terminal_unavailable',
+        'accepted_synthesis_suppressed',
+      ].includes(relaySynthesisState);
+      const articleTextStatus = honestNonAcceptedState
+        ? `not_checked_${relaySynthesisState}`
+        : await readArticleTextSampleStatus({ root, story, timeoutMs });
       articleTextSampleStatusCounts[articleTextStatus] = (articleTextSampleStatusCounts[articleTextStatus] ?? 0) + 1;
       const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
       if (terminalReason) {
         terminalUnavailableReasonCounts[terminalReason] = (terminalUnavailableReasonCounts[terminalReason] ?? 0) + 1;
       } else if (
-        !['synthesis_pending', 'synthesis_loading', 'accepted_synthesis_suppressed'].includes(relaySynthesisState)
+        !honestNonAcceptedState
         && (mediaClass === 'text' || mediaClass === 'mixed')
         && articleTextStatus === '200_text'
       ) {
