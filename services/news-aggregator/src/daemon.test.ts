@@ -318,6 +318,64 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('enqueues pending product-visible stories for synthesis catch-up after acquiring leadership', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+    const collectPendingSynthesisCandidates = vi.fn().mockResolvedValue({
+      scanned: 1,
+      enqueued: 1,
+      skipped: 0,
+      candidates: [
+        {
+          story: { story_id: CANDIDATE.story_id },
+          lifecycle: { status: 'pending' },
+          candidate: CANDIDATE,
+        },
+      ],
+    });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const client = { id: 'client-synthesis-catchup' } as VennClient;
+
+    const daemon = createNewsAggregatorDaemon({
+      client,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      enrichmentWorker,
+      collectPendingSynthesisCandidates,
+      synthesisCatchupSampleLimit: 7,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledTimes(1);
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledWith(client, {
+      limit: 7,
+      logger,
+    });
+    expect(collectPendingSynthesisCandidates.mock.invocationCallOrder[0]).toBeLessThan(
+      startRuntime.mock.invocationCallOrder[0],
+    );
+    await vi.waitFor(() => {
+      expect(enrichmentWorker).toHaveBeenCalledWith(CANDIDATE);
+    });
+
+    await daemon.stop();
+  });
+
   it('refuses publish writes when daemon lease is no longer held', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
