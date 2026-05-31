@@ -35,15 +35,39 @@ const GUN_PEER_CONFIG_PUBLIC_KEY_ENV = 'VITE_GUN_PEER_CONFIG_PUBLIC_KEY';
 const GUN_PEER_MINIMUM_ENV = 'VITE_GUN_PEER_MINIMUM';
 const GUN_PEER_QUORUM_REQUIRED_ENV = 'VITE_GUN_PEER_QUORUM_REQUIRED';
 const ALLOW_UNSIGNED_PEER_CONFIG_ENV = 'VITE_VH_ALLOW_UNSIGNED_PEER_CONFIG';
+const DEFAULT_PUBLIC_BETA_PEER_CONFIG_URL = '/mesh-peer-config.json';
+const DEFAULT_PUBLIC_BETA_PEER_CONFIG_PUBLIC_KEY =
+  'YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w';
 
 /* c8 ignore start -- Vite import.meta env typing differs between browser bundles, vitest, and Node scripts. */
 function envValue(name: string): string | undefined {
+  const runtimeEnvValue = (
+    globalThis as {
+      __VH_IMPORT_META_ENV__?: Record<string, string | boolean | undefined>;
+      __VH_GUN_CLIENT_CONFIG__?: Record<string, string | boolean | undefined>;
+    }
+  ).__VH_IMPORT_META_ENV__?.[name];
+  if (typeof runtimeEnvValue === 'string') {
+    return runtimeEnvValue;
+  }
+  if (typeof runtimeEnvValue === 'boolean') {
+    return runtimeEnvValue ? 'true' : 'false';
+  }
   const viteValue = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env?.[name];
   if (typeof viteValue === 'string') {
     return viteValue;
   }
   if (typeof viteValue === 'boolean') {
     return viteValue ? 'true' : 'false';
+  }
+  const runtimeClientConfigValue = (
+    globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, string | boolean | undefined> }
+  ).__VH_GUN_CLIENT_CONFIG__?.[name];
+  if (typeof runtimeClientConfigValue === 'string') {
+    return runtimeClientConfigValue;
+  }
+  if (typeof runtimeClientConfigValue === 'boolean') {
+    return runtimeClientConfigValue ? 'true' : 'false';
   }
   return typeof process !== 'undefined' ? process.env?.[name] : undefined;
 }
@@ -270,10 +294,13 @@ async function verifyPeerConfigIfNeeded(params: {
     return false;
   }
   const configuredPublicKey = envValue(GUN_PEER_CONFIG_PUBLIC_KEY_ENV)?.trim() || '';
-  if (strict && !configuredPublicKey) {
+  const defaultPublicBetaPublicKey = signerPub === DEFAULT_PUBLIC_BETA_PEER_CONFIG_PUBLIC_KEY
+    ? DEFAULT_PUBLIC_BETA_PEER_CONFIG_PUBLIC_KEY
+    : '';
+  if (strict && !configuredPublicKey && !defaultPublicBetaPublicKey) {
     throw new Error('[vh:gun] strict signed peer config requires VITE_GUN_PEER_CONFIG_PUBLIC_KEY');
   }
-  const publicKey = configuredPublicKey || signerPub || '';
+  const publicKey = configuredPublicKey || defaultPublicBetaPublicKey || signerPub || '';
   if (!publicKey) {
     throw new Error('[vh:gun] signed peer config is missing a verification public key');
   }
@@ -419,7 +446,7 @@ export function resolveGunPeerTopologySync(runtimeHostname = getRuntimeHostname(
     });
   }
 
-  if (envValue(GUN_PEER_CONFIG_URL_ENV)) {
+  if (envValue(GUN_PEER_CONFIG_URL_ENV) || strict) {
     throw new Error('[vh:gun] remote Gun peer config requires async resolution');
   }
 
@@ -480,6 +507,31 @@ export async function resolveGunPeerTopology(runtimeHostname = getRuntimeHostnam
       payload: parsed.payload,
       signed,
       source: 'env-config',
+      strict,
+      allowLocalPeers,
+    });
+  }
+
+  if (strict) {
+    const response = await fetch(DEFAULT_PUBLIC_BETA_PEER_CONFIG_URL, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      throw new Error(`[vh:gun] failed to fetch peer config: ${response.status}`);
+    }
+    const text = await response.text();
+    const parsed = parseInlinePeerConfig(text);
+    const signed = await verifyPeerConfigIfNeeded({
+      payload: parsed.payload,
+      signature: parsed.signature,
+      signerPub: parsed.signerPub,
+      strict,
+    });
+    return topologyFromPayload({
+      payload: parsed.payload,
+      signed,
+      source: 'remote-config',
       strict,
       allowLocalPeers,
     });

@@ -150,6 +150,87 @@ describe('peerConfig', () => {
     }));
   });
 
+  it('defaults strict production resolution to the same-origin signed public beta peer config', async () => {
+    const issuedAt = Date.now() - 1_000;
+    const expiresAt = issuedAt + 86_400_000;
+    const payload = {
+      schemaVersion: 'mesh-peer-config-v1',
+      configId: 'public-beta-fallback-wss-v1',
+      issuedAt,
+      expiresAt,
+      minimumPeerCount: 3,
+      peers: [
+        'wss://gun-a.carboncaste.io/gun',
+        'wss://gun-b.carboncaste.io/gun',
+        'wss://gun-c.carboncaste.io/gun',
+      ],
+      quorumRequired: 2,
+    };
+    const signerPub = 'YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w';
+    verifyMock.mockResolvedValue(canonicalize(payload));
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        payload,
+        signature: 'signed-peer-config',
+        signerPub,
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+
+    await expect(resolveGunPeerTopology('venn.carboncaste.io')).resolves.toMatchObject({
+      peers: payload.peers,
+      source: 'remote-config',
+      strict: true,
+      signed: true,
+      configId: 'public-beta-fallback-wss-v1',
+      quorumRequired: 2,
+    });
+    expect(verifyMock).toHaveBeenCalledWith('signed-peer-config', signerPub);
+    expect(fetchMock).toHaveBeenCalledWith('/mesh-peer-config.json', expect.objectContaining({
+      cache: 'no-store',
+    }));
+  });
+
+  it('reads runtime-injected peer config env before static Vite env', async () => {
+    const issuedAt = Date.now() - 1_000;
+    const expiresAt = issuedAt + 86_400_000;
+    const payload = {
+      schemaVersion: 'mesh-peer-config-v1',
+      configId: 'runtime-config',
+      issuedAt,
+      expiresAt,
+      minimumPeerCount: 3,
+      peers: ['https://a.example/gun', 'https://b.example/gun', 'https://c.example/gun'],
+      quorumRequired: 2,
+    };
+    verifyMock.mockResolvedValue(canonicalize(payload));
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubGlobal('__VH_IMPORT_META_ENV__', {
+      VITE_GUN_PEER_CONFIG_URL: 'https://runtime.example/mesh-peer-config.json',
+      VITE_GUN_PEER_CONFIG_PUBLIC_KEY: 'runtime-peer-config-pub',
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        payload,
+        signature: 'runtime-signature',
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+
+    await expect(resolveGunPeerTopology('app.example')).resolves.toMatchObject({
+      configId: 'runtime-config',
+      source: 'remote-config',
+      signed: true,
+    });
+    expect(verifyMock).toHaveBeenCalledWith('runtime-signature', 'runtime-peer-config-pub');
+    expect(fetchMock).toHaveBeenCalledWith('https://runtime.example/mesh-peer-config.json', expect.any(Object));
+  });
+
   it('rejects local signed peer configs in strict mode unless the harness explicitly allows them', async () => {
     const issuedAt = Date.now() - 1_000;
     const expiresAt = issuedAt + 86_400_000;
