@@ -2134,6 +2134,152 @@ function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
   }
 }
 
+function emptyNewsLatestIndexSnapshot() {
+  return {
+    cached_at: 0,
+    sourceKeyCount: 0,
+    scannedKeyCount: 0,
+    consistency: {},
+    repairedRecords: [],
+    entries: [],
+  };
+}
+
+function storyFromNewsStoryWriteRecord(record, storyId) {
+  if (!record || typeof record !== 'object') return null;
+  const story = parseStoryBundleEnvelope(record.__story_bundle_json);
+  return story?.story_id === storyId ? story : null;
+}
+
+function deriveSnapshotStoryStateFromLifecycle(story, lifecycle) {
+  if (!story || !lifecycle || typeof lifecycle !== 'object') {
+    return story ? derivePublicFeedStoryState(story, null, null) : null;
+  }
+  const revisionMatches = typeof story.provenance_hash === 'string'
+    && story.provenance_hash.trim()
+    && lifecycle.source_set_revision === story.provenance_hash;
+  if (
+    lifecycle.status === 'accepted_available'
+    && revisionMatches
+    && typeof lifecycle.synthesis_id === 'string'
+    && lifecycle.synthesis_id.trim()
+  ) {
+    return {
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: lifecycle.frame_table_state === 'frame_table_ready'
+        ? 'frame_table_ready'
+        : 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      terminal_unavailable_reason: null,
+      retryable: false,
+    };
+  }
+  return derivePublicFeedStoryState(story, null, lifecycle);
+}
+
+async function upsertNewsLatestIndexSnapshotFromWrite(gun, {
+  storyId,
+  latestRecord = null,
+  storyRecord = null,
+  lifecycleRecord = null,
+  reason = 'news_write',
+} = {}) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return false;
+  try {
+    const snapshotKey = latestIndexSnapshotCacheKey({ consistencyFilter: true });
+    const existingSnapshot = newsLatestIndexSnapshotCache.get(snapshotKey)
+      ?? readPersistedNewsLatestIndexSnapshot(snapshotKey, 0)
+      ?? emptyNewsLatestIndexSnapshot();
+    const entries = Array.isArray(existingSnapshot.entries) ? [...existingSnapshot.entries] : [];
+    const existingIndex = entries.findIndex((entry) =>
+      String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim() === normalizedStoryId);
+    const existingEntry = existingIndex >= 0
+      ? entries[existingIndex]
+      : { entry: [normalizedStoryId, null], story: null, storyState: null };
+    const readTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_WRITE_THROUGH_READ_TIMEOUT_MS', 500);
+    let nextRecord = latestRecord && typeof latestRecord === 'object'
+      ? latestRecord
+      : existingEntry.entry?.[1] ?? null;
+    let nextStory = storyFromNewsStoryWriteRecord(storyRecord, normalizedStoryId)
+      ?? existingEntry.story
+      ?? null;
+
+    if (!nextStory && gun) {
+      const storyResult = await readNewsStoryRecord(gun, normalizedStoryId, {
+        timeoutMs: readTimeoutMs,
+        allowSnapshotFallback: false,
+      }).catch(() => null);
+      nextStory = storyResult?.story ?? null;
+    }
+    if (!nextRecord && gun) {
+      nextRecord = await readNewsLatestIndexRecord(gun, normalizedStoryId, readTimeoutMs).catch(() => null);
+    }
+
+    let nextStoryState = existingEntry.storyState ?? null;
+    if (nextStory && lifecycleRecord) {
+      nextStoryState = deriveSnapshotStoryStateFromLifecycle(nextStory, lifecycleRecord);
+    } else if (nextStory && !nextStoryState) {
+      nextStoryState = deriveSnapshotStoryStateFromLifecycle(nextStory, null);
+    }
+
+    if (!nextRecord && !nextStory && !nextStoryState) return false;
+
+    const nextEntry = {
+      entry: [normalizedStoryId, nextRecord],
+      story: nextStory,
+      storyState: nextStoryState,
+    };
+    if (existingIndex >= 0) {
+      entries[existingIndex] = nextEntry;
+    } else {
+      entries.push(nextEntry);
+    }
+
+    const completeEntryCount = entries.filter((entry) => entry?.entry?.[1] && entry?.story).length;
+    const now = Date.now();
+    const snapshot = {
+      cached_at: now,
+      entries,
+      sourceKeyCount: Math.max(Number(existingSnapshot.sourceKeyCount) || 0, completeEntryCount),
+      scannedKeyCount: Math.max(Number(existingSnapshot.scannedKeyCount) || 0, completeEntryCount),
+      consistency: {
+        ...(existingSnapshot.consistency ?? {}),
+        latest_index_write_through: {
+          story_id: normalizedStoryId,
+          updated_at: now,
+          reason,
+          has_record: Boolean(nextRecord),
+          has_story: Boolean(nextStory),
+          has_story_state: Boolean(nextStoryState),
+        },
+      },
+      repairedRecords: Array.isArray(existingSnapshot.repairedRecords)
+        ? existingSnapshot.repairedRecords
+        : [],
+    };
+    newsLatestIndexSnapshotCache.set(snapshotKey, snapshot);
+    if (nextStory) {
+      newsLatestIndexSnapshotStoryBodyCache.set(normalizedStoryId, {
+        checked_at: now,
+        story: nextStory,
+      });
+    }
+    newsLatestIndexRestCache.clear();
+    persistNewsLatestIndexSnapshot(snapshotKey, snapshot);
+    return true;
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_write_through_failed', {
+      story_id: normalizedStoryId,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 function readNewsStoryRecordFromLatestIndexSnapshot(storyId) {
   const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
   if (!normalizedStoryId) return null;
@@ -3382,6 +3528,11 @@ async function writeNewsStoryRecord(gun, body) {
   if (!readback) {
     throw new Error('news-story-readback-failed');
   }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    storyRecord: clean.record,
+    reason: 'story_write',
+  });
   return clean;
 }
 
@@ -3398,6 +3549,11 @@ async function writeNewsLatestIndexRecord(gun, body) {
   if (!readback) {
     throw new Error('news-latest-index-readback-failed');
   }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    latestRecord: readback,
+    reason: 'latest_index_write',
+  });
   return clean;
 }
 
@@ -3438,6 +3594,11 @@ async function writeNewsSynthesisLifecycleRecord(gun, body) {
   if (!readback) {
     throw new Error('news-synthesis-lifecycle-readback-failed');
   }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    lifecycleRecord: readback,
+    reason: 'synthesis_lifecycle_write',
+  });
   return clean;
 }
 

@@ -1053,6 +1053,8 @@ describe('infra relay server', () => {
   it('serves bounded hot-index relay fallback rows ordered by hotness', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_HOT_INDEX_REST_ROOT_SCAN_RECORDS: '3',
     });
     const gun = createRelayGunClient(port);
     const hotIndexRoot = gun.get('vh').get('news').get('index').get('hot');
@@ -2140,6 +2142,87 @@ describe('infra relay server', () => {
       frame_table_ready: 1,
     });
   }, 60_000);
+
+  it('persists latest-index snapshots as news write-through evidence before any latest-index read', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-write-through-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const snapshotEnv = {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS: '60000',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'false',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'false',
+    };
+    const { port: writerPort } = await startRelay(children, tempDirs, snapshotEnv);
+    const story = makeRelayNewsStory('story-write-through-snapshot', 1778992000000, [
+      {
+        source_id: 'source-write-through-snapshot-a',
+        publisher: 'Write Through Snapshot A',
+        url: 'https://example.com/write-through-snapshot-a',
+        url_hash: 'hash-write-through-snapshot-a',
+        published_at: 1778991999000,
+        title: 'Write-through snapshot story A',
+      },
+      {
+        source_id: 'source-write-through-snapshot-b',
+        publisher: 'Write Through Snapshot B',
+        url: 'https://example.com/write-through-snapshot-b',
+        url_hash: 'hash-write-through-snapshot-b',
+        published_at: 1778992000000,
+        title: 'Write-through snapshot story B',
+      },
+    ]);
+
+    await writeRelayNewsStory(writerPort, story);
+    await writeRelayLatestIndexRecord(writerPort, story.story_id, story.cluster_window_end);
+
+    const { port: snapshotPort } = await startRelay(children, tempDirs, {
+      ...snapshotEnv,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+    });
+    await expect(requestJson(`http://127.0.0.1:${snapshotPort}/vh/news/latest-index?limit=1&scan_limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          record_count: 1,
+          consistency: expect.objectContaining({
+            empty_read_cache: expect.objectContaining({
+              served_from: 'preferred_latest_index_snapshot',
+            }),
+            latest_index_write_through: expect.objectContaining({
+              story_id: story.story_id,
+              reason: 'latest_index_write',
+              has_record: true,
+              has_story: true,
+              has_story_state: true,
+            }),
+          }),
+          records: {
+            [story.story_id]: expect.objectContaining({
+              story_id: story.story_id,
+              latest_activity_at: story.cluster_window_end,
+            }),
+          },
+          stories: {
+            [story.story_id]: expect.objectContaining({
+              story_id: story.story_id,
+              sources: expect.arrayContaining([
+                expect.objectContaining({ source_id: 'source-write-through-snapshot-a' }),
+              ]),
+            }),
+          },
+          story_states: {
+            [story.story_id]: expect.objectContaining({
+              synthesis_state: 'synthesis_pending',
+              frame_table_state: 'frame_table_pending',
+            }),
+          },
+        }),
+      });
+  }, 30_000);
 
   it('serves persisted latest-index snapshot stories when the local story body path is sparse', async () => {
     const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-snapshot-test-'));
