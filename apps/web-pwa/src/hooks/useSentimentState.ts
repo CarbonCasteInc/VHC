@@ -41,6 +41,7 @@ import {
   lumaAggregateVoterDeploymentProfile
 } from './lumaAggregateVoterRecords';
 import { assertMvpActionIdentityReady } from '../luma/mvpActionPolicy';
+import { dispatchPointAggregateRefresh } from './pointAggregateRefreshEvents';
 
 interface SentimentStore {
   agreements: Record<string, Agreement>;
@@ -688,6 +689,8 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     const legacyFlatKey = buildLegacyAgreementKey(topicId, normalizedPointId);
     const prefix = contextPrefix(topicId, normalizedSynthesisId, normalizedEpoch);
     let emittedSignal: SentimentSignal | null = null;
+    let previousAgreementForSignal: Agreement = 0;
+    let previousWeightForSignal = 0;
 
     set((state) => {
       const currentAgreement = readAgreementValue(
@@ -701,6 +704,11 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       const nextAgreement = desired === 0
         ? 0
         : resolveNextAgreement(currentAgreement, desired);
+      const previousActiveCount = contextActiveCount(
+        state.agreements,
+        prefix,
+        state.pointIdAliases,
+      );
 
       const nextAgreements: Record<string, Agreement> = {
         ...state.agreements,
@@ -719,6 +727,10 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       const activeCount = contextActiveCount(nextAgreements, prefix, nextPointIdAliases);
       const nextWeight = legacyWeightForActiveCount(activeCount);
       const nextLightbulb = { ...state.lightbulb, [topicId]: nextWeight };
+      previousAgreementForSignal = currentAgreement;
+      previousWeightForSignal = currentAgreement === 0
+        ? 0
+        : legacyWeightForActiveCount(previousActiveCount);
 
       const signal: SentimentSignal = {
         topic_id: topicId,
@@ -749,14 +761,26 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
     if (emittedSignal) {
+      const signal: SentimentSignal = emittedSignal;
       void projectTopicEngagementToMesh(
         topicId,
         get().eye[topicId] ?? 0,
         get().lightbulb[topicId] ?? 0,
       );
       recordVoteTimestamp(topicId, normalizedSynthesisPointId);
+      dispatchPointAggregateRefresh({
+        topicId,
+        synthesisId: normalizedSynthesisId,
+        epoch: normalizedEpoch,
+        pointId: normalizedSynthesisPointId,
+        previousAgreement: previousAgreementForSignal,
+        nextAgreement: signal.agreement,
+        previousWeight: previousWeightForSignal,
+        weight: signal.weight,
+        emittedAt: signal.emitted_at,
+        reason: 'local_vote',
+      });
       // Persist durable intent record before projection
-      const signal: SentimentSignal = emittedSignal;
       void (async () => {
         try {
           const voterId = await deriveVoterId(constituency_proof.nullifier, {
@@ -789,7 +813,16 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
           console.warn('[vh:sentiment] Failed to enqueue vote intent:', err);
         }
       })();
-      void projectSignalToMesh(emittedSignal);
+      void projectSignalToMesh(emittedSignal).finally(() => {
+        dispatchPointAggregateRefresh({
+          topicId,
+          synthesisId: normalizedSynthesisId,
+          epoch: normalizedEpoch,
+          pointId: normalizedSynthesisPointId,
+          emittedAt: signal.emitted_at,
+          reason: 'mesh_projection_settled',
+        });
+      });
     }
 
     return admissionReceipt;

@@ -71,7 +71,9 @@ export function subscribePointAggregateSignals({
 
   const voterChain = getAggregateVotersChain(client, topicId, synthesisId, epoch) as ChainWithGet<unknown>;
   cleanups.push(bindChainSignal(voterChain, scheduleRefresh));
-  cleanups.push(bindChainSignal(voterChain.map?.(), scheduleRefresh));
+  const voterMapChain = voterChain.map?.();
+  cleanups.push(bindChainSignal(voterMapChain, scheduleRefresh));
+  cleanups.push(bindChainSignal(voterMapChain?.get?.(pointId), scheduleRefresh));
 
   return () => {
     disposed = true;

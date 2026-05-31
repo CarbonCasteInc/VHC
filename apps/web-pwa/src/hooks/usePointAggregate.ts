@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   readAggregatesWithRelayRestFallback as readAggregates,
   type PointAggregate,
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { consumeVoteTimestamp, logConvergenceLag } from '../utils/sentimentTelemetry';
+import {
+  subscribePointAggregateRefresh,
+  type PointAggregateRefreshDetail,
+} from './pointAggregateRefreshEvents';
 import { subscribePointAggregateSignals } from './usePointAggregateSubscriptions';
 
 type PointAggregateStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -199,6 +203,90 @@ function areAggregatesEqual(left: PointAggregate, right: PointAggregate): boolea
   );
 }
 
+function isAgreement(value: unknown): value is -1 | 0 | 1 {
+  return value === -1 || value === 0 || value === 1;
+}
+
+function normalizeVoteWeight(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+}
+
+function applyAgreementDelta(
+  aggregate: PointAggregate,
+  agreement: -1 | 0 | 1,
+  direction: -1 | 1,
+  weight: number,
+): PointAggregate {
+  if (agreement === 0) {
+    return aggregate;
+  }
+
+  const participantDelta = direction;
+  const weightDelta = direction * weight;
+  if (agreement === 1) {
+    return {
+      ...aggregate,
+      agree: Math.max(0, aggregate.agree + direction),
+      participants: Math.max(0, aggregate.participants + participantDelta),
+      weight: Math.max(0, aggregate.weight + weightDelta),
+    };
+  }
+
+  return {
+    ...aggregate,
+    disagree: Math.max(0, aggregate.disagree + direction),
+    participants: Math.max(0, aggregate.participants + participantDelta),
+    weight: Math.max(0, aggregate.weight + weightDelta),
+  };
+}
+
+function applyOptimisticPointAggregateRefresh(params: {
+  readonly current: PointAggregate | null;
+  readonly pointId: string;
+  readonly detail: PointAggregateRefreshDetail;
+}): PointAggregate | null {
+  const previousAgreement = params.detail.previousAgreement;
+  const nextAgreement = params.detail.nextAgreement;
+  if (!isAgreement(previousAgreement) || !isAgreement(nextAgreement)) {
+    return null;
+  }
+
+  const baseAggregate = params.current ?? {
+    point_id: params.pointId,
+    agree: 0,
+    disagree: 0,
+    participants: 0,
+    weight: 0,
+  };
+  const previousWeight = normalizeVoteWeight(params.detail.previousWeight ?? params.detail.weight);
+  const nextWeight = normalizeVoteWeight(params.detail.weight);
+  const withoutPrevious = applyAgreementDelta(
+    baseAggregate,
+    previousAgreement,
+    -1,
+    previousWeight,
+  );
+  return applyAgreementDelta(withoutPrevious, nextAgreement, 1, nextWeight);
+}
+
+function aggregateRefreshMatches(params: {
+  readonly detail: PointAggregateRefreshDetail;
+  readonly topicId: string;
+  readonly synthesisId: string;
+  readonly epoch: number;
+  readonly pointId: string;
+  readonly fallbackPointId?: string;
+}): boolean {
+  return (
+    params.detail.topicId === params.topicId &&
+    params.detail.synthesisId === params.synthesisId &&
+    params.detail.epoch === params.epoch &&
+    (params.detail.pointId === params.pointId ||
+      (params.fallbackPointId !== undefined && params.detail.pointId === params.fallbackPointId))
+  );
+}
+
 function logAggregateRead(
   status: PointAggregateTelemetryStatus,
   params: {
@@ -267,6 +355,11 @@ export function usePointAggregate({
     status: 'idle',
     error: null,
   });
+  const resultAggregateRef = useRef<PointAggregate | null>(null);
+
+  useEffect(() => {
+    resultAggregateRef.current = result.aggregate;
+  }, [result.aggregate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -571,6 +664,7 @@ export function usePointAggregate({
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    const delayedRefreshTimers = new Set<ReturnType<typeof setTimeout>>();
 
     if (!LIVE_REFRESH_ENABLED) {
       return () => {
@@ -645,6 +739,22 @@ export function usePointAggregate({
       }
     };
 
+    const scheduleLiveAggregateRefresh = (delayMs: number): void => {
+      if (cancelled) {
+        return;
+      }
+      if (delayMs <= 0) {
+        void refreshLiveAggregate();
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        delayedRefreshTimers.delete(timer);
+        void refreshLiveAggregate();
+      }, delayMs);
+      delayedRefreshTimers.add(timer);
+    };
+
     void refreshLiveAggregate();
     const timer = setInterval(() => {
       void refreshLiveAggregate();
@@ -659,13 +769,57 @@ export function usePointAggregate({
         void refreshLiveAggregate();
       },
     });
+    const unsubscribeLocalRefresh = subscribePointAggregateRefresh((detail) => {
+      if (
+        !aggregateRefreshMatches({
+          detail,
+          topicId,
+          synthesisId,
+          epoch,
+          pointId,
+          fallbackPointId: effectiveFallbackPointId,
+        })
+      ) {
+        return;
+      }
+
+      const optimisticAggregate = applyOptimisticPointAggregateRefresh({
+        current: resultAggregateRef.current,
+        pointId,
+        detail,
+      });
+      if (optimisticAggregate) {
+        resultAggregateRef.current = optimisticAggregate;
+        setResult({
+          aggregate: optimisticAggregate,
+          status: 'success',
+          error: null,
+        });
+        persistCachedAggregate(aggregateCacheKey, optimisticAggregate);
+      }
+
+      scheduleLiveAggregateRefresh(detail.reason === 'mesh_projection_settled' ? 0 : 1_500);
+      scheduleLiveAggregateRefresh(5_000);
+    });
 
     return () => {
       cancelled = true;
       clearInterval(timer);
+      for (const delayedRefreshTimer of delayedRefreshTimers) {
+        clearTimeout(delayedRefreshTimer);
+      }
       unsubscribe();
+      unsubscribeLocalRefresh();
     };
-  }, [aggregateCacheKey, effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
+  }, [
+    aggregateCacheKey,
+    effectiveFallbackPointId,
+    enabled,
+    epoch,
+    pointId,
+    synthesisId,
+    topicId,
+  ]);
 
   return result;
 }

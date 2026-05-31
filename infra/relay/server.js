@@ -137,7 +137,7 @@ const aggregateVoterSelfPeerReadTimeoutMs = numberEnv(
 );
 const aggregateVoterSelfPeerReadbackEnabled = boolEnv(
   'VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READBACK',
-  true,
+  false,
 );
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
