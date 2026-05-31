@@ -56,6 +56,8 @@ const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
 const newsLatestIndexSnapshotFile = process.env.VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE
   || (typeof gunFile === 'string' ? path.join(gunFile, 'news-latest-index-snapshot.json') : '');
+const newsSynthesisLifecycleSnapshotFile = process.env.VH_RELAY_NEWS_LIFECYCLE_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'news-synthesis-lifecycle-snapshot.json') : '');
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
 const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
@@ -132,6 +134,7 @@ const aggregatePointReadCache = new Map();
 const newsLatestIndexRestCache = new Map();
 const newsLatestIndexSnapshotCache = new Map();
 const newsLatestIndexSnapshotStoryBodyCache = new Map();
+let newsSynthesisLifecycleSnapshotCache = null;
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -1236,6 +1239,84 @@ function parseNewsSynthesisLifecycleRecord(value, storyId) {
   return direct;
 }
 
+function readNewsSynthesisLifecycleSnapshot() {
+  if (newsSynthesisLifecycleSnapshotCache) return newsSynthesisLifecycleSnapshotCache;
+  const empty = { cached_at: 0, records: {} };
+  if (!newsSynthesisLifecycleSnapshotFile) {
+    newsSynthesisLifecycleSnapshotCache = empty;
+    return empty;
+  }
+  try {
+    if (!fs.existsSync(newsSynthesisLifecycleSnapshotFile)) {
+      newsSynthesisLifecycleSnapshotCache = empty;
+      return empty;
+    }
+    const parsed = JSON.parse(fs.readFileSync(newsSynthesisLifecycleSnapshotFile, 'utf8'));
+    if (
+      !parsed
+      || parsed.schema_version !== 'vh-news-synthesis-lifecycle-relay-snapshot-v1'
+      || !parsed.records
+      || typeof parsed.records !== 'object'
+      || Array.isArray(parsed.records)
+    ) {
+      newsSynthesisLifecycleSnapshotCache = empty;
+      return empty;
+    }
+    newsSynthesisLifecycleSnapshotCache = {
+      cached_at: Number(parsed.cached_at) || 0,
+      records: parsed.records,
+    };
+    return newsSynthesisLifecycleSnapshotCache;
+  } catch (error) {
+    logEvent('warn', 'news_synthesis_lifecycle_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    newsSynthesisLifecycleSnapshotCache = empty;
+    return empty;
+  }
+}
+
+function readNewsSynthesisLifecycleRecordFromSnapshot(storyId) {
+  const snapshot = readNewsSynthesisLifecycleSnapshot();
+  return parseNewsSynthesisLifecycleRecord(snapshot.records?.[storyId], storyId);
+}
+
+function persistNewsSynthesisLifecycleSnapshot(snapshot) {
+  if (!newsSynthesisLifecycleSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(newsSynthesisLifecycleSnapshotFile), { recursive: true });
+    const tmpFile = `${newsSynthesisLifecycleSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify({
+        schema_version: 'vh-news-synthesis-lifecycle-relay-snapshot-v1',
+        cached_at: snapshot.cached_at,
+        records: snapshot.records,
+      })}\n`,
+    );
+    fs.renameSync(tmpFile, newsSynthesisLifecycleSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'news_synthesis_lifecycle_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function upsertNewsSynthesisLifecycleSnapshot(record) {
+  const storyId = typeof record?.story_id === 'string' ? record.story_id.trim() : '';
+  if (!storyId) return;
+  const snapshot = readNewsSynthesisLifecycleSnapshot();
+  const next = {
+    cached_at: Date.now(),
+    records: {
+      ...(snapshot.records ?? {}),
+      [storyId]: record,
+    },
+  };
+  newsSynthesisLifecycleSnapshotCache = next;
+  persistNewsSynthesisLifecycleSnapshot(next);
+}
+
 async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
@@ -1285,7 +1366,9 @@ async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
     .get('synthesis_lifecycle')
     .get('latest');
   const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
-  return parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
+  const direct = parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
+  if (direct || options.allowSnapshotFallback === false) return direct;
+  return readNewsSynthesisLifecycleRecordFromSnapshot(storyId);
 }
 
 async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options = {}) {
@@ -1322,7 +1405,8 @@ async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options 
       record[fields[index]] = value;
     }
   }
-  return parseNewsSynthesisLifecycleRecord(record, storyId);
+  return parseNewsSynthesisLifecycleRecord(record, storyId)
+    ?? (options.allowSnapshotFallback === false ? null : readNewsSynthesisLifecycleRecordFromSnapshot(storyId));
 }
 
 async function refreshPotentiallyStaleLifecycleRecord(gun, story, synthesis, lifecycle) {
@@ -3633,6 +3717,7 @@ async function writeNewsHotIndexRecord(gun, body) {
 async function writeNewsSynthesisLifecycleRecord(gun, body) {
   const clean = sanitizeNewsSynthesisLifecycleWrite(body);
   injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
+  upsertNewsSynthesisLifecycleSnapshot(clean.record);
   const readback = await pollNewsSynthesisLifecycleBack(
     gun,
     clean.story_id,
