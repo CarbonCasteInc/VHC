@@ -44,6 +44,8 @@ import {
   readNewsLatestIndexWithRelayRestFallback,
   readNewsRemoval,
   readNewsSynthesisLifecycleStatus,
+  readNewsSynthesisLifecycleStatusViaRelayRest,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
   readNewsStoryIds,
   readNewsStoryRepairCandidate,
@@ -1431,6 +1433,64 @@ describe('newsAdapters', () => {
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=2&before=250',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsSynthesisLifecycleStatusWithRelayRestFallback reads lifecycle through same-origin relay REST', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle',
+      topic_id: 'topic-lifecycle',
+      provenance_hash: 'source-set-lifecycle',
+      sources: [
+        STORY.sources[0],
+        {
+          ...STORY.sources[0],
+          source_id: 'src-2',
+          publisher: 'Daily Bugle',
+          url: 'https://example.com/story-2',
+          url_hash: 'hash-2',
+          title: 'Second source',
+        },
+      ],
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'terminal_unavailable',
+      frameTableState: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      updatedAt: 400,
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record: lifecycle,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle'),
+      ).resolves.toEqual(lifecycle);
+      await expect(
+        readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, 'story-lifecycle'),
+      ).resolves.toEqual(lifecycle);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/synthesis-lifecycle?story_id=story-lifecycle',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {

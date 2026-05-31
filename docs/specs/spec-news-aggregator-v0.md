@@ -440,6 +440,12 @@ Public lifecycle storage contract:
   `POST /vh/news/synthesis-lifecycle` and MUST durably write/readback-confirm it
   to `vh/news/stories/<storyId>/synthesis_lifecycle/latest` without adding user
   identity, token, or private author fields.
+- Relay/origin read surfaces MUST expose the latest public lifecycle record at
+  `GET /vh/news/synthesis-lifecycle?story_id=<storyId>` so browser detail views
+  can render pending, terminal, retryable, accepted, and suppressed states even
+  when direct Gun parent-node reads are incomplete. A missing lifecycle record is
+  an honest pending/unknown state for product-visible stories, not a story
+  visibility filter.
 - `status` is one of `pending`, `in_progress`, `accepted_available`,
   `retryable_failure`, `terminal_unavailable`, or `suppressed`.
 - `frame_table_state` is one of `frame_table_pending`, `frame_table_ready`, or

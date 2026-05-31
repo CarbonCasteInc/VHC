@@ -1807,6 +1807,65 @@ export async function readNewsSynthesisLifecycleStatus(
   return parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, raw);
 }
 
+export async function readNewsSynthesisLifecycleStatusViaRelayRest(
+  client: VennClient,
+  storyId: string,
+): Promise<NewsSynthesisLifecycleRecord | null> {
+  const normalizedId = storyId.trim();
+  const peer = client.config.peers[0];
+  if (!normalizedId || !peer || typeof fetch !== 'function') {
+    return null;
+  }
+  const query = new URLSearchParams({ story_id: normalizedId });
+  const endpoint = resolveRelayRestEndpointFromPeer(
+    peer,
+    `/vh/news/synthesis-lifecycle?${query.toString()}`,
+  );
+  if (!endpoint) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
+    const record = isRecord(payload.record)
+      ? payload.record
+      : isRecord(payload.lifecycle)
+        ? payload.lifecycle
+        : null;
+    return record
+      ? parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, record)
+      : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readNewsSynthesisLifecycleStatusWithRelayRestFallback(
+  client: VennClient,
+  storyId: string,
+): Promise<NewsSynthesisLifecycleRecord | null> {
+  const relayed = await timeoutAsNull(
+    readNewsSynthesisLifecycleStatusViaRelayRest(client, storyId),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
+  if (relayed) {
+    return relayed;
+  }
+  return readNewsSynthesisLifecycleStatus(client, storyId);
+}
+
 export async function writeNewsSynthesisLifecycleStatus(
   client: VennClient,
   record: unknown,
