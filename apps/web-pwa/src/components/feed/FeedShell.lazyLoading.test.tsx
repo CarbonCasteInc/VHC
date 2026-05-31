@@ -384,6 +384,54 @@ describe('FeedShell lazy loading', () => {
     }
   });
 
+  it('renders an underfilled refreshed first page while the user is scrolled away from the top', async () => {
+    const initialItems = Array.from({ length: 6 }, (_, index) =>
+      makeFeedItem({
+        topic_id: `story-initial-${index}`,
+        story_id: `story-initial-${index}`,
+        title: `Initial story ${index}`,
+      }),
+    );
+    const refreshedItems = Array.from({ length: FEED_PAGE_SIZE }, (_, index) =>
+      makeFeedItem({
+        topic_id: `story-refreshed-${index}`,
+        story_id: `story-refreshed-${index}`,
+        title: `Refreshed story ${index}`,
+      }),
+    );
+    let setHarnessItems: React.Dispatch<React.SetStateAction<FeedItem[]>> | null = null;
+
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      value: TOP_SCROLL_THRESHOLD_FOR_TEST + 1,
+    });
+
+    function Harness(): React.JSX.Element {
+      const [items, setItems] = React.useState<FeedItem[]>(initialItems);
+      setHarnessItems = setItems;
+      return <FeedShell feedResult={makeFeedResult(items)} />;
+    }
+
+    try {
+      render(<Harness />);
+      window.dispatchEvent(new Event('scroll'));
+
+      expect(screen.getAllByTestId(/feed-item-story-initial-/)).toHaveLength(6);
+
+      await act(async () => {
+        setHarnessItems?.(refreshedItems);
+      });
+
+      expect(screen.getAllByTestId(/feed-item-story-refreshed-/)).toHaveLength(FEED_PAGE_SIZE);
+      expect(screen.queryByTestId(/feed-item-story-initial-/)).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+    }
+  });
+
   it('auto-refreshes public news once when the app client is ready and the feed is empty', async () => {
     const originalRefreshLatest = useNewsStore.getState().refreshLatest;
     const refreshLatest = vi.fn(async () => undefined);

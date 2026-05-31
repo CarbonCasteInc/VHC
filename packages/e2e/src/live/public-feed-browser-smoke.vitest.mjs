@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { publicFeedBrowserSmokeInternal as internal } from './public-feed-browser-smoke.mjs';
 
@@ -325,6 +327,36 @@ describe('public feed browser smoke helpers', () => {
     )).toBe(true);
     expect(internal.isAcceptedSynthesisText('Synthesis pending for this story.', 2)).toBe(false);
     expect(internal.isAcceptedSynthesisText('Accepted summary without controls.', 0)).toBe(false);
+  });
+
+  it('counts direct Gun accepted synthesis only when lifecycle matches the current story revision', () => {
+    const story = {
+      story_id: 'story-1',
+      provenance_hash: 'prov-current',
+    };
+    const synthesis = {
+      synthesis_id: 'synth-current',
+      epoch: 0,
+      facts_summary: 'Current accepted facts summary.',
+      frames: [{ frame: 'Frame', reframe: 'Reframe' }],
+      inputs: { story_bundle_ids: ['story-1'] },
+    };
+
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, {
+      status: 'accepted_available',
+      story_id: 'story-1',
+      source_set_revision: 'prov-current',
+      synthesis_id: 'synth-current',
+      epoch: 0,
+    })).toBe(true);
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, {
+      status: 'accepted_available',
+      story_id: 'story-1',
+      source_set_revision: 'prov-old',
+      synthesis_id: 'synth-current',
+      epoch: 0,
+    })).toBe(false);
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, null)).toBe(false);
   });
 
   it('classifies public peer CSP connect-src violations as critical browser diagnostics', () => {
@@ -1250,6 +1282,34 @@ describe('public feed browser smoke helpers', () => {
     })).toEqual(pin);
   });
 
+  it('uses the repo public system writer pin before the E2E fixture fallback', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-smoke-pin-'));
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'repo-public-material',
+        },
+      }],
+    };
+    try {
+      const pinPath = path.join(repoRoot, 'apps', 'web-pwa', 'src', 'luma');
+      await mkdir(pinPath, { recursive: true });
+      await writeFile(path.join(pinPath, 'system-writer-pin.json'), JSON.stringify(pin));
+
+      expect(internal.loadRepoSystemWriterPin(repoRoot)).toEqual(pin);
+      expect(internal.loadSystemWriterPin(repoRoot, {})).toEqual(pin);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('extracts the deployed public system writer pin from a Vite bundle', () => {
     const pin = {
       pinVersion: 1,
@@ -1284,6 +1344,34 @@ describe('public feed browser smoke helpers', () => {
         return new Response('<script type="module" crossorigin src="/assets/index-public.js"></script>');
       }
       if (url === 'https://venn.example/assets/index-public.js') {
+        return new Response(`const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};`);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(internal.fetchDeployedSystemWriterPin('https://venn.example/', fetchImpl)).resolves.toEqual(pin);
+  });
+
+  it('extracts the deployed public system writer pin from lazy Vite chunks', async () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'chunk-public-material' },
+      }],
+    };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === 'https://venn.example/') {
+        return new Response('<script type="module" crossorigin src="/assets/index-public.js"></script>');
+      }
+      if (url === 'https://venn.example/assets/index-public.js') {
+        return new Response('const load=()=>import("./feedBridge-public.js");');
+      }
+      if (url === 'https://venn.example/assets/feedBridge-public.js') {
         return new Response(`const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};`);
       }
       return new Response('not found', { status: 404 });

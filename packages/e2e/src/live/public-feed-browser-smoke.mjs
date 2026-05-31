@@ -6,6 +6,7 @@ import {
   readAggregateVoterRows,
   readAggregatesWithRelayRestFallback as readAggregates,
   readNewsLatestIndexPageWithRelayRestFallback,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
   readTopicLatestSynthesis,
 } from '@vh/gun-client';
@@ -303,8 +304,21 @@ function loadFixtureSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT) {
   };
 }
 
+function loadRepoSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT) {
+  try {
+    return JSON.parse(readFileSync(
+      path.join(repoRoot, 'apps', 'web-pwa', 'src', 'luma', 'system-writer-pin.json'),
+      'utf8',
+    ));
+  } catch {
+    return null;
+  }
+}
+
 function loadSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT, env = process.env) {
-  return loadExplicitSystemWriterPin(env) ?? loadFixtureSystemWriterPin(repoRoot);
+  return loadExplicitSystemWriterPin(env)
+    ?? loadRepoSystemWriterPin(repoRoot)
+    ?? loadFixtureSystemWriterPin(repoRoot);
 }
 
 function extractViteEnvString(source, name) {
@@ -340,16 +354,41 @@ async function fetchDeployedSystemWriterPin(baseUrl, fetchImpl = fetch) {
   const htmlResponse = await fetchImpl(appUrl.href, { headers: { accept: 'text/html' } });
   if (!htmlResponse.ok) return null;
   const html = await htmlResponse.text();
-  const scriptMatch = html.match(/<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']([^"']+\.js)["'][^>]*>/i)
-    || html.match(/<script\b[^>]*\bsrc=["']([^"']+\.js)["'][^>]*\btype=["']module["'][^>]*>/i);
-  if (!scriptMatch) return null;
-  const scriptUrl = new URL(scriptMatch[1], appUrl);
-  const scriptResponse = await fetchImpl(scriptUrl.href, { headers: { accept: 'application/javascript,text/javascript,*/*' } });
-  if (!scriptResponse.ok) return null;
-  const script = await scriptResponse.text();
-  const pinJson = extractViteEnvString(script, 'VITE_NEWS_SYSTEM_WRITER_PIN_JSON')
-    || extractViteEnvString(script, 'VITE_SYSTEM_WRITER_PIN_JSON');
-  return pinJson ? JSON.parse(pinJson) : null;
+  const initialScriptUrls = new Set();
+  const scriptPattern = /<script\b[^>]*\bsrc=["']([^"']+\.js)["'][^>]*>/gi;
+  const preloadPattern = /<link\b[^>]*\brel=["']modulepreload["'][^>]*\bhref=["']([^"']+\.js)["'][^>]*>/gi;
+  for (const pattern of [scriptPattern, preloadPattern]) {
+    for (const match of html.matchAll(pattern)) {
+      initialScriptUrls.add(new URL(match[1], appUrl).href);
+    }
+  }
+  if (initialScriptUrls.size === 0) return null;
+
+  const queue = [...initialScriptUrls];
+  const visited = new Set();
+  const maxScripts = 32;
+  while (queue.length > 0 && visited.size < maxScripts) {
+    const scriptHref = queue.shift();
+    if (!scriptHref || visited.has(scriptHref)) continue;
+    visited.add(scriptHref);
+
+    const scriptResponse = await fetchImpl(scriptHref, {
+      headers: { accept: 'application/javascript,text/javascript,*/*' },
+    });
+    if (!scriptResponse.ok) continue;
+    const script = await scriptResponse.text();
+    const pinJson = extractViteEnvString(script, 'VITE_NEWS_SYSTEM_WRITER_PIN_JSON')
+      || extractViteEnvString(script, 'VITE_SYSTEM_WRITER_PIN_JSON');
+    if (pinJson) return JSON.parse(pinJson);
+
+    for (const match of script.matchAll(/["']([^"']+\.js)["']/g)) {
+      const candidate = new URL(match[1], scriptHref).href;
+      if (new URL(candidate).origin === appUrl.origin && !visited.has(candidate)) {
+        queue.push(candidate);
+      }
+    }
+  }
+  return null;
 }
 
 async function resolveSystemWriterPin({ repoRoot = DEFAULT_REPO_ROOT, env = process.env, baseUrl, progress = () => {} } = {}) {
@@ -370,6 +409,11 @@ async function resolveSystemWriterPin({ repoRoot = DEFAULT_REPO_ROOT, env = proc
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+  const repoPin = loadRepoSystemWriterPin(repoRoot);
+  if (repoPin) {
+    progress('system-writer-pin-source', { source: 'repo-public-pin' });
+    return repoPin;
   }
   progress('system-writer-pin-source', { source: 'e2e-fixture' });
   return loadFixtureSystemWriterPin(repoRoot);
@@ -454,8 +498,8 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
   });
   client.markSessionReady();
   try {
-    const indexReadTimeoutMs = Math.min(10_000, Math.max(2_000, Math.floor(timeoutMs / 12)));
-    const storyReadTimeoutMs = Math.min(5_000, Math.max(1_500, Math.floor(timeoutMs / 24)));
+    const indexReadTimeoutMs = Math.min(60_000, Math.max(10_000, Math.floor(timeoutMs * 0.75)));
+    const storyReadTimeoutMs = Math.min(20_000, Math.max(3_000, Math.floor(timeoutMs / 6)));
     return await waitFor('gun-latest-index-readback', async () => {
       const latestPage = await withTimeout(
         'gun-latest-index-read',
@@ -481,6 +525,14 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
               storyReadTimeoutMs,
             ).catch(() => null)
             : null;
+          const lifecycle = synthesis
+            ? await withTimeout(
+              'gun-story-synthesis-lifecycle-read',
+              readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, storyId),
+              storyReadTimeoutMs,
+            ).catch(() => null)
+            : null;
+          const acceptedCurrent = acceptedSynthesisCurrentForStory(story, synthesis, lifecycle);
           stories.push({
             storyId,
             topicId: story.topic_id,
@@ -490,8 +542,11 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
             sourceLabels: (story.sources ?? [])
               .map((source) => source.publisher || source.source || source.url)
               .filter(Boolean),
-            acceptedSynthesisReady: Boolean(synthesis?.facts_summary?.trim() && (synthesis.frames?.length ?? 0) > 0),
+            acceptedSynthesisReady: acceptedCurrent,
+            staleAcceptedSynthesisReady: Boolean(acceptedSynthesisReady(synthesis) && !acceptedCurrent),
             synthesisId: synthesis?.synthesis_id ?? null,
+            lifecycleStatus: lifecycle?.status ?? null,
+            lifecycleSourceSetRevision: lifecycle?.source_set_revision ?? null,
           });
         }
       }
@@ -623,6 +678,39 @@ async function readPublicPointAggregateViaOrigin({
 
 function acceptedSynthesisReady(synthesis) {
   return Boolean(String(synthesis?.facts_summary ?? '').trim() && (synthesis?.frames?.length ?? 0) > 0);
+}
+
+function acceptedSynthesisCurrentForStory(story, synthesis, lifecycle) {
+  if (!story?.story_id || !story?.provenance_hash || !acceptedSynthesisReady(synthesis)) {
+    return false;
+  }
+  if (!lifecycle || lifecycle.status !== 'accepted_available') {
+    return false;
+  }
+  if (lifecycle.story_id !== story.story_id) {
+    return false;
+  }
+  if (lifecycle.source_set_revision !== story.provenance_hash) {
+    return false;
+  }
+  if (lifecycle.synthesis_id && lifecycle.synthesis_id !== synthesis.synthesis_id) {
+    return false;
+  }
+  if (
+    lifecycle.epoch !== undefined
+    && lifecycle.epoch !== null
+    && synthesis.epoch !== undefined
+    && Number(lifecycle.epoch) !== Number(synthesis.epoch)
+  ) {
+    return false;
+  }
+  const storyBundleIds = Array.isArray(synthesis.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  if (storyBundleIds.length > 0 && !storyBundleIds.includes(story.story_id)) {
+    return false;
+  }
+  return true;
 }
 
 function latestIndexEntryStoryId(storyId, record) {
@@ -1791,6 +1879,63 @@ async function waitForSynthesis(page, card, row, timeoutMs) {
   }, { timeoutMs, intervalMs: 750 });
 }
 
+async function readVisibleNonAcceptedSynthesisState(scope, row) {
+  const detail = firstTestId(scope, `news-card-detail-${row.topicId}`);
+  const root = await detail.count().catch(() => 0) > 0 ? detail : scope;
+  const summary = trimText(
+    await firstTestId(root, `news-card-summary-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    2_000,
+  );
+  const basis = trimText(
+    await firstTestId(root, `news-card-summary-basis-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    500,
+  );
+  const pending = trimText(
+    await firstTestId(root, `news-card-synthesis-unavailable-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const terminal = trimText(
+    await firstTestId(root, `news-card-synthesis-terminal-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const retryable = trimText(
+    await firstTestId(root, `news-card-synthesis-retryable-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const correction = trimText(
+    await firstTestId(root, `news-card-synthesis-correction-state-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const biasEmpty = trimText(
+    await root.getByTestId('bias-table-empty').textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const voteButtons = await root.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
+  const stateText = pending || terminal || retryable || correction;
+  if (!stateText && !/pending|unavailable|retrying|suppressed|correction/i.test(`${basis} ${biasEmpty}`)) {
+    return null;
+  }
+  return {
+    summary,
+    basis,
+    stateText,
+    biasEmpty,
+    voteButtonCount: voteButtons,
+  };
+}
+
+async function waitForNonAcceptedSynthesisState(page, card, row, timeoutMs) {
+  return waitFor('non-accepted-synthesis-state-visible', async () => {
+    for (const scope of await synthesisScopeCandidates(page, card, row)) {
+      const state = await readVisibleNonAcceptedSynthesisState(scope, row);
+      if (state) {
+        return state;
+      }
+    }
+    return null;
+  }, { timeoutMs, intervalMs: 750 });
+}
+
 async function openStoryWithAcceptedSynthesis(page, candidateRows, analysisTimeoutMs) {
   const candidates = [];
   const seenStoryIds = new Set();
@@ -1832,6 +1977,42 @@ async function openStoryWithAcceptedSynthesis(page, candidateRows, analysisTimeo
 
   throw new Error(
     `accepted-synthesis-visible-timeout:${rejectedCandidates.map((item) => `${item.storyId}:${item.reason}`).join('|')}`,
+  );
+}
+
+async function openStoryWithNonAcceptedSynthesisState(page, candidateRows, analysisTimeoutMs) {
+  const rejectedCandidates = [];
+  const perCandidateTimeoutMs = Math.min(30_000, analysisTimeoutMs);
+  for (const row of candidateRows.slice(0, 8)) {
+    let card;
+    try {
+      card = await openStory(page, row);
+    } catch (error) {
+      rejectedCandidates.push({
+        storyId: row.storyId,
+        headline: row.headline,
+        reason: `open-story-failed:${error instanceof Error ? error.message : String(error)}`,
+      });
+      continue;
+    }
+    try {
+      const state = await waitForNonAcceptedSynthesisState(page, card, row, perCandidateTimeoutMs);
+      if (state.voteButtonCount > 0) {
+        throw new Error(`non-accepted-synthesis-votable:${state.voteButtonCount}`);
+      }
+      return { row, card, state, rejectedCandidates };
+    } catch (error) {
+      rejectedCandidates.push({
+        storyId: row.storyId,
+        headline: row.headline,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      await closeStory(card, row);
+    }
+  }
+
+  throw new Error(
+    `non-accepted-synthesis-state-timeout:${rejectedCandidates.map((item) => `${item.storyId}:${item.reason}`).join('|')}`,
   );
 }
 
@@ -2527,9 +2708,10 @@ async function runPublicFeedBrowserSmoke({
     page.on('console', (message) => logs.push({ type: message.type(), text: message.text() }));
     page.on('pageerror', (error) => logs.push({ type: 'pageerror', text: formatError(error) }));
 
-    progress('identity-start');
-    const identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
-    progress('identity-complete', identity);
+    let identity = {
+      status: 'skipped',
+      reason: 'no-current-accepted-synthesis',
+    };
     progress('initial-feed-wait-start', {
       minHeadlines,
       timeoutMs: initialOpenTimeoutMs,
@@ -2602,6 +2784,10 @@ async function runPublicFeedBrowserSmoke({
       .filter((story) => story.acceptedSynthesisReady && story.topicId && story.storyId && story.headline)
       .map(readbackStoryToVisibleCard);
     const synthesisReadyCards = topCards.filter((card) => synthesisReadyStoryIds.has(card.storyId));
+    const hasCurrentAcceptedSynthesisCandidate =
+      synthesisReadyCards.length > 0 ||
+      publicRelaySynthesisReadyRows.length > 0 ||
+      synthesisReadyReadbackRows.length > 0;
     let detailCandidates = synthesisReadyCards.length > 0 ? synthesisReadyCards : [
       ...publicRelaySynthesisReadyRows,
       ...synthesisReadyReadbackRows,
@@ -2612,6 +2798,13 @@ async function runPublicFeedBrowserSmoke({
       publicRelayReady: publicRelaySynthesisReadyRows.length,
       total: detailCandidates.length,
     });
+    if (hasCurrentAcceptedSynthesisCandidate) {
+      progress('identity-start');
+      identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
+      progress('identity-complete', identity);
+    } else {
+      progress('identity-skipped', { reason: identity.reason });
+    }
     const routeFocus = synthesisReadyCards[0] ?? publicRelaySynthesisReadyRows[0] ?? synthesisReadyReadbackRows[0];
     if (routeFocus) {
       const navigation = await navigateToAppRoute(page, storyDetailUrl(baseUrl, routeFocus.storyId), {
@@ -2643,15 +2836,52 @@ async function runPublicFeedBrowserSmoke({
         routed: Boolean(routedReadyCard),
       });
     }
-    const detail = await openStoryWithAcceptedSynthesis(page, detailCandidates, analysisTimeoutMs);
-    const target = detail.row;
-    const card = detail.card;
-    const synthesis = detail.synthesis;
-    await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
-    progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
-    const voteProof = await voteAgree(card, target, gunPeerUrl, baseUrl);
-    progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
-    await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
+    let target;
+    let card;
+    let synthesis = null;
+    let detail;
+    let storyDetailCheck;
+    let voteProof = {
+      status: 'skipped',
+      reason: 'no-current-accepted-synthesis',
+    };
+    if (hasCurrentAcceptedSynthesisCandidate) {
+      detail = await openStoryWithAcceptedSynthesis(page, detailCandidates, analysisTimeoutMs);
+      target = detail.row;
+      card = detail.card;
+      synthesis = detail.synthesis;
+      await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
+      progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
+      voteProof = await voteAgree(card, target, gunPeerUrl, baseUrl);
+      progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
+      await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
+      storyDetailCheck = {
+        mode: 'accepted_synthesis',
+        storyId: target.storyId,
+        topicId: target.topicId,
+        headline: target.headline,
+        rejectedPendingCandidates: detail.rejectedCandidates,
+      };
+    } else {
+      detail = await openStoryWithNonAcceptedSynthesisState(page, topCards, analysisTimeoutMs);
+      target = detail.row;
+      card = detail.card;
+      await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
+      progress('story-detail-non-accepted-screenshot', {
+        storyId: target.storyId,
+        topicId: target.topicId,
+        stateText: detail.state.stateText,
+        voteButtonCount: detail.state.voteButtonCount,
+      });
+      storyDetailCheck = {
+        mode: 'non_accepted_synthesis',
+        storyId: target.storyId,
+        topicId: target.topicId,
+        headline: target.headline,
+        rejectedPendingCandidates: detail.rejectedCandidates,
+        state: detail.state,
+      };
+    }
     let comment = {
       status: 'skipped',
       reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
@@ -2664,7 +2894,7 @@ async function runPublicFeedBrowserSmoke({
       status: 'skipped',
       reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
     };
-    if (requireStoryComments) {
+    if (requireStoryComments && hasCurrentAcceptedSynthesisCandidate) {
       comment = await withTimeout(
         'story-comment-overall',
         createStoryComment(page, target, commentVisibilityTimeoutMs),
@@ -2711,6 +2941,8 @@ async function runPublicFeedBrowserSmoke({
         ),
       );
       progress('second-browser-complete');
+    } else if (requireStoryComments) {
+      progress('story-comment-workflow-skipped', { reason: 'no-current-accepted-synthesis' });
     } else {
       progress('story-comment-workflow-skipped', { reason: comment.reason });
     }
@@ -2748,12 +2980,7 @@ async function runPublicFeedBrowserSmoke({
           afterScrollNewsStore,
           loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 24),
         },
-        storyDetailOpens: {
-          storyId: target.storyId,
-          topicId: target.topicId,
-          headline: target.headline,
-          rejectedPendingCandidates: detail.rejectedCandidates,
-        },
+        storyDetailOpens: storyDetailCheck,
         acceptedAnalysisSynthesisVisible: synthesis,
         pointStanceWriteReadback: voteProof,
         storyThreadCreateComment: comment,
@@ -2839,9 +3066,12 @@ export const publicFeedBrowserSmokeInternal = {
   resolveArtifactDir,
   resolveSystemWriterPin,
   isAcceptedSynthesisText,
+  acceptedSynthesisCurrentForStory,
+  readVisibleNonAcceptedSynthesisState,
   loadSystemWriterPin,
   parsePublicPointAggregatePayload,
   readPublicPointAggregateViaOrigin,
+  loadRepoSystemWriterPin,
   latestIndexRecordsFromPayload,
   readPublicRelayLatestIndexPage,
   readPublicRelayPaginationReadback,

@@ -388,8 +388,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     const mustPrimeRestoredRouteState =
       (detailToEnsure !== null && !pagedFeedHasDetail) ||
       (searchStoryId !== null && !pagedFeedHasFocusedStory);
+    const visibleFeedIsUnderfilled = pagedFeed.length < Math.min(feed.length, FEED_PAGE_SIZE);
+    const shouldApplyCurrentWindow = refreshing || meshLoadingMore || visibleFeedIsUnderfilled;
     const deferUpdates =
-      (expandedStoryId !== null || (!isNearTop && !meshLoadingMore)) &&
+      (expandedStoryId !== null || (!isNearTop && !shouldApplyCurrentWindow)) &&
       !mustPrimeRestoredRouteState;
     if (deferUpdates && !modeChanged) {
       deferredFeedRef.current = feed;
@@ -410,6 +412,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     filter,
     isNearTop,
     meshLoadingMore,
+    pagedFeed.length,
+    refreshing,
     searchDetailId,
     searchStoryId,
     setDiscoveryFeed,
