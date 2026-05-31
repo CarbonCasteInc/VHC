@@ -6,6 +6,7 @@ import {
   classifyProductIndexMetadata,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
+  selectLifecycleSampleIds,
   sourceCount,
 } from './public-feed-lifecycle-accountability.mjs';
 
@@ -97,6 +98,26 @@ describe('public feed lifecycle accountability helpers', () => {
     expect(classifyLifecycleAccountabilityStatus([
       { code: 'product_visible_synthesis_lifecycle_pending_stale' },
     ])).toBe('fail');
+  });
+
+  it('preserves relay mixed-window backfill rows beyond the requested sample limit', () => {
+    expect(selectLifecycleSampleIds({
+      relayIds: ['story-singleton-a', 'story-singleton-b', 'story-multi-backfill'],
+      latestIds: ['story-direct-latest'],
+      hotIds: ['story-hot'],
+      rawStoryIds: ['story-raw'],
+      sampleLimit: 2,
+    })).toEqual(['story-singleton-a', 'story-singleton-b', 'story-multi-backfill']);
+  });
+
+  it('uses the requested sample limit when relay does not backfill a wider window', () => {
+    expect(selectLifecycleSampleIds({
+      relayIds: ['story-relay'],
+      latestIds: ['story-direct-latest', 'story-direct-latest-2'],
+      hotIds: ['story-hot'],
+      rawStoryIds: ['story-raw'],
+      sampleLimit: 2,
+    })).toEqual(['story-relay', 'story-direct-latest']);
   });
 
   it('requires product-visible stories to have a current synthesis lifecycle ledger row', () => {
