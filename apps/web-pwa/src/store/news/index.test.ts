@@ -4,7 +4,11 @@ import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenNewsPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readLatestStoryIdsMock = vi.fn<(client: unknown, limit?: number) => Promise<string[]>>();
-const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number>>>();
+const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number> | {
+  index: Record<string, number>;
+  nextCursor: number | null;
+  recordCount: number;
+}>>();
 const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
 const readNewsStorylineMock = vi.fn<(client: unknown, storylineId: string) => Promise<unknown>>();
@@ -18,6 +22,18 @@ vi.mock('@vh/gun-client', () => ({
   readLatestStoryIds: readLatestStoryIdsMock,
   readNewsHotIndexWithRelayRestFallback: readNewsHotIndexMock,
   readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
+  readNewsLatestIndexPageWithRelayRestFallback: vi.fn(async (...args: unknown[]) => {
+    const result = await readNewsLatestIndexMock(...args);
+    if (result && typeof result === 'object' && 'index' in result) {
+      return result;
+    }
+    const index = result as Record<string, number>;
+    return {
+      index,
+      nextCursor: null,
+      recordCount: Object.keys(index).length,
+    };
+  }),
   readNewsStory: readNewsStoryMock,
   readNewsStoryViaRelayRest: readNewsStoryMock,
   readNewsStoryWithRelayRestFallback: readNewsStoryMock,
@@ -90,7 +106,7 @@ function deferred<T>(): {
 describe('news store', () => {
   it('exports news store type surface version marker', async () => {
     const { getNewsStoreTypesVersion } = await import('./types');
-    expect(getNewsStoreTypesVersion()).toBe('storycluster-pr5-hot-index-v1');
+    expect(getNewsStoreTypesVersion()).toBe('storycluster-pr6-public-feed-cursor-v1');
   });
 
   beforeEach(() => {
@@ -726,7 +742,7 @@ describe('news store', () => {
 
     const client = { id: 'client' };
     readNewsLatestIndexMock
-      .mockResolvedValueOnce({ s1: 200, s2: 100 })
+      .mockResolvedValueOnce({ index: { s1: 200, s2: 100 }, nextCursor: 100, recordCount: 2 })
       .mockResolvedValueOnce({});
     readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
     readNewsStoryMock.mockImplementation(async (_client, storyId) => {
@@ -745,6 +761,7 @@ describe('news store', () => {
     expect(readNewsHotIndexMock).toHaveBeenCalledWith(client);
     expect(store.getState().hydrated).toBe(true);
     expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
+    expect(store.getState().latestIndexCursor).toBe(100);
     expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().loading).toBe(false);

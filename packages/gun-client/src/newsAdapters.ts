@@ -21,6 +21,13 @@ import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
+export interface NewsLatestIndexPage {
+  readonly index: NewsLatestIndex;
+  readonly nextCursor: number | null;
+  readonly recordCount: number;
+  readonly sourceKeyCount?: number;
+  readonly composition?: unknown;
+}
 export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
   readonly before?: number;
@@ -159,6 +166,18 @@ function filterLatestIndexWindow(
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, limit);
   return Object.fromEntries(entries);
+}
+
+function latestIndexWindowNextCursor(index: NewsLatestIndex): number | null {
+  const timestamps = Object.values(index)
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= 0)
+    .sort((left, right) => left - right);
+  return timestamps[0] ?? null;
+}
+
+function normalizeRelayLatestIndexNextCursor(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
 
 function filterHotIndexWindow(
@@ -2015,8 +2034,16 @@ export async function readNewsLatestIndexViaRelayRest(
   client: VennClient,
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndex> {
+  const page = await readNewsLatestIndexPageViaRelayRest(client, options);
+  return page.index;
+}
+
+export async function readNewsLatestIndexPageViaRelayRest(
+  client: VennClient,
+  options: NewsLatestIndexReadOptions = {},
+): Promise<NewsLatestIndexPage> {
   if (typeof fetch !== 'function') {
-    return {};
+    return { index: {}, nextCursor: null, recordCount: 0 };
   }
   const limit = normalizeLatestIndexReadLimit(options.limit);
   const before = normalizeLatestIndexBeforeCursor(options.before);
@@ -2029,10 +2056,13 @@ export async function readNewsLatestIndexViaRelayRest(
     `/vh/news/latest-index?${query.toString()}`,
   );
   if (endpoints.length === 0) {
-    return {};
+    return { index: {}, nextCursor: null, recordCount: 0 };
   }
 
   const index: NewsLatestIndex = {};
+  let nextCursor: number | null = null;
+  let sourceKeyCount: number | undefined;
+  let composition: unknown;
   for (const endpoint of endpoints) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
@@ -2045,7 +2075,14 @@ export async function readNewsLatestIndexViaRelayRest(
       if (!response.ok) {
         continue;
       }
-      const payload = await response.json() as { records?: unknown; index?: unknown };
+      const payload = await response.json() as {
+        records?: unknown;
+        index?: unknown;
+        next_cursor?: unknown;
+        record_count?: unknown;
+        source_key_count?: unknown;
+        composition?: unknown;
+      };
       const records = isRecord(payload.records)
         ? payload.records
         : isRecord(payload.index)
@@ -2058,10 +2095,21 @@ export async function readNewsLatestIndexViaRelayRest(
       for (const [storyId, value] of Object.entries(records)) {
         try {
           const timestamp = await parseLatestIndexEntry(client, storyId, value);
-          if (timestamp !== null) {
+          if (timestamp !== null && (before === null || timestamp < before)) {
             index[storyId] = Math.max(index[storyId] ?? 0, timestamp);
           }
         } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+      }
+      const payloadNextCursor = normalizeRelayLatestIndexNextCursor(payload.next_cursor);
+      if (payloadNextCursor !== null) {
+        nextCursor = Math.max(nextCursor ?? payloadNextCursor, payloadNextCursor);
+      }
+      const payloadSourceKeyCount = Number(payload.source_key_count);
+      if (Number.isFinite(payloadSourceKeyCount) && payloadSourceKeyCount >= 0) {
+        sourceKeyCount = Math.max(sourceKeyCount ?? 0, Math.floor(payloadSourceKeyCount));
+      }
+      if (composition === undefined && payload.composition !== undefined) {
+        composition = payload.composition;
       }
     } catch {
       continue;
@@ -2069,26 +2117,45 @@ export async function readNewsLatestIndexViaRelayRest(
       clearTimeout(timeout);
     }
   }
-  return index;
+  return {
+    index,
+    nextCursor: nextCursor ?? latestIndexWindowNextCursor(index),
+    recordCount: Object.keys(index).length,
+    ...(sourceKeyCount === undefined ? {} : { sourceKeyCount }),
+    ...(composition === undefined ? {} : { composition }),
+  };
 }
 
 export async function readNewsLatestIndexWithRelayRestFallback(
   client: VennClient,
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndex> {
+  const page = await readNewsLatestIndexPageWithRelayRestFallback(client, options);
+  return page.index;
+}
+
+export async function readNewsLatestIndexPageWithRelayRestFallback(
+  client: VennClient,
+  options: NewsLatestIndexReadOptions = {},
+): Promise<NewsLatestIndexPage> {
   const relayed = await timeoutAsNull(
-    readNewsLatestIndexViaRelayRest(client, options),
+    readNewsLatestIndexPageViaRelayRest(client, options),
     RELAY_REST_READ_TIMEOUT_MS + 1_000,
   );
-  if (relayed && Object.keys(relayed).length > 0) {
-    return filterLatestIndexWindow(relayed, options);
+  if (relayed && Object.keys(relayed.index).length > 0) {
+    return relayed;
   }
   const direct = await timeoutAsNull(
     readNewsLatestIndex(client),
     Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
   );
   /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; empty fallback is defensive. */
-  return direct ? filterLatestIndexWindow(direct, options) : {};
+  const index = direct ? filterLatestIndexWindow(direct, options) : {};
+  return {
+    index,
+    nextCursor: latestIndexWindowNextCursor(index),
+    recordCount: Object.keys(index).length,
+  };
 }
 
 /**

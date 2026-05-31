@@ -1177,6 +1177,113 @@ describe('infra relay server', () => {
     expect(secondPage.body.records).not.toHaveProperty('story-mid');
   }, 60_000);
 
+  it('backfills a corroborated story into the initial latest-index window without moving the pagination cursor', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
+    });
+    const stories = [
+      makeRelayNewsStory('story-new-singleton', 400, [
+        {
+          source_id: 'source-new',
+          publisher: 'Source New',
+          url: 'https://example.com/new-singleton',
+          url_hash: 'hash-new-singleton',
+          published_at: 400,
+          title: 'New singleton',
+        },
+      ]),
+      makeRelayNewsStory('story-mid-singleton', 300, [
+        {
+          source_id: 'source-mid',
+          publisher: 'Source Mid',
+          url: 'https://example.com/mid-singleton',
+          url_hash: 'hash-mid-singleton',
+          published_at: 300,
+          title: 'Mid singleton',
+        },
+      ]),
+      makeRelayNewsStory('story-old-bundle', 200, [
+        {
+          source_id: 'source-old-a',
+          publisher: 'Source Old A',
+          url: 'https://example.com/old-bundle-a',
+          url_hash: 'hash-old-bundle-a',
+          published_at: 190,
+          title: 'Old bundle A',
+        },
+        {
+          source_id: 'source-old-b',
+          publisher: 'Source Old B',
+          url: 'https://example.com/old-bundle-b',
+          url_hash: 'hash-old-bundle-b',
+          published_at: 200,
+          title: 'Old bundle B',
+        },
+      ]),
+    ];
+    for (const story of stories) {
+      await writeRelayNewsStory(port, story);
+      await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    }
+
+    let firstPage;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      firstPage = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=2&scan_limit=4&include_excluded=true`,
+      );
+      if (
+        firstPage.body?.records?.['story-new-singleton']
+        && firstPage.body?.records?.['story-mid-singleton']
+        && firstPage.body?.records?.['story-old-bundle']
+      ) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(firstPage).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 3,
+        source_key_count: 3,
+        truncated: true,
+        next_cursor: 300,
+        records: expect.objectContaining({
+          'story-new-singleton': expect.objectContaining({
+            story_id: 'story-new-singleton',
+            source_count: 1,
+          }),
+          'story-mid-singleton': expect.objectContaining({
+            story_id: 'story-mid-singleton',
+            source_count: 1,
+          }),
+          'story-old-bundle': expect.objectContaining({
+            story_id: 'story-old-bundle',
+            source_count: 2,
+          }),
+        }),
+        composition: expect.objectContaining({
+          total_visible: 3,
+          singleton_visible: 2,
+          multi_source_visible: 1,
+        }),
+        composition_backfill_records: [
+          expect.objectContaining({
+            story_id: 'story-old-bundle',
+            reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+            source_count: 2,
+            latest_activity_at: 200,
+          }),
+        ],
+      }),
+    });
+  }, 60_000);
+
   it('filters latest-index rows whose story body is unavailable and reports repair evidence', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '4',
