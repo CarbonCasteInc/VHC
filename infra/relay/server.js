@@ -130,6 +130,7 @@ const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
 const aggregatePointReadCache = new Map();
 const newsLatestIndexRestCache = new Map();
 const newsLatestIndexSnapshotCache = new Map();
+const newsLatestIndexSnapshotStoryBodyCache = new Map();
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -1985,7 +1986,172 @@ function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
   }
 }
 
-function buildNewsLatestIndexResultFromSnapshot(snapshot, options = {}, cacheInfo = {}) {
+async function refreshSnapshotEntryStoryState(gun, entry) {
+  if (!gun || !entry?.story || !entry?.entry?.[0]) {
+    return { entry, refreshed: false };
+  }
+  const story = entry.story;
+  const storyId = typeof story.story_id === 'string' && story.story_id.trim()
+    ? story.story_id.trim()
+    : String(entry.entry[0] ?? '').trim();
+  if (!storyId || typeof story.topic_id !== 'string' || !story.topic_id.trim()) {
+    return { entry, refreshed: false };
+  }
+
+  const fieldTimeoutMs = numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fieldLifecycle = await readNewsSynthesisLifecycleRecordFromFields(gun, storyId, { timeoutMs: fieldTimeoutMs })
+    .catch(() => null);
+  const initialLifecycle = fieldLifecycle
+    ?? await readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null);
+  if (!initialLifecycle) {
+    return { entry, refreshed: false };
+  }
+  const lifecycleRevisionMatches = typeof story.provenance_hash === 'string'
+    && story.provenance_hash.trim()
+    && initialLifecycle.source_set_revision === story.provenance_hash;
+  if (
+    initialLifecycle.status === 'accepted_available'
+    && lifecycleRevisionMatches
+    && typeof initialLifecycle.synthesis_id === 'string'
+    && initialLifecycle.synthesis_id.trim()
+  ) {
+    return {
+      entry: {
+        ...entry,
+        storyState: {
+          synthesis_state: 'accepted_synthesis_available',
+          frame_table_state: initialLifecycle.frame_table_state === 'frame_table_ready'
+            ? 'frame_table_ready'
+            : 'frame_table_unavailable',
+          synthesis_id: initialLifecycle.synthesis_id,
+          epoch: Number.isFinite(initialLifecycle.epoch) ? initialLifecycle.epoch : null,
+          lifecycle_status: initialLifecycle.status,
+          terminal_unavailable_reason: null,
+          retryable: false,
+        },
+      },
+      refreshed: true,
+    };
+  }
+  if (initialLifecycle.status !== 'accepted_available') {
+    return {
+      entry: {
+        ...entry,
+        storyState: derivePublicFeedStoryState(story, null, initialLifecycle),
+      },
+      refreshed: true,
+    };
+  }
+  return {
+    entry: {
+      ...entry,
+      storyState: derivePublicFeedStoryState(story, null, initialLifecycle),
+    },
+    refreshed: true,
+  };
+}
+
+function shouldRefreshSnapshotEntryStoryState(entry) {
+  const snapshotState = String(entry?.storyState?.synthesis_state ?? '').trim();
+  if (snapshotState && snapshotState !== 'synthesis_pending') return true;
+  return storySourceCount(entry?.story) > 1;
+}
+
+async function verifySnapshotStoryBodies(gun, entries) {
+  if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES', true)) {
+    return {
+      entries,
+      info: {
+        enabled: false,
+        selected_count: entries.length,
+        verified_count: 0,
+        dropped_count: 0,
+      },
+    };
+  }
+  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CONCURRENCY', 4));
+  const timeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 2_500);
+  const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CACHE_TTL_MS', 5 * 60_000));
+  const checked = await mapWithConcurrency(entries, concurrency, async (entry) => {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    if (!storyId) return { entry: null, verified: false };
+    const cached = newsLatestIndexSnapshotStoryBodyCache.get(storyId);
+    if (cached && cacheTtlMs > 0 && Date.now() - cached.checked_at <= cacheTtlMs) {
+      return cached.story
+        ? {
+          entry: {
+            ...entry,
+            story: cached.story,
+          },
+          verified: true,
+          cached: true,
+        }
+        : { entry: null, verified: false, cached: true };
+    }
+    const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs }).catch(() => null);
+    if (!storyResult?.story) {
+      if (cacheTtlMs > 0) {
+        newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: null });
+      }
+      return { entry: null, verified: false, cached: false };
+    }
+    if (cacheTtlMs > 0) {
+      newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: storyResult.story });
+    }
+    return {
+      entry: {
+        ...entry,
+        story: storyResult.story,
+      },
+      verified: true,
+      cached: false,
+    };
+  });
+  return {
+    entries: checked.map((result) => result.entry).filter(Boolean),
+    info: {
+      enabled: true,
+      selected_count: entries.length,
+      verified_count: checked.filter((result) => result.verified).length,
+      dropped_count: checked.filter((result) => !result.entry).length,
+      cached_count: checked.filter((result) => result.cached).length,
+    },
+  };
+}
+
+async function refreshSnapshotStoryStates(gun, entries) {
+  if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES', true)) {
+    return {
+      entries,
+      info: {
+        enabled: false,
+        selected_count: entries.length,
+        refreshed_count: 0,
+      },
+    };
+  }
+  const refreshCandidates = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => shouldRefreshSnapshotEntryStoryState(entry));
+  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_CONCURRENCY', 3));
+  const refreshed = await mapWithConcurrency(refreshCandidates, concurrency, ({ entry }) =>
+    refreshSnapshotEntryStoryState(gun, entry));
+  const nextEntries = [...entries];
+  for (let index = 0; index < refreshed.length; index += 1) {
+    nextEntries[refreshCandidates[index].index] = refreshed[index].entry;
+  }
+  return {
+    entries: nextEntries,
+    info: {
+      enabled: true,
+      selected_count: entries.length,
+      candidate_count: refreshCandidates.length,
+      refreshed_count: refreshed.filter((result) => result.refreshed).length,
+    },
+  };
+}
+
+async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {}, cacheInfo = {}) {
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
     positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
@@ -2003,7 +2169,7 @@ function buildNewsLatestIndexResultFromSnapshot(snapshot, options = {}, cacheInf
       return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
     });
   const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
-  const selectedEntries = [...chronologicalPageEntries];
+  let selectedEntries = [...chronologicalPageEntries];
   const compositionBackfillRecords = [];
   const shouldBackfillCorroboratedStory =
     !hasBeforeCursor
@@ -2024,6 +2190,10 @@ function buildNewsLatestIndexResultFromSnapshot(snapshot, options = {}, cacheInf
       });
     }
   }
+  const bodyReadbackResult = await verifySnapshotStoryBodies(gun, selectedEntries);
+  selectedEntries = bodyReadbackResult.entries;
+  const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
+  selectedEntries = refreshResult.entries;
   const records = {};
   const storyStates = {};
   const composition = createFeedCompositionAccumulator();
@@ -2048,6 +2218,8 @@ function buildNewsLatestIndexResultFromSnapshot(snapshot, options = {}, cacheInf
     consistency: {
       ...(snapshot.consistency ?? {}),
       empty_read_cache: cacheInfo,
+      snapshot_story_body_readback: bodyReadbackResult.info,
+      snapshot_story_state_refresh: refreshResult.info,
     },
     composition: finalizeFeedComposition(composition),
     storyStates,
@@ -2069,7 +2241,7 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
     const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
       ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
     if (snapshot && Array.isArray(snapshot.entries) && snapshot.entries.length > 0) {
-      return buildNewsLatestIndexResultFromSnapshot(snapshot, options, {
+      return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
         served_from: 'preferred_latest_index_snapshot',
         cached_at: snapshot.cached_at,
         age_ms: Date.now() - snapshot.cached_at,
@@ -2118,7 +2290,7 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
         const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
           ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
         if (snapshot && Date.now() - snapshot.cached_at <= cacheTtlMs) {
-          return buildNewsLatestIndexResultFromSnapshot(snapshot, options, {
+          return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
             served_from: 'last_non_empty_latest_index_snapshot',
             cached_at: snapshot.cached_at,
             age_ms: Date.now() - snapshot.cached_at,
