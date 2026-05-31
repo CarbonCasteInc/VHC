@@ -1,5 +1,5 @@
-import type { TopicSynthesisV2 } from '@vh/data-model';
-import { TopicSynthesisV2Schema } from '@vh/data-model';
+import type { CandidateSynthesis, TopicSynthesisV2 } from '@vh/data-model';
+import { CandidateSynthesisSchema, TopicSynthesisV2Schema } from '@vh/data-model';
 import {
   createRelayDaemonAuthHeaders,
   resolveRelayRestEndpointFromPeer,
@@ -16,6 +16,7 @@ const REQUIRE_ALL_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL';
 const DEFAULT_RELAY_WRITE_TIMEOUT_MS = 10_000;
 
 export interface RelayRestSynthesisWriters {
+  readonly writeCandidate: (client: VennClient, candidate: CandidateSynthesis) => Promise<CandidateSynthesis>;
   readonly writeSynthesis: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
   readonly writeLatest: (
     client: VennClient,
@@ -221,6 +222,20 @@ export function createRelayRestSynthesisWritersFromEnv(
   }
 
   return {
+    async writeCandidate(writeClient, candidate) {
+      const sanitized = CandidateSynthesisSchema.parse(candidate);
+      await postJsonToRelays({
+        client: writeClient,
+        path: '/vh/topics/synthesis-candidate',
+        body: { candidate: sanitized },
+        logger,
+        validate: (payload) =>
+          payload.ok === true
+          && payload.topic_id === sanitized.topic_id
+          && payload.candidate_id === sanitized.candidate_id,
+      });
+      return sanitized;
+    },
     async writeSynthesis(_client, synthesis) {
       return TopicSynthesisV2Schema.parse(synthesis);
     },

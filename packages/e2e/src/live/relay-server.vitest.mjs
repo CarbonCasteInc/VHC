@@ -493,6 +493,35 @@ describe('infra relay server', () => {
           }),
         }),
       });
+
+    const candidateBody = {
+      candidate: {
+        candidate_id: 'candidate-daemon',
+        topic_id: 'topic-daemon',
+        epoch: 1,
+        created_at: 1_700_000_000_000,
+      },
+    };
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis-candidate`, {
+      method: 'POST',
+      body: candidateBody,
+    })).resolves.toMatchObject({
+      statusCode: 401,
+      body: expect.objectContaining({ ok: false, error: 'daemon-token-required' }),
+    });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis-candidate`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer daemon-secret' },
+      body: candidateBody,
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: 'topic-daemon',
+        epoch: 1,
+        candidate_id: 'candidate-daemon',
+      }),
+    });
   });
 
   it('serves scalar-only topic synthesis records without waiting for a missing parent node', async () => {
