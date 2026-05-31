@@ -762,6 +762,16 @@ function encodeTopicSynthesis(synthesis) {
   };
 }
 
+function encodeTopicSynthesisCandidate(candidate) {
+  return {
+    __candidate_synthesis_json: JSON.stringify(candidate),
+    candidate_id: candidate.candidate_id,
+    topic_id: candidate.topic_id,
+    epoch: candidate.epoch,
+    created_at: candidate.created_at,
+  };
+}
+
 function buildTopicSynthesisGraph(synthesis) {
   const state = Gun.state();
   const topicId = String(synthesis.topic_id);
@@ -784,6 +794,33 @@ function buildTopicSynthesisGraph(synthesis) {
     if (value === undefined) continue;
     graph[latestSoul] = stateNode(graph[latestSoul], key, state, value, latestSoul);
     graph[epochSynthesisSoul] = stateNode(graph[epochSynthesisSoul], key, state, value, epochSynthesisSoul);
+  }
+
+  return graph;
+}
+
+function buildTopicSynthesisCandidateGraph(candidate) {
+  const state = Gun.state();
+  const topicId = String(candidate.topic_id);
+  const epoch = String(candidate.epoch);
+  const candidateId = String(candidate.candidate_id);
+  const epochRootSoul = `vh/topics/${topicId}/epochs`;
+  const epochSoul = `${epochRootSoul}/${epoch}`;
+  const candidatesSoul = `${epochSoul}/candidates`;
+  const candidateSoul = `${candidatesSoul}/${candidateId}`;
+  const encoded = encodeTopicSynthesisCandidate(candidate);
+  const graph = {};
+
+  linkNode(graph, 'vh', 'topics', 'vh/topics', state);
+  linkNode(graph, 'vh/topics', topicId, `vh/topics/${topicId}`, state);
+  linkNode(graph, `vh/topics/${topicId}`, 'epochs', epochRootSoul, state);
+  linkNode(graph, epochRootSoul, epoch, epochSoul, state);
+  linkNode(graph, epochSoul, 'candidates', candidatesSoul, state);
+  linkNode(graph, candidatesSoul, candidateId, candidateSoul, state);
+
+  for (const [key, value] of Object.entries(encoded)) {
+    if (value === undefined) continue;
+    graph[candidateSoul] = stateNode(graph[candidateSoul], key, state, value, candidateSoul);
   }
 
   return graph;
@@ -3264,6 +3301,23 @@ function sanitizeTopicSynthesis(value) {
   };
 }
 
+function sanitizeTopicSynthesisCandidate(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('synthesis-candidate-required');
+  }
+  const topicId = typeof value.topic_id === 'string' ? value.topic_id.trim() : '';
+  const candidateId = typeof value.candidate_id === 'string' ? value.candidate_id.trim() : '';
+  if (!topicId) throw new Error('synthesis-candidate-topic-required');
+  if (!candidateId) throw new Error('synthesis-candidate-id-required');
+  if (!Number.isFinite(value.epoch)) throw new Error('synthesis-candidate-epoch-required');
+  return {
+    ...value,
+    topic_id: topicId,
+    candidate_id: candidateId,
+    epoch: Math.floor(value.epoch),
+  };
+}
+
 function normalizeRequiredString(value, name) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) throw new Error(`${name}-required`);
@@ -3511,6 +3565,26 @@ async function writeTopicSynthesis(gun, synthesis) {
   const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
   if (!readback) {
     throw new Error('topic-synthesis-readback-failed');
+  }
+  return clean;
+}
+
+async function writeTopicSynthesisCandidate(gun, candidate) {
+  const clean = sanitizeTopicSynthesisCandidate(candidate);
+  const encoded = encodeTopicSynthesisCandidate(clean);
+  const candidateChain = gun
+    .get('vh')
+    .get('topics')
+    .get(clean.topic_id)
+    .get('epochs')
+    .get(String(clean.epoch))
+    .get('candidates')
+    .get(clean.candidate_id);
+  await putScalarRecord(candidateChain, encoded, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
+  injectGraph(gun, buildTopicSynthesisCandidateGraph(clean));
+  const readback = stripGunMetadata(await readOnce(candidateChain, 5_000));
+  if (!readback || readback.candidate_id !== clean.candidate_id) {
+    throw new Error('topic-synthesis-candidate-readback-failed');
   }
   return clean;
 }
@@ -4059,6 +4133,18 @@ const server = http.createServer((req, res) => {
       return {
         topic_id: synthesis.topic_id,
         synthesis_id: synthesis.synthesis_id,
+      };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/topics/synthesis-candidate') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const candidate = await writeTopicSynthesisCandidate(gun, body.candidate);
+      return {
+        topic_id: candidate.topic_id,
+        epoch: candidate.epoch,
+        candidate_id: candidate.candidate_id,
       };
     });
     return;

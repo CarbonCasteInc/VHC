@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TopicSynthesisV2 } from '@vh/data-model';
+import type { CandidateSynthesis, TopicSynthesisV2 } from '@vh/data-model';
 import type { NewsSynthesisLifecycleRecord, VennClient } from '@vh/gun-client';
 import {
   createRelayRestSynthesisWritersFromEnv,
@@ -48,6 +48,45 @@ const SYNTHESIS: TopicSynthesisV2 = {
   created_at: 1_000,
 };
 
+const CANDIDATE: CandidateSynthesis = {
+  candidate_id: 'candidate-1',
+  topic_id: 'topic-1',
+  epoch: 0,
+  critique_notes: [],
+  key_facts: ['A verified fact.'],
+  facts_summary: 'A verified summary.',
+  frames: [{
+    frame: 'Frame',
+    reframe: 'Reframe',
+  }],
+  source_analyses: [{
+    source_id: 'source-1',
+    publisher: 'Publisher',
+    title: 'Source story',
+    url: 'https://example.com/story',
+    url_hash: 'abc123',
+    key_facts: ['A verified fact.'],
+    summary: 'Source summary.',
+    bias_claim_quote: [],
+    justify_bias_claim: [],
+    biases: [],
+    counterpoints: [],
+    perspectives: [{
+      frame: 'Frame',
+      reframe: 'Reframe',
+    }],
+    analyzed_at: 1_000,
+  }],
+  warnings: [],
+  divergence_hints: [],
+  provider: {
+    provider_id: 'remote-analysis',
+    model_id: 'gpt-test',
+    kind: 'remote',
+  },
+  created_at: 1_000,
+};
+
 const LIFECYCLE: NewsSynthesisLifecycleRecord = {
   schemaVersion: 'vh-news-synthesis-lifecycle-v1',
   story_id: 'story-1',
@@ -90,7 +129,7 @@ describe('relayRestSynthesisWriters', () => {
       .toThrow('VH_RELAY_DAEMON_TOKEN is required');
   });
 
-  it('posts accepted synthesis and lifecycle rows to every configured relay endpoint', async () => {
+  it('posts candidate, accepted synthesis, and lifecycle rows to every configured relay endpoint', async () => {
     vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
     vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -103,6 +142,13 @@ describe('relayRestSynthesisWriters', () => {
           ok: true,
           topic_id: SYNTHESIS.topic_id,
           synthesis_id: SYNTHESIS.synthesis_id,
+        });
+      }
+      if (init?.method === 'POST' && url.endsWith('/vh/topics/synthesis-candidate')) {
+        return jsonResponse({
+          ok: true,
+          topic_id: CANDIDATE.topic_id,
+          candidate_id: CANDIDATE.candidate_id,
         });
       }
       if (init?.method === 'POST' && url.endsWith('/vh/news/synthesis-lifecycle')) {
@@ -118,6 +164,7 @@ describe('relayRestSynthesisWriters', () => {
 
     const writers = createRelayRestSynthesisWritersFromEnv(CLIENT, console);
 
+    await expect(writers.writeCandidate?.(CLIENT, CANDIDATE)).resolves.toEqual(CANDIDATE);
     await expect(writers.writeSynthesis?.(CLIENT, SYNTHESIS)).resolves.toEqual(SYNTHESIS);
     await expect(writers.writeLatest?.(CLIENT, SYNTHESIS)).resolves.toMatchObject({
       status: 'written',
@@ -128,6 +175,8 @@ describe('relayRestSynthesisWriters', () => {
 
     const postCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
     expect(postCalls.map(([url]) => String(url))).toEqual([
+      'https://gun-a.example.test/vh/topics/synthesis-candidate',
+      'https://gun-b.example.test/vh/topics/synthesis-candidate',
       'https://gun-a.example.test/vh/topics/synthesis',
       'https://gun-b.example.test/vh/topics/synthesis',
       'https://gun-a.example.test/vh/news/synthesis-lifecycle',
