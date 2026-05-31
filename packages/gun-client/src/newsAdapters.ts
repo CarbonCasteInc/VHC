@@ -1650,6 +1650,17 @@ function timeoutAsNull<T>(work: Promise<T>, timeoutMs: number): Promise<T | null
 }
 /* v8 ignore stop */
 
+function resolveRelayRestEndpointsFromPeers(client: VennClient, path: string): string[] {
+  const endpoints: string[] = [];
+  for (const peer of client.config.peers) {
+    const endpoint = resolveRelayRestEndpointFromPeer(peer, path);
+    if (endpoint && !endpoints.includes(endpoint)) {
+      endpoints.push(endpoint);
+    }
+  }
+  return endpoints;
+}
+
 /**
  * Read a StoryBundle through the relay's same-origin REST fallback.
  *
@@ -1661,45 +1672,51 @@ export async function readNewsStoryViaRelayRest(
   storyId: string,
 ): Promise<StoryBundle | null> {
   const normalizedStoryId = storyId.trim();
-  const peer = client.config.peers[0];
-  if (!normalizedStoryId || !peer || typeof fetch !== 'function') {
+  if (!normalizedStoryId || typeof fetch !== 'function') {
     return null;
   }
-  const endpoint = resolveRelayRestEndpointFromPeer(
-    peer,
+  const endpoints = resolveRelayRestEndpointsFromPeers(
+    client,
     `/vh/news/story?story_id=${encodeURIComponent(normalizedStoryId)}`,
   );
-  if (!endpoint) {
+  if (endpoints.length === 0) {
     return null;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
-  try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json() as { record?: unknown };
-    const parsed = await parseStoryBundleFromStoredRecord(client, normalizedStoryId, payload.record);
-    if (!parsed) {
-      return null;
-    }
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
     try {
-      await assertCanonicalNewsTopicId(parsed);
-      return parsed;
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const payload = await response.json() as { record?: unknown; story?: unknown };
+      const parsed = await parseStoryBundleFromStoredRecord(
+        client,
+        normalizedStoryId,
+        payload.record ?? payload.story,
+      );
+      if (!parsed) {
+        continue;
+      }
+      try {
+        await assertCanonicalNewsTopicId(parsed);
+        return parsed;
+      } catch {
+        continue;
+      }
     } catch {
-      return null;
+      continue;
+    } finally {
+      clearTimeout(timeout);
     }
-  } catch {
-    return null;
-  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
-    clearTimeout(timeout);
   }
+  return null;
 }
 
 export async function readNewsStoryWithRelayRestFallback(
@@ -1812,44 +1829,49 @@ export async function readNewsSynthesisLifecycleStatusViaRelayRest(
   storyId: string,
 ): Promise<NewsSynthesisLifecycleRecord | null> {
   const normalizedId = storyId.trim();
-  const peer = client.config.peers[0];
-  if (!normalizedId || !peer || typeof fetch !== 'function') {
+  if (!normalizedId || typeof fetch !== 'function') {
     return null;
   }
   const query = new URLSearchParams({ story_id: normalizedId });
-  const endpoint = resolveRelayRestEndpointFromPeer(
-    peer,
+  const endpoints = resolveRelayRestEndpointsFromPeers(
+    client,
     `/vh/news/synthesis-lifecycle?${query.toString()}`,
   );
-  if (!endpoint) {
+  if (endpoints.length === 0) {
     return null;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
-  try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
-    const record = isRecord(payload.record)
-      ? payload.record
-      : isRecord(payload.lifecycle)
-        ? payload.lifecycle
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
+      const record = isRecord(payload.record)
+        ? payload.record
+        : isRecord(payload.lifecycle)
+          ? payload.lifecycle
+          : null;
+      const parsed = record
+        ? parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, record)
         : null;
-    return record
-      ? parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, record)
-      : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
+      if (parsed) {
+        return parsed;
+      }
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  return null;
 }
 
 export async function readNewsSynthesisLifecycleStatusWithRelayRestFallback(
@@ -1979,8 +2001,7 @@ export async function readNewsLatestIndexViaRelayRest(
   client: VennClient,
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndex> {
-  const peer = client.config.peers[0];
-  if (!peer || typeof fetch !== 'function') {
+  if (typeof fetch !== 'function') {
     return {};
   }
   const limit = normalizeLatestIndexReadLimit(options.limit);
@@ -1989,50 +2010,52 @@ export async function readNewsLatestIndexViaRelayRest(
   if (before !== null) {
     query.set('before', String(before));
   }
-  const endpoint = resolveRelayRestEndpointFromPeer(
-    peer,
+  const endpoints = resolveRelayRestEndpointsFromPeers(
+    client,
     `/vh/news/latest-index?${query.toString()}`,
   );
-  if (!endpoint) {
+  if (endpoints.length === 0) {
     return {};
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
-  try {
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return {};
-    }
-    const payload = await response.json() as { records?: unknown; index?: unknown };
-    const records = isRecord(payload.records)
-      ? payload.records
-      : isRecord(payload.index)
-        ? payload.index
-        : null;
-    if (!records) {
-      return {};
-    }
+  const index: NewsLatestIndex = {};
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const payload = await response.json() as { records?: unknown; index?: unknown };
+      const records = isRecord(payload.records)
+        ? payload.records
+        : isRecord(payload.index)
+          ? payload.index
+          : null;
+      if (!records) {
+        continue;
+      }
 
-    const index: NewsLatestIndex = {};
-    for (const [storyId, value] of Object.entries(records)) {
-      try {
-        const timestamp = await parseLatestIndexEntry(client, storyId, value);
-        if (timestamp !== null) {
-          index[storyId] = timestamp;
-        }
-      } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+      for (const [storyId, value] of Object.entries(records)) {
+        try {
+          const timestamp = await parseLatestIndexEntry(client, storyId, value);
+          if (timestamp !== null) {
+            index[storyId] = Math.max(index[storyId] ?? 0, timestamp);
+          }
+        } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+      }
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timeout);
     }
-    return index;
-  } catch {
-    return {};
-  } /* v8 ignore next -- V8 branch artifact on finally; relay success/failure paths are covered. */ finally {
-    clearTimeout(timeout);
   }
+  return index;
 }
 
 export async function readNewsLatestIndexWithRelayRestFallback(

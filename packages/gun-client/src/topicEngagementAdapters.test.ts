@@ -749,34 +749,52 @@ describe('topicEngagementAdapters', () => {
   });
 
   it('treats missing put acknowledgements as timeout telemetry but keeps materializing', async () => {
+    const hooks = await createRealSystemWriterHooks();
     vi.useFakeTimers();
-    const mesh = createFakeMesh();
-    mesh.setRead('aggregates/topics/topic-1/engagement/actors', {
-      'actor-other': OTHER_ACTOR,
-    });
-    mesh.setPutHandler((path, value, cb) => {
-      mesh.writes.push({ path, value });
-      mesh.setRead(path, value);
-      setTimeout(() => cb?.({}), 1_100);
-    });
-    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-    const client = createClient(mesh, guard);
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('aggregates/topics/topic-1/engagement/actors', {
+        'actor-other': OTHER_ACTOR,
+      });
+      mesh.setPutHandler((path, value, cb) => {
+        mesh.writes.push({ path, value });
+        mesh.setRead(path, value);
+        setTimeout(() => cb?.({}), 1_100);
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        systemWriterPin: hooks.pin,
+        systemWriterSign: hooks.sign,
+        systemWriterVerify: () => true,
+      });
 
-    const aggregatePromise = writeTopicEngagementActorNode(client, 'topic-1', 'actor-me', {
-      eyeWeight: 1,
-      lightbulbWeight: 1,
-      updatedAt: '2026-02-18T23:01:00.000Z',
-    });
+      const aggregatePromise = writeTopicEngagementActorNode(client, 'topic-1', 'actor-me', {
+        eyeWeight: 1,
+        lightbulbWeight: 1,
+        updatedAt: '2026-02-18T23:01:00.000Z',
+      });
+      let settled = false;
+      aggregatePromise.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
 
-    await vi.advanceTimersByTimeAsync(1_100);
-    await vi.advanceTimersByTimeAsync(1_100);
-    await expect(aggregatePromise).resolves.toMatchObject({
-      topic_id: 'topic-1',
-      eye_weight: 2.285,
-      lightbulb_weight: 1,
-    });
-
-    vi.useRealTimers();
+      for (let pass = 0; pass < 6 && !settled; pass += 1) {
+        await vi.advanceTimersByTimeAsync(1_100);
+        await Promise.resolve();
+      }
+      await expect(aggregatePromise).resolves.toMatchObject({
+        topic_id: 'topic-1',
+        eye_weight: 2.285,
+        lightbulb_weight: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('times out reads and ignores late read callbacks', async () => {
