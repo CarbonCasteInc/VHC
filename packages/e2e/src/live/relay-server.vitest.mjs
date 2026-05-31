@@ -1110,6 +1110,16 @@ describe('infra relay server', () => {
             source_count: 1,
           }),
         }),
+        stories: expect.objectContaining({
+          'story-new': expect.objectContaining({
+            story_id: 'story-new',
+            headline: expect.any(String),
+          }),
+          'story-mid': expect.objectContaining({
+            story_id: 'story-mid',
+            headline: expect.any(String),
+          }),
+        }),
         story_states: expect.objectContaining({
           'story-new': expect.objectContaining({
             synthesis_state: 'synthesis_pending',
@@ -1767,6 +1777,10 @@ describe('infra relay server', () => {
       lifecycle_status: 'accepted_available',
       synthesis_id: synthesis.synthesis_id,
       epoch: 1,
+    });
+    expect(accepted.body.stories[story.story_id]).toMatchObject({
+      story_id: story.story_id,
+      headline: story.headline,
     });
     expect(accepted.body.composition).toMatchObject({
       total_visible: 1,

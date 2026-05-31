@@ -1127,6 +1127,7 @@ describe('newsAdapters', () => {
 
     await writeNewsLatestIndexEntry(client, 'story-a', 123.9);
     const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const relayedStory = { ...STORY, story_id: 'story-a', cluster_window_end: 123 };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       record_count: 1,
@@ -1137,6 +1138,7 @@ describe('newsAdapters', () => {
         multi_source_visible: 0,
       },
       records: { 'story-a': record },
+      stories: { 'story-a': relayedStory },
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -1159,11 +1161,67 @@ describe('newsAdapters', () => {
           singleton_visible: 1,
           multi_source_visible: 0,
         },
+        stories: { 'story-a': relayedStory },
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
         expect.objectContaining({ method: 'GET' }),
       );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps relay-embedded latest-index stories when legacy index signatures cannot be revalidated in the browser', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    const relayedStory = {
+      ...STORY,
+      story_id: 'story-relayed-embedded',
+      cluster_window_end: 456,
+    };
+    await writeNewsLatestIndexEntry(client, relayedStory.story_id, relayedStory.cluster_window_end, relayedStory);
+    const record = {
+      ...expectSystemLatestIndexRecord(
+        mesh.writes[0].value,
+        relayedStory.story_id,
+        relayedStory.cluster_window_end,
+        relayedStory,
+      ),
+      _systemSignature: 'tampered-signature-from-legacy-peer-copy',
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      next_cursor: relayedStory.cluster_window_end,
+      records: { [relayedStory.story_id]: record },
+      stories: { [relayedStory.story_id]: relayedStory },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { [relayedStory.story_id]: relayedStory.cluster_window_end },
+        stories: { [relayedStory.story_id]: relayedStory },
+      });
+      await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({
+        [relayedStory.story_id]: relayedStory.cluster_window_end,
+      });
     } finally {
       vi.unstubAllGlobals();
     }

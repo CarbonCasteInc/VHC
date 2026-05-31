@@ -23,4 +23,12 @@ describe('feedBridgeRefreshInternal.readBridgeNumber', () => {
       }),
     ).rejects.toThrow('bridge-failed');
   });
+
+  it('forwards bounded bootstrap refresh requests to refreshLatest', async () => {
+    const refreshLatest = vi.fn().mockResolvedValue(undefined);
+
+    await runRefreshLatestWithRetry({ refreshLatest }, 15);
+
+    expect(refreshLatest).toHaveBeenCalledWith(15);
+  });
 });

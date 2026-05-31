@@ -22,6 +22,7 @@ interface NewsBridgeState {
   stories: ReadonlyArray<StoryBundle>;
   hotIndex: Readonly<Record<string, number>>;
   storylinesById: Readonly<Record<string, StorylineGroup>>;
+  loading: boolean;
   startHydration: () => void;
   refreshLatest: (request?: number | { readonly limit?: number; readonly before?: number }) => Promise<void>;
 }
@@ -54,6 +55,8 @@ type NewsStoreApi = Pick<StoreApi<NewsBridgeState>, 'getState' | 'subscribe'>;
 type SynthesisStoreApi = Pick<StoreApi<SynthesisBridgeState>, 'getState' | 'subscribe'>;
 type DiscoveryStoreApi = Pick<StoreApi<DiscoveryBridgeState>, 'getState'>;
 
+const NEWS_BRIDGE_INITIAL_REFRESH_LIMIT = 15;
+
 interface BridgeStores {
   newsStore: NewsStoreApi;
   synthesisStore: SynthesisStoreApi;
@@ -81,6 +84,22 @@ function syncNewsFeedItems(items: ReadonlyArray<FeedItem>, discoveryStore: Disco
     return;
   }
   mergeIntoDiscovery(items, discoveryStore);
+}
+
+function syncCurrentNewsState(
+  newsState: NewsBridgeState,
+  discoveryStore: DiscoveryStoreApi,
+): void {
+  if (newsState.stories.length === 0) {
+    return;
+  }
+
+  syncNewsFeedItems(
+    newsState.stories.map((story) =>
+      storyBundleToFeedItem(story, newsState.hotIndex, newsState.storylinesById),
+    ),
+    discoveryStore,
+  );
 }
 
 function readBridgeFlag(flag: BridgeFlag, defaultValue = false): boolean {
@@ -163,24 +182,6 @@ export async function startNewsBridge(): Promise<void> {
   const { newsStore, discoveryStore } = await resolveBridgeStores();
   newsBridgeActive = true;
 
-  const newsState = newsStore.getState();
-  newsState.startHydration();
-  try {
-    await runRefreshLatestWithRetry(newsState);
-  } catch (error) {
-    console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
-  }
-
-  const currentNewsState = newsStore.getState();
-  if (currentNewsState.stories.length > 0) {
-    syncNewsFeedItems(
-      currentNewsState.stories.map((story) =>
-        storyBundleToFeedItem(story, currentNewsState.hotIndex, currentNewsState.storylinesById),
-      ),
-      discoveryStore,
-    );
-  }
-
   newsUnsubscribe = newsStore.subscribe((state, prevState) => {
     if (
       state.stories === prevState.stories &&
@@ -194,13 +195,24 @@ export async function startNewsBridge(): Promise<void> {
       return;
     }
 
-    syncNewsFeedItems(
-      state.stories.map((story) =>
-        storyBundleToFeedItem(story, state.hotIndex, state.storylinesById),
-      ),
-      discoveryStore,
-    );
+    syncCurrentNewsState(state, discoveryStore);
   });
+
+  const newsState = newsStore.getState();
+  newsState.startHydration();
+
+  if (newsState.stories.length > 0 || newsState.loading) {
+    syncCurrentNewsState(newsState, discoveryStore);
+    return;
+  }
+
+  try {
+    await runRefreshLatestWithRetry(newsState, NEWS_BRIDGE_INITIAL_REFRESH_LIMIT);
+  } catch (error) {
+    console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
+  }
+
+  syncCurrentNewsState(newsStore.getState(), discoveryStore);
 }
 
 /**

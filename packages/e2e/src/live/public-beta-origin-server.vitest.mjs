@@ -329,7 +329,7 @@ describe('public beta origin server', () => {
     expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
   });
 
-  it('fans public news and synthesis read fallbacks across configured relay targets', async () => {
+  it('serves public news and synthesis read fallbacks from the first usable configured relay target', async () => {
     const staticDir = await makeStaticRoot();
     const relayRequests = [];
     const relayUrls = [];
@@ -396,10 +396,9 @@ describe('public beta origin server', () => {
     expect(latestIndex.status).toBe(200);
     expect(await latestIndex.json()).toMatchObject({
       ok: true,
-      relay_index: 2,
+      relay_index: 1,
       records: {
         'story-a': { timestamp: 1 },
-        'story-b': { timestamp: 2 },
       },
     });
 
@@ -407,10 +406,9 @@ describe('public beta origin server', () => {
     expect(hotIndex.status).toBe(200);
     expect(await hotIndex.json()).toMatchObject({
       ok: true,
-      relay_index: 2,
+      relay_index: 1,
       records: {
         'story-hot-a': { hotness: 0.91 },
-        'story-hot-b': { hotness: 0.62 },
       },
     });
 
@@ -430,10 +428,76 @@ describe('public beta origin server', () => {
       record: { topic_id: 'topic-from-relay-1' },
     });
 
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index'))).toHaveLength(3);
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/hot-index'))).toHaveLength(3);
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story'))).toHaveLength(3);
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis'))).toHaveLength(3);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index'))).toHaveLength(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/hot-index'))).toHaveLength(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story'))).toHaveLength(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis'))).toHaveLength(2);
+  });
+
+  it('caps public news fanout read latency separately from slower full relay fanout', async () => {
+    const staticDir = await makeStaticRoot();
+    const fastRelay = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url?.startsWith('/vh/news/latest-index')) {
+        res.end(JSON.stringify({
+          ok: true,
+          relay_index: 0,
+          records: {
+            'story-fast': { timestamp: 100 },
+          },
+          composition: {
+            total_visible: 1,
+            singleton_visible: 0,
+            multi_source_visible: 1,
+            max_source_count: 2,
+            freshness_age_ms: 0,
+          },
+        }));
+        return;
+      }
+      res.end(JSON.stringify({ ok: true }));
+    });
+    const slowRelay = createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          relay_index: 1,
+          records: {
+            'story-slow': { timestamp: 200 },
+          },
+        }));
+      }, 250);
+    });
+    const relayTargets = [
+      await listen(fastRelay),
+      await listen(slowRelay),
+    ];
+    cleanup.push(() => new Promise((resolve) => fastRelay.close(resolve)));
+    cleanup.push(() => new Promise((resolve) => slowRelay.close(resolve)));
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets,
+      relayFanoutTimeoutMs: 1_000,
+      relayNewsFanoutTimeoutMs: 25,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const startedAt = Date.now();
+    const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=1`);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(latestIndex.status).toBe(200);
+    expect(elapsedMs).toBeLessThan(500);
+    expect(await latestIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 0,
+      records: {
+        'story-fast': { timestamp: 100 },
+      },
+    });
   });
 
   it('prefers mixed public news feed responses over singleton-only relay windows', async () => {
@@ -517,7 +581,7 @@ describe('public beta origin server', () => {
         multi_source_visible: 1,
       },
     });
-    expect(relayRequests).toHaveLength(3);
+    expect(relayRequests).toHaveLength(2);
   });
 
   it('fans forum comment reads and writes across configured public relay targets', async () => {

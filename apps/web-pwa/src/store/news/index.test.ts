@@ -8,6 +8,7 @@ const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Pr
   index: Record<string, number>;
   nextCursor: number | null;
   recordCount: number;
+  stories?: Record<string, StoryBundle>;
 }>>();
 const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
@@ -751,6 +752,8 @@ describe('news store', () => {
     });
 
     const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
     const store = createNewsStore({ resolveClient: () => client as never });
 
     await store.getState().refreshLatest(25);
@@ -764,6 +767,36 @@ describe('news store', () => {
     expect(store.getState().latestIndexCursor).toBe(100);
     expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+    expect(useDiscoveryStore.getState().items.map((item) => item.story_id)).toEqual(['s1', 's2']);
+  });
+
+  it('refreshLatest uses relay-embedded latest-index stories before per-story reads', async () => {
+    const client = { id: 'client-embedded-stories' };
+    const embeddedStory = story({
+      story_id: 'embedded-story',
+      headline: 'Embedded relay story',
+      cluster_window_end: 300,
+    });
+    readNewsLatestIndexMock.mockResolvedValueOnce({
+      index: { 'embedded-story': 300 },
+      nextCursor: 300,
+      recordCount: 1,
+      stories: { 'embedded-story': embeddedStory },
+    });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockRejectedValue(new Error('per-story read should not run'));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(1);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['embedded-story']);
+    expect(store.getState().latestIndex).toEqual({ 'embedded-story': 300 });
+    expect(store.getState().latestIndexCursor).toBe(300);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
   });
