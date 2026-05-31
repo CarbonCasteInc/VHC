@@ -1433,12 +1433,35 @@ async function parseLatestIndexEntryRecordFromStoredRecord(
   return parseLatestIndexEntryPayload(payload, storyId);
 }
 
+function parseNewsIndexEntryFromStoredRecord(
+  client: VennClient,
+  kind: 'latest',
+  storyId: string,
+  value: unknown,
+): Promise<NewsLatestIndexEntryRecord | null>;
+function parseNewsIndexEntryFromStoredRecord(
+  client: VennClient,
+  kind: 'hot',
+  storyId: string,
+  value: unknown,
+): Promise<NewsHotIndexEntryRecord | null>;
+async function parseNewsIndexEntryFromStoredRecord(
+  client: VennClient,
+  kind: 'latest' | 'hot',
+  storyId: string,
+  value: unknown,
+): Promise<NewsLatestIndexEntryRecord | NewsHotIndexEntryRecord | null> {
+  return kind === 'latest'
+    ? parseLatestIndexEntryRecordFromStoredRecord(client, storyId, value)
+    : parseHotIndexEntryRecordFromStoredRecord(client, storyId, value);
+}
+
 async function parseLatestIndexEntry(
   client: VennClient,
   storyId: string,
   value: unknown,
 ): Promise<number | null> {
-  return (await parseLatestIndexEntryRecordFromStoredRecord(client, storyId, value))?.latest_activity_at ?? null;
+  return (await parseNewsIndexEntryFromStoredRecord(client, 'latest', storyId, value))?.latest_activity_at ?? null;
 }
 
 export async function parseNewsLatestIndexEntryRecord(
@@ -1462,7 +1485,7 @@ export async function parseNewsLatestIndexProductRecord(
   if (!normalizedId) {
     return null;
   }
-  return parseLatestIndexEntryRecordFromStoredRecord(client, normalizedId, value);
+  return parseNewsIndexEntryFromStoredRecord(client, 'latest', normalizedId, value);
 }
 
 async function parseHotIndexEntry(
@@ -1470,7 +1493,7 @@ async function parseHotIndexEntry(
   storyId: string,
   value: unknown,
 ): Promise<number | null> {
-  return (await parseHotIndexEntryRecordFromStoredRecord(client, storyId, value))?.hotness ?? null;
+  return (await parseNewsIndexEntryFromStoredRecord(client, 'hot', storyId, value))?.hotness ?? null;
 }
 
 export async function parseNewsHotIndexProductRecord(
@@ -1482,7 +1505,7 @@ export async function parseNewsHotIndexProductRecord(
   if (!normalizedId) {
     return null;
   }
-  return parseHotIndexEntryRecordFromStoredRecord(client, normalizedId, value);
+  return parseNewsIndexEntryFromStoredRecord(client, 'hot', normalizedId, value);
 }
 
 async function parseHotIndexEntryRecordFromStoredRecord(

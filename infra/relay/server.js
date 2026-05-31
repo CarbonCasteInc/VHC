@@ -1691,9 +1691,27 @@ function storySourceCount(story) {
   return sources.length;
 }
 
+function lifecycleStateFields(lifecycle) {
+  if (!lifecycle || typeof lifecycle !== 'object') {
+    return {
+      lifecycle_source_set_revision: null,
+      lifecycle_updated_at: null,
+    };
+  }
+  return {
+    lifecycle_source_set_revision: typeof lifecycle.source_set_revision === 'string'
+      ? lifecycle.source_set_revision
+      : null,
+    lifecycle_updated_at: Number.isFinite(lifecycle.updated_at)
+      ? lifecycle.updated_at
+      : null,
+  };
+}
+
 function derivePublicFeedStoryState(story, synthesis, lifecycle) {
   const acceptedAvailable = acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle);
   const frameReady = hasFrameTableReadyPayload(synthesis);
+  const lifecycleFields = lifecycleStateFields(lifecycle);
   if (lifecycle?.status === 'suppressed') {
     return {
       synthesis_state: 'accepted_synthesis_suppressed',
@@ -1701,6 +1719,7 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
       synthesis_id: lifecycle.synthesis_id ?? null,
       epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
       lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
       terminal_unavailable_reason: lifecycle.reason ?? 'suppressed',
       retryable: false,
     };
@@ -1712,6 +1731,7 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
       synthesis_id: synthesis.synthesis_id ?? null,
       epoch: Number.isFinite(synthesis.epoch) ? synthesis.epoch : null,
       lifecycle_status: lifecycle?.status ?? 'accepted_available',
+      ...lifecycleFields,
       terminal_unavailable_reason: null,
       retryable: false,
     };
@@ -1723,6 +1743,7 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
       synthesis_id: lifecycle.synthesis_id ?? null,
       epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
       lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
       terminal_unavailable_reason: lifecycle.reason ?? 'terminal_unavailable',
       retryable: false,
     };
@@ -1734,6 +1755,7 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
       synthesis_id: lifecycle.synthesis_id ?? null,
       epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
       lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
       terminal_unavailable_reason: null,
       retryable: true,
     };
@@ -1744,6 +1766,7 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
     synthesis_id: lifecycle?.synthesis_id ?? null,
     epoch: Number.isFinite(lifecycle?.epoch) ? lifecycle.epoch : null,
     lifecycle_status: lifecycle?.status ?? 'pending',
+    ...lifecycleFields,
     terminal_unavailable_reason: null,
     retryable: lifecycle?.retryable === true,
   };
@@ -2383,6 +2406,7 @@ function deriveSnapshotStoryStateFromLifecycle(story, lifecycle) {
       synthesis_id: lifecycle.synthesis_id,
       epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
       lifecycle_status: lifecycle.status,
+      ...lifecycleStateFields(lifecycle),
       terminal_unavailable_reason: null,
       retryable: false,
     };

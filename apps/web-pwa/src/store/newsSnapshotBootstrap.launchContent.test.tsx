@@ -4,7 +4,8 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_RANKING_CONFIG, type FeedItem, type StoryBundle } from '@vh/data-model';
+import { DEFAULT_RANKING_CONFIG, type FeedItem, type StoryBundle, type TopicSynthesisV2 } from '@vh/data-model';
+import type { NewsSynthesisLifecycleRecord } from '@vh/gun-client';
 import launchSnapshot from '../../../../packages/e2e/fixtures/launch-content/validated-snapshot.json';
 import { useSentimentState } from '../hooks/useSentimentState';
 import { resetExpandedCardStore } from '../components/feed/expandedCardStore';
@@ -15,6 +16,17 @@ import { useNewsStore } from './news';
 import { storyBundleToFeedItem } from './feedBridgeItems';
 import { bootstrapNewsSnapshotIfConfigured, stopNewsSnapshotRefresh } from './newsSnapshotBootstrap';
 import { useSynthesisStore } from './synthesis';
+import { setClientResolver } from './clientResolver';
+
+const readNewsSynthesisLifecycleStatusMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    readNewsSynthesisLifecycleStatusWithRelayRestFallback: readNewsSynthesisLifecycleStatusMock,
+  };
+});
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, params, ...props }: React.PropsWithChildren<{ params: { threadId: string } }>) => (
@@ -47,6 +59,7 @@ const typedSnapshot = launchSnapshot as {
   latestIndex: Record<string, number>;
   hotIndex: Record<string, number>;
   launchContent: {
+    syntheses: TopicSynthesisV2[];
     preferenceProbe: {
       now: number;
       feedItems: FeedItem[];
@@ -63,6 +76,52 @@ const typedSnapshot = launchSnapshot as {
     };
   };
 };
+
+function makeAcceptedLifecycleForLaunchStory(storyId: string): NewsSynthesisLifecycleRecord | null {
+  const story = typedSnapshot.stories.find((candidate) => candidate.story_id === storyId);
+  const synthesis = typedSnapshot.launchContent.syntheses.find((candidate) =>
+    (candidate.inputs.story_bundle_ids ?? []).includes(storyId),
+  );
+  if (!story || !synthesis) {
+    return null;
+  }
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: story.sources.length,
+    canonical_source_count: story.primary_sources?.length ?? story.sources.length,
+    status: 'accepted_available',
+    retryable: false,
+    synthesis_id: synthesis.synthesis_id,
+    epoch: synthesis.epoch,
+    frame_table_state: 'frame_table_ready',
+    updated_at: typedSnapshot.generatedAt ? Date.parse(typedSnapshot.generatedAt) : Date.now(),
+  };
+}
+
+function makeReadableMockClient() {
+  const chain = {
+    get: vi.fn(() => chain),
+    once: vi.fn((callback: (value: unknown) => void) => {
+      callback(null);
+      return chain;
+    }),
+    on: vi.fn(() => chain),
+    off: vi.fn(() => undefined),
+    map: vi.fn(() => chain),
+    put: vi.fn((_value: unknown, callback?: (ack?: { err?: string }) => void) => {
+      callback?.({});
+      return chain;
+    }),
+  };
+  return {
+    mesh: chain,
+    hydrationBarrier: { prepare: vi.fn().mockResolvedValue(undefined) },
+    topologyGuard: { validateWrite: vi.fn() },
+  };
+}
 
 function resetStores() {
   localStorage.clear();
@@ -84,6 +143,11 @@ function resetStores() {
     eye: {},
     signals: [],
   });
+  setClientResolver(() => makeReadableMockClient() as never);
+  readNewsSynthesisLifecycleStatusMock.mockReset();
+  readNewsSynthesisLifecycleStatusMock.mockImplementation(async (_client: unknown, storyId: string) =>
+    makeAcceptedLifecycleForLaunchStory(storyId),
+  );
 }
 
 function feedItemFor(storyId: string): FeedItem {
@@ -130,6 +194,7 @@ describe('launch content snapshot bootstrap', () => {
     cleanup();
     stopNewsSnapshotRefresh();
     vi.unstubAllEnvs();
+    setClientResolver(() => null);
   });
 
   it('hydrates and renders the curated launch-content snapshot loop deterministically', async () => {
@@ -164,7 +229,9 @@ describe('launch content snapshot bootstrap', () => {
     fireEvent.click(screen.getByTestId(`news-card-headline-${housingItem.topic_id}`));
 
     expect(await screen.findByTestId(`news-card-detail-${housingItem.topic_id}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`news-card-summary-basis-${housingItem.topic_id}`)).toHaveTextContent('Topic synthesis v2');
+    await waitFor(() => {
+      expect(screen.getByTestId(`news-card-summary-basis-${housingItem.topic_id}`)).toHaveTextContent('Topic synthesis v2');
+    });
     expect(screen.getByTestId(`news-card-summary-${housingItem.topic_id}`)).toHaveTextContent(
       'Council advanced a missing-middle zoning package',
     );
@@ -200,9 +267,11 @@ describe('launch content snapshot bootstrap', () => {
     fireEvent.click(screen.getByTestId(`news-card-headline-${correctionItem.topic_id}`));
 
     expect(await screen.findByTestId(`news-card-detail-${correctionItem.topic_id}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`news-card-summary-basis-${correctionItem.topic_id}`)).toHaveTextContent(
-      'Operator correction',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId(`news-card-summary-basis-${correctionItem.topic_id}`)).toHaveTextContent(
+        'Operator correction',
+      );
+    });
     expect(screen.getByTestId(`news-card-synthesis-correction-${correctionItem.topic_id}`)).toHaveTextContent(
       'launch-correction-water-suppressed-1',
     );

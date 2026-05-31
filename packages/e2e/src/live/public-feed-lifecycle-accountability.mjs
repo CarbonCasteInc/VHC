@@ -2,11 +2,7 @@
 
 import {
   createClient,
-  readNewsHotIndexWithRelayRestFallback,
-  readNewsLatestIndex,
-  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
-  readTopicLatestSynthesis,
 } from '@vh/gun-client';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -203,6 +199,58 @@ async function readRelayHot(baseUrl, limit, timeoutMs) {
     records,
     available: Boolean(payload?.ok),
   };
+}
+
+async function readRelayLifecycle(baseUrl, storyId, timeoutMs) {
+  const url = new URL('/vh/news/synthesis-lifecycle', normalizeUrl(baseUrl));
+  url.searchParams.set('story_id', storyId);
+  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  if (payload?.lifecycle && typeof payload.lifecycle === 'object') {
+    return payload.lifecycle;
+  }
+  if (payload?.record && typeof payload.record === 'object') {
+    return payload.record;
+  }
+  return null;
+}
+
+async function readRelayTopicSynthesis(baseUrl, topicId, timeoutMs) {
+  const url = new URL('/vh/topics/synthesis', normalizeUrl(baseUrl));
+  url.searchParams.set('topic_id', topicId);
+  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  if (payload?.synthesis && typeof payload.synthesis === 'object') {
+    return payload.synthesis;
+  }
+  if (payload?.record && typeof payload.record === 'object') {
+    return payload.record;
+  }
+  return null;
+}
+
+function latestIndexFromRelayRecords(records) {
+  const index = {};
+  for (const [storyId, record] of Object.entries(records ?? {})) {
+    const latestActivityAt = finiteNonNegativeIndexInt(
+      record && typeof record === 'object'
+        ? record.latest_activity_at ?? record.cluster_window_end ?? record.created_at
+        : record,
+    );
+    if (latestActivityAt !== null) {
+      index[storyId] = latestActivityAt;
+    }
+  }
+  return index;
+}
+
+function hotIndexFromRelayRecords(records) {
+  const index = {};
+  for (const [storyId, record] of Object.entries(records ?? {})) {
+    const hotness = finiteNonNegativeNumber(record && typeof record === 'object' ? record.hotness : record);
+    if (hotness !== null) {
+      index[storyId] = hotness;
+    }
+  }
+  return index;
 }
 
 function readGunMapKeys(chain, limit, timeoutMs) {
@@ -404,6 +452,37 @@ function isAcceptedSynthesisCurrentForStory({ story, lifecycle, synthesis }) {
   return true;
 }
 
+function lifecycleFromRelayState(story, relayState) {
+  if (!story || !relayState || typeof relayState !== 'object') {
+    return null;
+  }
+  const status = recordString(relayState, 'lifecycle_status');
+  const sourceSetRevision = recordString(relayState, 'lifecycle_source_set_revision');
+  if (!LIFECYCLE_STATUSES.has(status) || !sourceSetRevision) {
+    return null;
+  }
+  const updatedAt = finiteNonNegativeIndexInt(relayState.lifecycle_updated_at);
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    source_set_revision: sourceSetRevision,
+    source_count: Array.isArray(story.sources) ? story.sources.length : sourceCount(story),
+    canonical_source_count: Array.isArray(story.primary_sources)
+      ? story.primary_sources.length
+      : sourceCount(story),
+    status,
+    retryable: relayState.retryable === true,
+    ...(recordString(relayState, 'terminal_unavailable_reason')
+      ? { reason: recordString(relayState, 'terminal_unavailable_reason') }
+      : {}),
+    ...(recordString(relayState, 'synthesis_id') ? { synthesis_id: recordString(relayState, 'synthesis_id') } : {}),
+    ...(Number.isFinite(Number(relayState.epoch)) ? { epoch: Math.floor(Number(relayState.epoch)) } : {}),
+    frame_table_state: recordString(relayState, 'frame_table_state') || 'frame_table_pending',
+    updated_at: updatedAt ?? 0,
+  };
+}
+
 function classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffMs }) {
   if (!story) return 'blocked';
   if (!isEligibleStory(story)) return 'rejected_source';
@@ -472,6 +551,21 @@ function selectLifecycleSampleIds({
   ])].slice(0, effectiveLimit);
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function classifyLifecycleAccountabilityStatus(failures) {
   if (failures.length === 0) return 'pass';
   const codes = failures.map((failure) => String(failure?.code ?? ''));
@@ -504,6 +598,8 @@ async function runPublicFeedLifecycleAccountability({
   const gunPeerUrls = resolveGunPeers(env);
   const sampleLimit = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_SAMPLE_LIMIT, 120);
   const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS, 75_000);
+  const rowTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_ROW_TIMEOUT_MS, 10_000);
+  const rowConcurrency = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_ROW_CONCURRENCY, 10);
   const staleWindowMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_STALE_WINDOW_MS, 7 * 24 * 60 * 60 * 1000);
   const synthesisPendingStaleMs = parsePositiveInt(
     env.VH_PUBLIC_FEED_SYNTHESIS_PENDING_STALE_MS,
@@ -526,6 +622,8 @@ async function runPublicFeedLifecycleAccountability({
       gunPeerUrls,
       sampleLimit,
       timeoutMs,
+      rowTimeoutMs,
+      rowConcurrency,
       staleWindowMs,
       synthesisPendingStaleMs,
     },
@@ -552,13 +650,13 @@ async function runPublicFeedLifecycleAccountability({
   client.markSessionReady();
 
   try {
-    const [latestIndex, hotIndex, rawStoryIds, relayLatest, relayHot] = await Promise.all([
-      readNewsLatestIndex(client).catch(() => ({})),
-      readNewsHotIndexWithRelayRestFallback(client).catch(() => ({})),
+    const [rawStoryIds, relayLatest, relayHot] = await Promise.all([
       readRawStoryIds(client, sampleLimit, Math.min(timeoutMs, 5_000)).catch(() => []),
       readRelayLatest(baseUrl, sampleLimit, timeoutMs),
       readRelayHot(baseUrl, sampleLimit, timeoutMs),
     ]);
+    const latestIndex = latestIndexFromRelayRecords(relayLatest.records);
+    const hotIndex = hotIndexFromRelayRecords(relayHot.records);
     const latestIds = Object.keys(latestIndex);
     const hotIds = [...new Set([...Object.keys(hotIndex), ...Object.keys(relayHot.records)])];
     const relayIds = Object.keys(relayLatest.records);
@@ -570,17 +668,19 @@ async function runPublicFeedLifecycleAccountability({
       sampleLimit,
     });
     const staleCutoffMs = Date.now() - staleWindowMs;
-    const stories = [];
-    for (const storyId of sampledIds) {
+    const stories = await mapWithConcurrency(sampledIds, rowConcurrency, async (storyId) => {
       const relayStory = relayLatest.stories?.[storyId] && typeof relayLatest.stories[storyId] === 'object'
         ? relayLatest.stories[storyId]
         : null;
       const story = relayStory ?? await readNewsStory(client, storyId).catch(() => null);
-      const lifecycle = story
-        ? await readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, storyId).catch(() => null)
-        : null;
-      const synthesis = story?.topic_id
-        ? await readTopicLatestSynthesis(client, story.topic_id).catch(() => null)
+      const relayState = relayLatest.storyStates?.[storyId] ?? null;
+      const lifecycle = lifecycleFromRelayState(story, relayState)
+        ?? (story ? await readRelayLifecycle(baseUrl, storyId, rowTimeoutMs) : null);
+      const synthesis = story?.topic_id && (
+        lifecycle?.status === 'accepted_available'
+          || relayState?.synthesis_state === 'accepted_synthesis_available'
+      )
+        ? await readRelayTopicSynthesis(baseUrl, story.topic_id, rowTimeoutMs)
         : null;
       const inLatest = Object.prototype.hasOwnProperty.call(latestIndex, storyId);
       const inHot = Object.prototype.hasOwnProperty.call(hotIndex, storyId)
@@ -589,7 +689,7 @@ async function runPublicFeedLifecycleAccountability({
       const productVisible = inLatest || inHot || inRelay;
       const hotProductRecord = inHot
         ? relayHot.records[storyId]
-          ?? await readNewsHotIndexProductRecord(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null)
+          ?? null
         : null;
       const hotIndexProductMetadataStatus = inHot
         ? classifyProductIndexMetadata(hotProductRecord, story)
@@ -625,10 +725,10 @@ async function runPublicFeedLifecycleAccountability({
         topic_latest_synthesis_id: synthesis?.synthesis_id ?? null,
         topic_latest_synthesis_epoch: Number.isFinite(Number(synthesis?.epoch)) ? Math.floor(Number(synthesis.epoch)) : null,
         frame_table_ready: frameTableReady,
-        relay_state: relayLatest.storyStates?.[storyId] ?? null,
+        relay_state: relayState,
         classification,
       };
-      stories.push({
+      return {
         ...storySummary,
         lifecycle_ledger_status: classifyLifecycleLedgerStatus(storySummary),
         synthesis_lifecycle_freshness_status: classifySynthesisLifecycleFreshness(
@@ -636,8 +736,8 @@ async function runPublicFeedLifecycleAccountability({
           Date.now(),
           synthesisPendingStaleMs,
         ),
-      });
-    }
+      };
+    });
 
     const counts = stories.reduce((acc, story) => {
       acc.total_sampled += 1;
