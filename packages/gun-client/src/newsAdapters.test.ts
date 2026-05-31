@@ -37,6 +37,8 @@ import {
   readLatestStoryIds,
   readNewsHotIndex,
   readNewsHotIndexProductRecord,
+  readNewsHotIndexViaRelayRest,
+  readNewsHotIndexWithRelayRestFallback,
   readNewsIngestionLease,
   readNewsLatestIndex,
   readNewsLatestIndexProductRecord,
@@ -1203,6 +1205,59 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('merges hot-index rows across configured relay peers', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsHotIndexEntry(signingClient, 'story-a', 0.25);
+    await writeNewsHotIndexEntry(signingClient, 'story-b', 0.75);
+    const storyARecord = expectSystemHotIndexRecord(mesh.writes[0].value, 'story-a', 0.25);
+    const storyBRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-b', 0.75);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          records: { 'story-a': storyARecord },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-b': storyBRecord },
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsHotIndexViaRelayRest(reader)).resolves.toEqual({
+        'story-b': 0.75,
+        'story-a': 0.25,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/hot-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/hot-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('readNewsLatestIndex relay REST fallback rejects unpinned records', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -1381,6 +1436,75 @@ describe('newsAdapters', () => {
     try {
       await expect(readNewsLatestIndexWithRelayRestFallback(client)).resolves.toEqual({
         'story-direct': 100,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsHotIndexWithRelayRestFallback prefers validated REST hot rows before scanning the direct root', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, 'story-direct', 0.1);
+    const directRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-direct', 0.1);
+    await writeNewsHotIndexEntry(client, 'story-relay', 0.9);
+    const relayRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-relay', 0.9);
+    mesh.setRead('news/index/hot', { 'story-direct': directRecord });
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: { 'story-relay': relayRecord },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsHotIndexWithRelayRestFallback(client)).resolves.toEqual({
+        'story-relay': 0.9,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/hot-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsHotIndexWithRelayRestFallback keeps the direct hot index when relay REST is empty', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, 'story-direct', 0.7);
+    const directRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-direct', 0.7);
+    mesh.setRead('news/index/hot', { 'story-direct': directRecord });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 0,
+      records: {},
+    }), { status: 200 })));
+
+    try {
+      await expect(readNewsHotIndexWithRelayRestFallback(client)).resolves.toEqual({
+        'story-direct': 0.7,
       });
     } finally {
       vi.unstubAllGlobals();

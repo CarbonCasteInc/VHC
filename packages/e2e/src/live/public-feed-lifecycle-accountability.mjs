@@ -2,7 +2,7 @@
 
 import {
   createClient,
-  readNewsHotIndex,
+  readNewsHotIndexWithRelayRestFallback,
   readNewsLatestIndex,
   readNewsStory,
   readTopicLatestSynthesis,
@@ -112,6 +112,26 @@ async function readRelayLatest(baseUrl, limit, timeoutMs) {
   };
 }
 
+async function readRelayHot(baseUrl, limit, timeoutMs) {
+  const url = new URL('/vh/news/hot-index', normalizeUrl(baseUrl));
+  url.searchParams.set('limit', String(limit));
+  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  const rawRecords = payload?.records && typeof payload.records === 'object'
+    ? payload.records
+    : payload?.index && typeof payload.index === 'object'
+      ? payload.index
+      : {};
+  const records = {};
+  for (const [key, record] of Object.entries(rawRecords)) {
+    const storyId = latestRecordStoryId(key, record);
+    if (storyId) records[storyId] = record;
+  }
+  return {
+    records,
+    available: Boolean(payload?.ok),
+  };
+}
+
 function readGunMapKeys(chain, limit, timeoutMs) {
   return new Promise((resolve) => {
     const keys = [];
@@ -212,6 +232,11 @@ async function readRawStoryIds(client, limit, timeoutMs) {
 function finiteNonNegativeIndexInt(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function finiteNonNegativeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function sourceCount(story) {
@@ -405,14 +430,15 @@ async function runPublicFeedLifecycleAccountability({
   client.markSessionReady();
 
   try {
-    const [latestIndex, hotIndex, rawStoryIds, relayLatest] = await Promise.all([
+    const [latestIndex, hotIndex, rawStoryIds, relayLatest, relayHot] = await Promise.all([
       readNewsLatestIndex(client).catch(() => ({})),
-      readNewsHotIndex(client).catch(() => ({})),
+      readNewsHotIndexWithRelayRestFallback(client).catch(() => ({})),
       readRawStoryIds(client, sampleLimit, Math.min(timeoutMs, 5_000)).catch(() => []),
       readRelayLatest(baseUrl, sampleLimit, timeoutMs),
+      readRelayHot(baseUrl, sampleLimit, timeoutMs),
     ]);
     const latestIds = Object.keys(latestIndex);
-    const hotIds = Object.keys(hotIndex);
+    const hotIds = [...new Set([...Object.keys(hotIndex), ...Object.keys(relayHot.records)])];
     const relayIds = Object.keys(relayLatest.records);
     const sampledIds = [...new Set([
       ...relayIds,
@@ -429,11 +455,13 @@ async function runPublicFeedLifecycleAccountability({
         ? await readTopicLatestSynthesis(client, story.topic_id).catch(() => null)
         : null;
       const inLatest = Object.prototype.hasOwnProperty.call(latestIndex, storyId);
-      const inHot = Object.prototype.hasOwnProperty.call(hotIndex, storyId);
+      const inHot = Object.prototype.hasOwnProperty.call(hotIndex, storyId)
+        || Object.prototype.hasOwnProperty.call(relayHot.records, storyId);
       const inRelay = Object.prototype.hasOwnProperty.call(relayLatest.records, storyId);
       const productVisible = inLatest || inHot || inRelay;
       const hotProductRecord = inHot
-        ? await readNewsHotIndexProductRecord(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null)
+        ? relayHot.records[storyId]
+          ?? await readNewsHotIndexProductRecord(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null)
         : null;
       const hotIndexProductMetadataStatus = inHot
         ? classifyProductIndexMetadata(hotProductRecord, story)
@@ -453,7 +481,9 @@ async function runPublicFeedLifecycleAccountability({
         in_hot_index: inHot,
         in_relay_latest_index: inRelay,
         product_visible: productVisible,
-        hot_index_hotness: Number.isFinite(hotIndex[storyId]) ? hotIndex[storyId] : null,
+        hot_index_hotness: Number.isFinite(hotIndex[storyId])
+          ? hotIndex[storyId]
+          : finiteNonNegativeNumber(hotProductRecord?.hotness ?? hotProductRecord),
         hot_index_product_metadata_status: hotIndexProductMetadataStatus,
         hot_index_product_source_set_revision: hotProductRecord?.source_set_revision ?? null,
         hot_index_product_source_count: finiteNonNegativeIndexInt(hotProductRecord?.source_count),
@@ -571,6 +601,8 @@ async function runPublicFeedLifecycleAccountability({
       mesh: {
         latestIndexCount: latestIds.length,
         hotIndexCount: hotIds.length,
+        relayHotIndexCount: Object.keys(relayHot.records).length,
+        relayHotIndexAvailable: relayHot.available,
         rawStoryRootSampleCount: rawStoryIds.length,
       },
       stories,
@@ -605,6 +637,7 @@ async function main() {
 export {
   runPublicFeedLifecycleAccountability,
   readRelayLatest,
+  readRelayHot,
   sourceCount,
   classifyProductIndexMetadata,
   isAcceptedFrameReady,

@@ -1,6 +1,6 @@
 import { create, type StoreApi } from 'zustand';
 import {
-  readNewsHotIndex,
+  readNewsHotIndexWithRelayRestFallback,
   readNewsLatestIndexWithRelayRestFallback,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
@@ -579,7 +579,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
             const [nextHotIndex, nextStorylines] = await Promise.all([
               withOptionalNewsTimeout(
-                readNewsHotIndex(client).then(sanitizeHotIndex),
+                readNewsHotIndexWithRelayRestFallback(client).then(sanitizeHotIndex),
                 {},
                 NEWS_OPTIONAL_INDEX_TIMEOUT_MS,
               ),

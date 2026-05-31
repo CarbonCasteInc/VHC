@@ -16,7 +16,7 @@ vi.mock('./hydration', () => ({
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenNewsPayloadFields: hasForbiddenNewsPayloadFieldsMock,
   readLatestStoryIds: readLatestStoryIdsMock,
-  readNewsHotIndex: readNewsHotIndexMock,
+  readNewsHotIndexWithRelayRestFallback: readNewsHotIndexMock,
   readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock,
   readNewsStoryViaRelayRest: readNewsStoryMock,
