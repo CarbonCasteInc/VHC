@@ -34,6 +34,45 @@ describe('bundleSynthesisRelay', () => {
     );
   });
 
+  it('accepts the deployed analysis relay content response shape', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_UPSTREAM_URL', 'https://venn.example/api/analyze');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_API_KEY', 'origin-proxy');
+
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      content: '{"summary":"ok","frames":[{"frame":"f","reframe":"r"}],"source_count":1,"source_publishers":["A"],"verification_confidence":0.9}',
+      provider: {
+        provider_id: 'remote-analysis-relay',
+        model_id: 'gpt-5-nano',
+        kind: 'remote',
+      },
+    }), { status: 200 }));
+
+    const response = await postBundleSynthesisCompletion({
+      prompt: 'Generate bundle synthesis',
+      model: 'gpt-5-nano',
+      fetchFn,
+    });
+
+    expect(response).toMatchObject({
+      model: 'gpt-5-nano',
+      content: expect.stringContaining('"summary":"ok"'),
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://venn.example/api/analyze',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer origin-proxy' }),
+      }),
+    );
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      prompt: 'Generate bundle synthesis',
+      model: 'gpt-5-nano',
+      max_tokens: 2400,
+    });
+    expect(body).not.toHaveProperty('messages');
+  });
+
   it('falls back to the Web PWA analysis relay upstream for local deterministic stacks', async () => {
     vi.stubEnv('ANALYSIS_RELAY_UPSTREAM_URL', 'http://127.0.0.1:9100/v1/chat/completions');
     vi.stubEnv('ANALYSIS_RELAY_API_KEY', 'analysis-key');

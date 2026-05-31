@@ -893,6 +893,20 @@ async function readArticleTextSampleStatus({ root, story, timeoutMs }) {
   }
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+}
+
 async function readPublicRelaySynthesisCandidates({
   baseUrl,
   indexLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT,
@@ -932,121 +946,196 @@ async function readPublicRelaySynthesisCandidates({
   const missingAcceptedSynthesisStories = [];
   const terminalUnavailableReasonCounts = {};
   const publicStateCounts = {};
-  for (const entry of records.slice(0, scanLimit)) {
-    const record = entry.record;
-    const storyId = entry.storyId;
-    const relayStoryState = storyStates[storyId] && typeof storyStates[storyId] === 'object'
-      ? storyStates[storyId]
-      : null;
-    if (!storyId) continue;
-    sampledStoryIds.push(storyId);
-    const storyUrl = new URL('/vh/news/story', root);
-    storyUrl.searchParams.set('story_id', storyId);
-    let storyPayload = null;
-    try {
-      storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story');
-      storyBodyStatusCounts['200'] = (storyBodyStatusCounts['200'] ?? 0) + 1;
-      storyReadbackCount += 1;
-    } catch (error) {
-      const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
-      const status = match?.[1] ?? 'error';
-      storyBodyStatusCounts[status] = (storyBodyStatusCounts[status] ?? 0) + 1;
-      continue;
-    }
-    const story = storyPayload?.story;
-    if (!story?.story_id || !story?.topic_id || !story?.headline) continue;
-    sampledTopicIds.push(story.topic_id);
-    const latestMetadataStatus = classifyLatestIndexProductMetadata(record, story);
-    latestIndexProductMetadataStatusCounts[latestMetadataStatus] =
-      (latestIndexProductMetadataStatusCounts[latestMetadataStatus] ?? 0) + 1;
-    if (latestMetadataStatus !== 'complete') {
-      missingLatestIndexProductMetadataStories.push({
+  const candidateConcurrency = parsePositiveInt(
+    process.env.VH_PUBLIC_RELAY_SYNTHESIS_CANDIDATE_CONCURRENCY,
+    6,
+  );
+  const candidateResults = await mapWithConcurrency(
+    records.slice(0, scanLimit),
+    candidateConcurrency,
+    async (entry) => {
+      const record = entry.record;
+      const storyId = entry.storyId;
+      const relayStoryState = storyStates[storyId] && typeof storyStates[storyId] === 'object'
+        ? storyStates[storyId]
+        : null;
+      const result = {
+        storyId,
+        sampledTopicId: null,
+        storyBodyStatus: null,
+        storyReadback: false,
+        synthesisStatus: null,
+        publicState: '',
+        mediaClass: null,
+        sourceFilterStatuses: [],
+        latestMetadataStatus: null,
+        missingLatestIndexProductMetadataStory: null,
+        singletonReadable: false,
+        multiSourceReadable: false,
+        singletonVisibleAccepted: false,
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+        articleTextStatus: null,
+        terminalReason: null,
+        missingAcceptedSynthesisStory: null,
+        topStory: null,
+      };
+      if (!storyId) return result;
+
+      const storyUrl = new URL('/vh/news/story', root);
+      storyUrl.searchParams.set('story_id', storyId);
+      let storyPayload = null;
+      try {
+        storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story');
+        result.storyBodyStatus = '200';
+        result.storyReadback = true;
+      } catch (error) {
+        const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+        result.storyBodyStatus = match?.[1] ?? 'error';
+        return result;
+      }
+
+      const story = storyPayload?.story;
+      if (!story?.story_id || !story?.topic_id || !story?.headline) return result;
+      result.sampledTopicId = story.topic_id;
+      const latestMetadataStatus = classifyLatestIndexProductMetadata(record, story);
+      result.latestMetadataStatus = latestMetadataStatus;
+      if (latestMetadataStatus !== 'complete') {
+        result.missingLatestIndexProductMetadataStory = {
+          storyId: story.story_id,
+          status: latestMetadataStatus,
+          expectedSourceCount: Array.isArray(story.sources) ? story.sources.length : storySources(story).length,
+          recordSourceCount: finiteNonNegativeIndexInt(record?.source_count),
+        };
+      }
+
+      const labels = storySourceLabels(story);
+      const mediaClass = classifyStoryMedia(story);
+      result.mediaClass = mediaClass;
+      result.sourceFilterStatuses = storySources(story).map(classifySourceFilterStatus);
+      result.singletonReadable = labels.length === 1;
+      result.multiSourceReadable = labels.length > 1;
+
+      const synthesisUrl = new URL('/vh/topics/synthesis', root);
+      synthesisUrl.searchParams.set('topic_id', story.topic_id);
+      let synthesisPayload = null;
+      try {
+        synthesisPayload = await fetchJsonWithTimeout(
+          synthesisUrl.href,
+          timeoutMs,
+          'public-relay-topic-synthesis',
+        );
+        result.synthesisStatus = '200';
+      } catch (error) {
+        const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+        result.synthesisStatus = match?.[1] ?? 'error';
+      }
+
+      const synthesis = synthesisPayload?.synthesis;
+      const relaySynthesisState = String(relayStoryState?.synthesis_state ?? '').trim();
+      result.publicState = relaySynthesisState;
+      const relayAcceptedSynthesis = relaySynthesisState === 'accepted_synthesis_available';
+      const currentAcceptedSynthesisReady = relayAcceptedSynthesis && acceptedSynthesisReady(synthesis);
+      const rows = currentAcceptedSynthesisReady && Array.isArray(synthesis?.frames) ? synthesis.frames : [];
+      result.frameRows = rows.length;
+      for (const row of rows) {
+        if (typeof row?.frame_point_id === 'string' && row.frame_point_id.trim()) result.framePointIdsPresent += 1;
+        if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) result.reframePointIdsPresent += 1;
+      }
+
+      if (!currentAcceptedSynthesisReady) {
+        const honestNonAcceptedState = [
+          'synthesis_pending',
+          'synthesis_loading',
+          'synthesis_retryable',
+          'synthesis_terminal_unavailable',
+          'accepted_synthesis_suppressed',
+        ].includes(relaySynthesisState);
+        result.articleTextStatus = honestNonAcceptedState
+          ? `not_checked_${relaySynthesisState}`
+          : await readArticleTextSampleStatus({ root, story, timeoutMs });
+        const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
+        result.terminalReason = terminalReason;
+        if (
+          !terminalReason
+          && !honestNonAcceptedState
+          && (mediaClass === 'text' || mediaClass === 'mixed')
+          && result.articleTextStatus === '200_text'
+        ) {
+          result.missingAcceptedSynthesisStory = {
+            storyId: story.story_id,
+            topicId: story.topic_id,
+            headline: trimText(story.headline, 160),
+            mediaClass,
+            articleTextStatus: result.articleTextStatus,
+            relaySynthesisState: relaySynthesisState || null,
+          };
+        }
+        return result;
+      }
+
+      result.singletonVisibleAccepted = labels.length === 1;
+      result.topStory = {
         storyId: story.story_id,
-        status: latestMetadataStatus,
-        expectedSourceCount: Array.isArray(story.sources) ? story.sources.length : storySources(story).length,
-        recordSourceCount: finiteNonNegativeIndexInt(record?.source_count),
-      });
+        topicId: story.topic_id,
+        updatedAt: latestIndexRecordTimestamp(record) || Number(story.cluster_window_end) || Date.now(),
+        headline: story.headline,
+        sourceCount: labels.length,
+        sourceLabels: labels,
+        acceptedSynthesisReady: true,
+        synthesisId: synthesis.synthesis_id ?? null,
+      };
+      return result;
+    },
+  );
+  for (const result of candidateResults) {
+    if (!result?.storyId) continue;
+    sampledStoryIds.push(result.storyId);
+    if (result.storyBodyStatus) {
+      storyBodyStatusCounts[result.storyBodyStatus] = (storyBodyStatusCounts[result.storyBodyStatus] ?? 0) + 1;
     }
-    const labels = storySourceLabels(story);
-    const mediaClass = classifyStoryMedia(story);
-    mediaClassCounts[mediaClass] = (mediaClassCounts[mediaClass] ?? 0) + 1;
-    for (const source of storySources(story)) {
-      const sourceFilterStatus = classifySourceFilterStatus(source);
+    if (result.storyReadback) storyReadbackCount += 1;
+    if (!result.storyReadback) continue;
+    if (result.sampledTopicId) sampledTopicIds.push(result.sampledTopicId);
+    if (result.latestMetadataStatus) {
+      latestIndexProductMetadataStatusCounts[result.latestMetadataStatus] =
+        (latestIndexProductMetadataStatusCounts[result.latestMetadataStatus] ?? 0) + 1;
+    }
+    if (result.missingLatestIndexProductMetadataStory) {
+      missingLatestIndexProductMetadataStories.push(result.missingLatestIndexProductMetadataStory);
+    }
+    if (result.mediaClass) {
+      mediaClassCounts[result.mediaClass] = (mediaClassCounts[result.mediaClass] ?? 0) + 1;
+    }
+    for (const sourceFilterStatus of result.sourceFilterStatuses) {
       sourceFilterStatusCounts[sourceFilterStatus] = (sourceFilterStatusCounts[sourceFilterStatus] ?? 0) + 1;
     }
-    if (labels.length === 1) singletonReadableCount += 1;
-    if (labels.length > 1) multiSourceReadableCount += 1;
-    const synthesisUrl = new URL('/vh/topics/synthesis', root);
-    synthesisUrl.searchParams.set('topic_id', story.topic_id);
-    let synthesisPayload = null;
-    try {
-      synthesisPayload = await fetchJsonWithTimeout(
-        synthesisUrl.href,
-        timeoutMs,
-        'public-relay-topic-synthesis',
-      );
-      synthesisStatusCounts['200'] = (synthesisStatusCounts['200'] ?? 0) + 1;
-    } catch (error) {
-      const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
-      const status = match?.[1] ?? 'error';
-      synthesisStatusCounts[status] = (synthesisStatusCounts[status] ?? 0) + 1;
+    if (result.singletonReadable) singletonReadableCount += 1;
+    if (result.multiSourceReadable) multiSourceReadableCount += 1;
+    if (result.synthesisStatus) {
+      synthesisStatusCounts[result.synthesisStatus] = (synthesisStatusCounts[result.synthesisStatus] ?? 0) + 1;
     }
-    const synthesis = synthesisPayload?.synthesis;
-    const relaySynthesisState = String(relayStoryState?.synthesis_state ?? '').trim();
-    if (relaySynthesisState) {
-      publicStateCounts[relaySynthesisState] = (publicStateCounts[relaySynthesisState] ?? 0) + 1;
+    if (result.publicState) {
+      publicStateCounts[result.publicState] = (publicStateCounts[result.publicState] ?? 0) + 1;
     }
-    const relayAcceptedSynthesis = relaySynthesisState === 'accepted_synthesis_available';
-    const currentAcceptedSynthesisReady = relayAcceptedSynthesis && acceptedSynthesisReady(synthesis);
-    const rows = currentAcceptedSynthesisReady && Array.isArray(synthesis?.frames) ? synthesis.frames : [];
-    frameRows += rows.length;
-    frameCountDistribution[String(rows.length)] = (frameCountDistribution[String(rows.length)] ?? 0) + 1;
-    for (const row of rows) {
-      if (typeof row?.frame_point_id === 'string' && row.frame_point_id.trim()) framePointIdsPresent += 1;
-      if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) reframePointIdsPresent += 1;
+    frameRows += result.frameRows;
+    frameCountDistribution[String(result.frameRows)] = (frameCountDistribution[String(result.frameRows)] ?? 0) + 1;
+    framePointIdsPresent += result.framePointIdsPresent;
+    reframePointIdsPresent += result.reframePointIdsPresent;
+    if (result.articleTextStatus) {
+      articleTextSampleStatusCounts[result.articleTextStatus] =
+        (articleTextSampleStatusCounts[result.articleTextStatus] ?? 0) + 1;
     }
-    if (!currentAcceptedSynthesisReady) {
-      const honestNonAcceptedState = [
-        'synthesis_pending',
-        'synthesis_loading',
-        'synthesis_retryable',
-        'synthesis_terminal_unavailable',
-        'accepted_synthesis_suppressed',
-      ].includes(relaySynthesisState);
-      const articleTextStatus = honestNonAcceptedState
-        ? `not_checked_${relaySynthesisState}`
-        : await readArticleTextSampleStatus({ root, story, timeoutMs });
-      articleTextSampleStatusCounts[articleTextStatus] = (articleTextSampleStatusCounts[articleTextStatus] ?? 0) + 1;
-      const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
-      if (terminalReason) {
-        terminalUnavailableReasonCounts[terminalReason] = (terminalUnavailableReasonCounts[terminalReason] ?? 0) + 1;
-      } else if (
-        !honestNonAcceptedState
-        && (mediaClass === 'text' || mediaClass === 'mixed')
-        && articleTextStatus === '200_text'
-      ) {
-        missingAcceptedSynthesisStories.push({
-          storyId: story.story_id,
-          topicId: story.topic_id,
-          headline: trimText(story.headline, 160),
-          mediaClass,
-          articleTextStatus,
-          relaySynthesisState: relaySynthesisState || null,
-        });
-      }
-      continue;
+    if (result.terminalReason) {
+      terminalUnavailableReasonCounts[result.terminalReason] =
+        (terminalUnavailableReasonCounts[result.terminalReason] ?? 0) + 1;
     }
-    if (labels.length === 1) singletonVisibleAcceptedCount += 1;
-    topStories.push({
-      storyId: story.story_id,
-      topicId: story.topic_id,
-      updatedAt: latestIndexRecordTimestamp(record) || Number(story.cluster_window_end) || Date.now(),
-      headline: story.headline,
-      sourceCount: labels.length,
-      sourceLabels: labels,
-      acceptedSynthesisReady: true,
-      synthesisId: synthesis.synthesis_id ?? null,
-    });
+    if (result.missingAcceptedSynthesisStory) {
+      missingAcceptedSynthesisStories.push(result.missingAcceptedSynthesisStory);
+    }
+    if (result.singletonVisibleAccepted) singletonVisibleAcceptedCount += 1;
+    if (result.topStory) topStories.push(result.topStory);
   }
   return {
     latestIndexCount: records.length,

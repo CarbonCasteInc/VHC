@@ -1,8 +1,8 @@
 import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 import type { CandidateSynthesis, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import {
-  readStoryBundle,
   buildNewsSynthesisLifecycleRecord,
+  readNewsStoryWithRelayRestFallback,
   writeNewsSynthesisLifecycleStatus,
   readTopicEpochCandidate,
   writeTopicEpochCandidate,
@@ -161,7 +161,7 @@ export function createBundleSynthesisWorker(
   const relay = config.relay ?? postBundleSynthesisCompletion;
   const articleTextService = config.articleTextService ?? new ArticleTextService();
   const analysisEvalArtifactWriter = config.analysisEvalArtifactWriter ?? createAnalysisEvalArtifactWriterFromEnv();
-  const readBundle = config.readBundle ?? readStoryBundle;
+  const readBundle = config.readBundle ?? readNewsStoryWithRelayRestFallback;
   const readCandidate = config.readCandidate ?? readTopicEpochCandidate;
   const writeCandidate = config.writeCandidate ?? writeTopicEpochCandidate;
   const writeSynthesis = config.writeSynthesis ?? writeTopicEpochSynthesis;

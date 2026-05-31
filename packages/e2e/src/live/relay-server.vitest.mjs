@@ -1620,6 +1620,162 @@ describe('infra relay server', () => {
     });
   }, 60_000);
 
+  it('refreshes story synthesis state when serving a preferred latest-index snapshot', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'true',
+      VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
+    });
+    const story = makeRelayNewsStory('story-snapshot-refresh', 400, [
+      {
+        source_id: 'source-a',
+        publisher: 'Source A',
+        url: 'https://example.com/snapshot-a',
+        url_hash: 'hash-snapshot-a',
+        published_at: 390,
+        title: 'Snapshot A',
+      },
+      {
+        source_id: 'source-b',
+        publisher: 'Source B',
+        url: 'https://example.com/snapshot-b',
+        url_hash: 'hash-snapshot-b',
+        published_at: 400,
+        title: 'Snapshot B',
+      },
+    ]);
+    await writeRelayNewsStory(port, story);
+    await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+
+    let pending;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      pending = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3`,
+      );
+      if (pending.body?.story_states?.[story.story_id]?.synthesis_state === 'synthesis_pending') {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(pending.body.story_states[story.story_id]).toMatchObject({
+      synthesis_state: 'synthesis_pending',
+      frame_table_state: 'frame_table_pending',
+      lifecycle_status: 'pending',
+    });
+
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: story.topic_id,
+      synthesis_id: 'syn-snapshot-refresh',
+      epoch: 1,
+      inputs: { story_bundle_ids: [story.story_id] },
+      facts_summary: 'Accepted synthesis became available after the relay persisted a latest-index snapshot.',
+      frames: [{
+        frame: 'Frame',
+        reframe: 'Reframe',
+        frame_point_id: 'syn-snapshot-refresh:0:frame',
+        reframe_point_id: 'syn-snapshot-refresh:0:reframe',
+      }],
+      provenance: {
+        candidate_ids: ['cand-snapshot-refresh'],
+        provider_mix: [{ provider_id: 'remote-analysis', count: 1 }],
+      },
+      quorum: {
+        required: 1,
+        received: 1,
+        reached_at: 410,
+        timed_out: false,
+        selection_rule: 'deterministic',
+      },
+      divergence_metrics: {
+        disagreement_score: 0,
+        source_dispersion: 1,
+        candidate_count: 1,
+      },
+      warnings: [],
+      created_at: 410,
+    };
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/topics/synthesis`, {
+      method: 'POST',
+      body: { synthesis },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: story.topic_id,
+        synthesis_id: synthesis.synthesis_id,
+      }),
+    });
+    expect(await requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: {
+        record: {
+          schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+          story_id: story.story_id,
+          topic_id: story.topic_id,
+          source_set_revision: story.provenance_hash,
+          source_count: 2,
+          canonical_source_count: 2,
+          status: 'accepted_available',
+          frame_table_state: 'frame_table_ready',
+          retryable: false,
+          synthesis_id: synthesis.synthesis_id,
+          epoch: 1,
+          updated_at: 411,
+        },
+      },
+    })).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        story_id: story.story_id,
+        status: 'accepted_available',
+      }),
+    });
+
+    let accepted;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      accepted = await requestJson(
+        `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3`,
+      );
+      if (accepted.body?.story_states?.[story.story_id]?.synthesis_state === 'accepted_synthesis_available') {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(accepted.body.consistency).toMatchObject({
+      empty_read_cache: expect.objectContaining({
+        served_from: 'preferred_latest_index_snapshot',
+      }),
+      snapshot_story_state_refresh: expect.objectContaining({
+        enabled: true,
+        selected_count: 1,
+        refreshed_count: 1,
+      }),
+    });
+    expect(accepted.body.story_states[story.story_id]).toMatchObject({
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: 'frame_table_ready',
+      lifecycle_status: 'accepted_available',
+      synthesis_id: synthesis.synthesis_id,
+      epoch: 1,
+    });
+    expect(accepted.body.composition).toMatchObject({
+      total_visible: 1,
+      pending_synthesis: 0,
+      accepted_synthesis_available: 1,
+      frame_table_ready: 1,
+    });
+  }, 60_000);
+
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
