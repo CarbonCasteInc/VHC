@@ -109,7 +109,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
       await runWrite(
         'news_hot_index',
         { story_id: bundle.story_id, topic_id: bundle.topic_id },
-        () => writeNewsHotIndexEntry(publishClient, bundle.story_id, computeStoryHotness(bundle)),
+        () => writeNewsHotIndexEntry(publishClient, bundle.story_id, computeStoryHotness(bundle), bundle),
       );
     },
   });
