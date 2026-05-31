@@ -101,6 +101,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const deferredFeedRef = useRef<ReadonlyArray<FeedItem> | null>(null);
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
   const initialPublicNewsRefreshRef = useRef(false);
+  const mountedRef = useRef(true);
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
   const [isNearTop, setIsNearTop] = useState(true);
@@ -242,9 +243,17 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       await refreshLatest(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
       applyDeferredFeed(true);
     } finally {
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setRefreshing(false);
+      }
     }
   }, [applyDeferredFeed, refreshLatest, refreshing]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -256,7 +265,6 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       return;
     }
 
-    let cancelled = false;
     initialPublicNewsRefreshRef.current = true;
     setMeshPaginationExhausted(false);
     setNewsRefreshLimit(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
@@ -264,19 +272,15 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
 
     void refreshLatest(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT)
       .then(() => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           applyDeferredFeed(true);
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (mountedRef.current) {
           setRefreshing(false);
         }
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [
     applyDeferredFeed,
     loading,

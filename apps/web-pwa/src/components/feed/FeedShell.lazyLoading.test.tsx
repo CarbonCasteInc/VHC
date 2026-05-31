@@ -323,6 +323,44 @@ describe('FeedShell lazy loading', () => {
     }
   });
 
+  it('clears the initial refresh indicator when news loading changes during refresh', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    let resolveRefresh: (() => void) | null = null;
+    const refreshLatest = vi.fn(() => {
+      useNewsStore.setState({ loading: true });
+      return new Promise<void>((resolve) => {
+        resolveRefresh = () => {
+          useNewsStore.setState({ loading: false });
+          resolve();
+        };
+      });
+    });
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+      expect(screen.getByTestId('feed-refresh-button')).toHaveTextContent('Refreshing');
+
+      await act(async () => {
+        resolveRefresh?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('feed-refresh-button')).toHaveTextContent('Refresh');
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
   it('auto-refreshes public news when launch content contains no news stories', async () => {
     const originalRefreshLatest = useNewsStore.getState().refreshLatest;
     const refreshLatest = vi.fn(async () => undefined);
