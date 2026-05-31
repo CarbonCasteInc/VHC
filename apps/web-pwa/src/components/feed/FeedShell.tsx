@@ -77,6 +77,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
   const loadedPublicNewsStoryCount = useStore(useNewsStore, (state) => state.stories.length);
   const publicNewsLatestIndex = useStore(useNewsStore, (state) => state.latestIndex);
+  const publicNewsLatestIndexCursor = useStore(useNewsStore, (state) => state.latestIndexCursor);
   const publicNewsLoading = useStore(useNewsStore, (state) => state.loading);
   const {
     expandedStoryId,
@@ -308,9 +309,12 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     );
     const loadedLatestActivityValues = Object.values(publicNewsLatestIndex)
       .filter((value) => Number.isFinite(value) && value >= 0);
-    const beforeCursor = loadedLatestActivityValues.length > 0
+    const fallbackBeforeCursor = loadedLatestActivityValues.length > 0
       ? Math.min(...loadedLatestActivityValues)
       : null;
+    const beforeCursor = typeof publicNewsLatestIndexCursor === 'number' && Number.isFinite(publicNewsLatestIndexCursor)
+      ? publicNewsLatestIndexCursor
+      : fallbackBeforeCursor;
     const nextLimit = Math.min(
       PUBLIC_NEWS_REFRESH_MAX_LIMIT,
       newsRefreshLimit + PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP,
@@ -344,6 +348,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     meshLoadingMore,
     newsRefreshLimit,
     publicNewsLatestIndex,
+    publicNewsLatestIndexCursor,
     refreshLatest,
     refreshing,
   ]);

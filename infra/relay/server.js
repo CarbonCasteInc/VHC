@@ -54,6 +54,8 @@ const port = Number(process.env.GUN_PORT || 7777);
 const host = process.env.GUN_HOST || '127.0.0.1';
 const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
+const newsLatestIndexSnapshotFile = process.env.VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'news-latest-index-snapshot.json') : '');
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
 const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
@@ -126,6 +128,8 @@ const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_RE
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
 const aggregatePointReadCache = new Map();
+const newsLatestIndexRestCache = new Map();
+const newsLatestIndexSnapshotCache = new Map();
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -1640,7 +1644,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const indexChain = gun.get('vh').get('news').get('index').get('latest');
   const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000);
   const childTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750);
-  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 900);
+  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 2_500);
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
     positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
@@ -1648,6 +1652,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const consistencyFilter = options.consistencyFilter !== false
     && boolEnv('VH_RELAY_NEWS_INDEX_REST_CONSISTENCY_FILTER', true);
   const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK', consistencyFilter);
+  const storyFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_STORY_FALLBACK', false);
   const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
   const beforeCursor = options.before === undefined || options.before === null || String(options.before).trim() === ''
     ? Number.NaN
@@ -1670,7 +1675,24 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       ...mapSnapshots,
     }
     : rawRoot;
-  const sourceKeys = extractIndexChildKeys(readableRoot);
+  const latestSourceKeys = extractIndexChildKeys(readableRoot);
+  let storyFallbackKeys = [];
+  if (consistencyFilter && storyFallbackEnabled && (latestSourceKeys.length === 0 || hasBeforeCursor)) {
+    const storyRootChain = gun.get('vh').get('news').get('stories');
+    const rawStoryRoot = await readOnce(storyRootChain, rootTimeoutMs).catch(() => null);
+    const storyRootKeys = extractIndexChildKeys(rawStoryRoot);
+    const storyMapSnapshots = storyRootKeys.length === 0
+      ? await readIndexMapSnapshots(storyRootChain, childTimeoutMs, requestedScanLimit)
+      : {};
+    const readableStoryRoot = Object.keys(storyMapSnapshots).length > 0
+      ? {
+        ...(rawStoryRoot && typeof rawStoryRoot === 'object' ? stripGunMetadata(rawStoryRoot) : {}),
+        ...storyMapSnapshots,
+      }
+      : rawStoryRoot;
+    storyFallbackKeys = extractIndexChildKeys(readableStoryRoot);
+  }
+  const sourceKeys = Array.from(new Set([...latestSourceKeys, ...storyFallbackKeys]));
   const scanSourceKeys = !consistencyFilter && hasBeforeCursor
     ? sourceKeys.filter((storyId) => indexEntryPriority(readableRoot, storyId) < beforeCursor)
     : sourceKeys;
@@ -1795,8 +1817,30 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
     return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
   });
-  for (const entry of visibleEntries) {
-    if (Object.keys(records).length >= maxRecords) break;
+  const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
+  const selectedEntries = [...chronologicalPageEntries];
+  const compositionBackfillRecords = [];
+  const shouldBackfillCorroboratedStory =
+    consistencyFilter
+    && !hasBeforeCursor
+    && selectedEntries.length > 0
+    && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
+  if (shouldBackfillCorroboratedStory) {
+    const selectedStoryIds = new Set(selectedEntries.map((entry) => String(entry.entry?.[0] ?? '')));
+    const corroboratedBackfill = visibleEntries.find((entry) =>
+      !selectedStoryIds.has(String(entry.entry?.[0] ?? ''))
+      && storySourceCount(entry.story) > 1);
+    if (corroboratedBackfill) {
+      selectedEntries.push(corroboratedBackfill);
+      compositionBackfillRecords.push({
+        story_id: corroboratedBackfill.entry[0],
+        reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+        source_count: storySourceCount(corroboratedBackfill.story),
+        latest_activity_at: latestIndexRecordTimestamp(corroboratedBackfill.entry[1]) ?? null,
+      });
+    }
+  }
+  for (const entry of selectedEntries) {
     records[entry.entry[0]] = entry.entry[1];
     if (entry.story && entry.storyState) {
       storyStates[entry.entry[0]] = entry.storyState;
@@ -1812,10 +1856,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
         ? visibleEntries.length + excludedRecords.length
         : sourceKeys.length,
     scannedKeyCount: keys.length,
-    truncated: scanSourceKeys.length > keys.length || visibleEntries.length > Object.keys(records).length,
+    truncated: scanSourceKeys.length > keys.length || visibleEntries.length > chronologicalPageEntries.length,
     before: hasBeforeCursor ? Math.floor(beforeCursor) : null,
-    nextCursor: Object.values(records)
-      .map((record) => latestIndexRecordTimestamp(record))
+    nextCursor: chronologicalPageEntries
+      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
       .filter((value) => Number.isFinite(value) && value >= 0)
       .sort((a, b) => a - b)[0] ?? null,
     consistency: {
@@ -1825,13 +1869,269 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       excluded_count: excludedRecords.length,
       repaired_count: repairedRecords.length,
       story_body_timeout_ms: consistencyFilter ? storyTimeoutMs : null,
+      latest_index_source_key_count: latestSourceKeys.length,
+      story_fallback_enabled: Boolean(consistencyFilter && storyFallbackEnabled),
+      story_fallback_key_count: storyFallbackKeys.length,
     },
     composition: finalizeFeedComposition(composition),
     storyStates,
     excludedRecords,
     repairedRecords,
+    compositionBackfillRecords,
     records,
+    snapshotEntries: visibleEntries,
   };
+}
+
+function latestIndexParsedBefore(options = {}) {
+  const beforeValue = options.before === undefined || options.before === null || String(options.before).trim() === ''
+    ? null
+    : Number(options.before);
+  return Number.isFinite(beforeValue) && beforeValue >= 0 ? Math.floor(beforeValue) : null;
+}
+
+function latestIndexRestCacheKey(options = {}) {
+  return JSON.stringify({
+    limit: options.limit ?? null,
+    includeRoot: Boolean(options.includeRoot),
+    includeExcluded: Boolean(options.includeExcluded),
+    consistencyFilter: options.consistencyFilter === false ? false : true,
+    scanLimit: options.scanLimit ?? null,
+    before: latestIndexParsedBefore(options),
+  });
+}
+
+function latestIndexSnapshotCacheKey(options = {}) {
+  return JSON.stringify({
+    consistencyFilter: options.consistencyFilter === false ? false : true,
+  });
+}
+
+function serializeNewsLatestIndexSnapshot(snapshotKey, snapshot) {
+  return {
+    schema_version: 'vh-news-latest-index-relay-snapshot-v1',
+    snapshot_key: snapshotKey,
+    cached_at: snapshot.cached_at,
+    source_key_count: snapshot.sourceKeyCount,
+    scanned_key_count: snapshot.scannedKeyCount,
+    consistency: snapshot.consistency,
+    repaired_records: snapshot.repairedRecords,
+    entries: (Array.isArray(snapshot.entries) ? snapshot.entries : []).map((entry) => ({
+      story_id: String(entry.entry?.[0] ?? ''),
+      record: entry.entry?.[1] ?? null,
+      story: entry.story ?? null,
+      story_state: entry.storyState ?? null,
+    })).filter((entry) => entry.story_id && entry.record && entry.story),
+  };
+}
+
+function deserializeNewsLatestIndexSnapshot(value) {
+  if (!value || typeof value !== 'object' || value.schema_version !== 'vh-news-latest-index-relay-snapshot-v1') {
+    return null;
+  }
+  if (!Array.isArray(value.entries) || typeof value.snapshot_key !== 'string') return null;
+  return {
+    snapshotKey: value.snapshot_key,
+    snapshot: {
+      cached_at: Number(value.cached_at) || 0,
+      sourceKeyCount: Number(value.source_key_count) || value.entries.length,
+      scannedKeyCount: Number(value.scanned_key_count) || value.entries.length,
+      consistency: value.consistency && typeof value.consistency === 'object' ? value.consistency : {},
+      repairedRecords: Array.isArray(value.repaired_records) ? value.repaired_records : [],
+      entries: value.entries
+        .filter((entry) => entry && typeof entry.story_id === 'string' && entry.record && entry.story)
+        .map((entry) => ({
+          entry: [entry.story_id, entry.record],
+          story: entry.story,
+          storyState: entry.story_state ?? null,
+        })),
+    },
+  };
+}
+
+function persistNewsLatestIndexSnapshot(snapshotKey, snapshot) {
+  if (!newsLatestIndexSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(newsLatestIndexSnapshotFile), { recursive: true });
+    const tmpFile = `${newsLatestIndexSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify(serializeNewsLatestIndexSnapshot(snapshotKey, snapshot))}\n`,
+    );
+    fs.renameSync(tmpFile, newsLatestIndexSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
+  if (!newsLatestIndexSnapshotFile) return null;
+  try {
+    if (!fs.existsSync(newsLatestIndexSnapshotFile)) return null;
+    const parsed = deserializeNewsLatestIndexSnapshot(
+      JSON.parse(fs.readFileSync(newsLatestIndexSnapshotFile, 'utf8')),
+    );
+    if (!parsed || parsed.snapshotKey !== snapshotKey) return null;
+    if (cacheTtlMs > 0 && Date.now() - parsed.snapshot.cached_at > cacheTtlMs) return null;
+    newsLatestIndexSnapshotCache.set(snapshotKey, parsed.snapshot);
+    return parsed.snapshot;
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function buildNewsLatestIndexResultFromSnapshot(snapshot, options = {}, cacheInfo = {}) {
+  const maxRecords = Math.min(
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
+    positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
+  );
+  const beforeCursor = latestIndexParsedBefore(options);
+  const hasBeforeCursor = beforeCursor !== null;
+  const visibleEntries = (Array.isArray(snapshot.entries) ? snapshot.entries : [])
+    .filter((entry) => {
+      const timestamp = latestIndexRecordTimestamp(entry.entry?.[1]);
+      return !hasBeforeCursor || (Number.isFinite(timestamp) && timestamp < beforeCursor);
+    })
+    .sort((left, right) => {
+      const leftTimestamp = latestIndexRecordTimestamp(left.entry?.[1]) ?? 0;
+      const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
+      return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
+    });
+  const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
+  const selectedEntries = [...chronologicalPageEntries];
+  const compositionBackfillRecords = [];
+  const shouldBackfillCorroboratedStory =
+    !hasBeforeCursor
+    && selectedEntries.length > 0
+    && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
+  if (shouldBackfillCorroboratedStory) {
+    const selectedStoryIds = new Set(selectedEntries.map((entry) => String(entry.entry?.[0] ?? '')));
+    const corroboratedBackfill = visibleEntries.find((entry) =>
+      !selectedStoryIds.has(String(entry.entry?.[0] ?? ''))
+      && storySourceCount(entry.story) > 1);
+    if (corroboratedBackfill) {
+      selectedEntries.push(corroboratedBackfill);
+      compositionBackfillRecords.push({
+        story_id: corroboratedBackfill.entry[0],
+        reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+        source_count: storySourceCount(corroboratedBackfill.story),
+        latest_activity_at: latestIndexRecordTimestamp(corroboratedBackfill.entry[1]) ?? null,
+      });
+    }
+  }
+  const records = {};
+  const storyStates = {};
+  const composition = createFeedCompositionAccumulator();
+  for (const entry of selectedEntries) {
+    records[entry.entry[0]] = entry.entry[1];
+    if (entry.story && entry.storyState) {
+      storyStates[entry.entry[0]] = entry.storyState;
+      accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
+    }
+  }
+  return {
+    root: null,
+    sourceKeyCount: snapshot.sourceKeyCount ?? visibleEntries.length,
+    windowSourceKeyCount: visibleEntries.length,
+    scannedKeyCount: snapshot.scannedKeyCount ?? visibleEntries.length,
+    truncated: visibleEntries.length > chronologicalPageEntries.length,
+    before: beforeCursor,
+    nextCursor: chronologicalPageEntries
+      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .sort((a, b) => a - b)[0] ?? null,
+    consistency: {
+      ...(snapshot.consistency ?? {}),
+      empty_read_cache: cacheInfo,
+    },
+    composition: finalizeFeedComposition(composition),
+    storyStates,
+    excludedRecords: [],
+    repairedRecords: snapshot.repairedRecords ?? [],
+    compositionBackfillRecords,
+    records,
+    snapshotEntries: snapshot.entries,
+  };
+}
+
+async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
+  const retryAttempts = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_ATTEMPTS', 1));
+  const retryDelayMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_DELAY_MS', 250));
+  const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS', 5 * 60_000));
+  const cacheKey = latestIndexRestCacheKey(options);
+  const snapshotCacheKey = latestIndexSnapshotCacheKey(options);
+  if (boolEnv('VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT', false)) {
+    const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
+      ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
+    if (snapshot && Array.isArray(snapshot.entries) && snapshot.entries.length > 0) {
+      return buildNewsLatestIndexResultFromSnapshot(snapshot, options, {
+        served_from: 'preferred_latest_index_snapshot',
+        cached_at: snapshot.cached_at,
+        age_ms: Date.now() - snapshot.cached_at,
+      });
+    }
+  }
+  let lastResult = null;
+  for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+    const result = await readNewsLatestIndexRecords(gun, options);
+    lastResult = result;
+    const hasRecords = Object.keys(result.records).length > 0;
+    const hasIndexEvidence = Number(result.sourceKeyCount) > 0
+      || Number(result.windowSourceKeyCount) > 0
+      || Number(result.scannedKeyCount) > 0;
+    if (hasRecords || hasIndexEvidence || attempt === retryAttempts - 1) {
+      if (hasRecords && cacheKey && cacheTtlMs > 0) {
+        newsLatestIndexRestCache.set(cacheKey, { cached_at: Date.now(), result });
+      }
+      if (hasRecords && Array.isArray(result.snapshotEntries) && result.snapshotEntries.length > 0 && cacheTtlMs > 0) {
+        const snapshot = {
+          cached_at: Date.now(),
+          entries: result.snapshotEntries,
+          sourceKeyCount: result.sourceKeyCount,
+          scannedKeyCount: result.scannedKeyCount,
+          consistency: result.consistency,
+          repairedRecords: result.repairedRecords,
+        };
+        newsLatestIndexSnapshotCache.set(snapshotCacheKey, snapshot);
+        persistNewsLatestIndexSnapshot(snapshotCacheKey, snapshot);
+      }
+      if (!hasRecords && cacheKey && cacheTtlMs > 0) {
+        const cached = newsLatestIndexRestCache.get(cacheKey);
+        if (cached && Date.now() - cached.cached_at <= cacheTtlMs) {
+          return {
+            ...cached.result,
+            consistency: {
+              ...(cached.result.consistency ?? {}),
+              empty_read_cache: {
+                served_from: 'last_non_empty_latest_index',
+                cached_at: cached.cached_at,
+                age_ms: Date.now() - cached.cached_at,
+              },
+            },
+          };
+        }
+        const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
+          ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
+        if (snapshot && Date.now() - snapshot.cached_at <= cacheTtlMs) {
+          return buildNewsLatestIndexResultFromSnapshot(snapshot, options, {
+            served_from: 'last_non_empty_latest_index_snapshot',
+            cached_at: snapshot.cached_at,
+            age_ms: Date.now() - snapshot.cached_at,
+          });
+        }
+      }
+      return result;
+    }
+    if (retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  return lastResult ?? await readNewsLatestIndexRecords(gun, options);
 }
 
 async function readNewsHotIndexRecords(gun, options = {}) {
@@ -2664,7 +2964,11 @@ async function writeNewsStoryRecord(gun, body) {
   const storyChain = gun.get('vh').get('news').get('stories').get(clean.story_id);
   await putScalarRecord(storyChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsStoryGraph(clean));
-  const readback = await pollNewsStoryBack(gun, clean.story_id, 5_000);
+  const readback = await pollNewsStoryBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
   if (!readback) {
     throw new Error('news-story-readback-failed');
   }
@@ -2676,7 +2980,11 @@ async function writeNewsLatestIndexRecord(gun, body) {
   const latestChain = gun.get('vh').get('news').get('index').get('latest').get(clean.story_id);
   await putScalarRecord(latestChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsLatestIndexGraph(clean));
-  const readback = await pollNewsLatestIndexBack(gun, clean.story_id, 5_000);
+  const readback = await pollNewsLatestIndexBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
   if (!readback) {
     throw new Error('news-latest-index-readback-failed');
   }
@@ -2694,7 +3002,12 @@ async function writeNewsSynthesisLifecycleRecord(gun, body) {
     .get('latest');
   await putScalarRecord(lifecycleChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
-  const readback = await pollNewsSynthesisLifecycleBack(gun, clean.story_id, clean.record, 5_000);
+  const readback = await pollNewsSynthesisLifecycleBack(
+    gun,
+    clean.story_id,
+    clean.record,
+    numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
   if (!readback) {
     throw new Error('news-synthesis-lifecycle-readback-failed');
   }
@@ -2927,7 +3240,7 @@ const server = http.createServer((req, res) => {
       : undefined;
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
     const before = parsedUrl.searchParams.get('before');
-    void readNewsLatestIndexRecords(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before })
+    void readNewsLatestIndexRecordsWithEmptyRetry(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before })
       .then((result) => {
         const payload = {
           ok: true,
@@ -2940,6 +3253,7 @@ const server = http.createServer((req, res) => {
           next_cursor: result.nextCursor,
           consistency: result.consistency,
           composition: result.composition,
+          composition_backfill_records: result.compositionBackfillRecords,
           story_states: result.storyStates,
           records: result.records,
         };

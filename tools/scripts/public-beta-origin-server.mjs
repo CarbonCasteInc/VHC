@@ -9,7 +9,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
-const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 5_000;
+const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 30_000;
 const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
@@ -351,9 +351,38 @@ function relayRecordScore(payload, pathname) {
       : payload.index && typeof payload.index === 'object'
         ? payload.index
         : null;
-    return records ? Object.keys(records).length : -1;
+    if (!records) return -1;
+    const recordCount = Object.keys(records).length;
+    const composition = payload.composition && typeof payload.composition === 'object'
+      ? payload.composition
+      : null;
+    if (!composition) return recordCount;
+    const totalVisible = Number.isFinite(Number(composition.total_visible))
+      ? Number(composition.total_visible)
+      : recordCount;
+    const multiSourceVisible = Number.isFinite(Number(composition.multi_source_visible))
+      ? Number(composition.multi_source_visible)
+      : 0;
+    const maxSourceCount = Number.isFinite(Number(composition.max_source_count))
+      ? Number(composition.max_source_count)
+      : 0;
+    const freshnessAgeMs = Number(composition.freshness_age_ms);
+    const freshnessPenalty = Number.isFinite(freshnessAgeMs)
+      ? Math.min(Math.floor(Math.max(0, freshnessAgeMs) / 60_000), 10_080)
+      : 10_080;
+    return recordCount
+      + (totalVisible * 10)
+      + (multiSourceVisible * 100_000)
+      + (maxSourceCount * 1_000)
+      - freshnessPenalty;
   }
-  if (pathname === '/vh/news/story' || pathname === '/vh/topics/synthesis') {
+  if (pathname === '/vh/news/story') {
+    return (payload.record && typeof payload.record === 'object')
+      || (payload.story && typeof payload.story === 'object')
+      ? 1
+      : -1;
+  }
+  if (pathname === '/vh/topics/synthesis') {
     return payload.record && typeof payload.record === 'object' ? 1 : -1;
   }
   return -1;

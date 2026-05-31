@@ -41,6 +41,7 @@ import {
   readNewsHotIndexWithRelayRestFallback,
   readNewsIngestionLease,
   readNewsLatestIndex,
+  readNewsLatestIndexPageViaRelayRest,
   readNewsLatestIndexProductRecord,
   readNewsLatestIndexViaRelayRest,
   readNewsLatestIndexWithRelayRestFallback,
@@ -1129,6 +1130,12 @@ describe('newsAdapters', () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       record_count: 1,
+      next_cursor: 123,
+      composition: {
+        total_visible: 1,
+        singleton_visible: 1,
+        multi_source_visible: 0,
+      },
       records: { 'story-a': record },
     }), {
       status: 200,
@@ -1143,6 +1150,16 @@ describe('newsAdapters', () => {
 
     try {
       await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({ 'story-a': 123 });
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { 'story-a': 123 },
+        nextCursor: 123,
+        recordCount: 1,
+        composition: {
+          total_visible: 1,
+          singleton_visible: 1,
+          multi_source_visible: 0,
+        },
+      });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
         expect.objectContaining({ method: 'GET' }),

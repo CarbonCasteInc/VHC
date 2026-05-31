@@ -270,6 +270,7 @@ describe('FeedShell lazy loading', () => {
     useNewsStore.setState({
       stories: [makeSnapshotStory(1) as any],
       latestIndex: { 'story-existing': NOW },
+      latestIndexCursor: NOW - 10,
       refreshLatest,
     });
 
@@ -295,7 +296,7 @@ describe('FeedShell lazy loading', () => {
         await vi.advanceTimersByTimeAsync(100);
       });
 
-      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW });
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW - 10 });
       expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
     } finally {
       useNewsStore.setState({ refreshLatest: originalRefreshLatest });

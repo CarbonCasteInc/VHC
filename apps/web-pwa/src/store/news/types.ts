@@ -1,6 +1,6 @@
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 
-export const NEWS_STORE_TYPES_VERSION = 'storycluster-pr5-hot-index-v1';
+export const NEWS_STORE_TYPES_VERSION = 'storycluster-pr6-public-feed-cursor-v1';
 
 export function getNewsStoreTypesVersion(): string {
   return NEWS_STORE_TYPES_VERSION;
@@ -17,6 +17,9 @@ export interface NewsState {
 
   /** Latest index from mesh: story_id -> latest_activity_at. */
   readonly latestIndex: Readonly<Record<string, number>>;
+
+  /** Server-provided cursor for the next older latest-index window. */
+  readonly latestIndexCursor: number | null;
 
   /** Hot index from mesh: story_id -> deterministic hotness score. */
   readonly hotIndex: Readonly<Record<string, number>>;

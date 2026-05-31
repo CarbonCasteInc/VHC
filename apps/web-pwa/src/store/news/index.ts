@@ -2,6 +2,7 @@ import { create, type StoreApi } from 'zustand';
 import {
   readNewsHotIndexWithRelayRestFallback,
   readNewsLatestIndexWithRelayRestFallback,
+  readNewsLatestIndexPageWithRelayRestFallback,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
   type VennClient,
@@ -28,9 +29,10 @@ import {
 export type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 
 const INITIAL_STATE: Pick<NewsState,
-  'stories' | 'latestIndex' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
+  'stories' | 'latestIndex' | 'latestIndexCursor' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
   stories: [],
   latestIndex: {},
+  latestIndexCursor: null,
   hotIndex: {},
   storylinesById: {},
   hydrated: false,
@@ -359,6 +361,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       const sanitized = sanitizeLatestIndex(index);
       set((state) => ({
         latestIndex: sanitized,
+        latestIndexCursor: null,
         stories: sortStories([...state.stories], sanitized),
         error: null
       }));
@@ -545,13 +548,14 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       set({ loading: true, error: null });
 
       try {
-        const { filteredStories, hotIndex, latestIndex, storylines } =
+        const { filteredStories, hotIndex, latestIndex, latestIndexCursor, storylines } =
           await withNewsRefreshTimeout((async () => {
-            const nextLatestIndex = await readNewsLatestIndexWithRelayRestFallback(client, {
+            const latestPage = await readNewsLatestIndexPageWithRelayRestFallback(client, {
               limit: refreshRequest.limit,
               ...(isCursorWindow ? { before: refreshRequest.before } : {}),
-            })
-              .then(sanitizeLatestIndex);
+            });
+            const nextLatestIndex = sanitizeLatestIndex(latestPage.index);
+            const nextLatestIndexCursor = latestPage.nextCursor;
 
             const currentState = get();
             const shouldPreserveExistingFeed =
@@ -563,6 +567,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
                 filteredStories: [...currentState.stories],
                 hotIndex: { ...currentState.hotIndex },
                 latestIndex: { ...currentState.latestIndex },
+                latestIndexCursor: currentState.latestIndexCursor,
                 storylines: Object.values(currentState.storylinesById),
               };
             }
@@ -570,6 +575,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             const effectiveLatestIndex = isCursorWindow
               ? { ...currentState.latestIndex, ...nextLatestIndex }
               : nextLatestIndex;
+            const effectiveLatestIndexCursor = nextLatestIndexCursor;
             const storyIds = selectLatestStoryIds(
               isCursorWindow ? nextLatestIndex : effectiveLatestIndex,
               refreshRequest.limit,
@@ -594,6 +600,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
               filteredStories: nextFilteredStories,
               hotIndex: nextHotIndex,
               latestIndex: effectiveLatestIndex,
+              latestIndexCursor: effectiveLatestIndexCursor,
               storylines: nextStorylines,
             };
           })());
@@ -614,6 +621,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             : createStorylineRecord(storylines);
           return {
             latestIndex,
+            latestIndexCursor,
             hotIndex,
             storylinesById: mergedStorylinesById,
             stories: sortStories(mergedStories, latestIndex),
