@@ -753,6 +753,22 @@ describe('infra relay server', () => {
     });
     expect(storedPayload).toMatchObject(payload);
     expect(storedSessionRef).toMatchObject(signedWriteEnvelope.sessionRef);
+
+    await expect(requestJson(
+      `http://127.0.0.1:${port}/vh/aggregates/point?topic_id=${payload.topic_id}&synthesis_id=${payload.synthesis_id}&epoch=${payload.epoch}&point_id=${payload.point_id}`,
+    )).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        row_count: 1,
+        aggregate: expect.objectContaining({
+          point_id: payload.point_id,
+          agree: 1,
+          disagree: 0,
+          participants: 1,
+        }),
+      }),
+    });
   });
 
   it('serves a read-only aggregate point snapshot from persisted voter rows', async () => {

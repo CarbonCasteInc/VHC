@@ -3144,7 +3144,51 @@ function mergeAggregateRowsByVoter(rows) {
   return [...byVoter.values()];
 }
 
-async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 750) {
+async function readAggregateVoterRowsViaMap(votersChain, context, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const mapped = votersChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const rowsByVoter = new Map();
+    const startedAt = Date.now();
+    let lastEventAt = startedAt;
+    let settled = false;
+    const callback = (voterPayload, voterId) => {
+      if (typeof voterId !== 'string' || !voterId.trim() || voterId === '_') {
+        return;
+      }
+      lastEventAt = Date.now();
+      const row = parseAggregateVoterRow(voterId, voterPayload, context);
+      if (row) {
+        rowsByVoter.set(voterId, row);
+      }
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(watchdogInterval);
+      clearTimeout(maxTimer);
+      try {
+        mapped.off?.(callback);
+      } catch {
+        // Best-effort Gun map cleanup.
+      }
+      resolve([...rowsByVoter.values()]);
+    };
+    const watchdogInterval = setInterval(() => {
+      const now = Date.now();
+      if (now - lastEventAt >= 200 || now - startedAt >= timeoutMs) {
+        finish();
+      }
+    }, 50);
+    const maxTimer = setTimeout(finish, timeoutMs + 100);
+    mapped.once(callback);
+  });
+}
+
+async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 1500) {
   return new Promise((resolve) => {
     const mapped = votersChain.map?.();
     if (!mapped?.once) {
@@ -3174,7 +3218,8 @@ async function readAggregateVoterRows(gun, context) {
     .get('syntheses').get(context.synthesisId)
     .get('epochs').get(String(context.epoch))
     .get('voters');
-  const raw = stripGunMetadata(await readOnce(votersChain, 750));
+  const raw = stripGunMetadata(await readOnce(votersChain, 1500));
+  const mapRows = await readAggregateVoterRowsViaMap(votersChain, context);
   const rootRows = [];
   const voterIds = new Set();
   if (raw && typeof raw === 'object') {
@@ -3185,11 +3230,14 @@ async function readAggregateVoterRows(gun, context) {
       if (row) rootRows.push(row);
     }
   }
+  for (const row of mapRows) {
+    voterIds.add(row.voter_id);
+  }
   for (const voterId of await readAggregateVoterIdsViaMap(votersChain)) {
     voterIds.add(voterId);
   }
   const leafRows = await Promise.all([...voterIds].map(async (voterId) => {
-    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 750);
+    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 1500);
     const node = parseAggregateVoterNodeForRead(direct, context, voterId);
     if (!node) return null;
     const updatedAtMs = Date.parse(node.updated_at);
@@ -3199,7 +3247,7 @@ async function readAggregateVoterRows(gun, context) {
       updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
     };
   }));
-  return mergeAggregateRowsByVoter([...rootRows, ...leafRows]);
+  return mergeAggregateRowsByVoter([...rootRows, ...mapRows, ...leafRows]);
 }
 
 async function readAggregatePointSnapshot(gun, context) {
