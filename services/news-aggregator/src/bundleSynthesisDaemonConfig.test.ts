@@ -9,6 +9,7 @@ import type { StoryBundle } from '@vh/data-model';
 import {
   createBundleSynthesisEnrichmentFromEnv,
   isTruthyFlag,
+  shouldEnableBundleSynthesisFromEnv,
 } from './bundleSynthesisDaemonConfig';
 
 const workerConfigs: Array<Record<string, any>> = [];
@@ -68,8 +69,29 @@ describe('bundleSynthesisDaemonConfig', () => {
     expect(isTruthyFlag('yes')).toBe(true);
   });
 
+  it('auto-enables bundle synthesis when a synthesis credential is configured', () => {
+    expect(shouldEnableBundleSynthesisFromEnv()).toBe(false);
+
+    vi.stubEnv('ANALYSIS_RELAY_API_KEY', 'analysis-relay-key');
+    expect(shouldEnableBundleSynthesisFromEnv()).toBe(true);
+
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_ENABLED', 'false');
+    expect(shouldEnableBundleSynthesisFromEnv()).toBe(false);
+  });
+
   it('does not create enrichment when bundle synthesis is disabled', () => {
     expect(createBundleSynthesisEnrichmentFromEnv({} as VennClient)).toEqual({});
+  });
+
+  it('creates enrichment from an existing analysis relay credential without requiring the legacy master switch', () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    vi.stubEnv('ANALYSIS_RELAY_API_KEY', 'analysis-relay-key');
+
+    const enrichment = createBundleSynthesisEnrichmentFromEnv({} as VennClient, logger);
+
+    expect(typeof enrichment.enrichmentWorker).toBe('function');
+    expect(workerConfigs).toHaveLength(1);
+    expect(workerConfigs[0]?.model).toBe('gpt-4o-mini');
   });
 
   it('wires bundle synthesis worker and bounded queue options when enabled', () => {

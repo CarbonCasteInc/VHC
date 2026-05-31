@@ -154,7 +154,7 @@ export async function runSynthesisLifecycleReplayFromEnv(argv = process.argv.sli
       runWrite: writeLanes.run,
     });
     if (!enrichment.enrichmentWorker) {
-      throw new Error('VH_BUNDLE_SYNTHESIS_ENABLED must be enabled for lifecycle replay');
+      throw new Error('Bundle synthesis must be enabled or configured with a synthesis credential for lifecycle replay');
     }
     return await replaySynthesisLifecycleFromLedger({
       ledgerPath,
