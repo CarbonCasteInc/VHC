@@ -350,6 +350,13 @@ Public latest/hot index-entry storage contract:
   scroll/load-more evidence. Release gates MUST also verify the relay itself can
   return a second non-overlapping older latest-index page through `before`, so a
   small singleton-only first window cannot satisfy pagination readiness.
+- Relay REST reads of `vh/news/index/hot` MUST expose a bounded
+  `/vh/news/hot-index?limit=<n>` read path sorted by resolved hotness after
+  linked child reads. The Web PWA and release gates may use this REST path as a
+  public-peer fallback when the direct Gun hot-index root is sparse; returned
+  records must parse with the same signed system-writer and legacy-compatible
+  semantics as `readNewsHotIndex`, and must not fork story identities from the
+  latest feed.
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and

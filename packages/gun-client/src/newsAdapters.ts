@@ -25,6 +25,9 @@ export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
   readonly before?: number;
 }
+export interface NewsHotIndexReadOptions {
+  readonly limit?: number;
+}
 export interface NewsStoryRootReadOptions {
   readonly limit?: number;
 }
@@ -153,6 +156,17 @@ function filterLatestIndexWindow(
   const before = normalizeLatestIndexBeforeCursor(options.before);
   const entries = Object.entries(index)
     .filter(([, timestamp]) => before === null || timestamp < before)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit);
+  return Object.fromEntries(entries);
+}
+
+function filterHotIndexWindow(
+  index: NewsHotIndex,
+  options: NewsHotIndexReadOptions = {},
+): NewsHotIndex {
+  const limit = normalizeLatestIndexReadLimit(options.limit);
+  const entries = Object.entries(index)
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, limit);
   return Object.fromEntries(entries);
@@ -2116,6 +2130,87 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
     ),
     ...index,
   };
+}
+
+/**
+ * Read hot-index records through the relay's REST fallback.
+ *
+ * This mirrors latest-index relay read behavior so product hot ranking is not
+ * lost when a browser or public gate observes a sparse Gun root.
+ */
+export async function readNewsHotIndexViaRelayRest(
+  client: VennClient,
+  options: NewsHotIndexReadOptions = {},
+): Promise<NewsHotIndex> {
+  if (typeof fetch !== 'function') {
+    return {};
+  }
+  const limit = normalizeLatestIndexReadLimit(options.limit);
+  const endpoints = resolveRelayRestEndpointsFromPeers(
+    client,
+    `/vh/news/hot-index?limit=${encodeURIComponent(String(limit))}`,
+  );
+  if (endpoints.length === 0) {
+    return {};
+  }
+
+  const index: NewsHotIndex = {};
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const payload = await response.json() as { records?: unknown; index?: unknown };
+      const records = isRecord(payload.records)
+        ? payload.records
+        : isRecord(payload.index)
+          ? payload.index
+          : null;
+      if (!records) {
+        continue;
+      }
+
+      for (const [storyId, value] of Object.entries(records)) {
+        try {
+          const hotness = await parseHotIndexEntry(client, storyId, value);
+          if (hotness !== null) {
+            index[storyId] = Math.max(index[storyId] ?? 0, hotness);
+          }
+        } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+      }
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return filterHotIndexWindow(index, options);
+}
+
+export async function readNewsHotIndexWithRelayRestFallback(
+  client: VennClient,
+  options: NewsHotIndexReadOptions = {},
+): Promise<NewsHotIndex> {
+  const relayed = await timeoutAsNull(
+    readNewsHotIndexViaRelayRest(client, options),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
+  if (relayed && Object.keys(relayed).length > 0) {
+    return filterHotIndexWindow(relayed, options);
+  }
+  const direct = await timeoutAsNull(
+    readNewsHotIndex(client),
+    Math.max(READ_ONCE_TIMEOUT_MS + 1_000, RELAY_REST_READ_TIMEOUT_MS),
+  );
+  /* v8 ignore next -- direct null only occurs on bounded direct-read timeout; empty fallback is defensive. */
+  return direct ? filterHotIndexWindow(direct, options) : {};
 }
 
 /**

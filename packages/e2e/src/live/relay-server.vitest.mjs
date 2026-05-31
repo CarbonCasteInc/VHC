@@ -917,6 +917,57 @@ describe('infra relay server', () => {
     });
   });
 
+  it('serves bounded hot-index relay fallback rows ordered by hotness', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS: '2',
+    });
+    const gun = createRelayGunClient(port);
+    const hotIndexRoot = gun.get('vh').get('news').get('index').get('hot');
+    await putGunValueAndWaitForReadback(hotIndexRoot.get('story-warm'), 0.25);
+    await putGunValueAndWaitForReadback(hotIndexRoot.get('story-hot'), 0.91);
+    await putGunValueAndWaitForReadback(hotIndexRoot.get('story-cold'), 0.1);
+
+    let hot = null;
+    const hotUrl = `http://127.0.0.1:${port}/vh/news/hot-index?limit=2`;
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5_000) {
+      hot = await requestJson(hotUrl);
+      if (
+        hot.body?.record_count === 2
+        && hot.body?.records?.['story-hot'] === 0.91
+        && hot.body?.records?.['story-warm'] === 0.25
+      ) {
+        break;
+      }
+      await delay(100);
+    }
+
+    expect(hot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 2,
+        source_key_count: 3,
+        scanned_key_count: 3,
+        truncated: true,
+        records: {
+          'story-hot': 0.91,
+          'story-warm': 0.25,
+        },
+      }),
+    });
+    expect(hot.body.records).not.toHaveProperty('story-cold');
+
+    const withRoot = await requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=1&include_root=true`);
+    expect(withRoot).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        root: expect.any(Object),
+      }),
+    });
+    gun.off();
+  }, 10_000);
+
   it('serves older latest-index windows with an exclusive before cursor', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
