@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyLifecycleLedgerStatus,
   classifyLifecycleAccountabilityStatus,
   classifyProductIndexMetadata,
   isAcceptedFrameReady,
@@ -89,6 +90,29 @@ describe('public feed lifecycle accountability helpers', () => {
       { code: 'public_raw_story_mesh_missing_multi_source' },
       { code: 'public_feed_composition_missing_multi_source' },
     ])).toBe('fail');
+    expect(classifyLifecycleAccountabilityStatus([
+      { code: 'product_visible_synthesis_lifecycle_missing_or_stale' },
+    ])).toBe('fail');
+  });
+
+  it('requires product-visible stories to have a current synthesis lifecycle ledger row', () => {
+    const story = {
+      product_visible: true,
+      source_count: 2,
+      source_set_revision: 'source-set-1',
+      lifecycle_status: 'pending',
+      lifecycle_source_set_revision: 'source-set-1',
+    };
+
+    expect(classifyLifecycleLedgerStatus(story)).toBe('complete');
+    expect(classifyLifecycleLedgerStatus({ ...story, lifecycle_status: null })).toBe('missing');
+    expect(classifyLifecycleLedgerStatus({ ...story, lifecycle_status: 'bogus' })).toBe('invalid_status');
+    expect(classifyLifecycleLedgerStatus({ ...story, lifecycle_source_set_revision: null })).toBe('missing_revision');
+    expect(classifyLifecycleLedgerStatus({
+      ...story,
+      lifecycle_source_set_revision: 'source-set-old',
+    })).toBe('source_set_mismatch');
+    expect(classifyLifecycleLedgerStatus({ ...story, product_visible: false })).toBe('not_required');
   });
 
   it('classifies hot/latest product index metadata against current story source-set state', () => {

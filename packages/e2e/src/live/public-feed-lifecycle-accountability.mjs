@@ -398,6 +398,27 @@ function classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffM
   return storyId ? 'hidden_bug' : 'blocked';
 }
 
+const LIFECYCLE_STATUSES = new Set([
+  'pending',
+  'in_progress',
+  'accepted_available',
+  'retryable_failure',
+  'terminal_unavailable',
+  'suppressed',
+]);
+
+function classifyLifecycleLedgerStatus(story) {
+  if (!story?.product_visible || story.source_count <= 0) return 'not_required';
+  const lifecycleStatus = String(story.lifecycle_status ?? '').trim();
+  if (!lifecycleStatus) return 'missing';
+  if (!LIFECYCLE_STATUSES.has(lifecycleStatus)) return 'invalid_status';
+  const lifecycleRevision = String(story.lifecycle_source_set_revision ?? '').trim();
+  if (!lifecycleRevision) return 'missing_revision';
+  const storyRevision = String(story.source_set_revision ?? '').trim();
+  if (storyRevision && lifecycleRevision !== storyRevision) return 'source_set_mismatch';
+  return 'complete';
+}
+
 function classifyLifecycleAccountabilityStatus(failures) {
   if (failures.length === 0) return 'pass';
   const codes = failures.map((failure) => String(failure?.code ?? ''));
@@ -408,6 +429,7 @@ function classifyLifecycleAccountabilityStatus(failures) {
       || code === 'product_feed_hot_index_missing_for_visible_story'
       || code === 'hot_index_product_metadata_missing'
       || code === 'public_raw_story_mesh_missing_multi_source'
+      || code === 'product_visible_synthesis_lifecycle_missing_or_stale'
   );
   if (hasHardLifecycleFailure) return 'fail';
   if (codes.every((code) =>
@@ -511,7 +533,7 @@ async function runPublicFeedLifecycleAccountability({
       const classification = classifyStory({ story, storyId, lifecycle, productVisible, staleCutoffMs });
       const acceptedSynthesisCurrent = isAcceptedSynthesisCurrentForStory({ story, lifecycle, synthesis });
       const frameTableReady = acceptedSynthesisCurrent && isAcceptedFrameReady(synthesis);
-      stories.push({
+      const storySummary = {
         story_id: storyId,
         topic_id: story?.topic_id ?? null,
         headline: story?.headline ?? null,
@@ -540,6 +562,10 @@ async function runPublicFeedLifecycleAccountability({
         frame_table_ready: frameTableReady,
         relay_state: relayLatest.storyStates?.[storyId] ?? null,
         classification,
+      };
+      stories.push({
+        ...storySummary,
+        lifecycle_ledger_status: classifyLifecycleLedgerStatus(storySummary),
       });
     }
 
@@ -563,6 +589,8 @@ async function runPublicFeedLifecycleAccountability({
       if (story.lifecycle_status === 'terminal_unavailable') acc.terminal_unavailable += 1;
       if (story.accepted_synthesis_available) acc.accepted_available += 1;
       if (story.frame_table_ready) acc.frame_table_ready += 1;
+      const lifecycleLedgerKey = `lifecycle_ledger_${story.lifecycle_ledger_status}`;
+      acc[lifecycleLedgerKey] = (acc[lifecycleLedgerKey] ?? 0) + 1;
       return acc;
     }, {
       total_sampled: 0,
@@ -583,6 +611,12 @@ async function runPublicFeedLifecycleAccountability({
       terminal_unavailable: 0,
       accepted_available: 0,
       frame_table_ready: 0,
+      lifecycle_ledger_complete: 0,
+      lifecycle_ledger_missing: 0,
+      lifecycle_ledger_invalid_status: 0,
+      lifecycle_ledger_missing_revision: 0,
+      lifecycle_ledger_source_set_mismatch: 0,
+      lifecycle_ledger_not_required: 0,
     });
     const failures = [];
     const hiddenEligible = stories.filter((story) => story.classification === 'hidden_bug');
@@ -609,6 +643,21 @@ async function runPublicFeedLifecycleAccountability({
       failures.push({
         code: 'relay_accepted_synthesis_not_current',
         story_ids: relayAcceptedNotCurrent.map((story) => story.story_id),
+      });
+    }
+    const lifecycleLedgerMissingOrStale = stories.filter((story) =>
+      story.product_visible
+        && story.source_count > 0
+        && story.lifecycle_ledger_status !== 'complete',
+    );
+    if (lifecycleLedgerMissingOrStale.length > 0) {
+      failures.push({
+        code: 'product_visible_synthesis_lifecycle_missing_or_stale',
+        story_ids: lifecycleLedgerMissingOrStale.map((story) => story.story_id),
+        status_counts: lifecycleLedgerMissingOrStale.reduce((acc, story) => {
+          acc[story.lifecycle_ledger_status] = (acc[story.lifecycle_ledger_status] ?? 0) + 1;
+          return acc;
+        }, {}),
       });
     }
     const visibleMissingHotIndex = stories.filter((story) =>
@@ -698,6 +747,7 @@ export {
   readRelayHot,
   sourceCount,
   classifyProductIndexMetadata,
+  classifyLifecycleLedgerStatus,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
   classifyLifecycleAccountabilityStatus,
