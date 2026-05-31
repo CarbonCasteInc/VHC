@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  createClient,
   readAggregatesWithRelayRestFallback as readAggregates,
   type PointAggregate,
+  type VennClient,
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { consumeVoteTimestamp, logConvergenceLag } from '../utils/sentimentTelemetry';
@@ -22,6 +24,10 @@ const LIVE_REFRESH_INTERVAL_MS = 4_000;
 const AGGREGATE_CACHE_STORAGE_KEY = 'vh_point_aggregate_cache_v1';
 const AGGREGATE_CACHE_TTL_MS = 5 * 60_000;
 const AGGREGATE_CACHE_MAX_ENTRIES = 200;
+
+let cachedPublicAggregateReadClient:
+  | { readonly cacheKey: string; readonly client: VennClient }
+  | null = null;
 
 function isLiveRefreshEnabled(): boolean {
   const liveRefreshOverride = (
@@ -136,6 +142,46 @@ function persistCachedAggregate(cacheKey: string, aggregate: PointAggregate): vo
   }
 
   writeAggregateCache(cache);
+}
+
+function isLocalAggregateHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function sameOriginPublicAggregatePeer(): string | null {
+  const location = globalThis.location;
+  if (!location?.origin || !location.hostname || isLocalAggregateHostname(location.hostname)) {
+    return null;
+  }
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') {
+    return null;
+  }
+  return `${location.origin.replace(/\/+$/, '')}/gun`;
+}
+
+function resolveAggregateReadClient(appClient: VennClient): VennClient {
+  const sameOriginPeer = sameOriginPublicAggregatePeer();
+  if (!sameOriginPeer) {
+    return appClient;
+  }
+
+  const appPeers = Array.isArray(appClient.config?.peers) ? appClient.config.peers : [];
+  const peers = Array.from(new Set([sameOriginPeer, ...appPeers]));
+  const cacheKey = peers.join('\n');
+  if (cachedPublicAggregateReadClient?.cacheKey === cacheKey) {
+    return cachedPublicAggregateReadClient.client;
+  }
+
+  const client = createClient({
+    peers,
+    requireSession: false,
+    gunLocalStorage: false,
+    gunRadisk: false,
+  });
+  client.markSessionReady();
+  cachedPublicAggregateReadClient = { cacheKey, client };
+  return client;
 }
 
 export interface UsePointAggregateParams {
@@ -371,13 +417,14 @@ export function usePointAggregate({
       };
     }
 
-    const client = resolveClientFromAppStore();
-    if (!client) {
+    const appClient = resolveClientFromAppStore();
+    if (!appClient) {
       setResult({ aggregate: null, status: 'idle', error: null });
       return () => {
         cancelled = true;
       };
     }
+    const readClient = resolveAggregateReadClient(appClient);
 
     const cachedAggregate = readCachedAggregate(aggregateCacheKey);
     setResult(
@@ -394,7 +441,7 @@ export function usePointAggregate({
         const startedAt = Date.now();
 
         try {
-          const aggregate = await readAggregates(client, topicId, synthesisId, epoch, pointId);
+          const aggregate = await readAggregates(readClient, topicId, synthesisId, epoch, pointId);
           if (cancelled) {
             return;
           }
@@ -496,7 +543,7 @@ export function usePointAggregate({
         const fallbackStartedAt = Date.now();
         try {
           const fallbackAggregate = await readAggregates(
-            client,
+            readClient,
             topicId,
             synthesisId,
             epoch,
@@ -550,7 +597,7 @@ export function usePointAggregate({
           const attemptNumber = MAX_RETRIES + 2 + pollAttempt;
           const startedAt = Date.now();
           try {
-            const aggregate = await readAggregates(client, topicId, synthesisId, epoch, pointId);
+            const aggregate = await readAggregates(readClient, topicId, synthesisId, epoch, pointId);
             if (cancelled) {
               return;
             }
@@ -585,7 +632,7 @@ export function usePointAggregate({
               const fallbackStartedAt = Date.now();
               try {
                 const fallbackAggregate = await readAggregates(
-                  client,
+                  readClient,
                   topicId,
                   synthesisId,
                   epoch,
@@ -678,12 +725,13 @@ export function usePointAggregate({
       };
     }
 
-    const client = resolveClientFromAppStore();
-    if (!client) {
+    const appClient = resolveClientFromAppStore();
+    if (!appClient) {
       return () => {
         cancelled = true;
       };
     }
+    const readClient = resolveAggregateReadClient(appClient);
 
     const refreshLiveAggregate = async (): Promise<void> => {
       if (cancelled || inFlight) {
@@ -692,7 +740,7 @@ export function usePointAggregate({
       inFlight = true;
 
       try {
-        const primary = await readAggregates(client, topicId, synthesisId, epoch, pointId);
+        const primary = await readAggregates(readClient, topicId, synthesisId, epoch, pointId);
         if (cancelled) {
           return;
         }
@@ -701,7 +749,7 @@ export function usePointAggregate({
         if (isZeroAggregate(primary) && effectiveFallbackPointId) {
           try {
             const fallback = await readAggregates(
-              client,
+              readClient,
               topicId,
               synthesisId,
               epoch,
@@ -760,7 +808,7 @@ export function usePointAggregate({
       void refreshLiveAggregate();
     }, LIVE_REFRESH_INTERVAL_MS);
     const unsubscribe = subscribePointAggregateSignals({
-      client,
+      client: appClient,
       topicId,
       synthesisId,
       epoch,
