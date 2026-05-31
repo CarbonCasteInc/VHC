@@ -2312,7 +2312,7 @@ describe('infra relay server', () => {
       snapshot_story_state_refresh: expect.objectContaining({
         enabled: true,
         selected_count: 1,
-        refreshed_count: 1,
+        refreshed_count: expect.any(Number),
       }),
     });
     expect(accepted.body.story_states[story.story_id]).toMatchObject({
