@@ -61,6 +61,7 @@ import {
 } from './analysisEvalReplay';
 import { reconcileProductFeedFromRawStories } from './productFeedReconciler';
 import {
+  DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
   collectPendingSynthesisCatchupCandidates,
   type PendingSynthesisCatchupResult,
 } from './pendingSynthesisCatchup';
@@ -103,10 +104,11 @@ export interface NewsAggregatorDaemonConfig {
   productFeedReconcileIntervalMs?: number;
   collectPendingSynthesisCandidates?: (
     client: VennClient,
-    options: { limit?: number; logger?: LoggerLike },
+    options: { limit?: number; logger?: LoggerLike; now?: () => number; staleInProgressMs?: number },
   ) => Promise<PendingSynthesisCatchupResult>;
   synthesisCatchupIntervalMs?: number;
   synthesisCatchupSampleLimit?: number;
+  synthesisInProgressStaleMs?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -172,6 +174,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const synthesisCatchupSampleLimit = config.synthesisCatchupSampleLimit
     ?? parseOptionalPositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_CATCHUP_SAMPLE_LIMIT'))
     ?? 25;
+  const synthesisInProgressStaleMs = normalizePositiveIntervalMs(
+    config.synthesisInProgressStaleMs
+    ?? parseOptionalPositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_IN_PROGRESS_STALE_MS'))
+    ?? DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+    DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+  );
   const collectPendingSynthesisCandidates =
     config.collectPendingSynthesisCandidates ?? collectPendingSynthesisCatchupCandidates;
   let nextSynthesisCatchupAt = Number.NEGATIVE_INFINITY;
@@ -364,6 +372,8 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         const result = await collectPendingSynthesisCandidates(config.client, {
           limit: synthesisCatchupSampleLimit,
           logger,
+          now: nowFn,
+          staleInProgressMs: synthesisInProgressStaleMs,
         });
         for (const candidate of result.candidates) {
           queue.enqueue(candidate.candidate);
@@ -376,6 +386,8 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           scanned: result.scanned,
           enqueued: result.enqueued,
           skipped: result.skipped,
+          stale_in_progress: result.staleInProgress,
+          in_progress_stale_ms: synthesisInProgressStaleMs,
           enrichment_queue: queue.snapshot(),
         });
       } catch (error) {
