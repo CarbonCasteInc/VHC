@@ -1357,6 +1357,15 @@ function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, en
     );
   }
 
+  const requireAcceptedSynthesis = String(
+    env.VH_PUBLIC_FEED_REQUIRE_ACCEPTED_SYNTHESIS
+      ?? env.VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS
+      ?? 'true',
+  ).trim().toLowerCase() !== 'false';
+  if (requireAcceptedSynthesis && Number(publicRelaySynthesisReadback.acceptedSynthesisStoryCount ?? 0) <= 0) {
+    throw new Error('public-relay-current-accepted-synthesis-missing');
+  }
+
   const pointPresence = publicRelaySynthesisReadback.pointIdPresence ?? {};
   const frameRows = Number(pointPresence.frameRows ?? 0);
   if (
@@ -2549,15 +2558,20 @@ async function verifySecondBrowser({
       voteCount: voteVisibility.count,
       source: voteVisibility.source,
     });
-    await waitFor('second-browser-comment-visibility', async () =>
-      (await postedCommentVisible(page, commentBody)) ? true : null,
-    { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
-    progress('second-browser-comment-visible');
+    if (commentBody) {
+      await waitFor('second-browser-comment-visibility', async () =>
+        (await postedCommentVisible(page, commentBody)) ? true : null,
+      { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
+      progress('second-browser-comment-visible');
+    } else {
+      progress('second-browser-comment-skipped', { reason: 'not_required_for_vote_convergence' });
+    }
     return {
       voteCount: voteVisibility.count,
       voteCountSource: voteVisibility.source,
       publicAggregate: voteVisibility.publicAggregate ?? null,
-      commentVisible: true,
+      commentVisible: Boolean(commentBody),
+      commentSkippedReason: commentBody ? null : 'not_required_for_vote_convergence',
     };
   } catch (error) {
     progress('second-browser-diagnostics', {
@@ -2594,6 +2608,8 @@ async function runPublicFeedBrowserSmoke({
     DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS,
   );
   const requireStoryComments = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_STORY_COMMENTS, false);
+  const requireSecondBrowserVote = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_SECOND_BROWSER_VOTE, false);
+  const requireAcceptedSynthesis = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS, true);
   const secondBrowserVoteVisibilityTimeoutMs = parsePositiveInt(
     env.VH_PUBLIC_FEED_SMOKE_SECOND_BROWSER_VOTE_TIMEOUT_MS,
     DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
@@ -2634,6 +2650,8 @@ async function runPublicFeedBrowserSmoke({
       publicRelayReadbackTimeoutMs,
       commentVisibilityTimeoutMs,
       requireStoryComments,
+      requireSecondBrowserVote,
+      requireAcceptedSynthesis,
       secondBrowserVoteVisibilityTimeoutMs,
     },
     status: 'fail',
@@ -2894,30 +2912,32 @@ async function runPublicFeedBrowserSmoke({
       status: 'skipped',
       reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
     };
-    if (requireStoryComments && hasCurrentAcceptedSynthesisCandidate) {
-      comment = await withTimeout(
-        'story-comment-overall',
-        createStoryComment(page, target, commentVisibilityTimeoutMs),
-        Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 60_000)),
-      );
-      await page.screenshot(viewportScreenshotOptions(screenshots.afterComment));
-      progress('comment-screenshot', { threadId: comment.sectionId, body: comment.body });
-      reload = await withTimeout(
-        'reload-persistence-overall',
-        verifyReloadPersistence(
-          page,
-          baseUrl,
-          target,
-          voteProof,
-          comment.body,
-          analysisTimeoutMs,
-          commentVisibilityTimeoutMs,
-          progress,
-        ),
-        Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
-      );
-      await page.screenshot(viewportScreenshotOptions(screenshots.reloadPersistence));
-      progress('reload-persistence-screenshot');
+    if ((requireStoryComments || requireSecondBrowserVote) && hasCurrentAcceptedSynthesisCandidate) {
+      if (requireStoryComments) {
+        comment = await withTimeout(
+          'story-comment-overall',
+          createStoryComment(page, target, commentVisibilityTimeoutMs),
+          Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 60_000)),
+        );
+        await page.screenshot(viewportScreenshotOptions(screenshots.afterComment));
+        progress('comment-screenshot', { threadId: comment.sectionId, body: comment.body });
+        reload = await withTimeout(
+          'reload-persistence-overall',
+          verifyReloadPersistence(
+            page,
+            baseUrl,
+            target,
+            voteProof,
+            comment.body,
+            analysisTimeoutMs,
+            commentVisibilityTimeoutMs,
+            progress,
+          ),
+          Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
+        );
+        await page.screenshot(viewportScreenshotOptions(screenshots.reloadPersistence));
+        progress('reload-persistence-screenshot');
+      }
       secondBrowser = await withTimeout(
         'second-browser-overall',
         verifySecondBrowser({
@@ -2926,7 +2946,7 @@ async function runPublicFeedBrowserSmoke({
           gunPeerUrl,
           row: target,
           voteProof,
-          commentBody: comment.body,
+          commentBody: requireStoryComments ? comment.body : null,
           analysisTimeoutMs,
           commentVisibilityTimeoutMs,
           secondBrowserVoteVisibilityTimeoutMs,
@@ -2941,7 +2961,7 @@ async function runPublicFeedBrowserSmoke({
         ),
       );
       progress('second-browser-complete');
-    } else if (requireStoryComments) {
+    } else if (requireStoryComments || requireSecondBrowserVote) {
       progress('story-comment-workflow-skipped', { reason: 'no-current-accepted-synthesis' });
     } else {
       progress('story-comment-workflow-skipped', { reason: comment.reason });
