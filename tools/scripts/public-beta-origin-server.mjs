@@ -24,6 +24,7 @@ const FORUM_FANOUT_READ_PATHS = new Set([
 ]);
 const NEWS_FANOUT_READ_PATHS = new Set([
   '/vh/news/latest-index',
+  '/vh/news/hot-index',
   '/vh/news/story',
   '/vh/topics/synthesis',
 ]);
@@ -147,6 +148,7 @@ function isRelayProxyRoute(pathname) {
     || pathname === '/vh/topics/synthesis'
     || pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
+    || pathname === '/vh/news/hot-index'
     || pathname === '/vh/aggregates/point'
     || pathname === '/vh/aggregates/voter'
     || pathname === '/vh/aggregates/point-snapshot';
@@ -156,6 +158,7 @@ function isRelayProxyMethodAllowed(pathname, method) {
   if (
     pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
+    || pathname === '/vh/news/hot-index'
     || pathname === '/vh/aggregates/point'
   ) {
     return method === 'GET';
@@ -342,7 +345,7 @@ function selectBestForumRead(results, pathname) {
 
 function relayRecordScore(payload, pathname) {
   if (!payload?.ok) return -1;
-  if (pathname === '/vh/news/latest-index') {
+  if (pathname === '/vh/news/latest-index' || pathname === '/vh/news/hot-index') {
     const records = payload.records && typeof payload.records === 'object'
       ? payload.records
       : payload.index && typeof payload.index === 'object'

@@ -207,6 +207,13 @@ describe('public beta origin server', () => {
       url: '/vh/news/latest-index',
     });
 
+    const hotIndexRead = await fetch(`${origin}/vh/news/hot-index`);
+    expect(hotIndexRead.status).toBe(200);
+    expect(relayRequests.at(-1)).toMatchObject({
+      method: 'GET',
+      url: '/vh/news/hot-index',
+    });
+
     const aggregateRead = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
     expect(aggregateRead.status).toBe(200);
     expect(relayRequests.at(-1)).toMatchObject({
@@ -222,6 +229,8 @@ describe('public beta origin server', () => {
     expect(forbiddenStoryPost.status).toBe(405);
     const forbiddenLatestIndexPost = await fetch(`${origin}/vh/news/latest-index`, { method: 'POST' });
     expect(forbiddenLatestIndexPost.status).toBe(405);
+    const forbiddenHotIndexPost = await fetch(`${origin}/vh/news/hot-index`, { method: 'POST' });
+    expect(forbiddenHotIndexPost.status).toBe(405);
     const forbiddenAggregatePost = await fetch(`${origin}/vh/aggregates/point`, { method: 'POST' });
     expect(forbiddenAggregatePost.status).toBe(405);
 
@@ -342,6 +351,16 @@ describe('public beta origin server', () => {
           res.end(JSON.stringify({ ok: true, relay_index: index, records }));
           return;
         }
+        if (req.url?.startsWith('/vh/news/hot-index')) {
+          const records = index === 1
+            ? { 'story-hot-a': { hotness: 0.91 } }
+            : {
+                'story-hot-a': { hotness: 0.91 },
+                'story-hot-b': { hotness: 0.62 },
+              };
+          res.end(JSON.stringify({ ok: true, relay_index: index, records }));
+          return;
+        }
         if (req.url?.startsWith('/vh/news/story')) {
           res.end(JSON.stringify({
             ok: true,
@@ -384,6 +403,17 @@ describe('public beta origin server', () => {
       },
     });
 
+    const hotIndex = await fetch(`${origin}/vh/news/hot-index?limit=80`);
+    expect(hotIndex.status).toBe(200);
+    expect(await hotIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 2,
+      records: {
+        'story-hot-a': { hotness: 0.91 },
+        'story-hot-b': { hotness: 0.62 },
+      },
+    });
+
     const story = await fetch(`${origin}/vh/news/story?story_id=story-a`);
     expect(story.status).toBe(200);
     expect(await story.json()).toMatchObject({
@@ -401,6 +431,7 @@ describe('public beta origin server', () => {
     });
 
     expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index'))).toHaveLength(3);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/hot-index'))).toHaveLength(3);
     expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story'))).toHaveLength(3);
     expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis'))).toHaveLength(3);
   });
