@@ -190,10 +190,14 @@ function resolveNewsReadClient(resolveClient: () => VennClient | null): {
   readonly hasMeshClient: boolean;
 } {
   const meshClient = resolveClient();
+  const publicRelayClient = createPublicRelayReadClient();
+  if (publicRelayClient) {
+    return { client: publicRelayClient, hasMeshClient: Boolean(meshClient) };
+  }
   if (meshClient) {
     return { client: meshClient, hasMeshClient: true };
   }
-  return { client: createPublicRelayReadClient(), hasMeshClient: false };
+  return { client: null, hasMeshClient: false };
 }
 
 async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {

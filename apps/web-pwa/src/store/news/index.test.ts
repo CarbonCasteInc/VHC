@@ -552,6 +552,57 @@ describe('news store', () => {
     }
   });
 
+  it('refreshLatest keeps using the same-origin public relay after the app mesh client is ready', async () => {
+    vi.stubGlobal('location', { origin: 'https://venn.example' });
+
+    try {
+      hydrateNewsStoreMock.mockReturnValue(true);
+      const meshClient = { id: 'mesh-client' };
+      const relayStory = story({
+        story_id: 'relay-story-ready',
+        topic_id: 'd'.repeat(64),
+        headline: 'Relay-visible story with mesh ready',
+        cluster_window_end: 400,
+      });
+      readNewsLatestIndexMock.mockResolvedValueOnce({
+        index: { 'relay-story-ready': 400 },
+        nextCursor: 400,
+        recordCount: 1,
+        stories: { 'relay-story-ready': relayStory },
+      });
+      readNewsHotIndexMock.mockResolvedValue({});
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => meshClient as never });
+
+      await store.getState().refreshLatest(1);
+
+      expect(hydrateNewsStoreMock).toHaveBeenCalled();
+      expect(readNewsLatestIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+            systemWriterPin: expect.objectContaining({ writers: expect.any(Array) }),
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsHotIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsStoryMock).not.toHaveBeenCalled();
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual(['relay-story-ready']);
+      expect(store.getState().loading).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('ensureStory reads a persisted story by id and mirrors it into discovery', async () => {
     const client = { id: 'client-direct-story' };
     const directStory = story({
