@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyLifecycleLedgerStatus,
+  classifySynthesisLifecycleFreshness,
   classifyLifecycleAccountabilityStatus,
   classifyProductIndexMetadata,
   isAcceptedFrameReady,
@@ -93,6 +94,9 @@ describe('public feed lifecycle accountability helpers', () => {
     expect(classifyLifecycleAccountabilityStatus([
       { code: 'product_visible_synthesis_lifecycle_missing_or_stale' },
     ])).toBe('fail');
+    expect(classifyLifecycleAccountabilityStatus([
+      { code: 'product_visible_synthesis_lifecycle_pending_stale' },
+    ])).toBe('fail');
   });
 
   it('requires product-visible stories to have a current synthesis lifecycle ledger row', () => {
@@ -113,6 +117,32 @@ describe('public feed lifecycle accountability helpers', () => {
       lifecycle_source_set_revision: 'source-set-old',
     })).toBe('source_set_mismatch');
     expect(classifyLifecycleLedgerStatus({ ...story, product_visible: false })).toBe('not_required');
+  });
+
+  it('fails stale or timestamp-less pending synthesis lifecycle rows', () => {
+    const story = {
+      product_visible: true,
+      source_count: 1,
+      lifecycle_status: 'pending',
+      lifecycle_updated_at: 1_700_000_000_000,
+    };
+    const now = 1_700_000_100_000;
+
+    expect(classifySynthesisLifecycleFreshness(story, now, 200_000)).toBe('fresh_pending');
+    expect(classifySynthesisLifecycleFreshness(story, now, 50_000)).toBe('stale_pending');
+    expect(classifySynthesisLifecycleFreshness({
+      ...story,
+      lifecycle_status: 'retryable_failure',
+      lifecycle_updated_at: null,
+    }, now, 50_000)).toBe('missing_updated_at');
+    expect(classifySynthesisLifecycleFreshness({
+      ...story,
+      lifecycle_status: 'accepted_available',
+    }, now, 50_000)).toBe('not_pending');
+    expect(classifySynthesisLifecycleFreshness({
+      ...story,
+      product_visible: false,
+    }, now, 50_000)).toBe('not_required');
   });
 
   it('classifies hot/latest product index metadata against current story source-set state', () => {

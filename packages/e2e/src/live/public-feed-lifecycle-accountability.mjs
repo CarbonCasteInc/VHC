@@ -425,6 +425,11 @@ const LIFECYCLE_STATUSES = new Set([
   'terminal_unavailable',
   'suppressed',
 ]);
+const INCOMPLETE_SYNTHESIS_LIFECYCLE_STATUSES = new Set([
+  'pending',
+  'in_progress',
+  'retryable_failure',
+]);
 
 function classifyLifecycleLedgerStatus(story) {
   if (!story?.product_visible || story.source_count <= 0) return 'not_required';
@@ -438,6 +443,16 @@ function classifyLifecycleLedgerStatus(story) {
   return 'complete';
 }
 
+function classifySynthesisLifecycleFreshness(story, nowMs, staleWindowMs) {
+  if (!story?.product_visible || story.source_count <= 0) return 'not_required';
+  const lifecycleStatus = String(story.lifecycle_status ?? '').trim();
+  if (!INCOMPLETE_SYNTHESIS_LIFECYCLE_STATUSES.has(lifecycleStatus)) return 'not_pending';
+  const updatedAt = Number(story.lifecycle_updated_at);
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return 'missing_updated_at';
+  const ageMs = Math.max(0, Math.floor(nowMs - updatedAt));
+  return ageMs > staleWindowMs ? 'stale_pending' : 'fresh_pending';
+}
+
 function classifyLifecycleAccountabilityStatus(failures) {
   if (failures.length === 0) return 'pass';
   const codes = failures.map((failure) => String(failure?.code ?? ''));
@@ -449,6 +464,7 @@ function classifyLifecycleAccountabilityStatus(failures) {
       || code === 'hot_index_product_metadata_missing'
       || code === 'public_raw_story_mesh_missing_multi_source'
       || code === 'product_visible_synthesis_lifecycle_missing_or_stale'
+      || code === 'product_visible_synthesis_lifecycle_pending_stale'
   );
   if (hasHardLifecycleFailure) return 'fail';
   if (codes.every((code) =>
@@ -470,6 +486,10 @@ async function runPublicFeedLifecycleAccountability({
   const sampleLimit = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_SAMPLE_LIMIT, 120);
   const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS, 75_000);
   const staleWindowMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_STALE_WINDOW_MS, 7 * 24 * 60 * 60 * 1000);
+  const synthesisPendingStaleMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_SYNTHESIS_PENDING_STALE_MS,
+    2 * 60 * 60 * 1000,
+  );
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const summaryPath = path.join(artifactDir, 'public-feed-lifecycle-accountability-summary.json');
   await mkdir(artifactDir, { recursive: true });
@@ -488,6 +508,7 @@ async function runPublicFeedLifecycleAccountability({
       sampleLimit,
       timeoutMs,
       staleWindowMs,
+      synthesisPendingStaleMs,
     },
     counts: {},
     composition: null,
@@ -576,6 +597,7 @@ async function runPublicFeedLifecycleAccountability({
         hot_index_product_source_count: finiteNonNegativeIndexInt(hotProductRecord?.source_count),
         lifecycle_status: lifecycle?.status ?? null,
         lifecycle_source_set_revision: lifecycle?.source_set_revision ?? null,
+        lifecycle_updated_at: finiteNonNegativeIndexInt(lifecycle?.updated_at),
         lifecycle_reason: lifecycle?.reason ?? null,
         frame_table_state: lifecycle?.frame_table_state ?? null,
         accepted_synthesis_available: acceptedSynthesisCurrent,
@@ -589,6 +611,11 @@ async function runPublicFeedLifecycleAccountability({
       stories.push({
         ...storySummary,
         lifecycle_ledger_status: classifyLifecycleLedgerStatus(storySummary),
+        synthesis_lifecycle_freshness_status: classifySynthesisLifecycleFreshness(
+          storySummary,
+          Date.now(),
+          synthesisPendingStaleMs,
+        ),
       });
     }
 
@@ -614,6 +641,8 @@ async function runPublicFeedLifecycleAccountability({
       if (story.frame_table_ready) acc.frame_table_ready += 1;
       const lifecycleLedgerKey = `lifecycle_ledger_${story.lifecycle_ledger_status}`;
       acc[lifecycleLedgerKey] = (acc[lifecycleLedgerKey] ?? 0) + 1;
+      const lifecycleFreshnessKey = `synthesis_lifecycle_${story.synthesis_lifecycle_freshness_status}`;
+      acc[lifecycleFreshnessKey] = (acc[lifecycleFreshnessKey] ?? 0) + 1;
       return acc;
     }, {
       total_sampled: 0,
@@ -640,6 +669,11 @@ async function runPublicFeedLifecycleAccountability({
       lifecycle_ledger_missing_revision: 0,
       lifecycle_ledger_source_set_mismatch: 0,
       lifecycle_ledger_not_required: 0,
+      synthesis_lifecycle_fresh_pending: 0,
+      synthesis_lifecycle_stale_pending: 0,
+      synthesis_lifecycle_missing_updated_at: 0,
+      synthesis_lifecycle_not_pending: 0,
+      synthesis_lifecycle_not_required: 0,
     });
     const failures = [];
     const hiddenEligible = stories.filter((story) => story.classification === 'hidden_bug');
@@ -681,6 +715,23 @@ async function runPublicFeedLifecycleAccountability({
           acc[story.lifecycle_ledger_status] = (acc[story.lifecycle_ledger_status] ?? 0) + 1;
           return acc;
         }, {}),
+      });
+    }
+    const stalePendingLifecycle = stories.filter((story) =>
+      story.product_visible
+        && story.source_count > 0
+        && ['stale_pending', 'missing_updated_at'].includes(story.synthesis_lifecycle_freshness_status),
+    );
+    if (stalePendingLifecycle.length > 0) {
+      failures.push({
+        code: 'product_visible_synthesis_lifecycle_pending_stale',
+        story_ids: stalePendingLifecycle.map((story) => story.story_id),
+        status_counts: stalePendingLifecycle.reduce((acc, story) => {
+          acc[story.synthesis_lifecycle_freshness_status] =
+            (acc[story.synthesis_lifecycle_freshness_status] ?? 0) + 1;
+          return acc;
+        }, {}),
+        stale_window_ms: synthesisPendingStaleMs,
       });
     }
     const visibleMissingHotIndex = stories.filter((story) =>
@@ -771,6 +822,7 @@ export {
   sourceCount,
   classifyProductIndexMetadata,
   classifyLifecycleLedgerStatus,
+  classifySynthesisLifecycleFreshness,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
   classifyLifecycleAccountabilityStatus,
