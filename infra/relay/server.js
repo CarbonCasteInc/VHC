@@ -2585,6 +2585,7 @@ async function refreshSnapshotEntryStoryState(gun, entry) {
           synthesis_id: initialLifecycle.synthesis_id,
           epoch: Number.isFinite(initialLifecycle.epoch) ? initialLifecycle.epoch : null,
           lifecycle_status: initialLifecycle.status,
+          ...lifecycleStateFields(initialLifecycle),
           terminal_unavailable_reason: null,
           retryable: false,
         },
@@ -2611,6 +2612,13 @@ async function refreshSnapshotEntryStoryState(gun, entry) {
 }
 
 function shouldRefreshSnapshotEntryStoryState(entry) {
+  if (entry?.story && (
+    !entry?.storyState
+    || !entry.storyState.lifecycle_source_set_revision
+    || !Number.isFinite(entry.storyState.lifecycle_updated_at)
+  )) {
+    return true;
+  }
   const snapshotState = String(entry?.storyState?.synthesis_state ?? '').trim();
   if (snapshotState && snapshotState !== 'synthesis_pending') return true;
   return storySourceCount(entry?.story) > 1;
