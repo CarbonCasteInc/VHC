@@ -409,7 +409,7 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
     console.warn(`[vh:web-pwa] snapshot bootstrap failed (${context}):`, snapshotError);
   }
 
-  if (!bootstrappedSnapshot && shouldBootstrapFeedBridges()) {
+  if (shouldBootstrapFeedBridges()) {
     try {
       const { bootstrapFeedBridges } = await import('./feedBridge');
       await bootstrapFeedBridges();
