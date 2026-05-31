@@ -1170,28 +1170,37 @@ function parseNewsSynthesisLifecycleRecord(value, storyId) {
 async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
-  const [directRaw, scalarRaw] = await Promise.all([
-    readOnce(storyChain, storyTimeoutMs),
-    readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs),
-  ]);
-  const direct = stripGunMetadata(directRaw);
-  const envelope = direct && typeof direct === 'object'
-    ? parseStoryBundleEnvelope(direct.__story_bundle_json)
-    : null;
-  if (envelope?.story_id === storyId) {
-    return {
-      record: direct,
-      story: envelope,
-    };
-  }
-  const scalar = parseStoryBundleEnvelope(scalarRaw);
-  if (scalar?.story_id === storyId) {
-    return {
-      record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
-      story: scalar,
-    };
-  }
-  return null;
+  const parseReadResult = (result) => {
+    if (result.kind === 'direct') {
+      const direct = stripGunMetadata(result.value);
+      const envelope = direct && typeof direct === 'object'
+        ? parseStoryBundleEnvelope(direct.__story_bundle_json)
+        : null;
+      if (envelope?.story_id === storyId) {
+        return {
+          record: direct,
+          story: envelope,
+        };
+      }
+      return null;
+    }
+    const scalar = parseStoryBundleEnvelope(result.value);
+    if (scalar?.story_id === storyId) {
+      return {
+        record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
+        story: scalar,
+      };
+    }
+    return null;
+  };
+  const directRead = readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value }));
+  const scalarRead = readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
+    .then((value) => ({ kind: 'scalar', value }));
+  const first = await Promise.race([directRead, scalarRead]);
+  const parsedFirst = parseReadResult(first);
+  if (parsedFirst) return parsedFirst;
+  const second = first.kind === 'direct' ? await scalarRead : await directRead;
+  return parseReadResult(second);
 }
 
 async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
@@ -1351,6 +1360,19 @@ function latestIndexRecordHasTimestamp(record) {
     const value = Number(record[key]);
     return Number.isFinite(value) && value >= 0;
   });
+}
+
+function latestIndexRecordTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record) && record >= 0) return Math.floor(record);
+  if (typeof record === 'string' && Number.isFinite(Number(record)) && Number(record) >= 0) {
+    return Math.floor(Number(record));
+  }
+  if (!record || typeof record !== 'object') return null;
+  for (const key of ['latest_activity_at', 'cluster_window_end', 'created_at']) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+  }
+  return null;
 }
 
 function finiteNonNegativeInteger(value) {
@@ -1639,11 +1661,11 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     }
     : rawRoot;
   const sourceKeys = extractIndexChildKeys(readableRoot);
-  const windowedSourceKeys = hasBeforeCursor
+  const scanSourceKeys = !consistencyFilter && hasBeforeCursor
     ? sourceKeys.filter((storyId) => indexEntryPriority(readableRoot, storyId) < beforeCursor)
     : sourceKeys;
   const scanLimit = requestedScanLimit;
-  const keys = windowedSourceKeys.slice(0, Math.min(windowedSourceKeys.length, scanLimit));
+  const keys = scanSourceKeys.slice(0, Math.min(scanSourceKeys.length, scanLimit));
   const records = {};
   const storyStates = {};
   const excludedRecords = [];
@@ -1674,10 +1696,11 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
         excluded: {
           story_id: storyId,
           reason: 'story_body_missing',
-          latest_activity_at: indexEntryPriority(readableRoot, storyId) || null,
+          latest_activity_at: latestIndexRecordTimestamp(record) ?? indexEntryPriority(readableRoot, storyId) ?? null,
         },
       };
     }
+    const fallbackLatestActivityAt = latestIndexRecordTimestamp(record) ?? indexEntryPriority(readableRoot, storyId);
 
     const [synthesisResult, initialLifecycle] = await Promise.all([
       readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id).catch(() => null),
@@ -1699,7 +1722,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       const synthesized = synthesizeLatestIndexRecordFromStory(
         storyId,
         storyResult.story,
-        indexEntryPriority(readableRoot, storyId),
+        fallbackLatestActivityAt,
       );
       return {
         entry: [storyId, synthesized],
@@ -1716,7 +1739,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     const synthesized = synthesizeLatestIndexRecordFromStory(
       storyId,
       storyResult.story,
-      indexEntryPriority(readableRoot, storyId),
+      fallbackLatestActivityAt,
     );
     return {
       entry: [storyId, synthesized],
@@ -1733,38 +1756,56 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       },
     };
   });
+  const visibleEntries = [];
   for (const entry of entries) {
     if (!entry) continue;
     if (Array.isArray(entry)) {
-      if (Object.keys(records).length < maxRecords) {
-        records[entry[0]] = entry[1];
-      }
+      const timestamp = latestIndexRecordTimestamp(entry[1]);
+      if (hasBeforeCursor && (!Number.isFinite(timestamp) || timestamp >= beforeCursor)) continue;
+      visibleEntries.push({ entry, story: null, storyState: null });
       continue;
     }
     if (entry.excluded) {
+      const excludedTimestamp = Number(entry.excluded.latest_activity_at);
+      if (hasBeforeCursor && (!Number.isFinite(excludedTimestamp) || excludedTimestamp >= beforeCursor)) continue;
       excludedRecords.push(entry.excluded);
       continue;
     }
     if (entry.repaired) {
       repairedRecords.push(entry.repaired);
     }
-    if (entry.entry && Object.keys(records).length < maxRecords) {
-      records[entry.entry[0]] = entry.entry[1];
-      if (entry.story && entry.storyState) {
-        storyStates[entry.entry[0]] = entry.storyState;
-        accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
-      }
+    if (entry.entry) {
+      const timestamp = latestIndexRecordTimestamp(entry.entry[1]);
+      if (hasBeforeCursor && (!Number.isFinite(timestamp) || timestamp >= beforeCursor)) continue;
+      visibleEntries.push(entry);
+    }
+  }
+  visibleEntries.sort((left, right) => {
+    const leftTimestamp = latestIndexRecordTimestamp(left.entry?.[1]) ?? 0;
+    const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
+    return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
+  });
+  for (const entry of visibleEntries) {
+    if (Object.keys(records).length >= maxRecords) break;
+    records[entry.entry[0]] = entry.entry[1];
+    if (entry.story && entry.storyState) {
+      storyStates[entry.entry[0]] = entry.storyState;
+      accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
     }
   }
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
-    windowSourceKeyCount: windowedSourceKeys.length,
+    windowSourceKeyCount: !consistencyFilter && hasBeforeCursor
+      ? scanSourceKeys.length
+      : hasBeforeCursor
+        ? visibleEntries.length + excludedRecords.length
+        : sourceKeys.length,
     scannedKeyCount: keys.length,
-    truncated: windowedSourceKeys.length > keys.length || Object.keys(records).length >= maxRecords,
+    truncated: scanSourceKeys.length > keys.length || visibleEntries.length > Object.keys(records).length,
     before: hasBeforeCursor ? Math.floor(beforeCursor) : null,
     nextCursor: Object.values(records)
-      .map((record) => Number(record?.latest_activity_at ?? record?.cluster_window_end ?? record?.created_at ?? record))
+      .map((record) => latestIndexRecordTimestamp(record))
       .filter((value) => Number.isFinite(value) && value >= 0)
       .sort((a, b) => a - b)[0] ?? null,
     consistency: {
