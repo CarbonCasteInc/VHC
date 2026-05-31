@@ -340,6 +340,11 @@ Public latest/hot index-entry storage contract:
   using an exclusive `before=<latest_activity_at>` cursor. Web PWA load-more
   must use this cursor/window path and merge the returned older rows into the
   existing feed state rather than relying only on a larger initial top-N window.
+  Relay pages MUST be ordered and cursor-filtered by the resolved latest-index
+  record timestamp after linked child reads and consistency repair, not by Gun
+  root field-state/link write order. Compatibility reads with the consistency
+  filter explicitly disabled may use root timestamp prefiltering for scalar
+  legacy rows.
   The initial public latest refresh should be bounded to the visible feed page
   size; revealing rows from a larger in-memory first window is not sufficient
   scroll/load-more evidence. Release gates MUST also verify the relay itself can
