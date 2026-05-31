@@ -130,6 +130,15 @@ const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACT
 const healthProbeCompactionMaxRecords = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_MAX_RECORDS', 0);
 const aggregatePointReadCacheTtlMs = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_TTL_MS', 5_000);
 const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_MAX_ENTRIES', 1_000);
+const aggregateVoterReadTimeoutMs = numberEnv('VH_RELAY_AGGREGATE_VOTER_READ_TIMEOUT_MS', 1_500);
+const aggregateVoterSelfPeerReadTimeoutMs = numberEnv(
+  'VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READ_TIMEOUT_MS',
+  4_000,
+);
+const aggregateVoterSelfPeerReadbackEnabled = boolEnv(
+  'VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READBACK',
+  true,
+);
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
 const aggregatePointReadCache = new Map();
@@ -3213,13 +3222,23 @@ async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 1500) {
   });
 }
 
-async function readAggregateVoterRows(gun, context) {
+function selfGunPeerUrl() {
+  const normalizedHost = !host || host === '0.0.0.0' || host === '::'
+    ? '127.0.0.1'
+    : host;
+  const bracketedHost = normalizedHost.includes(':') && !normalizedHost.startsWith('[')
+    ? `[${normalizedHost}]`
+    : normalizedHost;
+  return `http://${bracketedHost}:${port}/gun`;
+}
+
+async function readAggregateVoterRowsFromGun(gun, context, timeoutMs = aggregateVoterReadTimeoutMs) {
   const votersChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
     .get('syntheses').get(context.synthesisId)
     .get('epochs').get(String(context.epoch))
     .get('voters');
-  const raw = stripGunMetadata(await readOnce(votersChain, 1500));
-  const mapRows = await readAggregateVoterRowsViaMap(votersChain, context);
+  const raw = stripGunMetadata(await readOnce(votersChain, timeoutMs));
+  const mapRows = await readAggregateVoterRowsViaMap(votersChain, context, timeoutMs);
   const rootRows = [];
   const voterIds = new Set();
   if (raw && typeof raw === 'object') {
@@ -3233,11 +3252,11 @@ async function readAggregateVoterRows(gun, context) {
   for (const row of mapRows) {
     voterIds.add(row.voter_id);
   }
-  for (const voterId of await readAggregateVoterIdsViaMap(votersChain)) {
+  for (const voterId of await readAggregateVoterIdsViaMap(votersChain, timeoutMs)) {
     voterIds.add(voterId);
   }
   const leafRows = await Promise.all([...voterIds].map(async (voterId) => {
-    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 1500);
+    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), timeoutMs);
     const node = parseAggregateVoterNodeForRead(direct, context, voterId);
     if (!node) return null;
     const updatedAtMs = Date.parse(node.updated_at);
@@ -3248,6 +3267,32 @@ async function readAggregateVoterRows(gun, context) {
     };
   }));
   return mergeAggregateRowsByVoter([...rootRows, ...mapRows, ...leafRows]);
+}
+
+async function readAggregateVoterRowsViaSelfPeer(context) {
+  if (!aggregateVoterSelfPeerReadbackEnabled) return [];
+  const peerGun = Gun({
+    peers: [selfGunPeerUrl()],
+    localStorage: false,
+    radisk: false,
+    file: false,
+    axe: false,
+  });
+  try {
+    return await readAggregateVoterRowsFromGun(
+      peerGun,
+      context,
+      aggregateVoterSelfPeerReadTimeoutMs,
+    );
+  } catch {
+    return [];
+  } finally {
+    try {
+      peerGun.off?.();
+    } catch {
+      // Best-effort loopback Gun client cleanup.
+    }
+  }
 }
 
 async function readAggregatePointSnapshot(gun, context) {
@@ -3355,12 +3400,19 @@ async function readAggregatePoint(gun, params) {
   const cached = readAggregatePointCache(context);
   if (cached) return cached;
 
-  const [snapshot, rows] = await Promise.all([
+  const [snapshot, localRows] = await Promise.all([
     readAggregatePointSnapshot(gun, context),
-    readAggregateVoterRows(gun, context),
+    readAggregateVoterRowsFromGun(gun, context),
   ]);
-  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
   const materialized = snapshotAggregate(snapshot);
+  const rows = localRows.length > 0 ||
+    (materialized && materialized.participants > 0)
+    ? localRows
+    : mergeAggregateRowsByVoter([
+      ...localRows,
+      ...await readAggregateVoterRowsViaSelfPeer(context),
+    ]);
+  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
   const aggregate = !materialized ||
     rowAggregate.participants > materialized.participants ||
     rowAggregate.weight > materialized.weight
