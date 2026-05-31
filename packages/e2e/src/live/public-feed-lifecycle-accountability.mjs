@@ -7,9 +7,10 @@ import {
   readNewsStory,
   readTopicLatestSynthesis,
 } from '@vh/gun-client';
-import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { summarizeSourceHealthReport } from './public-feed-composition-freshness-gate.mjs';
 import { publicFeedBrowserSmokeInternal } from './public-feed-browser-smoke.mjs';
 
 const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -56,6 +57,40 @@ function resolveArtifactDir(env, repoRoot) {
   const explicit = env.VH_PUBLIC_FEED_LIFECYCLE_ARTIFACT_DIR?.trim();
   if (explicit) return explicit;
   return path.join(repoRoot, '.tmp', 'release-evidence', 'public-feed-lifecycle-accountability', String(Date.now()));
+}
+
+function resolveSourceHealthReportPath(env, repoRoot) {
+  const explicit = env.VH_PUBLIC_FEED_SOURCE_HEALTH_REPORT_PATH?.trim()
+    || env.VH_NEWS_SOURCE_HEALTH_REPORT_PATH?.trim();
+  if (explicit) {
+    return path.isAbsolute(explicit) ? explicit : path.resolve(repoRoot, explicit);
+  }
+  return path.join(
+    repoRoot,
+    'services',
+    'news-aggregator',
+    '.tmp',
+    'news-source-admission',
+    'latest',
+    'source-health-report.json',
+  );
+}
+
+async function readSourceHealthEvidence(env, repoRoot) {
+  const reportPath = resolveSourceHealthReportPath(env, repoRoot);
+  try {
+    const report = JSON.parse(await readFile(reportPath, 'utf8'));
+    return {
+      path: reportPath,
+      ...summarizeSourceHealthReport(report),
+    };
+  } catch (error) {
+    return {
+      path: reportPath,
+      available: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function writeJson(filePath, value) {
@@ -371,6 +406,7 @@ function classifyLifecycleAccountabilityStatus(failures) {
       || code === 'relay_accepted_synthesis_not_current'
       || code === 'product_feed_hot_index_missing_for_visible_story'
       || code === 'hot_index_product_metadata_missing'
+      || code === 'public_raw_story_mesh_missing_multi_source'
   );
   if (hasHardLifecycleFailure) return 'fail';
   if (codes.every((code) =>
@@ -394,6 +430,7 @@ async function runPublicFeedLifecycleAccountability({
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const summaryPath = path.join(artifactDir, 'public-feed-lifecycle-accountability-summary.json');
   await mkdir(artifactDir, { recursive: true });
+  const sourceHealthEvidence = await readSourceHealthEvidence(env, repoRoot);
 
   let summary = {
     schemaVersion: 'public-feed-lifecycle-accountability-v1',
@@ -410,6 +447,7 @@ async function runPublicFeedLifecycleAccountability({
     },
     counts: {},
     composition: null,
+    sourceHealthEvidence,
     stories: [],
     failures: [],
   };
@@ -504,6 +542,9 @@ async function runPublicFeedLifecycleAccountability({
     const counts = stories.reduce((acc, story) => {
       acc.total_sampled += 1;
       acc[story.classification] = (acc[story.classification] ?? 0) + 1;
+      if (story.source_count > 0) acc.raw_story_readable_total += 1;
+      if (story.source_count === 1) acc.singleton_raw_total += 1;
+      if (story.source_count > 1) acc.multi_source_raw_total += 1;
       if (story.product_visible) acc.product_visible_total += 1;
       if (story.source_count === 1 && story.product_visible) acc.singleton_visible += 1;
       if (story.source_count > 1 && story.product_visible) acc.multi_source_visible += 1;
@@ -521,6 +562,9 @@ async function runPublicFeedLifecycleAccountability({
       return acc;
     }, {
       total_sampled: 0,
+      raw_story_readable_total: 0,
+      singleton_raw_total: 0,
+      multi_source_raw_total: 0,
       product_visible_total: 0,
       singleton_visible: 0,
       multi_source_visible: 0,
@@ -591,6 +635,15 @@ async function runPublicFeedLifecycleAccountability({
     if (counts.multi_source_visible <= 0) {
       failures.push({ code: 'public_feed_composition_missing_multi_source' });
     }
+    const sourceHealthCorroboratedCount = finiteNonNegativeIndexInt(
+      sourceHealthEvidence?.totalCorroboratedBundleCount,
+    ) ?? 0;
+    if (sourceHealthCorroboratedCount > 0 && counts.multi_source_raw_total <= 0) {
+      failures.push({
+        code: 'public_raw_story_mesh_missing_multi_source',
+        source_health_corroborated_bundle_count: sourceHealthCorroboratedCount,
+      });
+    }
 
     summary = {
       ...summary,
@@ -598,6 +651,7 @@ async function runPublicFeedLifecycleAccountability({
       status: classifyLifecycleAccountabilityStatus(failures),
       counts,
       composition: relayLatest.composition,
+      sourceHealthEvidence,
       mesh: {
         latestIndexCount: latestIds.length,
         hotIndexCount: hotIds.length,

@@ -85,6 +85,10 @@ describe('public feed lifecycle accountability helpers', () => {
     expect(classifyLifecycleAccountabilityStatus([
       { code: 'hot_index_product_metadata_missing' },
     ])).toBe('fail');
+    expect(classifyLifecycleAccountabilityStatus([
+      { code: 'public_raw_story_mesh_missing_multi_source' },
+      { code: 'public_feed_composition_missing_multi_source' },
+    ])).toBe('fail');
   });
 
   it('classifies hot/latest product index metadata against current story source-set state', () => {
