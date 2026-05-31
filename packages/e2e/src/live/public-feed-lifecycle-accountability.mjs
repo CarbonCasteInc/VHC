@@ -453,6 +453,25 @@ function classifySynthesisLifecycleFreshness(story, nowMs, staleWindowMs) {
   return ageMs > staleWindowMs ? 'stale_pending' : 'fresh_pending';
 }
 
+function selectLifecycleSampleIds({
+  relayIds = [],
+  latestIds = [],
+  hotIds = [],
+  rawStoryIds = [],
+  sampleLimit,
+}) {
+  const effectiveLimit = Math.max(
+    parsePositiveInt(sampleLimit, 1),
+    Array.isArray(relayIds) ? relayIds.length : 0,
+  );
+  return [...new Set([
+    ...relayIds,
+    ...latestIds,
+    ...hotIds,
+    ...rawStoryIds,
+  ])].slice(0, effectiveLimit);
+}
+
 function classifyLifecycleAccountabilityStatus(failures) {
   if (failures.length === 0) return 'pass';
   const codes = failures.map((failure) => String(failure?.code ?? ''));
@@ -543,12 +562,13 @@ async function runPublicFeedLifecycleAccountability({
     const latestIds = Object.keys(latestIndex);
     const hotIds = [...new Set([...Object.keys(hotIndex), ...Object.keys(relayHot.records)])];
     const relayIds = Object.keys(relayLatest.records);
-    const sampledIds = [...new Set([
-      ...relayIds,
-      ...latestIds,
-      ...hotIds,
-      ...rawStoryIds,
-    ])].slice(0, sampleLimit);
+    const sampledIds = selectLifecycleSampleIds({
+      relayIds,
+      latestIds,
+      hotIds,
+      rawStoryIds,
+      sampleLimit,
+    });
     const staleCutoffMs = Date.now() - staleWindowMs;
     const stories = [];
     for (const storyId of sampledIds) {
@@ -776,6 +796,10 @@ async function runPublicFeedLifecycleAccountability({
       ...summary,
       generatedAt: new Date().toISOString(),
       status: classifyLifecycleAccountabilityStatus(failures),
+      config: {
+        ...summary.config,
+        effectiveSampleCount: sampledIds.length,
+      },
       counts,
       composition: relayLatest.composition,
       sourceHealthEvidence,
@@ -823,6 +847,7 @@ export {
   classifyProductIndexMetadata,
   classifyLifecycleLedgerStatus,
   classifySynthesisLifecycleFreshness,
+  selectLifecycleSampleIds,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
   classifyLifecycleAccountabilityStatus,
