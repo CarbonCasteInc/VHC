@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { StoryBundle } from '@vh/data-model';
+import type { StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import type { NewsSynthesisLifecycleRecord, VennClient } from '@vh/gun-client';
 import {
   DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+  acceptedLifecycleNeedsSynthesisRepair,
   buildPendingSynthesisCandidate,
   collectPendingSynthesisCatchupCandidates,
   isStoryPendingSynthesisCatchup,
@@ -73,6 +74,44 @@ function lifecycle(overrides: Partial<NewsSynthesisLifecycleRecord> = {}): NewsS
     retryable: false,
     frame_table_state: 'frame_table_pending',
     updated_at: 1_700_000_000_000,
+    ...overrides,
+  };
+}
+
+function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 {
+  return {
+    schemaVersion: 'topic-synthesis-v2',
+    topic_id: 'topic-1',
+    epoch: 0,
+    synthesis_id: 'synthesis-1',
+    inputs: { story_bundle_ids: ['story-1'] },
+    quorum: {
+      required: 1,
+      received: 1,
+      reached_at: 1_700_000_000_000,
+      timed_out: false,
+      selection_rule: 'deterministic',
+    },
+    facts_summary: 'Accepted synthesis summary',
+    frames: [
+      {
+        frame_point_id: 'frame-1',
+        frame: 'Frame',
+        reframe_point_id: 'reframe-1',
+        reframe: 'Reframe',
+      },
+    ],
+    warnings: [],
+    divergence_metrics: {
+      disagreement_score: 0,
+      source_dispersion: 0,
+      candidate_count: 1,
+    },
+    provenance: {
+      candidate_ids: ['candidate-1'],
+      provider_mix: [{ provider_id: 'test', count: 1 }],
+    },
+    created_at: 1_700_000_000_000,
     ...overrides,
   };
 }
@@ -178,10 +217,20 @@ describe('pending synthesis catch-up', () => {
           source_set_revision: 'source-set-accepted',
           status: 'accepted_available',
           frame_table_state: 'frame_table_ready',
+          synthesis_id: 'synthesis-accepted',
         });
       }
       return null;
     });
+    const readLatestSynthesis = vi.fn(async (_client: VennClient, topicId: string) =>
+      topicId === 'topic-accepted'
+        ? synthesis({
+            topic_id: 'topic-accepted',
+            synthesis_id: 'synthesis-accepted',
+            inputs: { story_bundle_ids: ['story-accepted'] },
+          })
+        : null,
+    );
 
     const result = await collectPendingSynthesisCatchupCandidates({ id: 'client' } as VennClient, {
       limit: 3,
@@ -190,6 +239,7 @@ describe('pending synthesis catch-up', () => {
       readLatestPage,
       readStory,
       readLifecycle,
+      readLatestSynthesis,
     });
 
     expect(readLatestPage).toHaveBeenCalledWith({ id: 'client' }, { limit: 3 });
@@ -268,6 +318,112 @@ describe('pending synthesis catch-up', () => {
     expect(result.enqueued).toBe(0);
     expect(result.skipped).toBe(1);
     expect(result.bootstrappedMissingLifecycle).toBe(0);
+  });
+
+  it('detects accepted lifecycle rows whose accepted synthesis is missing or mismatched', () => {
+    const currentStory = story();
+    const acceptedLifecycle = lifecycle({
+      status: 'accepted_available',
+      frame_table_state: 'frame_table_ready',
+      synthesis_id: 'synthesis-1',
+      epoch: 0,
+    });
+
+    expect(acceptedLifecycleNeedsSynthesisRepair({
+      story: currentStory,
+      lifecycle: acceptedLifecycle,
+      synthesis: null,
+    })).toBe(true);
+    expect(acceptedLifecycleNeedsSynthesisRepair({
+      story: currentStory,
+      lifecycle: acceptedLifecycle,
+      synthesis: synthesis({ synthesis_id: 'other-synthesis' }),
+    })).toBe(true);
+    expect(acceptedLifecycleNeedsSynthesisRepair({
+      story: currentStory,
+      lifecycle: acceptedLifecycle,
+      synthesis: synthesis({ inputs: { story_bundle_ids: ['other-story'] } }),
+    })).toBe(true);
+    expect(acceptedLifecycleNeedsSynthesisRepair({
+      story: currentStory,
+      lifecycle: acceptedLifecycle,
+      synthesis: synthesis({ frames: [{ frame_point_id: '', frame: 'Frame', reframe_point_id: 'reframe-1', reframe: 'Reframe' }] }),
+    })).toBe(true);
+    expect(acceptedLifecycleNeedsSynthesisRepair({
+      story: currentStory,
+      lifecycle: acceptedLifecycle,
+      synthesis: synthesis(),
+    })).toBe(false);
+  });
+
+  it('re-enqueues accepted lifecycle rows when the accepted synthesis detail row is missing', async () => {
+    const currentStory = story();
+    const readLatestPage = vi.fn().mockResolvedValue({
+      index: { 'story-1': 1_700_000_100_000 },
+      stories: { 'story-1': currentStory },
+      storyStates: {
+        'story-1': {
+          synthesis_state: 'accepted_synthesis_available',
+          lifecycle_status: 'accepted_available',
+          synthesis_id: 'synthesis-1',
+        },
+      },
+      nextCursor: null,
+      recordCount: 1,
+    });
+    const readLifecycle = vi.fn().mockResolvedValue(lifecycle({
+      status: 'accepted_available',
+      frame_table_state: 'frame_table_ready',
+      synthesis_id: 'synthesis-1',
+      epoch: 0,
+    }));
+    const readLatestSynthesis = vi.fn().mockResolvedValue(null);
+
+    const result = await collectPendingSynthesisCatchupCandidates({ id: 'client' } as VennClient, {
+      limit: 1,
+      model: 'gpt-test',
+      now: () => 1_700_000_010_000,
+      readLatestPage,
+      readStory: vi.fn().mockResolvedValue(null),
+      readLifecycle,
+      readLatestSynthesis,
+    });
+
+    expect(readLatestSynthesis).toHaveBeenCalledWith({ id: 'client' }, 'topic-1');
+    expect(result.enqueued).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.acceptedMissingSynthesis).toBe(1);
+    expect(result.candidates[0]?.story.story_id).toBe('story-1');
+    expect(result.candidates[0]?.lifecycle.status).toBe('accepted_available');
+  });
+
+  it('does not re-enqueue accepted lifecycle rows when the accepted synthesis detail row is readable', async () => {
+    const currentStory = story();
+    const readLatestPage = vi.fn().mockResolvedValue({
+      index: { 'story-1': 1_700_000_100_000 },
+      stories: { 'story-1': currentStory },
+      nextCursor: null,
+      recordCount: 1,
+    });
+
+    const result = await collectPendingSynthesisCatchupCandidates({ id: 'client' } as VennClient, {
+      limit: 1,
+      model: 'gpt-test',
+      now: () => 1_700_000_010_000,
+      readLatestPage,
+      readStory: vi.fn().mockResolvedValue(null),
+      readLifecycle: vi.fn().mockResolvedValue(lifecycle({
+        status: 'accepted_available',
+        frame_table_state: 'frame_table_ready',
+        synthesis_id: 'synthesis-1',
+        epoch: 0,
+      })),
+      readLatestSynthesis: vi.fn().mockResolvedValue(synthesis()),
+    });
+
+    expect(result.enqueued).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.acceptedMissingSynthesis).toBe(0);
   });
 
   it('re-enqueues stale in-progress current source-set rows without downgrading lifecycle state', async () => {

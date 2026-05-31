@@ -58,6 +58,8 @@ const newsLatestIndexSnapshotFile = process.env.VH_RELAY_NEWS_INDEX_SNAPSHOT_FIL
   || (typeof gunFile === 'string' ? path.join(gunFile, 'news-latest-index-snapshot.json') : '');
 const newsSynthesisLifecycleSnapshotFile = process.env.VH_RELAY_NEWS_LIFECYCLE_SNAPSHOT_FILE
   || (typeof gunFile === 'string' ? path.join(gunFile, 'news-synthesis-lifecycle-snapshot.json') : '');
+const topicSynthesisLatestSnapshotFile = process.env.VH_RELAY_TOPIC_SYNTHESIS_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'topic-synthesis-latest-snapshot.json') : '');
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
 const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
@@ -135,6 +137,7 @@ const newsLatestIndexRestCache = new Map();
 const newsLatestIndexSnapshotCache = new Map();
 const newsLatestIndexSnapshotStoryBodyCache = new Map();
 let newsSynthesisLifecycleSnapshotCache = null;
+let topicSynthesisLatestSnapshotCache = null;
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -802,6 +805,89 @@ function buildTopicSynthesisGraph(synthesis) {
   return graph;
 }
 
+function readTopicSynthesisLatestSnapshot() {
+  if (topicSynthesisLatestSnapshotCache) return topicSynthesisLatestSnapshotCache;
+  const empty = { cached_at: 0, records: {} };
+  if (!topicSynthesisLatestSnapshotFile) {
+    topicSynthesisLatestSnapshotCache = empty;
+    return empty;
+  }
+  try {
+    if (!fs.existsSync(topicSynthesisLatestSnapshotFile)) {
+      topicSynthesisLatestSnapshotCache = empty;
+      return empty;
+    }
+    const parsed = JSON.parse(fs.readFileSync(topicSynthesisLatestSnapshotFile, 'utf8'));
+    if (
+      !parsed
+      || parsed.schema_version !== 'vh-topic-synthesis-latest-relay-snapshot-v1'
+      || !parsed.records
+      || typeof parsed.records !== 'object'
+      || Array.isArray(parsed.records)
+    ) {
+      topicSynthesisLatestSnapshotCache = empty;
+      return empty;
+    }
+    topicSynthesisLatestSnapshotCache = {
+      cached_at: Number(parsed.cached_at) || 0,
+      records: parsed.records,
+    };
+    return topicSynthesisLatestSnapshotCache;
+  } catch (error) {
+    logEvent('warn', 'topic_synthesis_latest_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    topicSynthesisLatestSnapshotCache = empty;
+    return empty;
+  }
+}
+
+function readTopicSynthesisLatestRecordFromSnapshot(topicId) {
+  const normalizedTopicId = typeof topicId === 'string' ? topicId.trim() : '';
+  if (!normalizedTopicId) return null;
+  const snapshot = readTopicSynthesisLatestSnapshot();
+  const record = stripGunMetadata(snapshot.records?.[normalizedTopicId]);
+  const synthesis = parseTopicSynthesisEnvelope(record?.__topic_synthesis_json);
+  if (synthesis?.topic_id !== normalizedTopicId) return null;
+  return { record, synthesis };
+}
+
+function persistTopicSynthesisLatestSnapshot(snapshot) {
+  if (!topicSynthesisLatestSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(topicSynthesisLatestSnapshotFile), { recursive: true });
+    const tmpFile = `${topicSynthesisLatestSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify({
+        schema_version: 'vh-topic-synthesis-latest-relay-snapshot-v1',
+        cached_at: snapshot.cached_at,
+        records: snapshot.records,
+      })}\n`,
+    );
+    fs.renameSync(tmpFile, topicSynthesisLatestSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'topic_synthesis_latest_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function upsertTopicSynthesisLatestSnapshot(synthesis) {
+  const topicId = typeof synthesis?.topic_id === 'string' ? synthesis.topic_id.trim() : '';
+  if (!topicId) return;
+  const snapshot = readTopicSynthesisLatestSnapshot();
+  const next = {
+    cached_at: Date.now(),
+    records: {
+      ...(snapshot.records ?? {}),
+      [topicId]: encodeTopicSynthesis(synthesis),
+    },
+  };
+  topicSynthesisLatestSnapshotCache = next;
+  persistTopicSynthesisLatestSnapshot(next);
+}
+
 function buildTopicSynthesisCandidateGraph(candidate) {
   const state = Gun.state();
   const topicId = String(candidate.topic_id);
@@ -1124,6 +1210,10 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   if (scalar?.topic_id === topicId && scalar?.synthesis_id === synthesisId) {
     return scalar;
   }
+  const snapshot = readTopicSynthesisLatestRecordFromSnapshot(topicId);
+  if (snapshot?.synthesis?.synthesis_id === synthesisId) {
+    return snapshot.synthesis;
+  }
   return null;
 }
 
@@ -1162,7 +1252,7 @@ async function readTopicLatestSynthesisRecord(gun, topicId) {
       synthesis: scalar,
     };
   }
-  return null;
+  return readTopicSynthesisLatestRecordFromSnapshot(topicId);
 }
 
 function hasAcceptedTopicSynthesisPayload(synthesis) {
@@ -3636,6 +3726,7 @@ async function writeForumComment(gun, comment) {
 async function writeTopicSynthesis(gun, synthesis) {
   const clean = sanitizeTopicSynthesis(synthesis);
   injectGraph(gun, buildTopicSynthesisGraph(clean));
+  upsertTopicSynthesisLatestSnapshot(clean);
   const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
   if (!readback) {
     throw new Error('topic-synthesis-readback-failed');

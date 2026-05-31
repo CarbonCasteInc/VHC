@@ -569,6 +569,101 @@ describe('infra relay server', () => {
     gun.off();
   }, 15_000);
 
+  it('serves topic synthesis rows from the relay snapshot after restart', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-topic-synthesis-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const gunFile = path.join(snapshotDir, 'data');
+    const topicSynthesisSnapshotFile = path.join(snapshotDir, 'topic-synthesis-latest-snapshot.json');
+    const env = {
+      GUN_FILE: gunFile,
+      VH_RELAY_TOPIC_SYNTHESIS_SNAPSHOT_FILE: topicSynthesisSnapshotFile,
+    };
+    const writer = await startRelay(children, tempDirs, env);
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: 'topic-synthesis-snapshot',
+      synthesis_id: 'synthesis-snapshot',
+      epoch: 0,
+      inputs: { story_bundle_ids: ['story-synthesis-snapshot'] },
+      quorum: {
+        required: 1,
+        received: 1,
+        reached_at: 1_700_000_000_000,
+        timed_out: false,
+        selection_rule: 'deterministic',
+      },
+      facts_summary: 'Snapshot-backed topic synthesis remains readable after relay restart.',
+      frames: [
+        {
+          frame_point_id: 'frame-snapshot',
+          frame: 'One frame',
+          reframe_point_id: 'reframe-snapshot',
+          reframe: 'One reframe',
+        },
+      ],
+      warnings: [],
+      divergence_metrics: {
+        disagreement_score: 0,
+        source_dispersion: 0,
+        candidate_count: 1,
+      },
+      provenance: {
+        candidate_ids: ['candidate-snapshot'],
+        provider_mix: [{ provider_id: 'test', count: 1 }],
+      },
+      created_at: 1_700_000_000_000,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${writer.port}/vh/topics/synthesis`, {
+      method: 'POST',
+      body: { synthesis },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: synthesis.topic_id,
+        synthesis_id: synthesis.synthesis_id,
+      }),
+    });
+
+    await new Promise((resolve) => {
+      if (writer.child.exitCode !== null) {
+        resolve();
+        return;
+      }
+      writer.child.once('exit', resolve);
+      writer.child.kill('SIGTERM');
+      setTimeout(() => {
+        if (writer.child.exitCode === null) writer.child.kill('SIGKILL');
+      }, 1_000);
+    });
+    children.delete(writer.child);
+    const reader = await startRelay(children, tempDirs, env);
+
+    await expect(requestJson(
+      `http://127.0.0.1:${reader.port}/vh/topics/synthesis?topic_id=${synthesis.topic_id}`,
+    )).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        topic_id: synthesis.topic_id,
+        synthesis_id: synthesis.synthesis_id,
+        synthesis: expect.objectContaining({
+          facts_summary: synthesis.facts_summary,
+          frames: expect.arrayContaining([
+            expect.objectContaining({
+              frame_point_id: 'frame-snapshot',
+              reframe_point_id: 'reframe-snapshot',
+            }),
+          ]),
+        }),
+        record: expect.objectContaining({
+          __topic_synthesis_json: expect.any(String),
+        }),
+      }),
+    });
+  });
+
   it('preserves LUMA aggregate voter envelopes written through the relay fallback', async () => {
     const { port } = await startRelay(children, tempDirs);
     const voterId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
