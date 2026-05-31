@@ -1046,6 +1046,50 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('reads direct-route stories from a later configured relay when the first peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+    });
+    const record = {
+      __story_bundle_json: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({ ok: false }), { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        story_id: STORY.story_id,
+        topic_id: STORY.topic_id,
+        record,
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsStoryViaRelayRest(client, 'story-123')).resolves.toEqual(STORY);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('readNewsStoryWithRelayRestFallback returns a local mesh story before probing relay REST', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/story-123', {
@@ -1099,6 +1143,59 @@ describe('newsAdapters', () => {
       await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({ 'story-a': 123 });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('merges latest-index rows across configured relay peers when one peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-a', 123);
+    await writeNewsLatestIndexEntry(signingClient, 'story-b', 456);
+    const storyARecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const storyBRecord = expectSystemLatestIndexRecord(mesh.writes[1].value, 'story-b', 456);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          records: { 'story-a': storyARecord },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-b': storyBRecord },
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsLatestIndexViaRelayRest(reader)).resolves.toEqual({
+        'story-a': 123,
+        'story-b': 456,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/latest-index?limit=80',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {
@@ -1491,6 +1588,56 @@ describe('newsAdapters', () => {
       ).resolves.toEqual(lifecycle);
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/synthesis-lifecycle?story_id=story-lifecycle',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reads synthesis lifecycle from a later configured relay when the first peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle-later-peer',
+      topic_id: 'topic-lifecycle-later-peer',
+      provenance_hash: 'source-set-lifecycle-later-peer',
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'terminal_unavailable',
+      frameTableState: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      updatedAt: 500,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({ ok: false }), { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record: lifecycle,
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle-later-peer'),
+      ).resolves.toEqual(lifecycle);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/synthesis-lifecycle?story_id=story-lifecycle-later-peer',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/synthesis-lifecycle?story_id=story-lifecycle-later-peer',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {
