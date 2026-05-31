@@ -4,6 +4,7 @@ import {
   createClient,
   readNewsHotIndexWithRelayRestFallback,
   readNewsLatestIndex,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
   readTopicLatestSynthesis,
 } from '@vh/gun-client';
@@ -51,6 +52,42 @@ function resolveGunPeer(env) {
   return parsePeer(env.VH_PUBLIC_FEED_GUN_PEER_URL)
     || parsePeer(env.VITE_GUN_PEERS)
     || DEFAULT_GUN_PEER_URL;
+}
+
+function parseOriginList(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return [];
+  if (raw.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(String).map((item) => item.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return raw.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function gunPeerFromRelayOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    if (url.protocol === 'https:') url.protocol = 'wss:';
+    if (url.protocol === 'http:') url.protocol = 'ws:';
+    url.pathname = '/gun';
+    url.search = '';
+    url.hash = '';
+    return normalizeGunPeer(url.href);
+  } catch {
+    return '';
+  }
+}
+
+function resolveGunPeers(env) {
+  const peers = [
+    resolveGunPeer(env),
+    ...parseOriginList(env.VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS).map(gunPeerFromRelayOrigin),
+  ].filter(Boolean);
+  return [...new Set(peers)];
 }
 
 function resolveArtifactDir(env, repoRoot) {
@@ -221,24 +258,6 @@ function stripGunMetadata(value) {
     output[key] = entry;
   }
   return output;
-}
-
-function readNewsLifecycleChain(client, storyId) {
-  return client.mesh
-    ?.get('news')
-    ?.get('stories')
-    ?.get(storyId)
-    ?.get('synthesis_lifecycle')
-    ?.get('latest');
-}
-
-async function readNewsLifecycleStatus(client, storyId, timeoutMs) {
-  const raw = await readGunOnce(readNewsLifecycleChain(client, storyId), timeoutMs);
-  const record = stripGunMetadata(raw);
-  if (!record || typeof record !== 'object') return null;
-  if (record.schemaVersion !== 'vh-news-synthesis-lifecycle-v1') return null;
-  if (String(record.story_id ?? '').trim() !== storyId) return null;
-  return record;
 }
 
 async function readNewsHotIndexProductRecord(client, storyId, timeoutMs) {
@@ -447,6 +466,7 @@ async function runPublicFeedLifecycleAccountability({
 } = {}) {
   const baseUrl = normalizeUrl(env.VH_PUBLIC_FEED_APP_URL || env.VH_LIVE_BASE_URL || DEFAULT_BASE_URL);
   const gunPeerUrl = resolveGunPeer(env);
+  const gunPeerUrls = resolveGunPeers(env);
   const sampleLimit = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_SAMPLE_LIMIT, 120);
   const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS, 75_000);
   const staleWindowMs = parsePositiveInt(env.VH_PUBLIC_FEED_LIFECYCLE_STALE_WINDOW_MS, 7 * 24 * 60 * 60 * 1000);
@@ -464,6 +484,7 @@ async function runPublicFeedLifecycleAccountability({
     config: {
       baseUrl,
       gunPeerUrl,
+      gunPeerUrls,
       sampleLimit,
       timeoutMs,
       staleWindowMs,
@@ -482,10 +503,10 @@ async function runPublicFeedLifecycleAccountability({
     progress: () => {},
   });
   const client = createClient({
-    peers: [gunPeerUrl],
+    peers: gunPeerUrls,
     requireSession: false,
     gunLocalStorage: false,
-    gunRadisk: false,
+    gunFile: path.join(artifactDir, 'gun-client'),
     systemWriterPin,
   });
   client.markSessionReady();
@@ -514,7 +535,9 @@ async function runPublicFeedLifecycleAccountability({
         ? relayLatest.stories[storyId]
         : null;
       const story = relayStory ?? await readNewsStory(client, storyId).catch(() => null);
-      const lifecycle = story ? await readNewsLifecycleStatus(client, storyId, Math.min(timeoutMs, 5_000)).catch(() => null) : null;
+      const lifecycle = story
+        ? await readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, storyId).catch(() => null)
+        : null;
       const synthesis = story?.topic_id
         ? await readTopicLatestSynthesis(client, story.topic_id).catch(() => null)
         : null;
