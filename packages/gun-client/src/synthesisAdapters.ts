@@ -951,7 +951,11 @@ export async function readTopicLatestSynthesisViaRelayRest(
     if (!response.ok) {
       return null;
     }
-    const payload = await response.json() as { record?: unknown };
+    const payload = await response.json() as { record?: unknown; synthesis?: unknown };
+    const relayValidated = parseSynthesisPayload(payload.synthesis);
+    if (relayValidated?.topic_id === normalizedTopicId) {
+      return relayValidated;
+    }
     const result = await parseSynthesisFromStoredRecord(client, {
       path: topicLatestPath(normalizedTopicId),
       topicId: normalizedTopicId,
