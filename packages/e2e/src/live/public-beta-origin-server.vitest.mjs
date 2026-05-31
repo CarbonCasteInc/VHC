@@ -214,6 +214,13 @@ describe('public beta origin server', () => {
       url: '/vh/news/hot-index',
     });
 
+    const lifecycleRead = await fetch(`${origin}/vh/news/synthesis-lifecycle?story_id=story-1`);
+    expect(lifecycleRead.status).toBe(200);
+    expect(relayRequests.at(-1)).toMatchObject({
+      method: 'GET',
+      url: '/vh/news/synthesis-lifecycle?story_id=story-1',
+    });
+
     const aggregateRead = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
     expect(aggregateRead.status).toBe(200);
     expect(relayRequests.at(-1)).toMatchObject({
@@ -231,6 +238,8 @@ describe('public beta origin server', () => {
     expect(forbiddenLatestIndexPost.status).toBe(405);
     const forbiddenHotIndexPost = await fetch(`${origin}/vh/news/hot-index`, { method: 'POST' });
     expect(forbiddenHotIndexPost.status).toBe(405);
+    const forbiddenLifecyclePost = await fetch(`${origin}/vh/news/synthesis-lifecycle`, { method: 'POST' });
+    expect(forbiddenLifecyclePost.status).toBe(405);
     const forbiddenAggregatePost = await fetch(`${origin}/vh/aggregates/point`, { method: 'POST' });
     expect(forbiddenAggregatePost.status).toBe(405);
 

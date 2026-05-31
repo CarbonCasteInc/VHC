@@ -22,6 +22,7 @@ import {
   getBundleSynthesisModel,
 } from './bundleSynthesisRelay';
 import { createBundleSynthesisWorker, type BundleSynthesisWorkerResult } from './bundleSynthesisWorker';
+import { createRelayRestSynthesisWritersFromEnv } from './relayRestSynthesisWriters';
 import {
   appendSynthesisLifecycleRecord,
   synthesisLifecycleRecordFromWorkerResult,
@@ -110,6 +111,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
 
   const runWrite = options.runWrite ?? (<T>(_: string, __: Record<string, unknown>, task: () => Promise<T>) => task());
   const queueDepth = parsePositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH'), 32);
+  const relayRestWriters = createRelayRestSynthesisWritersFromEnv(client, logger);
   const worker = createBundleSynthesisWorker({
     client,
     model: readEnvVar('VH_BUNDLE_SYNTHESIS_MODEL') ?? getBundleSynthesisModel(),
@@ -124,6 +126,7 @@ export function createBundleSynthesisEnrichmentFromEnv(
       DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE,
     ),
     pipelineVersion: readEnvVar('VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION') ?? DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
+    ...relayRestWriters,
     logger,
     runWrite: options.runWrite,
     publishReadyStory: async (publishClient, bundle) => {
