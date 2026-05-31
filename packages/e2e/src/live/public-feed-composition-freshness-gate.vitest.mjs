@@ -59,6 +59,10 @@ describe('public feed composition freshness gate', () => {
       'public-relay-latest-index-product-metadata-missing:1',
       { totalCorroboratedBundleCount: 0 },
     )).toBe('fail');
+    expect(classifyPublicFeedCompositionFailure(
+      'public-relay-latest-index-pagination-unavailable:first-page-next-cursor-missing',
+      { totalCorroboratedBundleCount: 0 },
+    )).toBe('fail');
   });
 
   it('fails singleton-only public feeds when source-health proves corroborated supply exists', async () => {

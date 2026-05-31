@@ -503,8 +503,16 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
 }
 
 function latestIndexRecordTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record)) {
+    return record;
+  }
+  if (typeof record === 'string' && Number.isFinite(Number(record))) {
+    return Number(record);
+  }
   const candidates = [
     record?.latest_activity_at,
+    record?.cluster_window_end,
+    record?.created_at,
     record?.updated_at,
     record?.published_at,
     record?._systemIssuedAt,
@@ -612,6 +620,167 @@ function acceptedSynthesisReady(synthesis) {
 function latestIndexEntryStoryId(storyId, record) {
   const direct = String(record?.story_id || record?.storyId || storyId || '').trim();
   return direct || null;
+}
+
+function finiteNonNegativeIndexNumber(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function latestIndexRecordsFromPayload(payload) {
+  const rawRecords = payload?.records && typeof payload.records === 'object'
+    ? payload.records
+    : payload?.index && typeof payload.index === 'object'
+      ? payload.index
+      : {};
+  return Object.entries(rawRecords)
+    .map(([storyId, record]) => ({
+      storyId: latestIndexEntryStoryId(storyId, record),
+      record,
+      latestActivityAt: latestIndexRecordTimestamp(record),
+    }))
+    .filter((entry) => entry.storyId)
+    .sort((left, right) => right.latestActivityAt - left.latestActivityAt || left.storyId.localeCompare(right.storyId));
+}
+
+async function readPublicRelayLatestIndexPage({
+  baseUrl,
+  limit,
+  before,
+  scanLimit,
+  timeoutMs = 15_000,
+} = {}) {
+  const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
+  const indexUrl = new URL('/vh/news/latest-index', root);
+  indexUrl.searchParams.set('limit', String(parsePositiveInt(limit, DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT)));
+  if (Number.isFinite(before) && before >= 0) {
+    indexUrl.searchParams.set('before', String(Math.floor(before)));
+  }
+  if (Number.isFinite(scanLimit) && scanLimit > 0) {
+    indexUrl.searchParams.set('scan_limit', String(Math.floor(scanLimit)));
+  }
+  const payload = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index-page');
+  const entries = latestIndexRecordsFromPayload(payload);
+  return {
+    requestUrl: indexUrl.href,
+    recordCount: entries.length,
+    storyIds: entries.map((entry) => entry.storyId),
+    latestActivityValues: entries.map((entry) => entry.latestActivityAt).filter((value) => Number.isFinite(value) && value >= 0),
+    nextCursor: finiteNonNegativeIndexNumber(payload?.next_cursor),
+    before: finiteNonNegativeIndexNumber(payload?.before),
+    sourceKeyCount: finiteNonNegativeIndexInt(payload?.source_key_count),
+    windowSourceKeyCount: finiteNonNegativeIndexInt(payload?.window_source_key_count),
+    scannedKeyCount: finiteNonNegativeIndexInt(payload?.scanned_key_count),
+    truncated: Boolean(payload?.truncated),
+    composition: payload?.composition && typeof payload.composition === 'object' ? payload.composition : null,
+    storyStateCount: payload?.story_states && typeof payload.story_states === 'object'
+      ? Object.keys(payload.story_states).length
+      : 0,
+  };
+}
+
+async function readPublicRelayPaginationReadback({
+  baseUrl,
+  pageLimit = 6,
+  timeoutMs = 15_000,
+} = {}) {
+  const normalizedPageLimit = parsePositiveInt(pageLimit, 6);
+  const scanLimit = Math.max(normalizedPageLimit * 4, normalizedPageLimit);
+  const firstPage = await readPublicRelayLatestIndexPage({
+    baseUrl,
+    limit: normalizedPageLimit,
+    scanLimit,
+    timeoutMs,
+  });
+  if (firstPage.recordCount === 0) {
+    return {
+      status: 'fail',
+      failure: 'first-page-empty',
+      pageLimit: normalizedPageLimit,
+      firstPage,
+      secondPage: null,
+      olderStoryIds: [],
+      overlapStoryIds: [],
+    };
+  }
+  if (!Number.isFinite(firstPage.nextCursor)) {
+    return {
+      status: 'unproven',
+      failure: 'first-page-next-cursor-missing',
+      pageLimit: normalizedPageLimit,
+      firstPage,
+      secondPage: null,
+      olderStoryIds: [],
+      overlapStoryIds: [],
+    };
+  }
+  const secondPage = await readPublicRelayLatestIndexPage({
+    baseUrl,
+    limit: normalizedPageLimit,
+    before: firstPage.nextCursor,
+    scanLimit,
+    timeoutMs,
+  });
+  const firstStoryIds = new Set(firstPage.storyIds);
+  const overlapStoryIds = secondPage.storyIds.filter((storyId) => firstStoryIds.has(storyId));
+  const olderStoryIds = secondPage.storyIds.filter((storyId) => !firstStoryIds.has(storyId));
+  const newestSecondPageActivity = Math.max(0, ...secondPage.latestActivityValues);
+  const secondPageIsExclusive =
+    secondPage.recordCount > 0
+    && olderStoryIds.length > 0
+    && overlapStoryIds.length === 0
+    && newestSecondPageActivity < firstPage.nextCursor;
+  return {
+    status: secondPageIsExclusive ? 'pass' : 'fail',
+    failure: secondPageIsExclusive
+      ? null
+      : secondPage.recordCount === 0
+        ? 'second-page-empty'
+        : overlapStoryIds.length > 0
+          ? 'second-page-overlaps-first-page'
+          : newestSecondPageActivity >= firstPage.nextCursor
+            ? 'second-page-not-older-than-exclusive-cursor'
+            : 'second-page-has-no-new-story-ids',
+    pageLimit: normalizedPageLimit,
+    firstPage,
+    secondPage,
+    olderStoryIds,
+    overlapStoryIds,
+  };
+}
+
+function assertPublicRelayPaginationReadback(paginationReadback, env = process.env, sourceHealthEvidence = null) {
+  const requirePagination = String(env.VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION ?? 'true').trim().toLowerCase() !== 'false';
+  if (!requirePagination) {
+    return;
+  }
+  const firstPage = paginationReadback?.firstPage ?? {};
+  const pageLimit = Number(paginationReadback?.pageLimit ?? 0);
+  const visibleSourceKeyCount = Math.max(
+    Number(firstPage.sourceKeyCount ?? 0),
+    Number(firstPage.windowSourceKeyCount ?? 0),
+    Number(firstPage.recordCount ?? 0),
+  );
+  const sourceHealthBundleCount = Number(sourceHealthEvidence?.totalBundleCount ?? 0);
+  const sourceHealthCorroboratedCount = Number(sourceHealthEvidence?.totalCorroboratedBundleCount ?? 0);
+  const shouldRequireOlderWindow =
+    pageLimit > 0
+    && (
+      visibleSourceKeyCount > pageLimit
+      || sourceHealthBundleCount > pageLimit
+      || sourceHealthCorroboratedCount > 0
+    );
+  if (!shouldRequireOlderWindow) {
+    return;
+  }
+  if (paginationReadback?.status !== 'pass') {
+    throw new Error(
+      `public-relay-latest-index-pagination-unavailable:${paginationReadback?.failure ?? 'unknown'}`,
+    );
+  }
 }
 
 function finiteNonNegativeIndexInt(value) {
@@ -734,11 +903,6 @@ async function readPublicRelaySynthesisCandidates({
   const indexUrl = new URL('/vh/news/latest-index', root);
   indexUrl.searchParams.set('limit', String(indexLimit));
   const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index');
-  const rawRecords = index?.records && typeof index.records === 'object'
-    ? index.records
-    : index?.index && typeof index.index === 'object'
-      ? index.index
-      : {};
   const storyStates = index?.story_states && typeof index.story_states === 'object'
     ? index.story_states
     : {};
@@ -746,13 +910,7 @@ async function readPublicRelaySynthesisCandidates({
   const relayComposition = index?.composition && typeof index.composition === 'object'
     ? index.composition
     : null;
-  const records = Object.entries(rawRecords)
-    .map(([storyId, record]) => ({
-      storyId: latestIndexEntryStoryId(storyId, record),
-      record,
-    }))
-    .filter((entry) => entry.storyId)
-    .sort((left, right) => latestIndexRecordTimestamp(right.record) - latestIndexRecordTimestamp(left.record));
+  const records = latestIndexRecordsFromPayload(index);
   const topStories = [];
   const sampledStoryIds = [];
   const sampledTopicIds = [];
@@ -2184,6 +2342,15 @@ async function runPublicFeedBrowserSmoke({
       env,
     );
     progress('public-relay-analysis-frame-coverage', publicRelayAnalysisFrameCoverage);
+    const publicRelayPaginationReadback = await readPublicRelayPaginationReadback({
+      baseUrl,
+      pageLimit: parsePositiveInt(env.VH_PUBLIC_FEED_PAGINATION_PAGE_LIMIT, 6),
+      timeoutMs: publicRelayReadbackTimeoutMs,
+    }).catch((error) => ({
+      status: 'fail',
+      failure: error instanceof Error ? error.message : String(error),
+    }));
+    progress('public-relay-pagination-readback', publicRelayPaginationReadback);
     summary = {
       ...summary,
       checks: {
@@ -2191,6 +2358,7 @@ async function runPublicFeedBrowserSmoke({
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
         publicRelayAnalysisFrameCoverage,
+        publicRelayPaginationReadback,
       },
     };
     browser = await launchBrowserFn();
@@ -2435,6 +2603,7 @@ async function runPublicFeedBrowserSmoke({
     if (publicRelayAnalysisFrameCoverage.status !== 'pass') {
       throw new Error(publicRelayAnalysisFrameCoverage.errorMessage || 'public-relay-analysis-frame-coverage-failed');
     }
+    assertPublicRelayPaginationReadback(publicRelayPaginationReadback, env);
   } catch (error) {
     summary = {
       ...summary,
@@ -2509,6 +2678,10 @@ export const publicFeedBrowserSmokeInternal = {
   loadSystemWriterPin,
   parsePublicPointAggregatePayload,
   readPublicPointAggregateViaOrigin,
+  latestIndexRecordsFromPayload,
+  readPublicRelayLatestIndexPage,
+  readPublicRelayPaginationReadback,
+  assertPublicRelayPaginationReadback,
   readPublicRelaySynthesisCandidates,
   assertPublicRelayAnalysisFrameCoverage,
   capturePublicRelayAnalysisFrameCoverage,

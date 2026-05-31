@@ -342,7 +342,9 @@ Public latest/hot index-entry storage contract:
   existing feed state rather than relying only on a larger initial top-N window.
   The initial public latest refresh should be bounded to the visible feed page
   size; revealing rows from a larger in-memory first window is not sufficient
-  scroll/load-more evidence.
+  scroll/load-more evidence. Release gates MUST also verify the relay itself can
+  return a second non-overlapping older latest-index page through `before`, so a
+  small singleton-only first window cannot satisfy pagination readiness.
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
