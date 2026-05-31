@@ -2718,6 +2718,43 @@ async function refreshSnapshotStoryStates(gun, entries) {
   };
 }
 
+function persistRefreshedLatestIndexSnapshotEntries(snapshot, options, refreshedEntries, refreshInfo) {
+  const refreshedCount = Number(refreshInfo?.refreshed_count) || 0;
+  if (refreshedCount <= 0 || !Array.isArray(snapshot?.entries) || !Array.isArray(refreshedEntries)) {
+    return;
+  }
+  const refreshedByStoryId = new Map();
+  for (const entry of refreshedEntries) {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    if (storyId) {
+      refreshedByStoryId.set(storyId, entry);
+    }
+  }
+  if (refreshedByStoryId.size === 0) {
+    return;
+  }
+  const nextEntries = snapshot.entries.map((entry) => {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    return refreshedByStoryId.get(storyId) ?? entry;
+  });
+  const snapshotKey = latestIndexSnapshotCacheKey(options);
+  const now = Date.now();
+  const nextSnapshot = {
+    ...snapshot,
+    cached_at: now,
+    entries: nextEntries,
+    consistency: {
+      ...(snapshot.consistency ?? {}),
+      latest_index_snapshot_story_state_persist: {
+        updated_at: now,
+        refreshed_count: refreshedCount,
+      },
+    },
+  };
+  newsLatestIndexSnapshotCache.set(snapshotKey, nextSnapshot);
+  persistNewsLatestIndexSnapshot(snapshotKey, nextSnapshot);
+}
+
 async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {}, cacheInfo = {}) {
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
@@ -2761,6 +2798,7 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
   selectedEntries = bodyReadbackResult.entries;
   const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
   selectedEntries = refreshResult.entries;
+  persistRefreshedLatestIndexSnapshotEntries(snapshot, options, selectedEntries, refreshResult.info);
   const records = {};
   const stories = {};
   const storyStates = {};
