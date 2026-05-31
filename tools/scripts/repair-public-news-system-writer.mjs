@@ -1,16 +1,37 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import {
-  buildNewsSynthesisLifecycleRecord,
-  buildSignedSystemWriterRecord,
-  computeStoryHotness,
-  writeNewsHotIndexEntry,
-  writeNewsLatestIndexEntry,
-  writeNewsStory,
-  writeNewsSynthesisLifecycleStatus,
-} from '@vh/gun-client';
-import { createNodeMeshClient } from '@vh/gun-client/node';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, '..', '..');
+const workspaceResolutionRoots = [
+  process.cwd(),
+  repoRoot,
+  path.join(repoRoot, 'services', 'news-aggregator'),
+];
+
+let buildNewsSynthesisLifecycleRecord;
+let buildSignedSystemWriterRecord;
+let computeStoryHotness;
+let writeNewsHotIndexEntry;
+let writeNewsLatestIndexEntry;
+let writeNewsStory;
+let writeNewsSynthesisLifecycleStatus;
+let createNodeMeshClient;
+
+function workspacePackageEntrypoints(root, specifier) {
+  const gunClientRoot = path.join(root, 'node_modules', '@vh', 'gun-client');
+  if (specifier === '@vh/gun-client') {
+    return [path.join(gunClientRoot, 'dist', 'index.js')];
+  }
+  if (specifier === '@vh/gun-client/node') {
+    return [path.join(gunClientRoot, 'dist', 'nodeMeshClient.js')];
+  }
+  return [];
+}
 
 const DEFAULT_APP_URL = 'https://venn.carboncaste.io';
 const DEFAULT_LIMIT = 120;
@@ -23,6 +44,43 @@ const DEFAULT_ARTIFACT_DIR = path.join(
   'public-news-system-writer-repair',
   String(Date.now()),
 );
+
+async function importWorkspacePackage(specifier) {
+  for (const root of workspaceResolutionRoots) {
+    try {
+      const resolved = require.resolve(specifier, { paths: [root] });
+      return import(pathToFileURL(resolved).href);
+    } catch {
+      // Try the next workspace/package root.
+    }
+    for (const candidate of workspacePackageEntrypoints(root, specifier)) {
+      try {
+        return await import(pathToFileURL(candidate).href);
+      } catch {
+        // Try the next explicit ESM entrypoint.
+      }
+    }
+  }
+  return import(specifier);
+}
+
+async function loadWorkspaceModules() {
+  if (computeStoryHotness && createNodeMeshClient) {
+    return;
+  }
+  const gunClient = await importWorkspacePackage('@vh/gun-client');
+  const nodeMeshClient = await importWorkspacePackage('@vh/gun-client/node');
+  ({
+    buildNewsSynthesisLifecycleRecord,
+    buildSignedSystemWriterRecord,
+    computeStoryHotness,
+    writeNewsHotIndexEntry,
+    writeNewsLatestIndexEntry,
+    writeNewsStory,
+    writeNewsSynthesisLifecycleStatus,
+  } = gunClient);
+  ({ createNodeMeshClient } = nodeMeshClient);
+}
 
 function requireEnv(name) {
   const value = process.env[name]?.trim();
@@ -196,6 +254,17 @@ async function postJson(url, token, body, timeoutMs) {
   }
 }
 
+async function repairStep(step, work) {
+  try {
+    return await work();
+  } catch (error) {
+    if (error && typeof error === 'object') {
+      error.repair_step = error.repair_step ?? step;
+    }
+    throw error;
+  }
+}
+
 function createRepairClient({ peers, pin, writerId, sign }) {
   if (peers.length === 0) {
     throw new Error('at least one Gun peer is required for gun repair mode');
@@ -238,16 +307,22 @@ async function readLatestStories(appUrl, limit, offset, timeoutMs) {
 }
 
 async function repairStoryViaGun({ client, story }) {
-  await writeNewsStory(client, story);
-  await writeNewsLatestIndexEntry(client, story.story_id, story.cluster_window_end, story);
-  await writeNewsHotIndexEntry(client, story.story_id, computeStoryHotness(story), story);
-  await writeNewsSynthesisLifecycleStatus(client, buildNewsSynthesisLifecycleRecord({
-    story,
-    status: 'pending',
-    frameTableState: 'frame_table_pending',
-    reason: 'storycluster_public_feed_repair',
-    updatedAt: Date.now(),
-  }));
+  await repairStep('gun_story_body', () => writeNewsStory(client, story));
+  await repairStep('gun_latest_index', () => (
+    writeNewsLatestIndexEntry(client, story.story_id, story.cluster_window_end, story)
+  ));
+  await repairStep('gun_hot_index', () => (
+    writeNewsHotIndexEntry(client, story.story_id, computeStoryHotness(story), story)
+  ));
+  await repairStep('gun_synthesis_lifecycle', () => (
+    writeNewsSynthesisLifecycleStatus(client, buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'pending',
+      frameTableState: 'frame_table_pending',
+      reason: 'storycluster_public_feed_repair',
+      updatedAt: Date.now(),
+    }))
+  ));
 }
 
 async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, sign, pin, writerId, timeoutMs }) {
@@ -289,14 +364,23 @@ async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, sign, 
   };
 
   for (const origin of relayOrigins) {
-    await postJson(new URL('/vh/news/story', origin).href, relayToken, { record: records.story }, timeoutMs);
-    await postJson(new URL('/vh/news/latest-index', origin).href, relayToken, { record: records.latest }, timeoutMs);
-    await postJson(new URL('/vh/news/hot-index', origin).href, relayToken, { record: records.hot }, timeoutMs);
-    await postJson(new URL('/vh/news/synthesis-lifecycle', origin).href, relayToken, { record: records.lifecycle }, timeoutMs);
+    await repairStep('relay_story_body', () => (
+      postJson(new URL('/vh/news/story', origin).href, relayToken, { record: records.story }, timeoutMs)
+    ));
+    await repairStep('relay_latest_index', () => (
+      postJson(new URL('/vh/news/latest-index', origin).href, relayToken, { record: records.latest }, timeoutMs)
+    ));
+    await repairStep('relay_hot_index', () => (
+      postJson(new URL('/vh/news/hot-index', origin).href, relayToken, { record: records.hot }, timeoutMs)
+    ));
+    await repairStep('relay_synthesis_lifecycle', () => (
+      postJson(new URL('/vh/news/synthesis-lifecycle', origin).href, relayToken, { record: records.lifecycle }, timeoutMs)
+    ));
   }
 }
 
 async function main() {
+  await loadWorkspaceModules();
   const appUrl = optionalEnv('VH_PUBLIC_FEED_APP_URL', DEFAULT_APP_URL);
   const limit = parsePositiveInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_LIMIT'), DEFAULT_LIMIT);
   const offset = parseNonNegativeInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_OFFSET'), 0);
@@ -354,6 +438,8 @@ async function main() {
     } catch (error) {
       failures.push({
         story_id: storyId,
+        repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
+        error_name: error && typeof error === 'object' ? error.name ?? null : null,
         reason: error instanceof Error ? error.message : String(error),
       });
     }

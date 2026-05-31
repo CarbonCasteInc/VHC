@@ -452,6 +452,26 @@ describe('FeedShell lazy loading', () => {
     }
   });
 
+  it('auto-refreshes public news through the public relay before the app client is ready', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: null,
+      initializing: true,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
   it('clears the initial refresh indicator when news loading changes during refresh', async () => {
     const originalRefreshLatest = useNewsStore.getState().refreshLatest;
     let resolveRefresh: (() => void) | null = null;

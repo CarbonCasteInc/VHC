@@ -239,6 +239,7 @@ function createClient(
       systemWriterId: TEST_SYSTEM_WRITER_ID,
       systemWriterNow: () => TEST_SYSTEM_ISSUED_AT,
       systemWriterSign: defaultSystemWriterSign,
+      requireNewsWriteReadback: false,
       ...config,
     },
     hydrationBarrier: barrier,
@@ -833,6 +834,25 @@ describe('newsAdapters', () => {
 
     await expect(writeNewsStory(client, STORY)).rejects.toThrow('write failed');
   });
+
+  it('writeNewsStory requires readback after ack for default production clients', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      delete client.config.requireNewsWriteReadback;
+
+      const writePromise = writeNewsStory(client, STORY);
+      await expect(writePromise).rejects.toThrow(
+        'news-story write acknowledged but readback did not confirm persistence',
+      );
+      expect(mesh.writes).toHaveLength(1);
+    } finally {
+      warning.mockRestore();
+    }
+  }, 10_000);
 
   it('writeNewsStory resolves when put ack times out and readback confirms persistence', async () => {
     vi.useFakeTimers();

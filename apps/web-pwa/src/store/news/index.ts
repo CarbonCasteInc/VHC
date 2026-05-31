@@ -5,6 +5,7 @@ import {
   readNewsLatestIndexPageWithRelayRestFallback,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
+  type SystemWriterPin,
   type VennClient,
 } from '@vh/gun-client';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
@@ -12,6 +13,7 @@ import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
 import { loadStorylinesForStories } from './storylines';
 import { createStorylineRecord, removeOrphanedStoryline } from './storylineState';
+import systemWriterPin from '../../luma/system-writer-pin.json';
 import type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 import {
   buildSeedIndex,
@@ -124,6 +126,75 @@ const NEWS_DIRECT_STORY_READ_RETRY_MS = readNewsStoreNumber(
   500,
   0,
 );
+
+function sameOriginPublicNewsPeer(): string | null {
+  const location = (globalThis as { location?: Location }).location;
+  const origin = typeof location?.origin === 'string' ? location.origin : '';
+  if (!/^https?:\/\//.test(origin)) {
+    return null;
+  }
+  return `${origin.replace(/\/+$/, '')}/gun`;
+}
+
+function noopRelayOnlyChain(): VennClient['mesh'] {
+  const chain = {
+    once(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    put(_value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) {
+      callback?.({ err: 'relay-only public news client is read-only' });
+    },
+    get() {
+      return chain;
+    },
+    on(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    off() {},
+    map() {
+      return chain;
+    },
+  };
+  return chain as VennClient['mesh'];
+}
+
+function createPublicRelayReadClient(): VennClient | null {
+  const peer = sameOriginPublicNewsPeer();
+  if (!peer) {
+    return null;
+  }
+  const mesh = noopRelayOnlyChain();
+  return {
+    config: {
+      peers: [peer],
+      systemWriterPin: systemWriterPin as SystemWriterPin,
+      requireNewsWriteReadback: false,
+    },
+    mesh,
+    sessionReady: true,
+    hydrationBarrier: { markReady() {}, prepare: async () => undefined } as VennClient['hydrationBarrier'],
+    storage: { close: async () => undefined } as VennClient['storage'],
+    topologyGuard: { validateWrite() {} } as unknown as VennClient['topologyGuard'],
+    gun: {} as VennClient['gun'],
+    user: {} as VennClient['user'],
+    chat: {} as VennClient['chat'],
+    outbox: {} as VennClient['outbox'],
+    markSessionReady() {},
+    linkDevice: async () => undefined,
+    shutdown: async () => undefined,
+  };
+}
+
+function resolveNewsReadClient(resolveClient: () => VennClient | null): {
+  readonly client: VennClient | null;
+  readonly hasMeshClient: boolean;
+} {
+  const meshClient = resolveClient();
+  if (meshClient) {
+    return { client: meshClient, hasMeshClient: true };
+  }
+  return { client: createPublicRelayReadClient(), hasMeshClient: false };
+}
 
 async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -505,12 +576,14 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         return true;
       }
 
-      const client = deps.resolveClient();
+      const { client, hasMeshClient } = resolveNewsReadClient(deps.resolveClient);
       if (!client) {
         return false;
       }
 
-      get().startHydration();
+      if (hasMeshClient) {
+        get().startHydration();
+      }
 
       try {
         let story = await readConfiguredStoryById(client, normalizedStoryId, { attempts: 1 });
@@ -550,7 +623,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
     },
 
     async refreshLatest(request = 50) {
-      const client = deps.resolveClient();
+      const { client, hasMeshClient } = resolveNewsReadClient(deps.resolveClient);
       if (!client) {
         set({ loading: false, error: null });
         return;
@@ -558,7 +631,9 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
 
       const refreshRequest = normalizeRefreshRequest(request);
       const isCursorWindow = Number.isFinite(refreshRequest.before);
-      get().startHydration();
+      if (hasMeshClient) {
+        get().startHydration();
+      }
       const generation = ++refreshGeneration;
       set({ loading: true, error: null });
 
