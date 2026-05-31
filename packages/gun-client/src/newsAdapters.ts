@@ -27,6 +27,7 @@ export interface NewsLatestIndexPage {
   readonly recordCount: number;
   readonly sourceKeyCount?: number;
   readonly composition?: unknown;
+  readonly stories?: Record<string, StoryBundle>;
 }
 export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
@@ -870,6 +871,36 @@ function parseLegacyStoryBundle(data: unknown): StoryBundle | null {
     return null;
   }
   return parsed.data;
+}
+
+function parseRelayLatestIndexStories(value: unknown, index: NewsLatestIndex): Record<string, StoryBundle> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const stories: Record<string, StoryBundle> = {};
+  for (const [storyId, candidate] of Object.entries(value)) {
+    if (!(storyId in index)) {
+      continue;
+    }
+    const parsed = parseLegacyStoryBundle(candidate);
+    if (parsed?.story_id === storyId) {
+      stories[storyId] = parsed;
+    }
+  }
+  return Object.keys(stories).length > 0 ? stories : undefined;
+}
+
+function parseRelayLatestIndexRecordTimestampForEmbeddedStory(
+  storyId: string,
+  value: unknown,
+  before: number | null,
+): number | null {
+  const record = parseLatestIndexEntryPayload(stripGunMetadata(value), storyId);
+  const timestamp = record?.latest_activity_at;
+  if (timestamp === undefined || (before !== null && timestamp >= before)) {
+    return null;
+  }
+  return timestamp;
 }
 
 function normalizeLifecycleStatus(value: unknown): NewsSynthesisLifecycleStatus | null {
@@ -2060,6 +2091,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
   }
 
   const index: NewsLatestIndex = {};
+  const stories: Record<string, StoryBundle> = {};
   let nextCursor: number | null = null;
   let sourceKeyCount: number | undefined;
   let composition: unknown;
@@ -2082,6 +2114,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
         record_count?: unknown;
         source_key_count?: unknown;
         composition?: unknown;
+        stories?: unknown;
       };
       const records = isRecord(payload.records)
         ? payload.records
@@ -2092,13 +2125,35 @@ export async function readNewsLatestIndexPageViaRelayRest(
         continue;
       }
 
+      const relayRecordTimestamps: NewsLatestIndex = {};
       for (const [storyId, value] of Object.entries(records)) {
+        const relayTimestamp = parseRelayLatestIndexRecordTimestampForEmbeddedStory(
+          storyId,
+          value,
+          before,
+        );
+        if (relayTimestamp !== null) {
+          relayRecordTimestamps[storyId] = Math.max(
+            relayRecordTimestamps[storyId] ?? 0,
+            relayTimestamp,
+          );
+        }
         try {
           const timestamp = await parseLatestIndexEntry(client, storyId, value);
           if (timestamp !== null && (before === null || timestamp < before)) {
             index[storyId] = Math.max(index[storyId] ?? 0, timestamp);
           }
         } /* v8 ignore next -- keep the public feed partial when one persisted row has an anomalous parser failure. */ catch {}
+      }
+      const payloadStories = parseRelayLatestIndexStories(payload.stories, {
+        ...relayRecordTimestamps,
+        ...index,
+      });
+      for (const [storyId, story] of Object.entries(payloadStories ?? {})) {
+        stories[storyId] = story;
+        if (!(storyId in index)) {
+          index[storyId] = relayRecordTimestamps[storyId] ?? story.cluster_window_end;
+        }
       }
       const payloadNextCursor = normalizeRelayLatestIndexNextCursor(payload.next_cursor);
       if (payloadNextCursor !== null) {
@@ -2123,6 +2178,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
     recordCount: Object.keys(index).length,
     ...(sourceKeyCount === undefined ? {} : { sourceKeyCount }),
     ...(composition === undefined ? {} : { composition }),
+    ...(Object.keys(stories).length === 0 ? {} : { stories }),
   };
 }
 

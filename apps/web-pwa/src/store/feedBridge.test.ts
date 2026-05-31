@@ -290,7 +290,37 @@ describe('startNewsBridge', () => {
     await startNewsBridge();
 
     expect(startHydrationSpy).toHaveBeenCalledTimes(1);
-    expect(refreshLatestSpy).toHaveBeenCalledTimes(1);
+    expect(refreshLatestSpy).toHaveBeenCalledWith(15);
+  });
+
+  it('observes an in-flight visible feed refresh instead of starting a competing bootstrap refresh', async () => {
+    const visibleRefreshStory = makeStoryBundle({
+      story_id: 'story-visible-refresh',
+      topic_id: SECOND_CANONICAL_TOPIC_ID,
+      headline: 'Visible refresh story',
+    });
+    const newsState = useNewsStore.getState();
+    const refreshLatestSpy = vi.spyOn(newsState, 'refreshLatest').mockResolvedValue(undefined);
+    newsState.setLoading(true);
+
+    await startNewsBridge();
+
+    expect(refreshLatestSpy).not.toHaveBeenCalled();
+    expect(useDiscoveryStore.getState().items).toEqual([]);
+
+    useNewsStore.setState({
+      stories: [visibleRefreshStory],
+      latestIndex: { [visibleRefreshStory.story_id]: visibleRefreshStory.cluster_window_end },
+      loading: false,
+    });
+
+    expect(useDiscoveryStore.getState().items).toMatchObject([
+      {
+        story_id: 'story-visible-refresh',
+        topic_id: SECOND_CANONICAL_TOPIC_ID,
+        kind: 'NEWS_STORY',
+      },
+    ]);
   });
 
   it('logs refresh failures during bootstrap and continues', async () => {

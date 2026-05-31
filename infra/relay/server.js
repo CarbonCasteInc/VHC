@@ -1700,6 +1700,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const scanLimit = requestedScanLimit;
   const keys = scanSourceKeys.slice(0, Math.min(scanSourceKeys.length, scanLimit));
   const records = {};
+  const stories = {};
   const storyStates = {};
   const excludedRecords = [];
   const repairedRecords = [];
@@ -1843,6 +1844,9 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   }
   for (const entry of selectedEntries) {
     records[entry.entry[0]] = entry.entry[1];
+    if (entry.story) {
+      stories[entry.entry[0]] = entry.story;
+    }
     if (entry.story && entry.storyState) {
       storyStates[entry.entry[0]] = entry.storyState;
       accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
@@ -1880,6 +1884,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     repairedRecords,
     compositionBackfillRecords,
     records,
+    stories,
     snapshotEntries: visibleEntries,
   };
 }
@@ -2195,10 +2200,14 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
   const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
   selectedEntries = refreshResult.entries;
   const records = {};
+  const stories = {};
   const storyStates = {};
   const composition = createFeedCompositionAccumulator();
   for (const entry of selectedEntries) {
     records[entry.entry[0]] = entry.entry[1];
+    if (entry.story) {
+      stories[entry.entry[0]] = entry.story;
+    }
     if (entry.story && entry.storyState) {
       storyStates[entry.entry[0]] = entry.storyState;
       accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
@@ -2227,6 +2236,7 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
     repairedRecords: snapshot.repairedRecords ?? [],
     compositionBackfillRecords,
     records,
+    stories,
     snapshotEntries: snapshot.entries,
   };
 }
@@ -3428,6 +3438,7 @@ const server = http.createServer((req, res) => {
           composition_backfill_records: result.compositionBackfillRecords,
           story_states: result.storyStates,
           records: result.records,
+          stories: result.stories,
         };
         if (result.root) payload.root = result.root;
         if (includeExcluded) {

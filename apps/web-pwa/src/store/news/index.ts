@@ -174,22 +174,37 @@ function delay(ms: number): Promise<void> {
 async function readLatestStoriesBounded(
   client: VennClient,
   storyIds: readonly string[],
+  embeddedStories: Readonly<Record<string, StoryBundle>> = {},
 ): Promise<Array<StoryBundle | null>> {
   if (storyIds.length === 0) {
     return [];
   }
 
   const results = new Array<StoryBundle | null>(storyIds.length);
+  const pendingIndexes: number[] = [];
+  for (let index = 0; index < storyIds.length; index += 1) {
+    const storyId = storyIds[index]!;
+    const embeddedStory = parseStory(embeddedStories[storyId]);
+    if (embeddedStory && isStoryFromConfiguredSources(embeddedStory)) {
+      results[index] = embeddedStory;
+    } else {
+      pendingIndexes.push(index);
+    }
+  }
+  if (pendingIndexes.length === 0) {
+    return results;
+  }
+
   let nextIndex = 0;
   let timedOut = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const workerCount = Math.max(
     1,
-    Math.min(Math.floor(NEWS_REFRESH_STORY_READ_CONCURRENCY), storyIds.length),
+    Math.min(Math.floor(NEWS_REFRESH_STORY_READ_CONCURRENCY), pendingIndexes.length),
   );
   const workers = Promise.all(Array.from({ length: workerCount }, async () => {
-    while (!timedOut && nextIndex < storyIds.length) {
-      const currentIndex = nextIndex;
+    while (!timedOut && nextIndex < pendingIndexes.length) {
+      const currentIndex = pendingIndexes[nextIndex]!;
       nextIndex += 1;
       try {
         results[currentIndex] = await readConfiguredStoryByIdRelayFirst(
@@ -580,7 +595,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
               isCursorWindow ? nextLatestIndex : effectiveLatestIndex,
               refreshRequest.limit,
             );
-            const stories = await readLatestStoriesBounded(client, storyIds);
+            const stories = await readLatestStoriesBounded(client, storyIds, latestPage.stories ?? {});
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
             const [nextHotIndex, nextStorylines] = await Promise.all([
@@ -630,7 +645,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           };
         });
 
-        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, mergedStorylinesById);
+        await mirrorStoriesIntoDiscovery(mergedStories, hotIndex, mergedStorylinesById);
       } catch (error: unknown) {
         if (generation !== refreshGeneration) {
           return;

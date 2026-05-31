@@ -350,6 +350,14 @@ Public latest/hot index-entry storage contract:
   scroll/load-more evidence. Release gates MUST also verify the relay itself can
   return a second non-overlapping older latest-index page through `before`, so a
   small singleton-only first window cannot satisfy pagination readiness.
+- Relay REST `/vh/news/latest-index` responses MAY include a `stories` map keyed
+  by `story_id` for the same selected rows when the relay has verified each
+  story body through the public route. Browsers may hydrate from those embedded
+  `StoryBundle` bodies before issuing per-story reads, but each embedded body
+  MUST still match a selected latest-index row and parse under the normal public
+  story eligibility rules. The embedded map is a read-through optimization and
+  does not replace durable `vh/news/stories/<storyId>` persistence or per-peer
+  story-body readback gates.
 - Relay REST reads of `vh/news/index/hot` MUST expose a bounded
   `/vh/news/hot-index?limit=<n>` read path sorted by resolved hotness after
   linked child reads. The Web PWA and release gates may use this REST path as a

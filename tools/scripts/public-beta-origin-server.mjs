@@ -10,6 +10,7 @@ const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
 const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 30_000;
+const DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS = 12_000;
 const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
@@ -402,6 +403,26 @@ function selectBestNewsRead(results, pathname) {
   return best?.result ?? results.find((result) => result.ok) ?? results[0] ?? null;
 }
 
+function isUsableOrderedNewsRead(result, pathname) {
+  if (!result?.ok || result.status < 200 || result.status >= 300) return false;
+  const payload = jsonFromRelayResult(result);
+  const score = relayRecordScore(payload, pathname);
+  if (score <= 0) return false;
+  if (pathname !== '/vh/news/latest-index') return true;
+  const records = payload?.records && typeof payload.records === 'object'
+    ? payload.records
+    : payload?.index && typeof payload.index === 'object'
+      ? payload.index
+      : null;
+  if (!records || Object.keys(records).length === 0) return false;
+  const composition = payload?.composition && typeof payload.composition === 'object'
+    ? payload.composition
+    : null;
+  if (!composition) return true;
+  const multiSourceVisible = Number(composition.multi_source_visible);
+  return Number.isFinite(multiSourceVisible) && multiSourceVisible > 0;
+}
+
 function writeRelayResult(res, result) {
   if (!result) {
     sendJson(res, 502, { ok: false, error: 'Upstream request failed' });
@@ -428,6 +449,20 @@ async function proxyRelayFanout(req, res, relayTargets, timeoutMs) {
     selected = selectBestAggregateWrite(results);
   }
   writeRelayResult(res, selected);
+}
+
+async function proxyRelayOrderedNewsRead(req, res, relayTargets, timeoutMs) {
+  const pathname = new URL(req.url || '/', 'http://vh-public-origin.local').pathname;
+  const results = [];
+  for (const target of relayTargets) {
+    const result = await fetchRelayTarget(req, target, timeoutMs);
+    results.push(result);
+    if (isUsableOrderedNewsRead(result, pathname)) {
+      writeRelayResult(res, result);
+      return;
+    }
+  }
+  writeRelayResult(res, selectBestNewsRead(results, pathname));
 }
 
 async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
@@ -536,6 +571,10 @@ export function createPublicBetaOriginHandler(options) {
     relayProxyTimeoutMs,
     options.relayFanoutTimeoutMs || DEFAULT_RELAY_FANOUT_TIMEOUT_MS,
   );
+  const relayNewsFanoutTimeoutMs = Math.min(
+    relayFanoutTimeoutMs,
+    options.relayNewsFanoutTimeoutMs || DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS,
+  );
 
   return async function publicBetaOriginHandler(req, res) {
     const parsed = new URL(req.url || '/', 'http://vh-public-origin.local');
@@ -581,16 +620,21 @@ export function createPublicBetaOriginHandler(options) {
         sendJson(res, 503, { error: 'Relay proxy not configured' });
         return;
       }
+      const isNewsFanoutRead = NEWS_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET';
       if (
         relayTargets.length > 1
         && (
           (pathname === '/vh/aggregates/point' && (req.method || 'GET') === 'GET')
-          || (NEWS_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
+          || isNewsFanoutRead
           || (AGGREGATE_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
           || (FORUM_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
           || (FORUM_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
         )
       ) {
+        if (isNewsFanoutRead) {
+          await proxyRelayOrderedNewsRead(req, res, relayTargets, relayNewsFanoutTimeoutMs);
+          return;
+        }
         await proxyRelayFanout(req, res, relayTargets, relayFanoutTimeoutMs);
         return;
       }
@@ -645,6 +689,9 @@ async function main() {
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
     relayProxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS || DEFAULT_RELAY_PROXY_TIMEOUT_MS),
     relayFanoutTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_FANOUT_TIMEOUT_MS || DEFAULT_RELAY_FANOUT_TIMEOUT_MS),
+    relayNewsFanoutTimeoutMs: Number(
+      process.env.VH_PUBLIC_ORIGIN_RELAY_NEWS_FANOUT_TIMEOUT_MS || DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS,
+    ),
   });
   const address = server.address();
   const label = typeof address === 'object' && address
