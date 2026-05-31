@@ -3551,16 +3551,6 @@ async function writeForumComment(gun, comment) {
 
 async function writeTopicSynthesis(gun, synthesis) {
   const clean = sanitizeTopicSynthesis(synthesis);
-  const encoded = encodeTopicSynthesis(clean);
-  const topicChain = gun.get('vh').get('topics').get(clean.topic_id);
-  await Promise.allSettled([
-    putScalarRecord(topicChain.get('latest'), encoded, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 }),
-    putScalarRecord(
-      topicChain.get('epochs').get(String(clean.epoch)).get('synthesis'),
-      encoded,
-      { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 },
-    ),
-  ]);
   injectGraph(gun, buildTopicSynthesisGraph(clean));
   const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
   if (!readback) {
@@ -3571,7 +3561,6 @@ async function writeTopicSynthesis(gun, synthesis) {
 
 async function writeTopicSynthesisCandidate(gun, candidate) {
   const clean = sanitizeTopicSynthesisCandidate(candidate);
-  const encoded = encodeTopicSynthesisCandidate(clean);
   const candidateChain = gun
     .get('vh')
     .get('topics')
@@ -3580,7 +3569,6 @@ async function writeTopicSynthesisCandidate(gun, candidate) {
     .get(String(clean.epoch))
     .get('candidates')
     .get(clean.candidate_id);
-  await putScalarRecord(candidateChain, encoded, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildTopicSynthesisCandidateGraph(clean));
   const readback = stripGunMetadata(await readOnce(candidateChain, 5_000));
   if (!readback || readback.candidate_id !== clean.candidate_id) {
@@ -3591,8 +3579,6 @@ async function writeTopicSynthesisCandidate(gun, candidate) {
 
 async function writeNewsStoryRecord(gun, body) {
   const clean = sanitizeNewsStoryWrite(body);
-  const storyChain = gun.get('vh').get('news').get('stories').get(clean.story_id);
-  await putScalarRecord(storyChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsStoryGraph(clean));
   const readback = await pollNewsStoryBack(
     gun,
@@ -3612,8 +3598,6 @@ async function writeNewsStoryRecord(gun, body) {
 
 async function writeNewsLatestIndexRecord(gun, body) {
   const clean = sanitizeNewsLatestIndexWrite(body);
-  const latestChain = gun.get('vh').get('news').get('index').get('latest').get(clean.story_id);
-  await putScalarRecord(latestChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsLatestIndexGraph(clean));
   const readback = await pollNewsLatestIndexBack(
     gun,
@@ -3633,8 +3617,6 @@ async function writeNewsLatestIndexRecord(gun, body) {
 
 async function writeNewsHotIndexRecord(gun, body) {
   const clean = sanitizeNewsHotIndexWrite(body);
-  const hotChain = gun.get('vh').get('news').get('index').get('hot').get(clean.story_id);
-  await putScalarRecord(hotChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsHotIndexGraph(clean));
   const readback = await pollNewsHotIndexBack(
     gun,
@@ -3650,14 +3632,6 @@ async function writeNewsHotIndexRecord(gun, body) {
 
 async function writeNewsSynthesisLifecycleRecord(gun, body) {
   const clean = sanitizeNewsSynthesisLifecycleWrite(body);
-  const lifecycleChain = gun
-    .get('vh')
-    .get('news')
-    .get('stories')
-    .get(clean.story_id)
-    .get('synthesis_lifecycle')
-    .get('latest');
-  await putScalarRecord(lifecycleChain, clean.record, { rootTimeoutMs: 3_000, fieldTimeoutMs: 1_000 });
   injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
   const readback = await pollNewsSynthesisLifecycleBack(
     gun,
