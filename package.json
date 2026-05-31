@@ -83,6 +83,7 @@
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",
     "check:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator check:source-health",
+    "catchup:public-synthesis": "pnpm --filter @vh/news-aggregator catchup:public-synthesis",
     "live:stack:up": "bash tools/scripts/live-local-stack.sh up",
     "live:stack:up:public": "VH_LOCAL_STACK_FEED_MODE=public bash tools/scripts/live-local-stack.sh up",
     "live:stack:up:analysis-stub": "VH_LOCAL_STACK_FEED_MODE=fixture VH_LOCAL_STACK_ANALYSIS_MODE=stub bash tools/scripts/live-local-stack.sh up",
