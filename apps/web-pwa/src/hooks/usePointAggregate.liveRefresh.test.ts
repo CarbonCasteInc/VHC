@@ -3,6 +3,7 @@ import React from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchPointAggregateRefresh } from './pointAggregateRefreshEvents';
 
 const readAggregatesMock = vi.hoisted(() => vi.fn());
 const getAggregatePointsChainMock = vi.hoisted(() => vi.fn());
@@ -435,6 +436,55 @@ describe('usePointAggregate live refresh', () => {
 
     expect(call).toBeGreaterThan(beforeSignalCalls);
     expect(readHookResult().aggregate?.agree).toBe(2);
+  });
+
+  it('applies local vote refresh events and schedules authoritative mesh rereads', async () => {
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 1, disagree: 0, participants: 1, weight: 1 }),
+    );
+
+    await renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const beforeEventCalls = readAggregatesMock.mock.calls.length;
+
+    await act(async () => {
+      dispatchPointAggregateRefresh({
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+        previousAgreement: 0,
+        nextAgreement: 1,
+        previousWeight: 0,
+        weight: 1,
+        reason: 'local_vote',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readHookResult()).toEqual({
+      aggregate: aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }),
+      status: 'success',
+      error: null,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readAggregatesMock.mock.calls.length).toBeGreaterThan(beforeEventCalls);
   });
 
   it('removes point and voter subscriptions on unmount', async () => {
