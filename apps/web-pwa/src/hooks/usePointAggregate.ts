@@ -167,7 +167,9 @@ function resolveAggregateReadClient(appClient: VennClient): VennClient {
   }
 
   const appPeers = Array.isArray(appClient.config?.peers) ? appClient.config.peers : [];
-  const peers = Array.from(new Set([sameOriginPeer, ...appPeers]));
+  const peers = appPeers.length > 0
+    ? Array.from(new Set(appPeers))
+    : [sameOriginPeer];
   const cacheKey = peers.join('\n');
   if (cachedPublicAggregateReadClient?.cacheKey === cacheKey) {
     return cachedPublicAggregateReadClient.client;
