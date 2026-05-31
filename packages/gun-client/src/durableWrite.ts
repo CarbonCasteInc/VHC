@@ -28,10 +28,12 @@ export interface DurableWriteOptions<T> {
   readonly writeClass: string;
   readonly timeoutMs: number;
   readonly timeoutError?: string;
+  readonly readbackRequiredError?: string;
   readonly readback?: () => Promise<unknown>;
   readonly readbackPredicate?: (observed: unknown) => boolean;
   readonly readbackAttempts?: number;
   readonly readbackRetryMs?: number;
+  readonly requireReadback?: boolean;
   readonly relayFallback?: () => Promise<boolean>;
   readonly onAckTimeout?: () => void;
   readonly onEvent?: (event: DurableWriteEvent) => void;
@@ -129,6 +131,36 @@ export async function writeWithDurability<T>(options: DurableWriteOptions<T>): P
       stage: 'acked',
       ack,
     });
+    if (options.requireReadback) {
+      if (await confirmReadback(options)) {
+        return {
+          ack,
+          readback_confirmed: true,
+          relay_fallback: false,
+        };
+      }
+      if (options.relayFallback && await options.relayFallback()) {
+        emitEvent(options as DurableWriteOptions<unknown>, {
+          writeClass: options.writeClass,
+          stage: 'relay-fallback',
+          ack,
+        });
+        return {
+          ack,
+          readback_confirmed: false,
+          relay_fallback: true,
+        };
+      }
+      const errorMessage = options.readbackRequiredError
+        ?? `${options.writeClass} write acknowledged but readback did not confirm persistence`;
+      emitEvent(options as DurableWriteOptions<unknown>, {
+        writeClass: options.writeClass,
+        stage: 'failed',
+        ack,
+        error: errorMessage,
+      });
+      throw new Error(errorMessage);
+    }
     return {
       ack,
       readback_confirmed: false,

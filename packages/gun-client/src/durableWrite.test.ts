@@ -36,6 +36,48 @@ describe('writeWithDurability', () => {
     expect(readback).not.toHaveBeenCalled();
   });
 
+  it('can require readback after an acknowledged write', async () => {
+    const events: string[] = [];
+    const readback = vi.fn(async () => ({ id: 'confirmed' }));
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({}));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'confirmed' },
+      writeClass: 'test-required-readback',
+      timeoutMs: 100,
+      readback,
+      readbackPredicate: (observed) => (observed as { id?: string } | null)?.id === 'confirmed',
+      requireReadback: true,
+      onEvent: (event) => events.push(event.stage),
+    })).resolves.toMatchObject({
+      ack: { acknowledged: true, timedOut: false },
+      readback_confirmed: true,
+      relay_fallback: false,
+    });
+    expect(readback).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['acked', 'readback-confirmed']);
+  });
+
+  it('rejects acknowledged writes when required readback never confirms', async () => {
+    const events: string[] = [];
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({}));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'not-durable' },
+      writeClass: 'test-required-readback-fail',
+      timeoutMs: 100,
+      readbackRequiredError: 'required readback failed',
+      readbackAttempts: 1,
+      readback: async () => null,
+      readbackPredicate: () => false,
+      requireReadback: true,
+      onEvent: (event) => events.push(event.stage),
+    })).rejects.toThrow('required readback failed');
+    expect(events).toEqual(['acked', 'failed']);
+  });
+
   it('recovers a timed-out write when readback confirms persistence', async () => {
     vi.useFakeTimers();
     const events: string[] = [];

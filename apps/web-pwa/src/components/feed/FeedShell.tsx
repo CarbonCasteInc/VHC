@@ -40,6 +40,11 @@ function normalizeDirectNewsStoryId(detailId: string | null, storyId: string | n
   return candidate && !candidate.includes(':') ? candidate : null;
 }
 
+function hasBrowserPublicNewsRelay(): boolean {
+  const origin = typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : '';
+  return /^https?:\/\//.test(origin);
+}
+
 /**
  * Shell container for the V2 discovery feed.
  * Composes route state, feed paging, refresh safety, and feed chrome.
@@ -79,6 +84,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const publicNewsLatestIndex = useStore(useNewsStore, (state) => state.latestIndex);
   const publicNewsLatestIndexCursor = useStore(useNewsStore, (state) => state.latestIndexCursor);
   const publicNewsLoading = useStore(useNewsStore, (state) => state.loading);
+  const publicRelayReady = hasBrowserPublicNewsRelay();
+  const publicRelayColdStartReady = publicRelayReady && loadedPublicNewsStoryCount === 0;
   const {
     expandedStoryId,
     searchDetailId,
@@ -258,7 +265,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   useEffect(() => {
     if (
       initialPublicNewsRefreshRef.current ||
-      !publicNewsClientReady ||
+      (!publicNewsClientReady && !publicRelayColdStartReady) ||
       loading ||
       publicNewsLoading
     ) {
@@ -284,7 +291,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   }, [
     applyDeferredFeed,
     loading,
+    loadedPublicNewsStoryCount,
     publicNewsClientReady,
+    publicRelayColdStartReady,
     publicNewsLoading,
     refreshLatest,
   ]);

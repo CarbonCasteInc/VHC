@@ -508,6 +508,50 @@ describe('news store', () => {
     expect(readNewsHotIndexMock).not.toHaveBeenCalled();
   });
 
+  it('refreshLatest can read the same-origin public relay before the app mesh client is ready', async () => {
+    vi.stubGlobal('location', { origin: 'https://venn.example' });
+
+    try {
+      const relayStory = story({
+        story_id: 'relay-story',
+        topic_id: 'c'.repeat(64),
+        headline: 'Relay-visible public story',
+        cluster_window_end: 300,
+      });
+      readNewsLatestIndexMock.mockResolvedValueOnce({
+        index: { 'relay-story': 300 },
+        nextCursor: 300,
+        recordCount: 1,
+        stories: { 'relay-story': relayStory },
+      });
+      readNewsHotIndexMock.mockResolvedValue({});
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      await store.getState().refreshLatest(1);
+
+      expect(hydrateNewsStoreMock).not.toHaveBeenCalled();
+      expect(readNewsLatestIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+            systemWriterPin: expect.objectContaining({ writers: expect.any(Array) }),
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsStoryMock).not.toHaveBeenCalled();
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual(['relay-story']);
+      expect(store.getState().latestIndex).toEqual({ 'relay-story': 300 });
+      expect(store.getState().latestIndexCursor).toBe(300);
+      expect(store.getState().loading).toBe(false);
+      expect(store.getState().error).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('ensureStory reads a persisted story by id and mirrors it into discovery', async () => {
     const client = { id: 'client-direct-story' };
     const directStory = story({

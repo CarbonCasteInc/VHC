@@ -608,6 +608,7 @@ async function putWithAck<T>(
     readonly timeoutError?: string;
     readonly readback?: () => Promise<unknown>;
     readonly readbackPredicate?: (observed: unknown) => boolean;
+    readonly requireReadback?: boolean;
   },
 ): Promise<DurableWriteResult> {
   return writeWithDurability({
@@ -618,8 +619,13 @@ async function putWithAck<T>(
     timeoutError: options.timeoutError,
     readback: options.readback,
     readbackPredicate: options.readbackPredicate,
+    requireReadback: Boolean(options.requireReadback && options.readback && options.readbackPredicate),
     onAckTimeout: warnNewsAckTimeout,
   });
+}
+
+function newsWriteRequiresReadback(client: VennClient): boolean {
+  return client.config.requireNewsWriteReadback !== false;
 }
 
 async function clearWithAck<T>(chain: ChainWithGet<T>): Promise<void> {
@@ -1980,6 +1986,7 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
           && candidate.cluster_window_end === normalized.cluster_window_end
         );
       },
+      requireReadback: newsWriteRequiresReadback(client),
     }
   );
   return normalized;
@@ -2135,6 +2142,7 @@ export async function writeNewsSynthesisLifecycleStatus(
           && candidate.updated_at === sanitized.updated_at
         );
       },
+      requireReadback: newsWriteRequiresReadback(client),
     },
   );
   return sanitized;
@@ -2549,6 +2557,7 @@ export async function writeNewsLatestIndexEntry(
         && record.cluster_window_start === expectedMetadata.cluster_window_start
       );
     },
+    requireReadback: newsWriteRequiresReadback(client),
   });
 }
 
@@ -2615,6 +2624,7 @@ export async function writeNewsHotIndexEntry(
         && record.cluster_window_start === expectedMetadata.cluster_window_start
       );
     },
+    requireReadback: newsWriteRequiresReadback(client),
   });
   return normalizedHotness;
 }
