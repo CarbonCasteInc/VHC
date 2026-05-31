@@ -924,6 +924,73 @@ describe('infra relay server', () => {
     });
   });
 
+  it('serves synthesis lifecycle rows from the relay snapshot after restart', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-lifecycle-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const gunFile = path.join(snapshotDir, 'data');
+    const lifecycleSnapshotFile = path.join(snapshotDir, 'news-synthesis-lifecycle-snapshot.json');
+    const env = {
+      GUN_FILE: gunFile,
+      VH_RELAY_NEWS_LIFECYCLE_SNAPSHOT_FILE: lifecycleSnapshotFile,
+    };
+    const writer = await startRelay(children, tempDirs, env);
+    const record = {
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: 'story-lifecycle-snapshot',
+      topic_id: 'topic-lifecycle-snapshot',
+      source_set_revision: 'source-set-lifecycle-snapshot',
+      source_count: 2,
+      canonical_source_count: 2,
+      status: 'accepted_available',
+      retryable: false,
+      frame_table_state: 'frame_table_ready',
+      synthesis_id: 'synthesis-lifecycle-snapshot',
+      epoch: 0,
+      updated_at: 1_700_000_000_000,
+    };
+
+    await expect(requestJson(`http://127.0.0.1:${writer.port}/vh/news/synthesis-lifecycle`, {
+      method: 'POST',
+      body: { record },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        story_id: record.story_id,
+        status: record.status,
+      }),
+    });
+
+    await new Promise((resolve) => {
+      if (writer.child.exitCode !== null) {
+        resolve();
+        return;
+      }
+      writer.child.once('exit', resolve);
+      writer.child.kill('SIGTERM');
+      setTimeout(() => {
+        if (writer.child.exitCode === null) writer.child.kill('SIGKILL');
+      }, 1_000);
+    });
+    children.delete(writer.child);
+    const reader = await startRelay(children, tempDirs, env);
+
+    await expect(requestJson(
+      `http://127.0.0.1:${reader.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}`,
+    )).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        story_id: record.story_id,
+        status: record.status,
+        frame_table_state: record.frame_table_state,
+        record: expect.objectContaining({
+          synthesis_id: record.synthesis_id,
+        }),
+      }),
+    });
+  });
+
   it('persists signed news story and index records through the relay fallback writer', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
