@@ -2612,12 +2612,22 @@ async function refreshSnapshotEntryStoryState(gun, entry) {
 }
 
 function shouldRefreshSnapshotEntryStoryState(entry) {
-  if (entry?.story && (
-    !entry?.storyState
-    || !entry.storyState.lifecycle_source_set_revision
-    || !Number.isFinite(entry.storyState.lifecycle_updated_at)
-  )) {
-    return true;
+  if (entry?.story) {
+    const stateRevision = typeof entry.storyState?.lifecycle_source_set_revision === 'string'
+      ? entry.storyState.lifecycle_source_set_revision.trim()
+      : '';
+    const storyRevision = typeof entry.story.provenance_hash === 'string'
+      ? entry.story.provenance_hash.trim()
+      : '';
+    if (
+      !entry.storyState
+      || !stateRevision
+      || !Number.isFinite(entry.storyState.lifecycle_updated_at)
+      || (storyRevision && stateRevision !== storyRevision)
+    ) {
+      return true;
+    }
+    return false;
   }
   const snapshotState = String(entry?.storyState?.synthesis_state ?? '').trim();
   if (snapshotState && snapshotState !== 'synthesis_pending') return true;
