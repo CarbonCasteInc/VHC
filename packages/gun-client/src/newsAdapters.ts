@@ -28,6 +28,7 @@ export interface NewsLatestIndexPage {
   readonly sourceKeyCount?: number;
   readonly composition?: unknown;
   readonly stories?: Record<string, StoryBundle>;
+  readonly storyStates?: Record<string, Record<string, unknown>>;
 }
 export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
@@ -2249,6 +2250,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
 
   const index: NewsLatestIndex = {};
   const stories: Record<string, StoryBundle> = {};
+  const storyStates: Record<string, Record<string, unknown>> = {};
   let nextCursor: number | null = null;
   let sourceKeyCount: number | undefined;
   let composition: unknown;
@@ -2272,6 +2274,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
         source_key_count?: unknown;
         composition?: unknown;
         stories?: unknown;
+        story_states?: unknown;
       };
     } catch {
       return null;
@@ -2324,6 +2327,13 @@ export async function readNewsLatestIndexPageViaRelayRest(
           index[storyId] = relayRecordTimestamps[storyId] ?? story.cluster_window_end;
         }
       }
+      if (isRecord(payload.story_states)) {
+        for (const [storyId, storyState] of Object.entries(payload.story_states)) {
+          if (typeof storyId === 'string' && storyId.trim() && isRecord(storyState)) {
+            storyStates[storyId] = storyState;
+          }
+        }
+      }
       const payloadNextCursor = normalizeRelayLatestIndexNextCursor(payload.next_cursor);
       if (payloadNextCursor !== null) {
         nextCursor = Math.max(nextCursor ?? payloadNextCursor, payloadNextCursor);
@@ -2346,6 +2356,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
     ...(sourceKeyCount === undefined ? {} : { sourceKeyCount }),
     ...(composition === undefined ? {} : { composition }),
     ...(Object.keys(stories).length === 0 ? {} : { stories }),
+    ...(Object.keys(storyStates).length === 0 ? {} : { storyStates }),
   };
 }
 

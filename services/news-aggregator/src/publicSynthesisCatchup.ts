@@ -31,6 +31,7 @@ export interface PublicSynthesisCatchupReport {
     readonly enqueued: number;
     readonly skipped: number;
     readonly stale_in_progress: number;
+    readonly bootstrapped_missing_lifecycle: number;
     readonly sample_limit: number;
   };
   readonly results: Array<{
@@ -217,6 +218,7 @@ export async function runPublicSynthesisCatchup(
         enqueued: scan.enqueued,
         skipped: scan.skipped,
         stale_in_progress: scan.staleInProgress,
+        bootstrapped_missing_lifecycle: scan.bootstrappedMissingLifecycle,
         sample_limit: sampleLimit,
       },
       results,

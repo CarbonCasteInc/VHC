@@ -26,6 +26,7 @@ export interface PendingSynthesisCatchupResult {
   readonly enqueued: number;
   readonly skipped: number;
   readonly staleInProgress: number;
+  readonly bootstrappedMissingLifecycle: number;
   readonly candidates: readonly PendingSynthesisCatchupCandidate[];
 }
 
@@ -65,6 +66,50 @@ function lifecycleIsStaleInProgress(
     return true;
   }
   return Math.max(0, Math.floor(nowMs - updatedAt)) > staleWindowMs;
+}
+
+function recordString(value: unknown, key: string): string {
+  if (!value || typeof value !== 'object') {
+    return '';
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function shouldBootstrapMissingLifecycle(storyState: unknown): boolean {
+  const synthesisState = recordString(storyState, 'synthesis_state');
+  const lifecycleStatus = recordString(storyState, 'lifecycle_status');
+  const terminalStates = new Set([
+    'accepted_synthesis_available',
+    'accepted_synthesis_suppressed',
+    'synthesis_terminal_unavailable',
+  ]);
+  const terminalStatuses = new Set([
+    'accepted_available',
+    'suppressed',
+    'terminal_unavailable',
+  ]);
+  return !terminalStates.has(synthesisState) && !terminalStatuses.has(lifecycleStatus);
+}
+
+export function buildMissingSynthesisLifecycleBootstrapRecord(input: {
+  readonly story: StoryBundle;
+  readonly nowMs?: number;
+}): NewsSynthesisLifecycleRecord {
+  const primarySources = input.story.primary_sources ?? input.story.sources;
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: input.story.story_id,
+    topic_id: input.story.topic_id,
+    source_set_revision: input.story.provenance_hash,
+    source_count: input.story.sources.length,
+    canonical_source_count: primarySources.length,
+    status: 'pending',
+    retryable: false,
+    reason: 'missing_lifecycle_bootstrap',
+    frame_table_state: 'frame_table_pending',
+    updated_at: Math.max(0, Math.floor(input.nowMs ?? Date.now())),
+  };
 }
 
 export function isStoryPendingSynthesisCatchup(input: {
@@ -142,6 +187,7 @@ export async function collectPendingSynthesisCatchupCandidates(
   const candidates: PendingSynthesisCatchupCandidate[] = [];
   let skipped = 0;
   let staleInProgress = 0;
+  let bootstrappedMissingLifecycle = 0;
 
   for (const storyId of storyIds) {
     const story = page.stories?.[storyId] ?? await readStory(client, storyId).catch(() => null);
@@ -149,7 +195,11 @@ export async function collectPendingSynthesisCatchupCandidates(
       skipped += 1;
       continue;
     }
-    const lifecycle = await readLifecycle(client, storyId).catch(() => null);
+    const readLifecycleRecord = await readLifecycle(client, storyId).catch(() => null);
+    const lifecycle = readLifecycleRecord
+      ?? (shouldBootstrapMissingLifecycle(page.storyStates?.[storyId])
+        ? buildMissingSynthesisLifecycleBootstrapRecord({ story, nowMs })
+        : null);
     const eligibility = { story, lifecycle };
     if (!isStoryPendingSynthesisCatchup(eligibility, { nowMs, staleInProgressMs: inProgressStaleMs })) {
       skipped += 1;
@@ -157,6 +207,9 @@ export async function collectPendingSynthesisCatchupCandidates(
     }
     if (eligibility.lifecycle.status === 'in_progress') {
       staleInProgress += 1;
+    }
+    if (!readLifecycleRecord) {
+      bootstrappedMissingLifecycle += 1;
     }
     candidates.push({
       story,
@@ -175,6 +228,7 @@ export async function collectPendingSynthesisCatchupCandidates(
     skipped,
     limit,
     stale_in_progress: staleInProgress,
+    bootstrapped_missing_lifecycle: bootstrappedMissingLifecycle,
     in_progress_stale_ms: inProgressStaleMs,
   });
 
@@ -183,6 +237,7 @@ export async function collectPendingSynthesisCatchupCandidates(
     enqueued: candidates.length,
     skipped,
     staleInProgress,
+    bootstrappedMissingLifecycle,
     candidates,
   };
 }
