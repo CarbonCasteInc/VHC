@@ -830,6 +830,25 @@ describe('infra relay server', () => {
       }),
     });
 
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`))
+      .resolves.toMatchObject({
+        statusCode: 400,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'story_id-required',
+        }),
+      });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle?story_id=story-missing`))
+      .resolves.toMatchObject({
+        statusCode: 404,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'news-synthesis-lifecycle-not-found',
+          story_id: 'story-missing',
+        }),
+      });
+
     await expect(requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
       method: 'POST',
       body: {
@@ -1383,6 +1402,23 @@ describe('infra relay server', () => {
     })).toMatchObject({
       statusCode: 200,
       body: expect.objectContaining({ ok: true, story_id: story.story_id, status: 'accepted_available' }),
+    });
+    await expect(requestJson(
+      `http://127.0.0.1:${port}/vh/news/synthesis-lifecycle?story_id=${story.story_id}`,
+    )).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        story_id: story.story_id,
+        topic_id: story.topic_id,
+        status: 'accepted_available',
+        frame_table_state: 'frame_table_ready',
+        lifecycle: expect.objectContaining({
+          story_id: story.story_id,
+          source_set_revision: story.provenance_hash,
+          status: 'accepted_available',
+        }),
+      }),
     });
 
     let accepted;

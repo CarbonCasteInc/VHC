@@ -2882,6 +2882,46 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && pathname === '/vh/news/synthesis-lifecycle') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    if (!storyId) {
+      sendJson(res, 400, { ok: false, error: 'story_id-required' });
+      return;
+    }
+    void Promise.all([
+      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+      readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
+    ])
+      .then(([direct, fromFields]) => {
+        const lifecycle = direct ?? fromFields;
+        if (!lifecycle) {
+          sendJson(res, 404, {
+            ok: false,
+            error: 'news-synthesis-lifecycle-not-found',
+            story_id: storyId,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          story_id: storyId,
+          topic_id: lifecycle.topic_id,
+          status: lifecycle.status,
+          frame_table_state: lifecycle.frame_table_state,
+          lifecycle,
+          record: lifecycle,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          story_id: storyId,
+        });
+      });
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/vh/aggregates/point') {
     const topicId = parsedUrl.searchParams.get('topic_id')?.trim();
     const synthesisId = parsedUrl.searchParams.get('synthesis_id')?.trim();

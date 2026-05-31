@@ -21,7 +21,7 @@ vi.mock('@vh/gun-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@vh/gun-client')>();
   return {
     ...actual,
-    readNewsSynthesisLifecycleStatus: readNewsSynthesisLifecycleStatusMock,
+    readNewsSynthesisLifecycleStatusWithRelayRestFallback: readNewsSynthesisLifecycleStatusMock,
   };
 });
 vi.mock('./newsCardAnalysis', () => ({

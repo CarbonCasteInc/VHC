@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StorylineGroup } from '@vh/data-model';
 import {
-  readNewsSynthesisLifecycleStatus,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   type NewsSynthesisLifecycleRecord,
 } from '@vh/gun-client';
 import { useNewsStore } from '../../store/news';
@@ -284,7 +284,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
 
     let cancelled = false;
     setSynthesisLifecycleLoading(true);
-    void readNewsSynthesisLifecycleStatus(client, storyId)
+    void readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, storyId)
       .then((record) => {
         if (!cancelled) {
           setSynthesisLifecycle(record);
