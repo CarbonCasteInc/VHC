@@ -299,6 +299,8 @@ export function classifyGateFailure(output) {
     text.includes('public-relay-latest-index-missing-composition') ||
     text.includes('public-relay-latest-index-missing-story-states') ||
     text.includes('public-relay-latest-index-product-metadata-missing') ||
+    text.includes('public-relay-peer-readback-not-configured') ||
+    text.includes('public-relay-peer-readback-failed') ||
     text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
     text.includes('source-labels-missing') ||
     text.includes('timestamps-missing')
