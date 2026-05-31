@@ -329,6 +329,7 @@ describe('news aggregator daemon', () => {
       skipped: 0,
       staleInProgress: 0,
       bootstrappedMissingLifecycle: 0,
+      acceptedMissingSynthesis: 0,
       candidates: [
         {
           story: { story_id: CANDIDATE.story_id },

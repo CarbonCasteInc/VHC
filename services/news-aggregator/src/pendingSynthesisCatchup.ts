@@ -1,9 +1,10 @@
 import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
-import type { StoryBundle } from '@vh/data-model';
+import type { StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import {
   readNewsLatestIndexPageWithRelayRestFallback,
   readNewsStoryWithRelayRestFallback,
   readNewsSynthesisLifecycleStatusWithRelayRestFallback,
+  readTopicLatestSynthesisWithRelayRestFallback,
   type NewsSynthesisLifecycleRecord,
   type VennClient,
 } from '@vh/gun-client';
@@ -27,6 +28,7 @@ export interface PendingSynthesisCatchupResult {
   readonly skipped: number;
   readonly staleInProgress: number;
   readonly bootstrappedMissingLifecycle: number;
+  readonly acceptedMissingSynthesis: number;
   readonly candidates: readonly PendingSynthesisCatchupCandidate[];
 }
 
@@ -39,6 +41,7 @@ export interface PendingSynthesisCatchupOptions {
   readonly readLatestPage?: typeof readNewsLatestIndexPageWithRelayRestFallback;
   readonly readStory?: typeof readNewsStoryWithRelayRestFallback;
   readonly readLifecycle?: typeof readNewsSynthesisLifecycleStatusWithRelayRestFallback;
+  readonly readLatestSynthesis?: typeof readTopicLatestSynthesisWithRelayRestFallback;
 }
 
 const SYNTHESIS_CATCHUP_PROMPT = 'public-news-bundle-synthesis-catchup';
@@ -133,6 +136,54 @@ export function isStoryPendingSynthesisCatchup(input: {
   return lifecycleIsStaleInProgress(input.lifecycle, nowMs, staleInProgressMs(options.staleInProgressMs));
 }
 
+function hasFramePointIds(synthesis: TopicSynthesisV2): boolean {
+  return synthesis.frames.every((frame) =>
+    typeof frame.frame_point_id === 'string'
+    && frame.frame_point_id.trim().length > 0
+    && typeof frame.reframe_point_id === 'string'
+    && frame.reframe_point_id.trim().length > 0,
+  );
+}
+
+export function acceptedLifecycleNeedsSynthesisRepair(input: {
+  readonly story: StoryBundle;
+  readonly lifecycle: NewsSynthesisLifecycleRecord | null;
+  readonly synthesis: TopicSynthesisV2 | null;
+}): boolean {
+  if (
+    !input.lifecycle
+    || input.lifecycle.status !== 'accepted_available'
+    || input.lifecycle.story_id !== input.story.story_id
+    || input.lifecycle.topic_id !== input.story.topic_id
+    || input.lifecycle.source_set_revision !== input.story.provenance_hash
+  ) {
+    return false;
+  }
+  const synthesisId = typeof input.lifecycle.synthesis_id === 'string'
+    ? input.lifecycle.synthesis_id.trim()
+    : '';
+  if (!synthesisId) {
+    return true;
+  }
+  const synthesis = input.synthesis;
+  if (!synthesis) {
+    return true;
+  }
+  if (synthesis.topic_id !== input.story.topic_id || synthesis.synthesis_id !== synthesisId) {
+    return true;
+  }
+  const storyBundleIds = Array.isArray(synthesis.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  if (storyBundleIds.length > 0 && !storyBundleIds.includes(input.story.story_id)) {
+    return true;
+  }
+  if (typeof synthesis.facts_summary !== 'string' || synthesis.facts_summary.trim().length === 0) {
+    return true;
+  }
+  return input.lifecycle.frame_table_state === 'frame_table_ready' && !hasFramePointIds(synthesis);
+}
+
 export function buildPendingSynthesisCandidate(input: {
   readonly story: StoryBundle;
   readonly model?: string;
@@ -180,6 +231,7 @@ export async function collectPendingSynthesisCatchupCandidates(
   const readLatestPage = options.readLatestPage ?? readNewsLatestIndexPageWithRelayRestFallback;
   const readStory = options.readStory ?? readNewsStoryWithRelayRestFallback;
   const readLifecycle = options.readLifecycle ?? readNewsSynthesisLifecycleStatusWithRelayRestFallback;
+  const readLatestSynthesis = options.readLatestSynthesis ?? readTopicLatestSynthesisWithRelayRestFallback;
   const nowMs = Math.max(0, Math.floor((options.now ?? Date.now)()));
   const inProgressStaleMs = staleInProgressMs(options.staleInProgressMs);
   const page = await readLatestPage(client, { limit });
@@ -188,6 +240,7 @@ export async function collectPendingSynthesisCatchupCandidates(
   let skipped = 0;
   let staleInProgress = 0;
   let bootstrappedMissingLifecycle = 0;
+  let acceptedMissingSynthesis = 0;
 
   for (const storyId of storyIds) {
     const story = page.stories?.[storyId] ?? await readStory(client, storyId).catch(() => null);
@@ -201,6 +254,25 @@ export async function collectPendingSynthesisCatchupCandidates(
         ? buildMissingSynthesisLifecycleBootstrapRecord({ story, nowMs })
         : null);
     const eligibility = { story, lifecycle };
+    if (
+      lifecycle?.status === 'accepted_available'
+      && lifecycle.source_set_revision === story.provenance_hash
+    ) {
+      const synthesis = await readLatestSynthesis(client, story.topic_id).catch(() => null);
+      if (acceptedLifecycleNeedsSynthesisRepair({ story, lifecycle, synthesis })) {
+        acceptedMissingSynthesis += 1;
+        candidates.push({
+          story,
+          lifecycle,
+          candidate: buildPendingSynthesisCandidate({
+            story,
+            model: options.model,
+            now: options.now,
+          }),
+        });
+        continue;
+      }
+    }
     if (!isStoryPendingSynthesisCatchup(eligibility, { nowMs, staleInProgressMs: inProgressStaleMs })) {
       skipped += 1;
       continue;
@@ -229,6 +301,7 @@ export async function collectPendingSynthesisCatchupCandidates(
     limit,
     stale_in_progress: staleInProgress,
     bootstrapped_missing_lifecycle: bootstrappedMissingLifecycle,
+    accepted_missing_synthesis: acceptedMissingSynthesis,
     in_progress_stale_ms: inProgressStaleMs,
   });
 
@@ -238,6 +311,7 @@ export async function collectPendingSynthesisCatchupCandidates(
     skipped,
     staleInProgress,
     bootstrappedMissingLifecycle,
+    acceptedMissingSynthesis,
     candidates,
   };
 }
