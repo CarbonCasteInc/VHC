@@ -16,6 +16,8 @@ const mockWrite = vi.fn();
 const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), markReady: vi.fn(), ready: true };
 const mockPublishDirectory = vi.fn();
 const mockBootstrapFeedBridges = vi.fn();
+const mockBootstrapNewsSnapshotIfConfigured = vi.fn();
+const mockStartNewsSnapshotRefreshIfConfigured = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
 
@@ -67,6 +69,13 @@ vi.mock('./feedBridge', () => ({
   bootstrapFeedBridges: (...args: unknown[]) => mockBootstrapFeedBridges(...args),
 }));
 
+vi.mock('./newsSnapshotBootstrap', () => ({
+  bootstrapNewsSnapshotIfConfigured: (...args: unknown[]) =>
+    mockBootstrapNewsSnapshotIfConfigured(...args),
+  startNewsSnapshotRefreshIfConfigured: (...args: unknown[]) =>
+    mockStartNewsSnapshotRefreshIfConfigured(...args),
+}));
+
 class MemoryStorage {
   #store = new Map<string, string>();
   getItem(key: string) {
@@ -97,6 +106,10 @@ beforeEach(() => {
   mockHydration.ready = true;
   mockPublishDirectory.mockReset();
   mockBootstrapFeedBridges.mockReset();
+  mockBootstrapNewsSnapshotIfConfigured.mockReset();
+  mockBootstrapNewsSnapshotIfConfigured.mockResolvedValue(false);
+  mockStartNewsSnapshotRefreshIfConfigured.mockReset();
+  mockStartNewsSnapshotRefreshIfConfigured.mockReturnValue(false);
   mockGunAuth.mockClear();
   mockGunUser.is = null;
   (createClient as unknown as Mock).mockClear();
@@ -272,6 +285,17 @@ describe('useAppStore', () => {
   it('init starts browser news feed bridges by default outside daemon-first isolation', async () => {
     await useAppStore.getState().init();
 
+    expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps live news feed bridges running after a configured snapshot warm start', async () => {
+    mockBootstrapNewsSnapshotIfConfigured.mockResolvedValueOnce(true);
+    mockStartNewsSnapshotRefreshIfConfigured.mockReturnValueOnce(true);
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapNewsSnapshotIfConfigured).toHaveBeenCalledTimes(1);
+    expect(mockStartNewsSnapshotRefreshIfConfigured).toHaveBeenCalledTimes(1);
     expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
   });
 
