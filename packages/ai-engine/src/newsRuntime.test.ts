@@ -305,6 +305,31 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('orders unlimited bundle publication by corroboration and recency', () => {
+    const staleSingleton = storyBundle('stale-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 100,
+    });
+    const recentSingleton = storyBundle('recent-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 300,
+    });
+    const corroborated = storyBundle('corroborated', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+    });
+
+    expect(__internal.selectBundlesForPublication([
+      staleSingleton,
+      recentSingleton,
+      corroborated,
+    ], null).map((bundle) => bundle.story_id)).toEqual([
+      'corroborated',
+      'recent-singleton',
+      'stale-singleton',
+    ]);
+  });
+
   it('filters weak two-source canonical bundles before publication', () => {
     const weakTopicOnly = storyBundle('weak-topic-only', {
       sourceCount: 2,
