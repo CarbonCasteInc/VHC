@@ -170,7 +170,7 @@ describe('usePointAggregate live refresh', () => {
     });
 
     expect(createClientMock).toHaveBeenCalledWith({
-      peers: ['https://venn.carboncaste.io/gun', 'wss://gun-a.carboncaste.io/gun'],
+      peers: ['wss://gun-a.carboncaste.io/gun'],
       requireSession: false,
       gunLocalStorage: false,
       gunRadisk: false,
