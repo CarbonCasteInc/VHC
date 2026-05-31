@@ -97,6 +97,7 @@ function classifyPublicFeedCompositionFailure(message, sourceHealthEvidence) {
     text.includes('public-relay-latest-index-missing-composition')
     || text.includes('public-relay-latest-index-missing-story-states')
     || text.includes('public-relay-latest-index-product-metadata-missing')
+    || text.includes('public-relay-latest-index-pagination-unavailable')
     || text.includes('public-relay-readable-text-synthesis-missing')
     || text.includes('public-relay-synthesis-point-ids-missing')
     || text.includes('public-relay-latest-index-story-404')
@@ -136,6 +137,7 @@ async function runPublicFeedCompositionFreshnessGate({
   const baseUrl = normalizeUrl(env.VH_PUBLIC_FEED_APP_URL || env.VH_LIVE_BASE_URL || DEFAULT_BASE_URL);
   const timeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_COMPOSITION_TIMEOUT_MS, 15_000);
   const indexLimit = parsePositiveInt(env.VH_PUBLIC_FEED_COMPOSITION_INDEX_LIMIT, 120);
+  const paginationPageLimit = parsePositiveInt(env.VH_PUBLIC_FEED_PAGINATION_PAGE_LIMIT, 6);
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const summaryPath = path.join(artifactDir, 'public-feed-composition-freshness-summary.json');
   await mkdir(artifactDir, { recursive: true });
@@ -147,6 +149,15 @@ async function runPublicFeedCompositionFreshnessGate({
     scanLimit: indexLimit,
     timeoutMs,
   });
+  const paginationReadback = await publicFeedBrowserSmokeInternal.readPublicRelayPaginationReadback({
+    baseUrl,
+    pageLimit: paginationPageLimit,
+    timeoutMs,
+  }).catch((error) => ({
+    status: 'fail',
+    failure: error instanceof Error ? error.message : String(error),
+    pageLimit: paginationPageLimit,
+  }));
   const summary = {
     schemaVersion: 'public-feed-composition-freshness-v1',
     generatedAt: new Date().toISOString(),
@@ -157,7 +168,9 @@ async function runPublicFeedCompositionFreshnessGate({
       baseUrl,
       timeoutMs,
       indexLimit,
+      paginationPageLimit,
       requireMixedComposition: String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false',
+      requireCursorPagination: String(env.VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION ?? 'true').trim().toLowerCase() !== 'false',
       freshnessWindowMs: Number(env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS ?? 72 * 60 * 60 * 1000),
     },
     counts: {
@@ -178,6 +191,7 @@ async function runPublicFeedCompositionFreshnessGate({
     missingLatestIndexProductMetadataStoryCount: readback.missingLatestIndexProductMetadataStoryCount,
     missingLatestIndexProductMetadataStories: readback.missingLatestIndexProductMetadataStories,
     relayCapability: readback.relayCapability,
+    pagination: paginationReadback,
     terminalUnavailableReasonCounts: readback.terminalUnavailableReasonCounts,
     missingAcceptedSynthesisStories: readback.missingAcceptedSynthesisStories,
     pointIdPresence: readback.pointIdPresence,
@@ -186,6 +200,7 @@ async function runPublicFeedCompositionFreshnessGate({
 
   try {
     publicFeedBrowserSmokeInternal.assertPublicRelayAnalysisFrameCoverage(readback, env);
+    publicFeedBrowserSmokeInternal.assertPublicRelayPaginationReadback(paginationReadback, env, sourceHealthEvidence);
     summary.status = 'pass';
     await writeJson(summaryPath, summary);
     await updateLatestSymlink(artifactDir, repoRoot);

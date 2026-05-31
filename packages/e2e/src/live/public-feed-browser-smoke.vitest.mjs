@@ -171,6 +171,80 @@ describe('public feed browser smoke helpers', () => {
     expect(refreshLatest).toHaveBeenCalledWith({ limit: 15, before: 20 });
   });
 
+  it('verifies relay latest-index pagination with an exclusive older cursor window', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const href = String(url);
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&scan_limit=8') {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 2,
+          source_key_count: 3,
+          window_source_key_count: 3,
+          scanned_key_count: 3,
+          next_cursor: 200,
+          records: {
+            'story-new': { story_id: 'story-new', latest_activity_at: 300 },
+            'story-mid': { story_id: 'story-mid', latest_activity_at: 200 },
+          },
+        }), { status: 200 });
+      }
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&before=200&scan_limit=8') {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          source_key_count: 3,
+          window_source_key_count: 1,
+          scanned_key_count: 1,
+          before: 200,
+          next_cursor: 100,
+          records: {
+            'story-old': { story_id: 'story-old', latest_activity_at: 100 },
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false, error: 'unexpected-url', href }), { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(internal.readPublicRelayPaginationReadback({
+        baseUrl: 'https://venn.example/',
+        pageLimit: 2,
+        timeoutMs: 1_000,
+      })).resolves.toMatchObject({
+        status: 'pass',
+        pageLimit: 2,
+        olderStoryIds: ['story-old'],
+        overlapStoryIds: [],
+        firstPage: {
+          storyIds: ['story-new', 'story-mid'],
+          nextCursor: 200,
+          sourceKeyCount: 3,
+        },
+        secondPage: {
+          before: 200,
+          storyIds: ['story-old'],
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails relay pagination evidence when older mesh stories are expected but no cursor window is available', () => {
+    expect(() => internal.assertPublicRelayPaginationReadback({
+      status: 'unproven',
+      failure: 'first-page-next-cursor-missing',
+      pageLimit: 2,
+      firstPage: {
+        recordCount: 2,
+        sourceKeyCount: 8,
+        windowSourceKeyCount: 8,
+      },
+    })).toThrow(
+      'public-relay-latest-index-pagination-unavailable:first-page-next-cursor-missing',
+    );
+  });
+
   it('reads public aggregate proof through the deployed app origin fanout shape', async () => {
     const fetchMock = vi.fn(async (url) => {
       expect(String(url)).toBe(
