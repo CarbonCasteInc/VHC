@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { mkdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -16,6 +17,10 @@ const workspaceResolutionRoots = [
 let buildNewsSynthesisLifecycleRecord;
 let buildSignedSystemWriterRecord;
 let computeStoryHotness;
+let readNewsHotIndexProductRecord;
+let readNewsLatestIndexProductRecord;
+let readNewsStory;
+let readNewsSynthesisLifecycleStatus;
 let writeNewsHotIndexEntry;
 let writeNewsLatestIndexEntry;
 let writeNewsStory;
@@ -44,6 +49,10 @@ const DEFAULT_ARTIFACT_DIR = path.join(
   'public-news-system-writer-repair',
   String(Date.now()),
 );
+
+let repairStepAttempts = 1;
+let repairStepRetryMs = 500;
+let repairRemoteSettleMs = 0;
 
 async function importWorkspacePackage(specifier) {
   for (const root of workspaceResolutionRoots) {
@@ -74,6 +83,10 @@ async function loadWorkspaceModules() {
     buildNewsSynthesisLifecycleRecord,
     buildSignedSystemWriterRecord,
     computeStoryHotness,
+    readNewsHotIndexProductRecord,
+    readNewsLatestIndexProductRecord,
+    readNewsStory,
+    readNewsSynthesisLifecycleStatus,
     writeNewsHotIndexEntry,
     writeNewsLatestIndexEntry,
     writeNewsStory,
@@ -140,12 +153,33 @@ function parseBooleanEnv(name, fallback = false) {
   throw new Error(`${name} must be a boolean value`);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function deriveGunPeer(origin) {
   const url = new URL(origin);
   url.pathname = '/gun';
   url.search = '';
   url.hash = '';
   return url.href;
+}
+
+function safePathToken(value) {
+  return String(value)
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 120) || 'peer';
+}
+
+function uniqueRepairGunFile(peer) {
+  const root = path.join(process.cwd(), '.tmp', 'public-news-repair-gun-clients');
+  mkdirSync(root, { recursive: true });
+  const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return path.join(root, `${safePathToken(peer)}-${suffix}`);
 }
 
 function bytesToBufferSource(bytes) {
@@ -264,14 +298,23 @@ async function postJson(url, token, body, timeoutMs) {
 }
 
 async function repairStep(step, work) {
-  try {
-    return await work();
-  } catch (error) {
-    if (error && typeof error === 'object') {
-      error.repair_step = error.repair_step ?? step;
+  let lastError;
+  for (let attempt = 1; attempt <= repairStepAttempts; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      lastError = error;
+      if (error && typeof error === 'object') {
+        error.repair_step = error.repair_step ?? step;
+        error.repair_step_attempt = attempt;
+        error.repair_step_attempts = repairStepAttempts;
+      }
+      if (attempt < repairStepAttempts) {
+        await sleep(repairStepRetryMs);
+      }
     }
-    throw error;
   }
+  throw lastError;
 }
 
 function createRepairClient({ peers, pin, writerId, sign }) {
@@ -280,6 +323,7 @@ function createRepairClient({ peers, pin, writerId, sign }) {
   }
   const client = createNodeMeshClient({
     peers,
+    gunFile: uniqueRepairGunFile(peers.join(',')),
     systemWriterId: writerId,
     systemWriterPin: pin,
     systemWriterSign: sign,
@@ -288,6 +332,108 @@ function createRepairClient({ peers, pin, writerId, sign }) {
   });
   client.markSessionReady();
   return client;
+}
+
+function createIndependentReadbackClient({ peer, pin, writerId }) {
+  const client = createNodeMeshClient({
+    peers: [peer],
+    gunFile: uniqueRepairGunFile(`readback-${peer}`),
+    systemWriterId: writerId,
+    systemWriterPin: pin,
+    systemWriterNow: Date.now,
+    relayRestOrigins: [],
+  });
+  client.markSessionReady();
+  return client;
+}
+
+function assertIndependentReadback(condition, phase, details) {
+  if (condition) return;
+  const error = new Error(`independent Gun readback failed for ${phase}`);
+  error.repair_step = 'gun_peer_independent_readback';
+  error.readback_phase = phase;
+  error.readback_details = details;
+  throw error;
+}
+
+function productIndexMatchesStory(record, story) {
+  return Boolean(
+    record
+    && record.story_id === story.story_id
+    && record.product_state_schema_version === 'vh-news-product-feed-index-v1'
+    && record.topic_id === story.topic_id
+    && record.source_set_revision === story.provenance_hash
+    && record.source_count === story.sources.length
+    && record.canonical_source_count === (story.primary_sources ?? story.sources).length
+    && record.story_created_at === Math.max(0, Math.floor(story.created_at))
+    && record.cluster_window_start === Math.max(0, Math.floor(story.cluster_window_start))
+  );
+}
+
+async function verifyStoryViaIndependentGunReadback({ peer, pin, writerId, story }) {
+  const client = createIndependentReadbackClient({ peer, pin, writerId });
+  try {
+    const observedStory = await readNewsStory(client, story.story_id);
+    assertIndependentReadback(
+      observedStory?.story_id === story.story_id && observedStory?.provenance_hash === story.provenance_hash,
+      'story_body',
+      {
+        observed_story_id: observedStory?.story_id ?? null,
+        observed_source_set_revision: observedStory?.provenance_hash ?? null,
+        expected_source_set_revision: story.provenance_hash,
+      },
+    );
+
+    const latest = await readNewsLatestIndexProductRecord(client, story.story_id);
+    assertIndependentReadback(
+      productIndexMatchesStory(latest, story)
+        && latest.latest_activity_at === Math.max(0, Math.floor(story.cluster_window_end)),
+      'latest_index',
+      {
+        observed_story_id: latest?.story_id ?? null,
+        observed_source_set_revision: latest?.source_set_revision ?? null,
+        observed_latest_activity_at: latest?.latest_activity_at ?? null,
+        expected_source_set_revision: story.provenance_hash,
+        expected_latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
+      },
+    );
+
+    const hot = await readNewsHotIndexProductRecord(client, story.story_id);
+    assertIndependentReadback(
+      productIndexMatchesStory(hot, story) && Number.isFinite(Number(hot.hotness)) && Number(hot.hotness) >= 0,
+      'hot_index',
+      {
+        observed_story_id: hot?.story_id ?? null,
+        observed_source_set_revision: hot?.source_set_revision ?? null,
+        observed_hotness: hot?.hotness ?? null,
+        expected_source_set_revision: story.provenance_hash,
+      },
+    );
+
+    const lifecycle = await readNewsSynthesisLifecycleStatus(client, story.story_id);
+    assertIndependentReadback(
+      lifecycle?.story_id === story.story_id
+        && lifecycle.source_set_revision === story.provenance_hash
+        && lifecycle.status === 'pending'
+        && lifecycle.frame_table_state === 'frame_table_pending',
+      'synthesis_lifecycle',
+      {
+        observed_story_id: lifecycle?.story_id ?? null,
+        observed_source_set_revision: lifecycle?.source_set_revision ?? null,
+        observed_status: lifecycle?.status ?? null,
+        observed_frame_table_state: lifecycle?.frame_table_state ?? null,
+        expected_source_set_revision: story.provenance_hash,
+      },
+    );
+  } finally {
+    await client.shutdown?.().catch(() => undefined);
+  }
+}
+
+async function waitForRepairRemoteSettle() {
+  if (repairRemoteSettleMs > 0) {
+    await sleep(repairRemoteSettleMs);
+  }
 }
 
 async function readLatestStories(appUrl, limit, offset, timeoutMs) {
@@ -336,13 +482,21 @@ async function repairStoryViaGun({ client, story }) {
 
 async function repairStoryViaGunPeers({ peerClients, story }) {
   const failures = [];
-  for (const { peer, client } of peerClients) {
+  for (const { peer, client, pin, writerId } of peerClients) {
     try {
-      await repairStoryViaGun({ client, story });
+      await repairStep('gun_peer_independent_readback', async () => {
+        await repairStoryViaGun({ client, story });
+        await waitForRepairRemoteSettle();
+        await verifyStoryViaIndependentGunReadback({ peer, pin, writerId, story });
+      });
     } catch (error) {
       failures.push({
         peer,
         repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
+        repair_step_attempt: error && typeof error === 'object' ? error.repair_step_attempt ?? null : null,
+        repair_step_attempts: error && typeof error === 'object' ? error.repair_step_attempts ?? null : null,
+        readback_phase: error && typeof error === 'object' ? error.readback_phase ?? null : null,
+        readback_details: error && typeof error === 'object' ? error.readback_details ?? null : null,
         error_name: error && typeof error === 'object' ? error.name ?? null : null,
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -426,6 +580,9 @@ async function main() {
   const pin = parseJsonEnv('VH_NEWS_SYSTEM_WRITER_PIN_JSON');
   const privateKey = requireEnv('VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL');
   const artifactDir = optionalEnv('VH_PUBLIC_NEWS_REPAIR_ARTIFACT_DIR', DEFAULT_ARTIFACT_DIR);
+  repairStepAttempts = parsePositiveInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_STEP_ATTEMPTS'), 1);
+  repairStepRetryMs = parseNonNegativeInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_STEP_RETRY_MS'), 500);
+  repairRemoteSettleMs = parseNonNegativeInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_REMOTE_SETTLE_MS'), 0);
   const sign = await createSignHook(privateKey);
   const gunPeers = repairMode === 'gun'
     ? parseOptionalJsonEnv(
@@ -444,6 +601,8 @@ async function main() {
   const peerClients = requireEachGunPeer
     ? gunPeers.map((peer) => ({
       peer,
+      pin,
+      writerId,
       client: createRepairClient({ peers: [peer], pin, writerId, sign }),
     }))
     : [];
@@ -487,6 +646,8 @@ async function main() {
         failures.push({
           story_id: storyId,
           repair_step: error && typeof error === 'object' ? error.repair_step ?? null : null,
+          repair_step_attempt: error && typeof error === 'object' ? error.repair_step_attempt ?? null : null,
+          repair_step_attempts: error && typeof error === 'object' ? error.repair_step_attempts ?? null : null,
           error_name: error && typeof error === 'object' ? error.name ?? null : null,
           reason: error instanceof Error ? error.message : String(error),
           ...(error && typeof error === 'object' && Array.isArray(error.peer_failures)
@@ -496,6 +657,7 @@ async function main() {
       }
     }
   } finally {
+    await waitForRepairRemoteSettle();
     await Promise.all([
       ...(client ? [client] : []),
       ...peerClients.map(({ client: peerClient }) => peerClient),
@@ -510,10 +672,14 @@ async function main() {
     relay_origin_count: relayOrigins.length,
     gun_peer_count: gunPeers.length,
     require_each_gun_peer: requireEachGunPeer,
+    gun_client_isolation: repairMode === 'gun' ? 'unique-local-gun-file-per-repair-client' : null,
     writer_id: writerId,
     offset,
     limit,
     http_timeout_ms: httpTimeoutMs,
+    repair_step_attempts: repairStepAttempts,
+    repair_step_retry_ms: repairStepRetryMs,
+    repair_remote_settle_ms: repairRemoteSettleMs,
     sampled: storyIds.length,
     repaired_count: repaired.length,
     failure_count: failures.length,
