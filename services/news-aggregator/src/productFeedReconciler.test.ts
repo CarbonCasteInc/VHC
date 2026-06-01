@@ -152,6 +152,65 @@ describe('product feed reconciler', () => {
     expect(dependencies.writeLifecycle).not.toHaveBeenCalled();
   });
 
+  it('refreshes stale incomplete lifecycle rows without requiring accepted synthesis for feed visibility', async () => {
+    const story = makeStory();
+    const lifecycle = makeLifecycle(story, {
+      status: 'pending',
+      retryable: false,
+      frame_table_state: 'frame_table_pending',
+      synthesis_id: undefined,
+      updated_at: 1_000,
+    });
+    const dependencies = makeDependencies(story, lifecycle);
+    dependencies.readLatestIndexEntry.mockResolvedValue(makeLatestIndexRecord(story));
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 60 * 60 * 1000 + 2_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      incompleteLifecycleRefreshMs: 60 * 60 * 1000,
+    });
+
+    expect(result).toMatchObject({
+      eligible: 1,
+      repaired_latest_index: 0,
+      repaired_lifecycle: 0,
+      refreshed_incomplete_lifecycle: 1,
+      preserved_lifecycle: 0,
+    });
+    expect(dependencies.writeLifecycle).toHaveBeenCalledWith(
+      { id: 'client' },
+      expect.objectContaining({
+        story_id: story.story_id,
+        source_set_revision: story.provenance_hash,
+        status: 'pending',
+        frame_table_state: 'frame_table_pending',
+        updated_at: 60 * 60 * 1000 + 2_000,
+      }),
+    );
+  });
+
+  it('does not refresh accepted lifecycle rows during product feed reconciliation', async () => {
+    const story = makeStory();
+    const lifecycle = makeLifecycle(story, { updated_at: 1_000 });
+    const dependencies = makeDependencies(story, lifecycle);
+    dependencies.readLatestIndexEntry.mockResolvedValue(makeLatestIndexRecord(story));
+
+    const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
+      dependencies,
+      now: () => 60 * 60 * 1000 + 2_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      incompleteLifecycleRefreshMs: 60 * 60 * 1000,
+    });
+
+    expect(result).toMatchObject({
+      repaired_lifecycle: 0,
+      refreshed_incomplete_lifecycle: 0,
+      preserved_lifecycle: 1,
+    });
+    expect(dependencies.writeLifecycle).not.toHaveBeenCalled();
+  });
+
   it('repairs latest index rows when activity matches but product metadata is missing', async () => {
     const story = makeStory();
     const lifecycle = makeLifecycle(story);

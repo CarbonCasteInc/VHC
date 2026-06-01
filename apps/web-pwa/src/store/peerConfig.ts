@@ -512,6 +512,18 @@ export async function resolveGunPeerTopology(runtimeHostname = getRuntimeHostnam
     });
   }
 
+  const rawPeers = envValue(GUN_PEERS_ENV);
+  if (rawPeers && rawPeers.trim()) {
+    return validateTopology({
+      peers: parsePeerListEnv(rawPeers),
+      strict,
+      allowLocalPeers,
+      minimumPeerCount: resolveMinimumPeerCount(strict),
+      source: 'env-peers',
+      signed: false,
+    });
+  }
+
   if (strict) {
     const response = await fetch(DEFAULT_PUBLIC_BETA_PEER_CONFIG_URL, {
       cache: 'no-store',

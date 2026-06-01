@@ -25,7 +25,7 @@ describe('sourceRegistry', () => {
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
     expect(STARTER_FEED_URLS).toContain('https://abcnews.go.com/abcnews/politicsheadlines');
     expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
-    expect(STARTER_FEED_URLS).not.toContain('https://www.washingtonexaminer.com/tag/politics.rss');
+    expect(STARTER_FEED_URLS).toContain('https://www.washingtonexaminer.com/tag/politics.rss');
     expect(STARTER_FEED_URLS).toContain('https://www.pbs.org/newshour/feeds/rss/politics');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1001/rss.xml');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1014/rss.xml');
@@ -34,13 +34,13 @@ describe('sourceRegistry', () => {
   it('collects feed hosts and known publication aliases', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('moxie.foxnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('foxnews.com');
-    expect(STARTER_SOURCE_DOMAINS).toContain('nypost.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('washingtonexaminer.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('www.washingtonexaminer.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('cbsnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.go.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nbcnews.com');
-    expect(STARTER_SOURCE_DOMAINS).not.toContain('washingtonexaminer.com');
-    expect(STARTER_SOURCE_DOMAINS).not.toContain('www.washingtonexaminer.com');
+    expect(STARTER_SOURCE_DOMAINS).not.toContain('nypost.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('npr.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('pbs.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('feeds.bbci.co.uk');
@@ -280,7 +280,7 @@ describe('sourceRegistry', () => {
 
   it('allows matching domains and URL hosts', () => {
     expect(isSourceDomainAllowed('https://www.foxnews.com/politics/story')).toBe(true);
-    expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
+    expect(isSourceDomainAllowed('https://www.washingtonexaminer.com/news/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.cbsnews.com/news/story')).toBe(true);
     expect(isSourceDomainAllowed('https://abcnews.com/Politics/wireStory/example')).toBe(true);
     expect(isSourceDomainAllowed('https://www.nbcnews.com/politics/story')).toBe(true);

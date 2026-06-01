@@ -322,7 +322,7 @@ const feeds = {
     { articleId: 'tsa-fox' },
     { articleId: 'hospital-fox' },
   ],
-  'nypost-politics': [
+  'washingtonexaminer-politics': [
     { articleId: 'geneva-recap-nypost' },
     { articleId: 'iran-roundup-nypost' },
     { articleId: 'fraud-nypost' },

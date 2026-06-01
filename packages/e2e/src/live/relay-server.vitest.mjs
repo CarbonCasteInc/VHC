@@ -892,6 +892,36 @@ describe('infra relay server', () => {
     });
   });
 
+  it('bounds optional aggregate self-peer readback when no voter rows exist', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READBACK: 'true',
+      VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READ_TIMEOUT_MS: '250',
+    });
+    const aggregateRead = requestJson(
+      `http://127.0.0.1:${port}/vh/aggregates/point?topic_id=topic-empty-self-peer&synthesis_id=synthesis-empty-self-peer&epoch=0&point_id=point-empty-self-peer`,
+    );
+    const response = await Promise.race([
+      aggregateRead,
+      delay(3_000).then(() => {
+        throw new Error('aggregate-self-peer-readback-timeout');
+      }),
+    ]);
+
+    expect(response).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        row_count: 0,
+        aggregate: expect.objectContaining({
+          point_id: 'point-empty-self-peer',
+          agree: 0,
+          disagree: 0,
+          participants: 0,
+        }),
+      }),
+    });
+  });
+
   it('reads signed forum threads through the relay fallback endpoint', async () => {
     const { port } = await startRelay(children, tempDirs);
     const thread = {

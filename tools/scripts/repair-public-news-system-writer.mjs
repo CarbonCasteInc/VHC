@@ -53,6 +53,14 @@ const DEFAULT_ARTIFACT_DIR = path.join(
 let repairStepAttempts = 1;
 let repairStepRetryMs = 500;
 let repairRemoteSettleMs = 0;
+const LIFECYCLE_STATUSES = new Set([
+  'pending',
+  'in_progress',
+  'accepted_available',
+  'retryable_failure',
+  'terminal_unavailable',
+  'suppressed',
+]);
 
 async function importWorkspacePackage(specifier) {
   for (const root of workspaceResolutionRoots) {
@@ -244,6 +252,100 @@ function hotRecord(story) {
     story_created_at: Math.max(0, Math.floor(story.created_at)),
     cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
   };
+}
+
+function acceptedSynthesisReady(synthesis) {
+  return Boolean(
+    typeof synthesis?.facts_summary === 'string'
+      && synthesis.facts_summary.trim()
+      && Array.isArray(synthesis.frames)
+      && synthesis.frames.length > 0,
+  );
+}
+
+function frameTableReady(synthesis) {
+  return acceptedSynthesisReady(synthesis)
+    && synthesis.frames.every((frame) => (
+      typeof frame?.frame_point_id === 'string'
+      && frame.frame_point_id.trim()
+      && typeof frame?.reframe_point_id === 'string'
+      && frame.reframe_point_id.trim()
+    ));
+}
+
+function synthesisCurrentForStory(story, synthesis) {
+  if (!story?.story_id || !story?.provenance_hash || !acceptedSynthesisReady(synthesis)) {
+    return false;
+  }
+  const bundleIds = Array.isArray(synthesis.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids.map(String)
+    : [];
+  if (bundleIds.length > 0 && !bundleIds.includes(story.story_id)) {
+    return false;
+  }
+  const revisionCandidates = [
+    synthesis.inputs?.source_set_revision,
+    synthesis.inputs?.sourceSetRevision,
+    synthesis.source_set_revision,
+    synthesis.sourceSetRevision,
+  ].map((value) => String(value ?? '').trim()).filter(Boolean);
+  return revisionCandidates.length === 0 || revisionCandidates.includes(story.provenance_hash);
+}
+
+async function readRelayLifecycle(appUrl, storyId, timeoutMs) {
+  const lifecycleUrl = new URL('/vh/news/synthesis-lifecycle', appUrl);
+  lifecycleUrl.searchParams.set('story_id', storyId);
+  lifecycleUrl.searchParams.set('t', String(Date.now()));
+  const payload = await fetchJson(lifecycleUrl.href, `synthesis-lifecycle:${storyId}`, timeoutMs).catch(() => null);
+  return payload?.lifecycle && typeof payload.lifecycle === 'object' ? payload.lifecycle : null;
+}
+
+async function readRelayTopicSynthesis(appUrl, topicId, timeoutMs) {
+  const synthesisUrl = new URL('/vh/topics/synthesis', appUrl);
+  synthesisUrl.searchParams.set('topic_id', topicId);
+  synthesisUrl.searchParams.set('t', String(Date.now()));
+  const payload = await fetchJson(synthesisUrl.href, `topic-synthesis:${topicId}`, timeoutMs).catch(() => null);
+  return payload?.synthesis && typeof payload.synthesis === 'object' ? payload.synthesis : null;
+}
+
+async function buildRepairLifecycleRecord({ appUrl, story, timeoutMs }) {
+  const [lifecycle, synthesis] = await Promise.all([
+    readRelayLifecycle(appUrl, story.story_id, timeoutMs),
+    readRelayTopicSynthesis(appUrl, story.topic_id, timeoutMs),
+  ]);
+
+  if (synthesisCurrentForStory(story, synthesis)) {
+    return buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'accepted_available',
+      frameTableState: frameTableReady(synthesis) ? 'frame_table_ready' : 'frame_table_unavailable',
+      retryable: false,
+      reason: 'storycluster_public_feed_repair_preserved_accepted_synthesis',
+      synthesisId: synthesis.synthesis_id,
+      epoch: synthesis.epoch,
+      updatedAt: Date.now(),
+    });
+  }
+
+  const observedStatus = typeof lifecycle?.status === 'string' ? lifecycle.status : '';
+  const status = LIFECYCLE_STATUSES.has(observedStatus) ? observedStatus : 'pending';
+  const frameTableState = typeof lifecycle?.frame_table_state === 'string'
+    ? lifecycle.frame_table_state
+    : status === 'accepted_available'
+      ? 'frame_table_unavailable'
+      : 'frame_table_pending';
+  return buildNewsSynthesisLifecycleRecord({
+    story,
+    status,
+    frameTableState,
+    retryable: Boolean(lifecycle?.retryable ?? status === 'retryable_failure'),
+    reason: typeof lifecycle?.reason === 'string' && lifecycle.reason.trim()
+      ? lifecycle.reason
+      : 'product_feed_reconciled_incomplete_lifecycle',
+    synthesisId: typeof lifecycle?.synthesis_id === 'string' ? lifecycle.synthesis_id : undefined,
+    epoch: lifecycle?.epoch,
+    updatedAt: Date.now(),
+  });
 }
 
 async function signRecord({ pathName, payload, sign, pin, writerId }) {
@@ -461,7 +563,7 @@ async function readLatestStories(appUrl, limit, offset, timeoutMs) {
   return { latest, storyIds, stories };
 }
 
-async function repairStoryViaGun({ client, story }) {
+async function repairStoryViaGun({ client, story, lifecycleRecord }) {
   await repairStep('gun_story_body', () => writeNewsStory(client, story));
   await repairStep('gun_latest_index', () => (
     writeNewsLatestIndexEntry(client, story.story_id, story.cluster_window_end, story)
@@ -470,22 +572,16 @@ async function repairStoryViaGun({ client, story }) {
     writeNewsHotIndexEntry(client, story.story_id, computeStoryHotness(story), story)
   ));
   await repairStep('gun_synthesis_lifecycle', () => (
-    writeNewsSynthesisLifecycleStatus(client, buildNewsSynthesisLifecycleRecord({
-      story,
-      status: 'pending',
-      frameTableState: 'frame_table_pending',
-      reason: 'storycluster_public_feed_repair',
-      updatedAt: Date.now(),
-    }))
+    writeNewsSynthesisLifecycleStatus(client, lifecycleRecord)
   ));
 }
 
-async function repairStoryViaGunPeers({ peerClients, story }) {
+async function repairStoryViaGunPeers({ peerClients, story, lifecycleRecord }) {
   const failures = [];
   for (const { peer, client, pin, writerId } of peerClients) {
     try {
       await repairStep('gun_peer_independent_readback', async () => {
-        await repairStoryViaGun({ client, story });
+        await repairStoryViaGun({ client, story, lifecycleRecord });
         await waitForRepairRemoteSettle();
         await verifyStoryViaIndependentGunReadback({ peer, pin, writerId, story });
       });
@@ -510,7 +606,7 @@ async function repairStoryViaGunPeers({ peerClients, story }) {
   }
 }
 
-async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, sign, pin, writerId, timeoutMs }) {
+async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, lifecycleRecord, sign, pin, writerId, timeoutMs }) {
   const records = {
     story: await signRecord({
       pathName: `vh/news/stories/${story.story_id}`,
@@ -535,13 +631,7 @@ async function repairStoryViaRelayRest({ relayOrigins, relayToken, story, sign, 
     }),
     lifecycle: await signRecord({
       pathName: `vh/news/stories/${story.story_id}/synthesis_lifecycle/latest`,
-      payload: buildNewsSynthesisLifecycleRecord({
-        story,
-        status: 'pending',
-        frameTableState: 'frame_table_pending',
-        reason: 'storycluster_public_feed_repair',
-        updatedAt: Date.now(),
-      }),
+      payload: lifecycleRecord,
       sign,
       pin,
       writerId,
@@ -618,17 +708,19 @@ async function main() {
         continue;
       }
       try {
+        const lifecycleRecord = await buildRepairLifecycleRecord({ appUrl, story, timeoutMs: httpTimeoutMs });
         if (repairMode === 'gun') {
           if (requireEachGunPeer) {
-            await repairStoryViaGunPeers({ peerClients, story });
+            await repairStoryViaGunPeers({ peerClients, story, lifecycleRecord });
           } else {
-            await repairStoryViaGun({ client, story });
+            await repairStoryViaGun({ client, story, lifecycleRecord });
           }
         } else {
           await repairStoryViaRelayRest({
             relayOrigins,
             relayToken,
             story,
+            lifecycleRecord,
             sign,
             pin,
             writerId,
@@ -640,6 +732,9 @@ async function main() {
           topic_id: story.topic_id,
           source_count: story.sources.length,
           source_set_revision: story.provenance_hash,
+          lifecycle_status: lifecycleRecord.status,
+          lifecycle_frame_table_state: lifecycleRecord.frame_table_state,
+          lifecycle_synthesis_id: lifecycleRecord.synthesis_id ?? null,
           ...(requireEachGunPeer ? { repaired_peer_count: peerClients.length } : {}),
         });
       } catch (error) {

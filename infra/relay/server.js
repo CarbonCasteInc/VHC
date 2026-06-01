@@ -3278,15 +3278,35 @@ async function readAggregateVoterRowsViaSelfPeer(context) {
     file: false,
     axe: false,
   });
+  let timedOut = false;
+  let timeoutHandle = null;
   try {
-    return await readAggregateVoterRowsFromGun(
+    const rowsPromise = readAggregateVoterRowsFromGun(
       peerGun,
       context,
       aggregateVoterSelfPeerReadTimeoutMs,
-    );
+    ).catch(() => []);
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        resolve([]);
+      }, Math.max(1, aggregateVoterSelfPeerReadTimeoutMs + 250));
+    });
+    const rows = await Promise.race([rowsPromise, timeoutPromise]);
+    if (timedOut) {
+      logEvent('warn', 'aggregate_self_peer_readback_timeout', {
+        topic_id: context.topicId,
+        synthesis_id: context.synthesisId,
+        epoch: context.epoch,
+        point_id: context.pointId,
+        timeout_ms: aggregateVoterSelfPeerReadTimeoutMs,
+      });
+    }
+    return Array.isArray(rows) ? rows : [];
   } catch {
     return [];
   } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     try {
       peerGun.off?.();
     } catch {
