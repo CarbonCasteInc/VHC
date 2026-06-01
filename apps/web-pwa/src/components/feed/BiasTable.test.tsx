@@ -155,7 +155,7 @@ describe('BiasTable', () => {
   it('renders empty state when no analyses and no frames', () => {
     render(<BiasTable analyses={[]} frames={[]} />);
     expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
-      'No bias analysis available yet',
+      'No frame/reframe pairs are available for this topic.',
     );
     expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
   });

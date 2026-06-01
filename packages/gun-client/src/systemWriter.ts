@@ -6,6 +6,12 @@ export const SYSTEM_WRITER_KIND = 'system' as const;
 export const SYSTEM_WRITER_VALIDATION_EVENT = 'system-writer-validation-failed' as const;
 
 const ED25519 = 'Ed25519';
+const LEGACY_SYSTEM_SIGNATURE_FIELDS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+] as const;
 
 export type SystemWriterValidationReason =
   | 'invalid-record-shape'
@@ -20,6 +26,7 @@ export type SystemWriterAllowedClass =
   | 'news-story'
   | 'news-latest-index'
   | 'news-hot-index'
+  | 'news-synthesis-lifecycle'
   | 'news-story-analysis'
   | 'news-story-analysis-latest'
   | 'news-storyline'
@@ -150,6 +157,16 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && segments[2] === 'index'
       && segments[3] === 'hot'
       && hasPathValue(pathSegment(segments, 4)),
+  },
+  {
+    recordClass: 'news-synthesis-lifecycle',
+    matches: (segments) => segments.length === 6
+      && segments[0] === 'vh'
+      && segments[1] === 'news'
+      && segments[2] === 'stories'
+      && hasPathValue(pathSegment(segments, 3))
+      && segments[4] === 'synthesis_lifecycle'
+      && segments[5] === 'latest',
   },
   {
     recordClass: 'news-story-analysis',
@@ -283,6 +300,9 @@ export function canonicalizeSystemWriterRecordForSigning(record: unknown): strin
     throw new Error('system writer record must be an object');
   }
   const { _systemSignature: _omittedSignature, ...unsignedRecord } = record;
+  for (const legacyField of LEGACY_SYSTEM_SIGNATURE_FIELDS) {
+    delete unsignedRecord[legacyField];
+  }
   assertJsonCanonicalizable(unsignedRecord, 'system writer record');
   return canonicalize(unsignedRecord) as string;
 }
@@ -305,6 +325,10 @@ export async function buildSignedSystemWriterRecord<T extends Record<string, unk
   });
   const unsignedRecord: T & UnsignedSystemWriterRecordFields = {
     ...input.payload,
+    _system: null,
+    _Signature: null,
+    _WriterId: null,
+    _IssuedAt: null,
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
     _writerKind: SYSTEM_WRITER_KIND,
     _systemWriterId: writerId,

@@ -54,6 +54,12 @@ const port = Number(process.env.GUN_PORT || 7777);
 const host = process.env.GUN_HOST || '127.0.0.1';
 const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
+const newsLatestIndexSnapshotFile = process.env.VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'news-latest-index-snapshot.json') : '');
+const newsSynthesisLifecycleSnapshotFile = process.env.VH_RELAY_NEWS_LIFECYCLE_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'news-synthesis-lifecycle-snapshot.json') : '');
+const topicSynthesisLatestSnapshotFile = process.env.VH_RELAY_TOPIC_SYNTHESIS_SNAPSHOT_FILE
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'topic-synthesis-latest-snapshot.json') : '');
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
 const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1';
@@ -121,11 +127,26 @@ const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000)
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const healthProbeCompactionMaxRecords = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_MAX_RECORDS', 0);
 const aggregatePointReadCacheTtlMs = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_TTL_MS', 5_000);
 const aggregatePointReadCacheMaxEntries = numberEnv('VH_RELAY_AGGREGATE_POINT_READ_CACHE_MAX_ENTRIES', 1_000);
+const aggregateVoterReadTimeoutMs = numberEnv('VH_RELAY_AGGREGATE_VOTER_READ_TIMEOUT_MS', 1_500);
+const aggregateVoterSelfPeerReadTimeoutMs = numberEnv(
+  'VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READ_TIMEOUT_MS',
+  4_000,
+);
+const aggregateVoterSelfPeerReadbackEnabled = boolEnv(
+  'VH_RELAY_AGGREGATE_VOTER_SELF_PEER_READBACK',
+  false,
+);
 const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
 const aggregatePointReadCache = new Map();
+const newsLatestIndexRestCache = new Map();
+const newsLatestIndexSnapshotCache = new Map();
+const newsLatestIndexSnapshotStoryBodyCache = new Map();
+let newsSynthesisLifecycleSnapshotCache = null;
+let topicSynthesisLatestSnapshotCache = null;
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
@@ -601,6 +622,17 @@ function readOnce(chain, timeoutMs = 1_500) {
   });
 }
 
+async function putScalarRecord(chain, record, options = {}) {
+  const rootTimeoutMs = options.rootTimeoutMs ?? 3_000;
+  const fieldTimeoutMs = options.fieldTimeoutMs ?? 1_000;
+  const writes = [putWithTimeout(chain, record, rootTimeoutMs)];
+  for (const [key, value] of Object.entries(record)) {
+    if (key === '_' || value === undefined || !isGunScalar(value)) continue;
+    writes.push(putWithTimeout(chain.get(key), value, fieldTimeoutMs));
+  }
+  await Promise.allSettled(writes);
+}
+
 function stripGunMetadata(value) {
   if (!value || typeof value !== 'object') return value;
   const { _, ...rest } = value;
@@ -745,6 +777,16 @@ function encodeTopicSynthesis(synthesis) {
   };
 }
 
+function encodeTopicSynthesisCandidate(candidate) {
+  return {
+    __candidate_synthesis_json: JSON.stringify(candidate),
+    candidate_id: candidate.candidate_id,
+    topic_id: candidate.topic_id,
+    epoch: candidate.epoch,
+    created_at: candidate.created_at,
+  };
+}
+
 function buildTopicSynthesisGraph(synthesis) {
   const state = Gun.state();
   const topicId = String(synthesis.topic_id);
@@ -769,6 +811,264 @@ function buildTopicSynthesisGraph(synthesis) {
     graph[epochSynthesisSoul] = stateNode(graph[epochSynthesisSoul], key, state, value, epochSynthesisSoul);
   }
 
+  return graph;
+}
+
+function readTopicSynthesisLatestSnapshot() {
+  if (topicSynthesisLatestSnapshotCache) return topicSynthesisLatestSnapshotCache;
+  const empty = { cached_at: 0, records: {} };
+  if (!topicSynthesisLatestSnapshotFile) {
+    topicSynthesisLatestSnapshotCache = empty;
+    return empty;
+  }
+  try {
+    if (!fs.existsSync(topicSynthesisLatestSnapshotFile)) {
+      topicSynthesisLatestSnapshotCache = empty;
+      return empty;
+    }
+    const parsed = JSON.parse(fs.readFileSync(topicSynthesisLatestSnapshotFile, 'utf8'));
+    if (
+      !parsed
+      || parsed.schema_version !== 'vh-topic-synthesis-latest-relay-snapshot-v1'
+      || !parsed.records
+      || typeof parsed.records !== 'object'
+      || Array.isArray(parsed.records)
+    ) {
+      topicSynthesisLatestSnapshotCache = empty;
+      return empty;
+    }
+    topicSynthesisLatestSnapshotCache = {
+      cached_at: Number(parsed.cached_at) || 0,
+      records: parsed.records,
+    };
+    return topicSynthesisLatestSnapshotCache;
+  } catch (error) {
+    logEvent('warn', 'topic_synthesis_latest_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    topicSynthesisLatestSnapshotCache = empty;
+    return empty;
+  }
+}
+
+function readTopicSynthesisLatestRecordFromSnapshot(topicId) {
+  const normalizedTopicId = typeof topicId === 'string' ? topicId.trim() : '';
+  if (!normalizedTopicId) return null;
+  const snapshot = readTopicSynthesisLatestSnapshot();
+  const record = stripGunMetadata(snapshot.records?.[normalizedTopicId]);
+  const synthesis = parseTopicSynthesisEnvelope(record?.__topic_synthesis_json);
+  if (synthesis?.topic_id !== normalizedTopicId) return null;
+  return { record, synthesis };
+}
+
+function persistTopicSynthesisLatestSnapshot(snapshot) {
+  if (!topicSynthesisLatestSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(topicSynthesisLatestSnapshotFile), { recursive: true });
+    const tmpFile = `${topicSynthesisLatestSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify({
+        schema_version: 'vh-topic-synthesis-latest-relay-snapshot-v1',
+        cached_at: snapshot.cached_at,
+        records: snapshot.records,
+      })}\n`,
+    );
+    fs.renameSync(tmpFile, topicSynthesisLatestSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'topic_synthesis_latest_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function upsertTopicSynthesisLatestSnapshot(synthesis) {
+  const topicId = typeof synthesis?.topic_id === 'string' ? synthesis.topic_id.trim() : '';
+  if (!topicId) return;
+  const snapshot = readTopicSynthesisLatestSnapshot();
+  const next = {
+    cached_at: Date.now(),
+    records: {
+      ...(snapshot.records ?? {}),
+      [topicId]: encodeTopicSynthesis(synthesis),
+    },
+  };
+  topicSynthesisLatestSnapshotCache = next;
+  persistTopicSynthesisLatestSnapshot(next);
+}
+
+function buildTopicSynthesisCandidateGraph(candidate) {
+  const state = Gun.state();
+  const topicId = String(candidate.topic_id);
+  const epoch = String(candidate.epoch);
+  const candidateId = String(candidate.candidate_id);
+  const epochRootSoul = `vh/topics/${topicId}/epochs`;
+  const epochSoul = `${epochRootSoul}/${epoch}`;
+  const candidatesSoul = `${epochSoul}/candidates`;
+  const candidateSoul = `${candidatesSoul}/${candidateId}`;
+  const encoded = encodeTopicSynthesisCandidate(candidate);
+  const graph = {};
+
+  linkNode(graph, 'vh', 'topics', 'vh/topics', state);
+  linkNode(graph, 'vh/topics', topicId, `vh/topics/${topicId}`, state);
+  linkNode(graph, `vh/topics/${topicId}`, 'epochs', epochRootSoul, state);
+  linkNode(graph, epochRootSoul, epoch, epochSoul, state);
+  linkNode(graph, epochSoul, 'candidates', candidatesSoul, state);
+  linkNode(graph, candidatesSoul, candidateId, candidateSoul, state);
+
+  for (const [key, value] of Object.entries(encoded)) {
+    if (value === undefined) continue;
+    graph[candidateSoul] = stateNode(graph[candidateSoul], key, state, value, candidateSoul);
+  }
+
+  return graph;
+}
+
+function sanitizeNewsStoryWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-story-record-required');
+  }
+  const story = parseStoryBundleEnvelope(record.__story_bundle_json);
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  if (!storyId || story?.story_id !== storyId) {
+    throw new Error('news-story-record-mismatch');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsStoryGraph(write) {
+  const state = Gun.state();
+  const storySoul = `vh/news/stories/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'stories', 'vh/news/stories', state);
+  linkNode(graph, 'vh/news/stories', write.story_id, storySoul, state);
+  writeScalarFields(graph, storySoul, state, write.record);
+  return graph;
+}
+
+function sanitizeNewsLatestIndexWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-latest-index-record-required');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const latestActivityAt = Number(record.latest_activity_at);
+  if (!storyId || !Number.isFinite(latestActivityAt) || latestActivityAt < 0) {
+    throw new Error('news-latest-index-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsLatestIndexGraph(write) {
+  const state = Gun.state();
+  const latestRootSoul = 'vh/news/index/latest';
+  const latestSoul = `${latestRootSoul}/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'index', 'vh/news/index', state);
+  linkNode(graph, 'vh/news/index', 'latest', latestRootSoul, state);
+  linkNode(graph, latestRootSoul, write.story_id, latestSoul, state);
+  writeScalarFields(graph, latestSoul, state, write.record);
+  return graph;
+}
+
+function sanitizeNewsHotIndexWrite(body) {
+  const record = isPlainRecord(body?.record) ? body.record : null;
+  if (!record) {
+    throw new Error('news-hot-index-record-required');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const hotness = Number(record.hotness);
+  if (!storyId || !Number.isFinite(hotness) || hotness < 0) {
+    throw new Error('news-hot-index-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsHotIndexGraph(write) {
+  const state = Gun.state();
+  const hotRootSoul = 'vh/news/index/hot';
+  const hotSoul = `${hotRootSoul}/${write.story_id}`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'index', 'vh/news/index', state);
+  linkNode(graph, 'vh/news/index', 'hot', hotRootSoul, state);
+  linkNode(graph, hotRootSoul, write.story_id, hotSoul, state);
+  writeScalarFields(graph, hotSoul, state, write.record);
+  return graph;
+}
+
+function sanitizeNewsSynthesisLifecycleWrite(body) {
+  const record = isPlainRecord(body?.record)
+    ? body.record
+    : isPlainRecord(body?.lifecycle)
+      ? body.lifecycle
+      : null;
+  if (!record) {
+    throw new Error('news-synthesis-lifecycle-record-required');
+  }
+  const forbiddenField = Object.keys(record).find((key) => {
+    const normalized = key.toLowerCase();
+    return normalized === '_authorscheme'
+      || normalized === 'signedwriteenvelope'
+      || normalized === 'sessionref'
+      || normalized === 'voter_id'
+      || normalized === 'identity_id'
+      || normalized === 'user_id'
+      || normalized === 'device_pub'
+      || normalized.includes('token')
+      || normalized.includes('oauth')
+      || normalized.includes('bearer')
+      || normalized.includes('nullifier');
+  });
+  if (forbiddenField) {
+    throw new Error('news-synthesis-lifecycle-record-private-field');
+  }
+  const storyId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const topicId = typeof record.topic_id === 'string' ? record.topic_id.trim() : '';
+  const sourceSetRevision = typeof record.source_set_revision === 'string'
+    ? record.source_set_revision.trim()
+    : '';
+  const status = typeof record.status === 'string' ? record.status.trim() : '';
+  const frameTableState = typeof record.frame_table_state === 'string'
+    ? record.frame_table_state.trim()
+    : '';
+  const sourceCount = Number(record.source_count);
+  const canonicalSourceCount = Number(record.canonical_source_count);
+  const updatedAt = Number(record.updated_at);
+  if (
+    record.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
+    || !storyId
+    || !topicId
+    || !sourceSetRevision
+    || !['pending', 'in_progress', 'accepted_available', 'retryable_failure', 'terminal_unavailable', 'suppressed'].includes(status)
+    || !['frame_table_pending', 'frame_table_ready', 'frame_table_unavailable'].includes(frameTableState)
+    || !Number.isFinite(sourceCount)
+    || sourceCount < 0
+    || !Number.isFinite(canonicalSourceCount)
+    || canonicalSourceCount < 0
+    || !Number.isFinite(updatedAt)
+    || updatedAt < 0
+  ) {
+    throw new Error('news-synthesis-lifecycle-record-invalid');
+  }
+  return { story_id: storyId, record };
+}
+
+function buildNewsSynthesisLifecycleGraph(write) {
+  const state = Gun.state();
+  const storySoul = `vh/news/stories/${write.story_id}`;
+  const lifecycleRootSoul = `${storySoul}/synthesis_lifecycle`;
+  const lifecycleLatestSoul = `${lifecycleRootSoul}/latest`;
+  const graph = {};
+  linkNode(graph, 'vh', 'news', 'vh/news', state);
+  linkNode(graph, 'vh/news', 'stories', 'vh/news/stories', state);
+  linkNode(graph, 'vh/news/stories', write.story_id, storySoul, state);
+  linkNode(graph, storySoul, 'synthesis_lifecycle', lifecycleRootSoul, state);
+  linkNode(graph, lifecycleRootSoul, 'latest', lifecycleLatestSoul, state);
+  writeScalarFields(graph, lifecycleLatestSoul, state, write.record);
   return graph;
 }
 
@@ -919,7 +1219,22 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   if (scalar?.topic_id === topicId && scalar?.synthesis_id === synthesisId) {
     return scalar;
   }
+  const snapshot = readTopicSynthesisLatestRecordFromSnapshot(topicId);
+  if (snapshot?.synthesis?.synthesis_id === synthesisId) {
+    return snapshot.synthesis;
+  }
   return null;
+}
+
+async function pollTopicSynthesisBack(gun, topicId, synthesisId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readTopicSynthesisBack(gun, topicId, synthesisId);
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
 }
 
 async function readTopicLatestSynthesisRecord(gun, topicId) {
@@ -946,7 +1261,58 @@ async function readTopicLatestSynthesisRecord(gun, topicId) {
       synthesis: scalar,
     };
   }
-  return null;
+  return readTopicSynthesisLatestRecordFromSnapshot(topicId);
+}
+
+function hasAcceptedTopicSynthesisPayload(synthesis) {
+  if (!synthesis || typeof synthesis !== 'object') return false;
+  if (typeof synthesis.facts_summary !== 'string' || synthesis.facts_summary.trim().length === 0) {
+    return false;
+  }
+  if (!Array.isArray(synthesis.frames) || synthesis.frames.length === 0) {
+    return false;
+  }
+  return synthesis.frames.every((row) => (
+    row
+    && typeof row === 'object'
+    && typeof row.frame === 'string'
+    && row.frame.trim().length > 0
+    && typeof row.reframe === 'string'
+    && row.reframe.trim().length > 0
+  ));
+}
+
+function hasFrameTableReadyPayload(synthesis) {
+  return hasAcceptedTopicSynthesisPayload(synthesis)
+    && synthesis.frames.every((row) => (
+      typeof row.frame_point_id === 'string'
+      && row.frame_point_id.trim().length > 0
+      && typeof row.reframe_point_id === 'string'
+      && row.reframe_point_id.trim().length > 0
+    ));
+}
+
+function synthesisInputsIncludeStory(synthesis, story) {
+  const storyId = typeof story?.story_id === 'string' ? story.story_id.trim() : '';
+  if (!storyId) return false;
+  const storyBundleIds = Array.isArray(synthesis?.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  return storyBundleIds.some((candidate) => String(candidate ?? '').trim() === storyId);
+}
+
+function acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle) {
+  if (!hasAcceptedTopicSynthesisPayload(synthesis)) return false;
+  if (!synthesisInputsIncludeStory(synthesis, story)) return false;
+  if (!lifecycle || typeof lifecycle !== 'object') return false;
+  if (lifecycle.status !== 'accepted_available') return false;
+  if (typeof story?.provenance_hash !== 'string' || !story.provenance_hash.trim()) return false;
+  if (lifecycle.source_set_revision !== story.provenance_hash) return false;
+  if (typeof synthesis.synthesis_id !== 'string' || lifecycle.synthesis_id !== synthesis.synthesis_id) return false;
+  if (Number.isFinite(Number(synthesis.epoch)) && Number.isFinite(Number(lifecycle.epoch))) {
+    return Math.floor(Number(synthesis.epoch)) === Math.floor(Number(lifecycle.epoch));
+  }
+  return true;
 }
 
 function parseStoryBundleEnvelope(value) {
@@ -959,31 +1325,232 @@ function parseStoryBundleEnvelope(value) {
   }
 }
 
-async function readNewsStoryRecord(gun, storyId) {
+function parseNewsSynthesisLifecycleRecord(value, storyId) {
+  const direct = stripGunMetadata(value);
+  if (!direct || typeof direct !== 'object') return null;
+  if (
+    direct.schemaVersion !== 'vh-news-synthesis-lifecycle-v1'
+    || direct.story_id !== storyId
+    || typeof direct.status !== 'string'
+  ) {
+    return null;
+  }
+  return direct;
+}
+
+function readNewsSynthesisLifecycleSnapshot() {
+  if (newsSynthesisLifecycleSnapshotCache) return newsSynthesisLifecycleSnapshotCache;
+  const empty = { cached_at: 0, records: {} };
+  if (!newsSynthesisLifecycleSnapshotFile) {
+    newsSynthesisLifecycleSnapshotCache = empty;
+    return empty;
+  }
+  try {
+    if (!fs.existsSync(newsSynthesisLifecycleSnapshotFile)) {
+      newsSynthesisLifecycleSnapshotCache = empty;
+      return empty;
+    }
+    const parsed = JSON.parse(fs.readFileSync(newsSynthesisLifecycleSnapshotFile, 'utf8'));
+    if (
+      !parsed
+      || parsed.schema_version !== 'vh-news-synthesis-lifecycle-relay-snapshot-v1'
+      || !parsed.records
+      || typeof parsed.records !== 'object'
+      || Array.isArray(parsed.records)
+    ) {
+      newsSynthesisLifecycleSnapshotCache = empty;
+      return empty;
+    }
+    newsSynthesisLifecycleSnapshotCache = {
+      cached_at: Number(parsed.cached_at) || 0,
+      records: parsed.records,
+    };
+    return newsSynthesisLifecycleSnapshotCache;
+  } catch (error) {
+    logEvent('warn', 'news_synthesis_lifecycle_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    newsSynthesisLifecycleSnapshotCache = empty;
+    return empty;
+  }
+}
+
+function readNewsSynthesisLifecycleRecordFromSnapshot(storyId) {
+  const snapshot = readNewsSynthesisLifecycleSnapshot();
+  return parseNewsSynthesisLifecycleRecord(snapshot.records?.[storyId], storyId);
+}
+
+function persistNewsSynthesisLifecycleSnapshot(snapshot) {
+  if (!newsSynthesisLifecycleSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(newsSynthesisLifecycleSnapshotFile), { recursive: true });
+    const tmpFile = `${newsSynthesisLifecycleSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify({
+        schema_version: 'vh-news-synthesis-lifecycle-relay-snapshot-v1',
+        cached_at: snapshot.cached_at,
+        records: snapshot.records,
+      })}\n`,
+    );
+    fs.renameSync(tmpFile, newsSynthesisLifecycleSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'news_synthesis_lifecycle_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function upsertNewsSynthesisLifecycleSnapshot(record) {
+  const storyId = typeof record?.story_id === 'string' ? record.story_id.trim() : '';
+  if (!storyId) return;
+  const snapshot = readNewsSynthesisLifecycleSnapshot();
+  const next = {
+    cached_at: Date.now(),
+    records: {
+      ...(snapshot.records ?? {}),
+      [storyId]: record,
+    },
+  };
+  newsSynthesisLifecycleSnapshotCache = next;
+  persistNewsSynthesisLifecycleSnapshot(next);
+}
+
+async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
-  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
-  const [directRaw, scalarRaw] = await Promise.all([
-    readOnce(storyChain, storyTimeoutMs),
-    readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs),
-  ]);
-  const direct = stripGunMetadata(directRaw);
-  const envelope = direct && typeof direct === 'object'
-    ? parseStoryBundleEnvelope(direct.__story_bundle_json)
-    : null;
-  if (envelope?.story_id === storyId) {
-    return {
-      record: direct,
-      story: envelope,
-    };
+  const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const allowSnapshotFallback = options.allowSnapshotFallback !== false
+    && boolEnv('VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK', true);
+  const parseReadResult = (result) => {
+    if (result.kind === 'direct') {
+      const direct = stripGunMetadata(result.value);
+      const envelope = direct && typeof direct === 'object'
+        ? parseStoryBundleEnvelope(direct.__story_bundle_json)
+        : null;
+      if (envelope?.story_id === storyId) {
+        return {
+          record: direct,
+          story: envelope,
+        };
+      }
+      return null;
+    }
+    const scalar = parseStoryBundleEnvelope(result.value);
+    if (scalar?.story_id === storyId) {
+      return {
+        record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
+        story: scalar,
+      };
+    }
+    return null;
+  };
+  const directRead = readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value }));
+  const scalarRead = readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
+    .then((value) => ({ kind: 'scalar', value }));
+  const first = await Promise.race([directRead, scalarRead]);
+  const parsedFirst = parseReadResult(first);
+  if (parsedFirst) return parsedFirst;
+  const second = first.kind === 'direct' ? await scalarRead : await directRead;
+  const parsedSecond = parseReadResult(second);
+  if (parsedSecond) return parsedSecond;
+  return allowSnapshotFallback ? readNewsStoryRecordFromLatestIndexSnapshot(storyId) : null;
+}
+
+async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
+  const direct = parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
+  if (direct || options.allowSnapshotFallback === false) return direct;
+  return readNewsSynthesisLifecycleRecordFromSnapshot(storyId);
+}
+
+async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fields = [
+    'schemaVersion',
+    'story_id',
+    'topic_id',
+    'source_set_revision',
+    'source_count',
+    'canonical_source_count',
+    'status',
+    'retryable',
+    'reason',
+    'synthesis_id',
+    'epoch',
+    'frame_table_state',
+    'updated_at',
+  ];
+  const values = await Promise.all(
+    fields.map((field) => readOnce(lifecycleChain.get(field), timeoutMs)),
+  );
+  const record = {};
+  for (let index = 0; index < fields.length; index += 1) {
+    const value = stripGunMetadata(values[index]);
+    if (value !== null && value !== undefined) {
+      record[fields[index]] = value;
+    }
   }
-  const scalar = parseStoryBundleEnvelope(scalarRaw);
-  if (scalar?.story_id === storyId) {
-    return {
-      record: { __story_bundle_json: JSON.stringify(scalar), story_id: storyId },
-      story: scalar,
-    };
+  return parseNewsSynthesisLifecycleRecord(record, storyId)
+    ?? (options.allowSnapshotFallback === false ? null : readNewsSynthesisLifecycleRecordFromSnapshot(storyId));
+}
+
+async function refreshPotentiallyStaleLifecycleRecord(gun, story, synthesis, lifecycle) {
+  if (!hasAcceptedTopicSynthesisPayload(synthesis) || !synthesisInputsIncludeStory(synthesis, story)) {
+    return lifecycle;
   }
-  return null;
+  if (acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle)) {
+    return lifecycle;
+  }
+  const timeoutMs = numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fieldLifecycle = await readNewsSynthesisLifecycleRecordFromFields(gun, story.story_id, { timeoutMs })
+    .catch(() => null);
+  return fieldLifecycle ?? lifecycle;
+}
+
+async function pollNewsStoryBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsStoryRecord(gun, storyId, {
+      timeoutMs: 1_500,
+      allowSnapshotFallback: false,
+    });
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
+async function pollNewsSynthesisLifecycleBack(gun, storyId, expected, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsSynthesisLifecycleRecord(gun, storyId, { timeoutMs: 1_500 });
+    if (
+      latest
+      && latest.story_id === storyId
+      && latest.status === expected.status
+      && Number(latest.updated_at) === Number(expected.updated_at)
+    ) {
+      return latest;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
 }
 
 function indexEntryPriority(root, storyId) {
@@ -1029,6 +1596,330 @@ function gunLinkSoul(value) {
   return typeof soul === 'string' && soul.trim() ? soul.trim() : null;
 }
 
+function isGunLinkRecord(value) {
+  return Boolean(gunLinkSoul(value));
+}
+
+function resolveLatestActivityFromStory(story) {
+  if (!story || typeof story !== 'object') return null;
+  for (const key of ['cluster_window_end', 'created_at', 'updated_at', 'published_at']) {
+    const value = Number(story[key]);
+    if (Number.isFinite(value) && value >= 0) {
+      return Math.floor(value);
+    }
+  }
+  return null;
+}
+
+function latestIndexRecordHasTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record)) return true;
+  if (typeof record === 'string' && Number.isFinite(Number(record))) return true;
+  if (!record || typeof record !== 'object') return false;
+  return ['latest_activity_at', 'cluster_window_end', 'created_at'].some((key) => {
+    const value = Number(record[key]);
+    return Number.isFinite(value) && value >= 0;
+  });
+}
+
+function latestIndexRecordTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record) && record >= 0) return Math.floor(record);
+  if (typeof record === 'string' && Number.isFinite(Number(record)) && Number(record) >= 0) {
+    return Math.floor(Number(record));
+  }
+  if (!record || typeof record !== 'object') return null;
+  for (const key of ['latest_activity_at', 'cluster_window_end', 'created_at']) {
+    const value = Number(record[key]);
+    if (Number.isFinite(value) && value >= 0) return Math.floor(value);
+  }
+  return null;
+}
+
+function hotIndexRecordHotness(record) {
+  if (typeof record === 'number' && Number.isFinite(record) && record >= 0) return record;
+  if (typeof record === 'string' && Number.isFinite(Number(record)) && Number(record) >= 0) {
+    return Number(record);
+  }
+  if (!record || typeof record !== 'object') return null;
+  const value = Number(record.hotness);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function normalizeHotIndexRecordForResponse(storyId, record) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return null;
+  const hotness = hotIndexRecordHotness(record);
+  if (hotness === null) return null;
+  if (!record || typeof record !== 'object') {
+    return { story_id: normalizedStoryId, hotness };
+  }
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  if (recordStoryId && recordStoryId !== normalizedStoryId) {
+    return null;
+  }
+  return {
+    ...record,
+    story_id: normalizedStoryId,
+    hotness,
+  };
+}
+
+function finiteNonNegativeInteger(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function latestIndexProductMetadataStatus(record, story) {
+  if (!story || typeof story !== 'object') return 'story_missing';
+  if (!record || typeof record !== 'object') return 'missing';
+  const sourceCount = Array.isArray(story.sources) ? story.sources.length : 0;
+  const canonicalSourceCount = Array.isArray(story.primary_sources)
+    ? story.primary_sources.length
+    : sourceCount;
+  const hasSchema = record.product_state_schema_version === 'vh-news-product-feed-index-v1';
+  const hasStory = String(record.story_id ?? '').trim() === String(story.story_id ?? '').trim();
+  const hasTopic = String(record.topic_id ?? '').trim() === String(story.topic_id ?? '').trim();
+  const hasRevision = String(record.source_set_revision ?? '').trim() === String(story.provenance_hash ?? '').trim();
+  const hasSourceCounts =
+    finiteNonNegativeInteger(record.source_count) === sourceCount &&
+    finiteNonNegativeInteger(record.canonical_source_count) === canonicalSourceCount;
+  const hasTimestamps =
+    finiteNonNegativeInteger(record.story_created_at) === finiteNonNegativeInteger(story.created_at) &&
+    finiteNonNegativeInteger(record.cluster_window_start) === finiteNonNegativeInteger(story.cluster_window_start);
+  if (hasSchema && hasStory && hasTopic && hasRevision && hasSourceCounts && hasTimestamps) {
+    return 'complete';
+  }
+  return hasSchema || hasTopic || finiteNonNegativeInteger(record.source_count) !== null
+    ? 'partial_or_mismatch'
+    : 'missing';
+}
+
+function storySourceCount(story) {
+  if (!story || typeof story !== 'object') return 0;
+  const canonical = Array.isArray(story.primary_sources) ? story.primary_sources : null;
+  const sources = canonical ?? (Array.isArray(story.sources) ? story.sources : []);
+  return sources.length;
+}
+
+function lifecycleStateFields(lifecycle) {
+  if (!lifecycle || typeof lifecycle !== 'object') {
+    return {
+      lifecycle_source_set_revision: null,
+      lifecycle_updated_at: null,
+    };
+  }
+  return {
+    lifecycle_source_set_revision: typeof lifecycle.source_set_revision === 'string'
+      ? lifecycle.source_set_revision
+      : null,
+    lifecycle_updated_at: Number.isFinite(lifecycle.updated_at)
+      ? lifecycle.updated_at
+      : null,
+  };
+}
+
+function derivePublicFeedStoryState(story, synthesis, lifecycle) {
+  const acceptedAvailable = acceptedSynthesisMatchesStoryRevision(story, synthesis, lifecycle);
+  const frameReady = hasFrameTableReadyPayload(synthesis);
+  const lifecycleFields = lifecycleStateFields(lifecycle);
+  if (lifecycle?.status === 'suppressed') {
+    return {
+      synthesis_state: 'accepted_synthesis_suppressed',
+      frame_table_state: 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
+      terminal_unavailable_reason: lifecycle.reason ?? 'suppressed',
+      retryable: false,
+    };
+  }
+  if (acceptedAvailable) {
+    return {
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: frameReady ? 'frame_table_ready' : 'frame_table_unavailable',
+      synthesis_id: synthesis.synthesis_id ?? null,
+      epoch: Number.isFinite(synthesis.epoch) ? synthesis.epoch : null,
+      lifecycle_status: lifecycle?.status ?? 'accepted_available',
+      ...lifecycleFields,
+      terminal_unavailable_reason: null,
+      retryable: false,
+    };
+  }
+  if (lifecycle?.status === 'terminal_unavailable') {
+    return {
+      synthesis_state: 'synthesis_terminal_unavailable',
+      frame_table_state: 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
+      terminal_unavailable_reason: lifecycle.reason ?? 'terminal_unavailable',
+      retryable: false,
+    };
+  }
+  if (lifecycle?.status === 'retryable_failure') {
+    return {
+      synthesis_state: 'synthesis_loading',
+      frame_table_state: 'frame_table_pending',
+      synthesis_id: lifecycle.synthesis_id ?? null,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      ...lifecycleFields,
+      terminal_unavailable_reason: null,
+      retryable: true,
+    };
+  }
+  return {
+    synthesis_state: lifecycle?.status === 'in_progress' ? 'synthesis_loading' : 'synthesis_pending',
+    frame_table_state: 'frame_table_pending',
+    synthesis_id: lifecycle?.synthesis_id ?? null,
+    epoch: Number.isFinite(lifecycle?.epoch) ? lifecycle.epoch : null,
+    lifecycle_status: lifecycle?.status ?? 'pending',
+    ...lifecycleFields,
+    terminal_unavailable_reason: null,
+    retryable: lifecycle?.retryable === true,
+  };
+}
+
+function createFeedCompositionAccumulator(now = Date.now()) {
+  return {
+    total_visible: 0,
+    singleton_visible: 0,
+    multi_source_visible: 0,
+    pending_synthesis: 0,
+    synthesis_loading: 0,
+    accepted_synthesis_available: 0,
+    terminal_unavailable: 0,
+    accepted_synthesis_suppressed: 0,
+    frame_table_ready: 0,
+    frame_table_unavailable: 0,
+    source_count_total: 0,
+    average_source_count: 0,
+    max_source_count: 0,
+    latest_activity_at: null,
+    freshness_age_ms: null,
+    now_ms: now,
+  };
+}
+
+function accumulateFeedComposition(composition, story, record, state) {
+  const sourceCount = storySourceCount(story);
+  const latestActivityAt = Number(record?.latest_activity_at ?? resolveLatestActivityFromStory(story) ?? 0);
+  composition.total_visible += 1;
+  if (sourceCount <= 1) composition.singleton_visible += 1;
+  else composition.multi_source_visible += 1;
+  composition.source_count_total += sourceCount;
+  composition.max_source_count = Math.max(composition.max_source_count, sourceCount);
+  if (state.synthesis_state === 'synthesis_pending') composition.pending_synthesis += 1;
+  if (state.synthesis_state === 'synthesis_loading') composition.synthesis_loading += 1;
+  if (state.synthesis_state === 'accepted_synthesis_available') composition.accepted_synthesis_available += 1;
+  if (state.synthesis_state === 'synthesis_terminal_unavailable') composition.terminal_unavailable += 1;
+  if (state.synthesis_state === 'accepted_synthesis_suppressed') composition.accepted_synthesis_suppressed += 1;
+  if (state.frame_table_state === 'frame_table_ready') composition.frame_table_ready += 1;
+  if (state.frame_table_state === 'frame_table_unavailable') composition.frame_table_unavailable += 1;
+  if (Number.isFinite(latestActivityAt) && latestActivityAt > 0) {
+    composition.latest_activity_at = Math.max(composition.latest_activity_at ?? 0, Math.floor(latestActivityAt));
+  }
+}
+
+function finalizeFeedComposition(composition) {
+  if (composition.total_visible > 0) {
+    composition.average_source_count = Number((composition.source_count_total / composition.total_visible).toFixed(3));
+  }
+  if (composition.latest_activity_at !== null) {
+    composition.freshness_age_ms = Math.max(0, composition.now_ms - composition.latest_activity_at);
+  }
+  delete composition.source_count_total;
+  return composition;
+}
+
+function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) {
+  const latestActivityAt = resolveLatestActivityFromStory(story) ?? Math.max(0, Math.floor(fallbackPriority || 0));
+  const sourceCount = Array.isArray(story?.sources) ? story.sources.length : 0;
+  const canonicalSourceCount = Array.isArray(story?.primary_sources)
+    ? story.primary_sources.length
+    : sourceCount;
+  return {
+    story_id: storyId,
+    latest_activity_at: latestActivityAt,
+    product_state_schema_version: 'vh-news-product-feed-index-v1',
+    topic_id: typeof story?.topic_id === 'string' ? story.topic_id : null,
+    source_set_revision: typeof story?.provenance_hash === 'string' ? story.provenance_hash : null,
+    source_count: sourceCount,
+    canonical_source_count: canonicalSourceCount,
+    story_created_at: Number.isFinite(Number(story?.created_at)) ? Math.max(0, Math.floor(Number(story.created_at))) : null,
+    cluster_window_start: Number.isFinite(Number(story?.cluster_window_start))
+      ? Math.max(0, Math.floor(Number(story.cluster_window_start)))
+      : null,
+  };
+}
+
+const RELAY_HOTNESS_ROUNDING_SCALE = 1_000_000;
+const RELAY_HOTNESS_MS_PER_HOUR = 3_600_000;
+const RELAY_HOTNESS_CONFIG = {
+  decayHalfLifeHours: 8,
+  breakingWindowHours: 3,
+  breakingVelocityBoost: 0.75,
+  weights: {
+    coverage: 0.32,
+    velocity: 0.38,
+    confidence: 0.12,
+    sourceDiversity: 0.08,
+    freshness: 0.1,
+  },
+};
+
+function relayClamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
+  return value;
+}
+
+function relayNormalizeUnitInterval(value, fallback) {
+  return typeof value === 'number' ? relayClamp01(value) : relayClamp01(fallback);
+}
+
+function relaySourceDiversityScore(sourceCount) {
+  if (!Number.isFinite(sourceCount) || sourceCount <= 0) return 0;
+  return relayClamp01(Math.log1p(sourceCount) / Math.log(8));
+}
+
+function computeRelayStoryHotness(story, nowMs = Date.now()) {
+  const latestActivityAt = Math.max(0, Math.floor(Number(story?.cluster_window_end) || 0));
+  const normalizedNow = Number.isFinite(nowMs) && nowMs >= 0 ? Math.floor(nowMs) : latestActivityAt;
+  const ageHours = Math.max(0, normalizedNow - latestActivityAt) / RELAY_HOTNESS_MS_PER_HOUR;
+  const freshness = Math.pow(2, -ageHours / Math.max(0.25, RELAY_HOTNESS_CONFIG.decayHalfLifeHours));
+  const features = story?.cluster_features && typeof story.cluster_features === 'object'
+    ? story.cluster_features
+    : {};
+  const coverage = relayNormalizeUnitInterval(features.coverage_score, 0.35);
+  const velocity = relayNormalizeUnitInterval(features.velocity_score, 0.2);
+  const confidence = relayNormalizeUnitInterval(features.confidence_score, 0.5);
+  const sourceDiversity = relaySourceDiversityScore(Array.isArray(story?.sources) ? story.sources.length : 0);
+  const weightedBase =
+    RELAY_HOTNESS_CONFIG.weights.coverage * coverage +
+    RELAY_HOTNESS_CONFIG.weights.velocity * velocity +
+    RELAY_HOTNESS_CONFIG.weights.confidence * confidence +
+    RELAY_HOTNESS_CONFIG.weights.sourceDiversity * sourceDiversity +
+    RELAY_HOTNESS_CONFIG.weights.freshness * freshness;
+  const breakingMultiplier = ageHours <= Math.max(0, RELAY_HOTNESS_CONFIG.breakingWindowHours)
+    ? 1 + Math.max(0, RELAY_HOTNESS_CONFIG.breakingVelocityBoost) * velocity
+    : 1;
+  return Math.round(Math.max(0, weightedBase * breakingMultiplier) * RELAY_HOTNESS_ROUNDING_SCALE)
+    / RELAY_HOTNESS_ROUNDING_SCALE;
+}
+
+function synthesizeHotIndexRecordFromStory(storyId, story) {
+  const latestMetadata = synthesizeLatestIndexRecordFromStory(storyId, story, resolveLatestActivityFromStory(story));
+  const { latest_activity_at: _latestActivityAt, ...productMetadata } = latestMetadata;
+  return {
+    story_id: storyId,
+    hotness: computeRelayStoryHotness(story),
+    ...productMetadata,
+  };
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -1050,43 +1941,1118 @@ async function readLinkedGunRecord(gun, value, timeoutMs) {
   return linked !== null && linked !== undefined ? linked : value;
 }
 
+async function readNewsLatestIndexRecord(gun, storyId, timeoutMs = 1_500) {
+  const indexChain = gun.get('vh').get('news').get('index').get('latest');
+  const raw = stripGunMetadata(await readOnce(indexChain.get(storyId), timeoutMs));
+  const record = stripGunMetadata(await readLinkedGunRecord(gun, raw, timeoutMs));
+  if (!record || typeof record !== 'object') return null;
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const latestActivityAt = Number(record.latest_activity_at);
+  if (recordStoryId === storyId && Number.isFinite(latestActivityAt) && latestActivityAt >= 0) {
+    return record;
+  }
+  return null;
+}
+
+async function readNewsHotIndexRecord(gun, storyId, timeoutMs = 1_500) {
+  const indexChain = gun.get('vh').get('news').get('index').get('hot');
+  const raw = stripGunMetadata(await readOnce(indexChain.get(storyId), timeoutMs));
+  const record = stripGunMetadata(await readLinkedGunRecord(gun, raw, timeoutMs));
+  if (!record || typeof record !== 'object') return null;
+  const recordStoryId = typeof record.story_id === 'string' ? record.story_id.trim() : '';
+  const hotness = Number(record.hotness);
+  if (recordStoryId === storyId && Number.isFinite(hotness) && hotness >= 0) {
+    return record;
+  }
+  return null;
+}
+
+async function pollNewsLatestIndexBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await readNewsLatestIndexRecord(gun, storyId, 1_500);
+    if (latest) return latest;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return latest;
+}
+
+async function pollNewsHotIndexBack(gun, storyId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  let hot = null;
+  while (Date.now() < deadline) {
+    hot = await readNewsHotIndexRecord(gun, storyId, 1_500);
+    if (hot) return hot;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return hot;
+}
+
+async function readIndexMapSnapshots(indexChain, timeoutMs, maxKeys) {
+  return new Promise((resolve) => {
+    const snapshots = {};
+    let mapped = null;
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        mapped?.off?.();
+      } catch {
+        // Best-effort cleanup for Gun map listeners.
+      }
+      resolve(snapshots);
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    try {
+      mapped = indexChain.map();
+      mapped.on((value, key) => {
+        if (settled || typeof key !== 'string' || key === '_' || !key.trim()) {
+          return;
+        }
+        const clean = stripGunMetadata(value);
+        if (clean !== null && clean !== undefined) {
+          snapshots[key] = clean;
+        }
+        if (Object.keys(snapshots).length >= maxKeys) {
+          clearTimeout(timer);
+          finish();
+        }
+      });
+    } catch {
+      clearTimeout(timer);
+      finish();
+    }
+  });
+}
+
 async function readNewsLatestIndexRecords(gun, options = {}) {
   const indexChain = gun.get('vh').get('news').get('index').get('latest');
   const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000);
   const childTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750);
+  const storyTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 2_500);
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
     positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
   );
+  const consistencyFilter = options.consistencyFilter !== false
+    && boolEnv('VH_RELAY_NEWS_INDEX_REST_CONSISTENCY_FILTER', true);
+  const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK', consistencyFilter);
+  const storyFallbackEnabled = boolEnv('VH_RELAY_NEWS_INDEX_REST_STORY_FALLBACK', false);
   const concurrency = numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32);
+  const beforeCursor = options.before === undefined || options.before === null || String(options.before).trim() === ''
+    ? Number.NaN
+    : Number(options.before);
+  const hasBeforeCursor = Number.isFinite(beforeCursor) && beforeCursor >= 0;
   const rawRoot = await readOnce(indexChain, rootTimeoutMs);
-  const sourceKeys = extractIndexChildKeys(rawRoot);
-  const keys = sourceKeys.slice(0, maxRecords);
+  const requestedScanLimit = consistencyFilter
+    ? positiveInteger(
+      options.scanLimit,
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS', Math.max(maxRecords * 4, maxRecords)),
+    )
+    : maxRecords;
+  const rootKeys = extractIndexChildKeys(rawRoot);
+  const mapSnapshots = rootKeys.length === 0 && mapFallbackEnabled
+    ? await readIndexMapSnapshots(indexChain, childTimeoutMs, requestedScanLimit)
+    : {};
+  const readableRoot = Object.keys(mapSnapshots).length > 0
+    ? {
+      ...(rawRoot && typeof rawRoot === 'object' ? stripGunMetadata(rawRoot) : {}),
+      ...mapSnapshots,
+    }
+    : rawRoot;
+  const latestSourceKeys = extractIndexChildKeys(readableRoot);
+  let storyFallbackKeys = [];
+  if (consistencyFilter && storyFallbackEnabled && (latestSourceKeys.length === 0 || hasBeforeCursor)) {
+    const storyRootChain = gun.get('vh').get('news').get('stories');
+    const rawStoryRoot = await readOnce(storyRootChain, rootTimeoutMs).catch(() => null);
+    const storyRootKeys = extractIndexChildKeys(rawStoryRoot);
+    const storyMapSnapshots = storyRootKeys.length === 0
+      ? await readIndexMapSnapshots(storyRootChain, childTimeoutMs, requestedScanLimit)
+      : {};
+    const readableStoryRoot = Object.keys(storyMapSnapshots).length > 0
+      ? {
+        ...(rawStoryRoot && typeof rawStoryRoot === 'object' ? stripGunMetadata(rawStoryRoot) : {}),
+        ...storyMapSnapshots,
+      }
+      : rawStoryRoot;
+    storyFallbackKeys = extractIndexChildKeys(readableStoryRoot);
+  }
+  const sourceKeys = Array.from(new Set([...latestSourceKeys, ...storyFallbackKeys]));
+  const scanSourceKeys = !consistencyFilter && hasBeforeCursor
+    ? sourceKeys.filter((storyId) => indexEntryPriority(readableRoot, storyId) < beforeCursor)
+    : sourceKeys;
+  const scanLimit = requestedScanLimit;
+  const keys = scanSourceKeys.slice(0, Math.min(scanSourceKeys.length, scanLimit));
   const records = {};
+  const stories = {};
+  const storyStates = {};
+  const excludedRecords = [];
+  const repairedRecords = [];
+  const composition = createFeedCompositionAccumulator();
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
-    const direct = rawRoot && typeof rawRoot === 'object' && storyId in rawRoot
-      ? stripGunMetadata(rawRoot[storyId])
+    const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
+      ? stripGunMetadata(readableRoot[storyId])
       : null;
     const child = await readLinkedGunRecord(
       gun,
       stripGunMetadata(await readOnce(indexChain.get(storyId), childTimeoutMs)),
       childTimeoutMs,
     );
-    if (child !== null && child !== undefined) {
-      return [storyId, child];
+    const record = child !== null && child !== undefined
+      ? child
+      : direct !== null && direct !== undefined
+        ? await readLinkedGunRecord(gun, direct, childTimeoutMs)
+        : null;
+
+    if (!consistencyFilter) {
+      return record !== null && record !== undefined ? [storyId, record] : null;
     }
-    if (direct !== null && direct !== undefined) {
-      return [storyId, await readLinkedGunRecord(gun, direct, childTimeoutMs)];
+
+    const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs: storyTimeoutMs });
+    if (!storyResult) {
+      return {
+        excluded: {
+          story_id: storyId,
+          reason: 'story_body_missing',
+          latest_activity_at: latestIndexRecordTimestamp(record) ?? indexEntryPriority(readableRoot, storyId) ?? null,
+        },
+      };
     }
-    return null;
+    const fallbackLatestActivityAt = latestIndexRecordTimestamp(record) ?? indexEntryPriority(readableRoot, storyId);
+
+    const [synthesisResult, initialLifecycle] = await Promise.all([
+      readTopicLatestSynthesisRecord(gun, storyResult.story.topic_id).catch(() => null),
+      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+    ]);
+    const lifecycle = await refreshPotentiallyStaleLifecycleRecord(
+      gun,
+      storyResult.story,
+      synthesisResult?.synthesis,
+      initialLifecycle,
+    );
+    const storyState = derivePublicFeedStoryState(storyResult.story, synthesisResult?.synthesis, lifecycle);
+
+    if (record !== null && record !== undefined && latestIndexRecordHasTimestamp(record)) {
+      const metadataStatus = latestIndexProductMetadataStatus(record, storyResult.story);
+      if (metadataStatus === 'complete') {
+        return { entry: [storyId, record], story: storyResult.story, storyState };
+      }
+      const synthesized = synthesizeLatestIndexRecordFromStory(
+        storyId,
+        storyResult.story,
+        fallbackLatestActivityAt,
+      );
+      return {
+        entry: [storyId, synthesized],
+        story: storyResult.story,
+        storyState,
+        repaired: {
+          story_id: storyId,
+          reason: `latest_index_product_metadata_${metadataStatus}_from_story_body`,
+          latest_activity_at: synthesized.latest_activity_at,
+        },
+      };
+    }
+
+    const synthesized = synthesizeLatestIndexRecordFromStory(
+      storyId,
+      storyResult.story,
+      fallbackLatestActivityAt,
+    );
+    return {
+      entry: [storyId, synthesized],
+      story: storyResult.story,
+      storyState,
+      repaired: {
+        story_id: storyId,
+        reason: record === null || record === undefined
+          ? 'latest_index_record_missing_from_story_body'
+          : isGunLinkRecord(record)
+            ? 'latest_index_record_unresolved_link_from_story_body'
+            : 'latest_index_record_timestamp_missing_from_story_body',
+        latest_activity_at: synthesized.latest_activity_at,
+      },
+    };
   });
+  const visibleEntries = [];
   for (const entry of entries) {
-    if (entry) records[entry[0]] = entry[1];
+    if (!entry) continue;
+    if (Array.isArray(entry)) {
+      const timestamp = latestIndexRecordTimestamp(entry[1]);
+      if (hasBeforeCursor && (!Number.isFinite(timestamp) || timestamp >= beforeCursor)) continue;
+      visibleEntries.push({ entry, story: null, storyState: null });
+      continue;
+    }
+    if (entry.excluded) {
+      const excludedTimestamp = Number(entry.excluded.latest_activity_at);
+      if (hasBeforeCursor && (!Number.isFinite(excludedTimestamp) || excludedTimestamp >= beforeCursor)) continue;
+      excludedRecords.push(entry.excluded);
+      continue;
+    }
+    if (entry.repaired) {
+      repairedRecords.push(entry.repaired);
+    }
+    if (entry.entry) {
+      const timestamp = latestIndexRecordTimestamp(entry.entry[1]);
+      if (hasBeforeCursor && (!Number.isFinite(timestamp) || timestamp >= beforeCursor)) continue;
+      visibleEntries.push(entry);
+    }
+  }
+  visibleEntries.sort((left, right) => {
+    const leftTimestamp = latestIndexRecordTimestamp(left.entry?.[1]) ?? 0;
+    const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
+    return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
+  });
+  const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
+  const selectedEntries = [...chronologicalPageEntries];
+  const compositionBackfillRecords = [];
+  const shouldBackfillCorroboratedStory =
+    consistencyFilter
+    && !hasBeforeCursor
+    && selectedEntries.length > 0
+    && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
+  if (shouldBackfillCorroboratedStory) {
+    const selectedStoryIds = new Set(selectedEntries.map((entry) => String(entry.entry?.[0] ?? '')));
+    const corroboratedBackfill = visibleEntries.find((entry) =>
+      !selectedStoryIds.has(String(entry.entry?.[0] ?? ''))
+      && storySourceCount(entry.story) > 1);
+    if (corroboratedBackfill) {
+      selectedEntries.push(corroboratedBackfill);
+      compositionBackfillRecords.push({
+        story_id: corroboratedBackfill.entry[0],
+        reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+        source_count: storySourceCount(corroboratedBackfill.story),
+        latest_activity_at: latestIndexRecordTimestamp(corroboratedBackfill.entry[1]) ?? null,
+      });
+    }
+  }
+  for (const entry of selectedEntries) {
+    records[entry.entry[0]] = entry.entry[1];
+    if (entry.story) {
+      stories[entry.entry[0]] = entry.story;
+    }
+    if (entry.story && entry.storyState) {
+      storyStates[entry.entry[0]] = entry.storyState;
+      accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
+    }
   }
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
-    truncated: sourceKeys.length > keys.length,
+    windowSourceKeyCount: !consistencyFilter && hasBeforeCursor
+      ? scanSourceKeys.length
+      : hasBeforeCursor
+        ? visibleEntries.length + excludedRecords.length
+        : sourceKeys.length,
+    scannedKeyCount: keys.length,
+    truncated: scanSourceKeys.length > keys.length || visibleEntries.length > chronologicalPageEntries.length,
+    before: hasBeforeCursor ? Math.floor(beforeCursor) : null,
+    nextCursor: chronologicalPageEntries
+      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .sort((a, b) => a - b)[0] ?? null,
+    consistency: {
+      enabled: consistencyFilter,
+      mode: consistencyFilter ? 'relay_visible_filter' : 'disabled',
+      scan_limit: keys.length,
+      excluded_count: excludedRecords.length,
+      repaired_count: repairedRecords.length,
+      story_body_timeout_ms: consistencyFilter ? storyTimeoutMs : null,
+      latest_index_source_key_count: latestSourceKeys.length,
+      story_fallback_enabled: Boolean(consistencyFilter && storyFallbackEnabled),
+      story_fallback_key_count: storyFallbackKeys.length,
+    },
+    composition: finalizeFeedComposition(composition),
+    storyStates,
+    excludedRecords,
+    repairedRecords,
+    compositionBackfillRecords,
+    records,
+    stories,
+    snapshotEntries: visibleEntries,
+  };
+}
+
+function latestIndexParsedBefore(options = {}) {
+  const beforeValue = options.before === undefined || options.before === null || String(options.before).trim() === ''
+    ? null
+    : Number(options.before);
+  return Number.isFinite(beforeValue) && beforeValue >= 0 ? Math.floor(beforeValue) : null;
+}
+
+function latestIndexRestCacheKey(options = {}) {
+  return JSON.stringify({
+    limit: options.limit ?? null,
+    includeRoot: Boolean(options.includeRoot),
+    includeExcluded: Boolean(options.includeExcluded),
+    consistencyFilter: options.consistencyFilter === false ? false : true,
+    scanLimit: options.scanLimit ?? null,
+    before: latestIndexParsedBefore(options),
+  });
+}
+
+function latestIndexSnapshotCacheKey(options = {}) {
+  return JSON.stringify({
+    consistencyFilter: options.consistencyFilter === false ? false : true,
+  });
+}
+
+function serializeNewsLatestIndexSnapshot(snapshotKey, snapshot) {
+  return {
+    schema_version: 'vh-news-latest-index-relay-snapshot-v1',
+    snapshot_key: snapshotKey,
+    cached_at: snapshot.cached_at,
+    source_key_count: snapshot.sourceKeyCount,
+    scanned_key_count: snapshot.scannedKeyCount,
+    consistency: snapshot.consistency,
+    repaired_records: snapshot.repairedRecords,
+    entries: (Array.isArray(snapshot.entries) ? snapshot.entries : []).map((entry) => ({
+      story_id: String(entry.entry?.[0] ?? ''),
+      record: entry.entry?.[1] ?? null,
+      story: entry.story ?? null,
+      story_state: entry.storyState ?? null,
+    })).filter((entry) => entry.story_id && entry.record && entry.story),
+  };
+}
+
+function deserializeNewsLatestIndexSnapshot(value) {
+  if (!value || typeof value !== 'object' || value.schema_version !== 'vh-news-latest-index-relay-snapshot-v1') {
+    return null;
+  }
+  if (!Array.isArray(value.entries) || typeof value.snapshot_key !== 'string') return null;
+  return {
+    snapshotKey: value.snapshot_key,
+    snapshot: {
+      cached_at: Number(value.cached_at) || 0,
+      sourceKeyCount: Number(value.source_key_count) || value.entries.length,
+      scannedKeyCount: Number(value.scanned_key_count) || value.entries.length,
+      consistency: value.consistency && typeof value.consistency === 'object' ? value.consistency : {},
+      repairedRecords: Array.isArray(value.repaired_records) ? value.repaired_records : [],
+      entries: value.entries
+        .filter((entry) => entry && typeof entry.story_id === 'string' && entry.record && entry.story)
+        .map((entry) => ({
+          entry: [entry.story_id, entry.record],
+          story: entry.story,
+          storyState: entry.story_state ?? null,
+        })),
+    },
+  };
+}
+
+function persistNewsLatestIndexSnapshot(snapshotKey, snapshot) {
+  if (!newsLatestIndexSnapshotFile) return;
+  try {
+    fs.mkdirSync(path.dirname(newsLatestIndexSnapshotFile), { recursive: true });
+    const tmpFile = `${newsLatestIndexSnapshotFile}.tmp`;
+    fs.writeFileSync(
+      tmpFile,
+      `${JSON.stringify(serializeNewsLatestIndexSnapshot(snapshotKey, snapshot))}\n`,
+    );
+    fs.renameSync(tmpFile, newsLatestIndexSnapshotFile);
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_persist_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
+  if (!newsLatestIndexSnapshotFile) return null;
+  try {
+    if (!fs.existsSync(newsLatestIndexSnapshotFile)) return null;
+    const parsed = deserializeNewsLatestIndexSnapshot(
+      JSON.parse(fs.readFileSync(newsLatestIndexSnapshotFile, 'utf8')),
+    );
+    if (!parsed || parsed.snapshotKey !== snapshotKey) return null;
+    if (cacheTtlMs > 0 && Date.now() - parsed.snapshot.cached_at > cacheTtlMs) return null;
+    newsLatestIndexSnapshotCache.set(snapshotKey, parsed.snapshot);
+    return parsed.snapshot;
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_read_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function emptyNewsLatestIndexSnapshot() {
+  return {
+    cached_at: 0,
+    sourceKeyCount: 0,
+    scannedKeyCount: 0,
+    consistency: {},
+    repairedRecords: [],
+    entries: [],
+  };
+}
+
+function storyFromNewsStoryWriteRecord(record, storyId) {
+  if (!record || typeof record !== 'object') return null;
+  const story = parseStoryBundleEnvelope(record.__story_bundle_json);
+  return story?.story_id === storyId ? story : null;
+}
+
+function deriveSnapshotStoryStateFromLifecycle(story, lifecycle) {
+  if (!story || !lifecycle || typeof lifecycle !== 'object') {
+    return story ? derivePublicFeedStoryState(story, null, null) : null;
+  }
+  const revisionMatches = typeof story.provenance_hash === 'string'
+    && story.provenance_hash.trim()
+    && lifecycle.source_set_revision === story.provenance_hash;
+  if (
+    lifecycle.status === 'accepted_available'
+    && revisionMatches
+    && typeof lifecycle.synthesis_id === 'string'
+    && lifecycle.synthesis_id.trim()
+  ) {
+    return {
+      synthesis_state: 'accepted_synthesis_available',
+      frame_table_state: lifecycle.frame_table_state === 'frame_table_ready'
+        ? 'frame_table_ready'
+        : 'frame_table_unavailable',
+      synthesis_id: lifecycle.synthesis_id,
+      epoch: Number.isFinite(lifecycle.epoch) ? lifecycle.epoch : null,
+      lifecycle_status: lifecycle.status,
+      ...lifecycleStateFields(lifecycle),
+      terminal_unavailable_reason: null,
+      retryable: false,
+    };
+  }
+  return derivePublicFeedStoryState(story, null, lifecycle);
+}
+
+async function upsertNewsLatestIndexSnapshotFromWrite(gun, {
+  storyId,
+  latestRecord = null,
+  storyRecord = null,
+  lifecycleRecord = null,
+  reason = 'news_write',
+} = {}) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return false;
+  try {
+    const snapshotKey = latestIndexSnapshotCacheKey({ consistencyFilter: true });
+    const existingSnapshot = newsLatestIndexSnapshotCache.get(snapshotKey)
+      ?? readPersistedNewsLatestIndexSnapshot(snapshotKey, 0)
+      ?? emptyNewsLatestIndexSnapshot();
+    const entries = Array.isArray(existingSnapshot.entries) ? [...existingSnapshot.entries] : [];
+    const existingIndex = entries.findIndex((entry) =>
+      String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim() === normalizedStoryId);
+    const existingEntry = existingIndex >= 0
+      ? entries[existingIndex]
+      : { entry: [normalizedStoryId, null], story: null, storyState: null };
+    const readTimeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_WRITE_THROUGH_READ_TIMEOUT_MS', 500);
+    let nextRecord = latestRecord && typeof latestRecord === 'object'
+      ? latestRecord
+      : existingEntry.entry?.[1] ?? null;
+    let nextStory = storyFromNewsStoryWriteRecord(storyRecord, normalizedStoryId)
+      ?? existingEntry.story
+      ?? null;
+
+    if (!nextStory && gun) {
+      const storyResult = await readNewsStoryRecord(gun, normalizedStoryId, {
+        timeoutMs: readTimeoutMs,
+        allowSnapshotFallback: false,
+      }).catch(() => null);
+      nextStory = storyResult?.story ?? null;
+    }
+    if (!nextRecord && gun) {
+      nextRecord = await readNewsLatestIndexRecord(gun, normalizedStoryId, readTimeoutMs).catch(() => null);
+    }
+
+    let nextStoryState = existingEntry.storyState ?? null;
+    if (nextStory && lifecycleRecord) {
+      nextStoryState = deriveSnapshotStoryStateFromLifecycle(nextStory, lifecycleRecord);
+    } else if (nextStory && !nextStoryState) {
+      nextStoryState = deriveSnapshotStoryStateFromLifecycle(nextStory, null);
+    }
+
+    if (!nextRecord && !nextStory && !nextStoryState) return false;
+
+    const nextEntry = {
+      entry: [normalizedStoryId, nextRecord],
+      story: nextStory,
+      storyState: nextStoryState,
+    };
+    if (existingIndex >= 0) {
+      entries[existingIndex] = nextEntry;
+    } else {
+      entries.push(nextEntry);
+    }
+
+    const completeEntryCount = entries.filter((entry) => entry?.entry?.[1] && entry?.story).length;
+    const now = Date.now();
+    const snapshot = {
+      cached_at: now,
+      entries,
+      sourceKeyCount: Math.max(Number(existingSnapshot.sourceKeyCount) || 0, completeEntryCount),
+      scannedKeyCount: Math.max(Number(existingSnapshot.scannedKeyCount) || 0, completeEntryCount),
+      consistency: {
+        ...(existingSnapshot.consistency ?? {}),
+        latest_index_write_through: {
+          story_id: normalizedStoryId,
+          updated_at: now,
+          reason,
+          has_record: Boolean(nextRecord),
+          has_story: Boolean(nextStory),
+          has_story_state: Boolean(nextStoryState),
+        },
+      },
+      repairedRecords: Array.isArray(existingSnapshot.repairedRecords)
+        ? existingSnapshot.repairedRecords
+        : [],
+    };
+    newsLatestIndexSnapshotCache.set(snapshotKey, snapshot);
+    if (nextStory) {
+      newsLatestIndexSnapshotStoryBodyCache.set(normalizedStoryId, {
+        checked_at: now,
+        story: nextStory,
+      });
+    }
+    newsLatestIndexRestCache.clear();
+    persistNewsLatestIndexSnapshot(snapshotKey, snapshot);
+    return true;
+  } catch (error) {
+    logEvent('warn', 'news_latest_index_snapshot_write_through_failed', {
+      story_id: normalizedStoryId,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+function readNewsStoryRecordFromLatestIndexSnapshot(storyId) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return null;
+  const cacheTtlMs = Math.max(
+    0,
+    numberEnv(
+      'VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK_TTL_MS',
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS', 5 * 60_000),
+    ),
+  );
+  const snapshotKey = latestIndexSnapshotCacheKey({ consistencyFilter: true });
+  const snapshot = newsLatestIndexSnapshotCache.get(snapshotKey)
+    ?? readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs);
+  const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
+  const matched = entries.find((entry) =>
+    String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim() === normalizedStoryId
+    && entry?.story?.story_id === normalizedStoryId);
+  if (!matched?.story) return null;
+  const story = parseStoryBundleEnvelope(JSON.stringify(matched.story));
+  if (!story || story.story_id !== normalizedStoryId) return null;
+  return {
+    record: {
+      story_id: normalizedStoryId,
+      __story_bundle_json: JSON.stringify(story),
+    },
+    story,
+    source: 'latest-index-snapshot',
+  };
+}
+
+async function refreshSnapshotEntryStoryState(gun, entry) {
+  if (!gun || !entry?.story || !entry?.entry?.[0]) {
+    return { entry, refreshed: false };
+  }
+  const story = entry.story;
+  const storyId = typeof story.story_id === 'string' && story.story_id.trim()
+    ? story.story_id.trim()
+    : String(entry.entry[0] ?? '').trim();
+  if (!storyId || typeof story.topic_id !== 'string' || !story.topic_id.trim()) {
+    return { entry, refreshed: false };
+  }
+
+  const fieldTimeoutMs = numberEnv('VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS', 250);
+  const fieldLifecycle = await readNewsSynthesisLifecycleRecordFromFields(gun, storyId, { timeoutMs: fieldTimeoutMs })
+    .catch(() => null);
+  const initialLifecycle = fieldLifecycle
+    ?? await readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null);
+  if (!initialLifecycle) {
+    return { entry, refreshed: false };
+  }
+  const lifecycleRevisionMatches = typeof story.provenance_hash === 'string'
+    && story.provenance_hash.trim()
+    && initialLifecycle.source_set_revision === story.provenance_hash;
+  if (
+    initialLifecycle.status === 'accepted_available'
+    && lifecycleRevisionMatches
+    && typeof initialLifecycle.synthesis_id === 'string'
+    && initialLifecycle.synthesis_id.trim()
+  ) {
+    return {
+      entry: {
+        ...entry,
+        storyState: {
+          synthesis_state: 'accepted_synthesis_available',
+          frame_table_state: initialLifecycle.frame_table_state === 'frame_table_ready'
+            ? 'frame_table_ready'
+            : 'frame_table_unavailable',
+          synthesis_id: initialLifecycle.synthesis_id,
+          epoch: Number.isFinite(initialLifecycle.epoch) ? initialLifecycle.epoch : null,
+          lifecycle_status: initialLifecycle.status,
+          ...lifecycleStateFields(initialLifecycle),
+          terminal_unavailable_reason: null,
+          retryable: false,
+        },
+      },
+      refreshed: true,
+    };
+  }
+  if (initialLifecycle.status !== 'accepted_available') {
+    return {
+      entry: {
+        ...entry,
+        storyState: derivePublicFeedStoryState(story, null, initialLifecycle),
+      },
+      refreshed: true,
+    };
+  }
+  return {
+    entry: {
+      ...entry,
+      storyState: derivePublicFeedStoryState(story, null, initialLifecycle),
+    },
+    refreshed: true,
+  };
+}
+
+function shouldRefreshSnapshotEntryStoryState(entry) {
+  if (entry?.story) {
+    const stateRevision = typeof entry.storyState?.lifecycle_source_set_revision === 'string'
+      ? entry.storyState.lifecycle_source_set_revision.trim()
+      : '';
+    const storyRevision = typeof entry.story.provenance_hash === 'string'
+      ? entry.story.provenance_hash.trim()
+      : '';
+    if (
+      !entry.storyState
+      || !stateRevision
+      || !Number.isFinite(entry.storyState.lifecycle_updated_at)
+      || (storyRevision && stateRevision !== storyRevision)
+    ) {
+      return true;
+    }
+    return false;
+  }
+  const snapshotState = String(entry?.storyState?.synthesis_state ?? '').trim();
+  if (snapshotState && snapshotState !== 'synthesis_pending') return true;
+  return storySourceCount(entry?.story) > 1;
+}
+
+async function verifySnapshotStoryBodies(gun, entries) {
+  if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES', true)) {
+    return {
+      entries,
+      info: {
+        enabled: false,
+        selected_count: entries.length,
+        verified_count: 0,
+        dropped_count: 0,
+      },
+    };
+  }
+  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CONCURRENCY', 4));
+  const timeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 2_500);
+  const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CACHE_TTL_MS', 5 * 60_000));
+  const checked = await mapWithConcurrency(entries, concurrency, async (entry) => {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    if (!storyId) return { entry: null, verified: false };
+    const cached = newsLatestIndexSnapshotStoryBodyCache.get(storyId);
+    if (cached && cacheTtlMs > 0 && Date.now() - cached.checked_at <= cacheTtlMs) {
+      return cached.story
+        ? {
+          entry: {
+            ...entry,
+            story: cached.story,
+          },
+          verified: true,
+          cached: true,
+        }
+        : { entry: null, verified: false, cached: true };
+    }
+    const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs }).catch(() => null);
+    if (!storyResult?.story) {
+      if (cacheTtlMs > 0) {
+        newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: null });
+      }
+      return { entry: null, verified: false, cached: false };
+    }
+    if (cacheTtlMs > 0) {
+      newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: storyResult.story });
+    }
+    return {
+      entry: {
+        ...entry,
+        story: storyResult.story,
+      },
+      verified: true,
+      cached: false,
+    };
+  });
+  return {
+    entries: checked.map((result) => result.entry).filter(Boolean),
+    info: {
+      enabled: true,
+      selected_count: entries.length,
+      verified_count: checked.filter((result) => result.verified).length,
+      dropped_count: checked.filter((result) => !result.entry).length,
+      cached_count: checked.filter((result) => result.cached).length,
+    },
+  };
+}
+
+async function refreshSnapshotStoryStates(gun, entries) {
+  if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES', true)) {
+    return {
+      entries,
+      info: {
+        enabled: false,
+        selected_count: entries.length,
+        refreshed_count: 0,
+      },
+    };
+  }
+  const refreshCandidates = entries
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => shouldRefreshSnapshotEntryStoryState(entry));
+  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_CONCURRENCY', 3));
+  const refreshed = await mapWithConcurrency(refreshCandidates, concurrency, ({ entry }) =>
+    refreshSnapshotEntryStoryState(gun, entry));
+  const nextEntries = [...entries];
+  for (let index = 0; index < refreshed.length; index += 1) {
+    nextEntries[refreshCandidates[index].index] = refreshed[index].entry;
+  }
+  return {
+    entries: nextEntries,
+    info: {
+      enabled: true,
+      selected_count: entries.length,
+      candidate_count: refreshCandidates.length,
+      refreshed_count: refreshed.filter((result) => result.refreshed).length,
+    },
+  };
+}
+
+function persistRefreshedLatestIndexSnapshotEntries(snapshot, options, refreshedEntries, refreshInfo) {
+  const refreshedCount = Number(refreshInfo?.refreshed_count) || 0;
+  if (refreshedCount <= 0 || !Array.isArray(snapshot?.entries) || !Array.isArray(refreshedEntries)) {
+    return;
+  }
+  const refreshedByStoryId = new Map();
+  for (const entry of refreshedEntries) {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    if (storyId) {
+      refreshedByStoryId.set(storyId, entry);
+    }
+  }
+  if (refreshedByStoryId.size === 0) {
+    return;
+  }
+  const nextEntries = snapshot.entries.map((entry) => {
+    const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+    return refreshedByStoryId.get(storyId) ?? entry;
+  });
+  const snapshotKey = latestIndexSnapshotCacheKey(options);
+  const now = Date.now();
+  const nextSnapshot = {
+    ...snapshot,
+    cached_at: now,
+    entries: nextEntries,
+    consistency: {
+      ...(snapshot.consistency ?? {}),
+      latest_index_snapshot_story_state_persist: {
+        updated_at: now,
+        refreshed_count: refreshedCount,
+      },
+    },
+  };
+  newsLatestIndexSnapshotCache.set(snapshotKey, nextSnapshot);
+  persistNewsLatestIndexSnapshot(snapshotKey, nextSnapshot);
+}
+
+async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {}, cacheInfo = {}) {
+  const maxRecords = Math.min(
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
+    positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
+  );
+  const beforeCursor = latestIndexParsedBefore(options);
+  const hasBeforeCursor = beforeCursor !== null;
+  const visibleEntries = (Array.isArray(snapshot.entries) ? snapshot.entries : [])
+    .filter((entry) => {
+      const timestamp = latestIndexRecordTimestamp(entry.entry?.[1]);
+      return !hasBeforeCursor || (Number.isFinite(timestamp) && timestamp < beforeCursor);
+    })
+    .sort((left, right) => {
+      const leftTimestamp = latestIndexRecordTimestamp(left.entry?.[1]) ?? 0;
+      const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
+      return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
+    });
+  const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
+  let selectedEntries = [...chronologicalPageEntries];
+  const compositionBackfillRecords = [];
+  const shouldBackfillCorroboratedStory =
+    !hasBeforeCursor
+    && selectedEntries.length > 0
+    && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
+  if (shouldBackfillCorroboratedStory) {
+    const selectedStoryIds = new Set(selectedEntries.map((entry) => String(entry.entry?.[0] ?? '')));
+    const corroboratedBackfill = visibleEntries.find((entry) =>
+      !selectedStoryIds.has(String(entry.entry?.[0] ?? ''))
+      && storySourceCount(entry.story) > 1);
+    if (corroboratedBackfill) {
+      selectedEntries.push(corroboratedBackfill);
+      compositionBackfillRecords.push({
+        story_id: corroboratedBackfill.entry[0],
+        reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+        source_count: storySourceCount(corroboratedBackfill.story),
+        latest_activity_at: latestIndexRecordTimestamp(corroboratedBackfill.entry[1]) ?? null,
+      });
+    }
+  }
+  const bodyReadbackResult = await verifySnapshotStoryBodies(gun, selectedEntries);
+  selectedEntries = bodyReadbackResult.entries;
+  const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
+  selectedEntries = refreshResult.entries;
+  persistRefreshedLatestIndexSnapshotEntries(snapshot, options, selectedEntries, refreshResult.info);
+  const records = {};
+  const stories = {};
+  const storyStates = {};
+  const composition = createFeedCompositionAccumulator();
+  for (const entry of selectedEntries) {
+    records[entry.entry[0]] = entry.entry[1];
+    if (entry.story) {
+      stories[entry.entry[0]] = entry.story;
+    }
+    if (entry.story && entry.storyState) {
+      storyStates[entry.entry[0]] = entry.storyState;
+      accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
+    }
+  }
+  return {
+    root: null,
+    sourceKeyCount: snapshot.sourceKeyCount ?? visibleEntries.length,
+    windowSourceKeyCount: visibleEntries.length,
+    scannedKeyCount: snapshot.scannedKeyCount ?? visibleEntries.length,
+    truncated: visibleEntries.length > chronologicalPageEntries.length,
+    before: beforeCursor,
+    nextCursor: chronologicalPageEntries
+      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
+      .filter((value) => Number.isFinite(value) && value >= 0)
+      .sort((a, b) => a - b)[0] ?? null,
+    consistency: {
+      ...(snapshot.consistency ?? {}),
+      empty_read_cache: cacheInfo,
+      snapshot_story_body_readback: bodyReadbackResult.info,
+      snapshot_story_state_refresh: refreshResult.info,
+    },
+    composition: finalizeFeedComposition(composition),
+    storyStates,
+    excludedRecords: [],
+    repairedRecords: snapshot.repairedRecords ?? [],
+    compositionBackfillRecords,
+    records,
+    stories,
+    snapshotEntries: snapshot.entries,
+  };
+}
+
+async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
+  const retryAttempts = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_ATTEMPTS', 1));
+  const retryDelayMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_DELAY_MS', 250));
+  const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS', 5 * 60_000));
+  const cacheKey = latestIndexRestCacheKey(options);
+  const snapshotCacheKey = latestIndexSnapshotCacheKey(options);
+  if (boolEnv('VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT', false)) {
+    const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
+      ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
+    if (snapshot && Array.isArray(snapshot.entries) && snapshot.entries.length > 0) {
+      return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
+        served_from: 'preferred_latest_index_snapshot',
+        cached_at: snapshot.cached_at,
+        age_ms: Date.now() - snapshot.cached_at,
+      });
+    }
+  }
+  let lastResult = null;
+  for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+    const result = await readNewsLatestIndexRecords(gun, options);
+    lastResult = result;
+    const hasRecords = Object.keys(result.records).length > 0;
+    const hasIndexEvidence = Number(result.sourceKeyCount) > 0
+      || Number(result.windowSourceKeyCount) > 0
+      || Number(result.scannedKeyCount) > 0;
+    if (hasRecords || hasIndexEvidence || attempt === retryAttempts - 1) {
+      if (hasRecords && cacheKey && cacheTtlMs > 0) {
+        newsLatestIndexRestCache.set(cacheKey, { cached_at: Date.now(), result });
+      }
+      if (hasRecords && Array.isArray(result.snapshotEntries) && result.snapshotEntries.length > 0 && cacheTtlMs > 0) {
+        const snapshot = {
+          cached_at: Date.now(),
+          entries: result.snapshotEntries,
+          sourceKeyCount: result.sourceKeyCount,
+          scannedKeyCount: result.scannedKeyCount,
+          consistency: result.consistency,
+          repairedRecords: result.repairedRecords,
+        };
+        newsLatestIndexSnapshotCache.set(snapshotCacheKey, snapshot);
+        persistNewsLatestIndexSnapshot(snapshotCacheKey, snapshot);
+      }
+      if (!hasRecords && cacheKey && cacheTtlMs > 0) {
+        const cached = newsLatestIndexRestCache.get(cacheKey);
+        if (cached && Date.now() - cached.cached_at <= cacheTtlMs) {
+          return {
+            ...cached.result,
+            consistency: {
+              ...(cached.result.consistency ?? {}),
+              empty_read_cache: {
+                served_from: 'last_non_empty_latest_index',
+                cached_at: cached.cached_at,
+                age_ms: Date.now() - cached.cached_at,
+              },
+            },
+          };
+        }
+        const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
+          ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
+        if (snapshot && Date.now() - snapshot.cached_at <= cacheTtlMs) {
+          return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
+            served_from: 'last_non_empty_latest_index_snapshot',
+            cached_at: snapshot.cached_at,
+            age_ms: Date.now() - snapshot.cached_at,
+          });
+        }
+      }
+      return result;
+    }
+    if (retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  return lastResult ?? await readNewsLatestIndexRecords(gun, options);
+}
+
+async function readNewsHotIndexRecords(gun, options = {}) {
+  const indexChain = gun.get('vh').get('news').get('index').get('hot');
+  const rootTimeoutMs = numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_ROOT_TIMEOUT_MS',
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_ROOT_TIMEOUT_MS', 2_000));
+  const childTimeoutMs = numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_CHILD_TIMEOUT_MS',
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_CHILD_TIMEOUT_MS', 750));
+  const maxRecords = Math.min(
+    numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS',
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
+    positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_MAX_RECORDS',
+      numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80))),
+  );
+  const concurrency = numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_CONCURRENCY',
+    numberEnv('VH_RELAY_NEWS_INDEX_REST_CONCURRENCY', 32));
+  const requestedScanLimit = positiveInteger(
+    options.scanLimit,
+    numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_SCAN_RECORDS', maxRecords),
+  );
+  const rootScanLimit = Math.min(
+    requestedScanLimit,
+    positiveInteger(
+      options.rootScanLimit,
+      numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_ROOT_SCAN_RECORDS', Math.min(requestedScanLimit, 32)),
+    ),
+  );
+  const mapFallbackEnabled = boolEnv('VH_RELAY_NEWS_HOT_INDEX_REST_MAP_FALLBACK', true);
+  const rawRoot = await readOnce(indexChain, rootTimeoutMs);
+  const rootKeys = extractIndexChildKeys(rawRoot);
+  const mapSnapshots = rootKeys.length === 0 && mapFallbackEnabled
+    ? await readIndexMapSnapshots(indexChain, childTimeoutMs, requestedScanLimit)
+    : {};
+  const readableRoot = Object.keys(mapSnapshots).length > 0
+    ? {
+      ...(rawRoot && typeof rawRoot === 'object' ? stripGunMetadata(rawRoot) : {}),
+      ...mapSnapshots,
+    }
+    : rawRoot;
+  const sourceKeys = extractIndexChildKeys(readableRoot);
+  const keys = sourceKeys.slice(0, Math.min(sourceKeys.length, rootScanLimit));
+  const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
+    const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
+      ? stripGunMetadata(readableRoot[storyId])
+      : null;
+    const child = await readLinkedGunRecord(
+      gun,
+      stripGunMetadata(await readOnce(indexChain.get(storyId), childTimeoutMs)),
+      childTimeoutMs,
+    );
+    const record = child !== null && child !== undefined
+      ? child
+      : direct !== null && direct !== undefined
+        ? await readLinkedGunRecord(gun, direct, childTimeoutMs)
+        : null;
+    const normalized = normalizeHotIndexRecordForResponse(storyId, record);
+    return normalized ? [storyId, normalized] : null;
+  });
+  const visibleEntries = entries
+    .filter(Boolean)
+    .sort((left, right) =>
+      (hotIndexRecordHotness(right[1]) ?? 0) - (hotIndexRecordHotness(left[1]) ?? 0)
+      || String(left[0]).localeCompare(String(right[0])),
+    );
+  const mergedEntries = [...visibleEntries];
+  const seenStoryIds = new Set(mergedEntries.map((entry) => String(entry[0])));
+  let latestFallbackInfo = null;
+  if (maxRecords > 0) {
+    const latestFallback = await readNewsLatestIndexRecordsWithEmptyRetry(gun, {
+      limit: maxRecords,
+      scanLimit: Math.max(maxRecords, rootScanLimit),
+      consistencyFilter: true,
+    }).catch((error) => {
+      latestFallbackInfo = {
+        attempted: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      return null;
+    });
+    if (latestFallback) {
+      let added = 0;
+      for (const [storyId, story] of Object.entries(latestFallback.stories ?? {})) {
+        const hotRecord = synthesizeHotIndexRecordFromStory(storyId, story);
+        if (hotIndexRecordHotness(hotRecord) === null) continue;
+        if (seenStoryIds.has(storyId)) {
+          const existingIndex = mergedEntries.findIndex((entry) => String(entry[0]) === storyId);
+          if (
+            existingIndex >= 0
+            && latestIndexProductMetadataStatus(mergedEntries[existingIndex][1], story) !== 'complete'
+          ) {
+            mergedEntries[existingIndex] = [storyId, hotRecord];
+          }
+          continue;
+        }
+        mergedEntries.push([storyId, hotRecord]);
+        seenStoryIds.add(storyId);
+        added += 1;
+      }
+      latestFallbackInfo = {
+        attempted: true,
+        added_count: added,
+        latest_record_count: Object.keys(latestFallback.records ?? {}).length,
+      };
+    }
+  }
+  const sortedEntries = mergedEntries
+    .sort((left, right) =>
+      (hotIndexRecordHotness(right[1]) ?? 0) - (hotIndexRecordHotness(left[1]) ?? 0)
+      || String(left[0]).localeCompare(String(right[0])),
+    );
+  const records = {};
+  for (const entry of sortedEntries.slice(0, maxRecords)) {
+    records[entry[0]] = entry[1];
+  }
+  return {
+    root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
+    sourceKeyCount: sourceKeys.length,
+    scannedKeyCount: keys.length,
+    truncated: sourceKeys.length > keys.length || sortedEntries.length > Object.keys(records).length,
+    latestFallback: latestFallbackInfo,
     records,
   };
 }
@@ -1187,7 +3153,51 @@ function mergeAggregateRowsByVoter(rows) {
   return [...byVoter.values()];
 }
 
-async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 750) {
+async function readAggregateVoterRowsViaMap(votersChain, context, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const mapped = votersChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+    const rowsByVoter = new Map();
+    const startedAt = Date.now();
+    let lastEventAt = startedAt;
+    let settled = false;
+    const callback = (voterPayload, voterId) => {
+      if (typeof voterId !== 'string' || !voterId.trim() || voterId === '_') {
+        return;
+      }
+      lastEventAt = Date.now();
+      const row = parseAggregateVoterRow(voterId, voterPayload, context);
+      if (row) {
+        rowsByVoter.set(voterId, row);
+      }
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(watchdogInterval);
+      clearTimeout(maxTimer);
+      try {
+        mapped.off?.(callback);
+      } catch {
+        // Best-effort Gun map cleanup.
+      }
+      resolve([...rowsByVoter.values()]);
+    };
+    const watchdogInterval = setInterval(() => {
+      const now = Date.now();
+      if (now - lastEventAt >= 200 || now - startedAt >= timeoutMs) {
+        finish();
+      }
+    }, 50);
+    const maxTimer = setTimeout(finish, timeoutMs + 100);
+    mapped.once(callback);
+  });
+}
+
+async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 1500) {
   return new Promise((resolve) => {
     const mapped = votersChain.map?.();
     if (!mapped?.once) {
@@ -1212,12 +3222,23 @@ async function readAggregateVoterIdsViaMap(votersChain, timeoutMs = 750) {
   });
 }
 
-async function readAggregateVoterRows(gun, context) {
+function selfGunPeerUrl() {
+  const normalizedHost = !host || host === '0.0.0.0' || host === '::'
+    ? '127.0.0.1'
+    : host;
+  const bracketedHost = normalizedHost.includes(':') && !normalizedHost.startsWith('[')
+    ? `[${normalizedHost}]`
+    : normalizedHost;
+  return `http://${bracketedHost}:${port}/gun`;
+}
+
+async function readAggregateVoterRowsFromGun(gun, context, timeoutMs = aggregateVoterReadTimeoutMs) {
   const votersChain = gun.get('vh').get('aggregates').get('topics').get(context.topicId)
     .get('syntheses').get(context.synthesisId)
     .get('epochs').get(String(context.epoch))
     .get('voters');
-  const raw = stripGunMetadata(await readOnce(votersChain, 750));
+  const raw = stripGunMetadata(await readOnce(votersChain, timeoutMs));
+  const mapRows = await readAggregateVoterRowsViaMap(votersChain, context, timeoutMs);
   const rootRows = [];
   const voterIds = new Set();
   if (raw && typeof raw === 'object') {
@@ -1228,11 +3249,14 @@ async function readAggregateVoterRows(gun, context) {
       if (row) rootRows.push(row);
     }
   }
-  for (const voterId of await readAggregateVoterIdsViaMap(votersChain)) {
+  for (const row of mapRows) {
+    voterIds.add(row.voter_id);
+  }
+  for (const voterId of await readAggregateVoterIdsViaMap(votersChain, timeoutMs)) {
     voterIds.add(voterId);
   }
   const leafRows = await Promise.all([...voterIds].map(async (voterId) => {
-    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), 750);
+    const direct = await readOnce(votersChain.get(voterId).get(context.pointId), timeoutMs);
     const node = parseAggregateVoterNodeForRead(direct, context, voterId);
     if (!node) return null;
     const updatedAtMs = Date.parse(node.updated_at);
@@ -1242,7 +3266,53 @@ async function readAggregateVoterRows(gun, context) {
       updated_at_ms: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? Math.floor(updatedAtMs) : 0,
     };
   }));
-  return mergeAggregateRowsByVoter([...rootRows, ...leafRows]);
+  return mergeAggregateRowsByVoter([...rootRows, ...mapRows, ...leafRows]);
+}
+
+async function readAggregateVoterRowsViaSelfPeer(context) {
+  if (!aggregateVoterSelfPeerReadbackEnabled) return [];
+  const peerGun = Gun({
+    peers: [selfGunPeerUrl()],
+    localStorage: false,
+    radisk: false,
+    file: false,
+    axe: false,
+  });
+  let timedOut = false;
+  let timeoutHandle = null;
+  try {
+    const rowsPromise = readAggregateVoterRowsFromGun(
+      peerGun,
+      context,
+      aggregateVoterSelfPeerReadTimeoutMs,
+    ).catch(() => []);
+    const timeoutPromise = new Promise((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        resolve([]);
+      }, Math.max(1, aggregateVoterSelfPeerReadTimeoutMs + 250));
+    });
+    const rows = await Promise.race([rowsPromise, timeoutPromise]);
+    if (timedOut) {
+      logEvent('warn', 'aggregate_self_peer_readback_timeout', {
+        topic_id: context.topicId,
+        synthesis_id: context.synthesisId,
+        epoch: context.epoch,
+        point_id: context.pointId,
+        timeout_ms: aggregateVoterSelfPeerReadTimeoutMs,
+      });
+    }
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    try {
+      peerGun.off?.();
+    } catch {
+      // Best-effort loopback Gun client cleanup.
+    }
+  }
 }
 
 async function readAggregatePointSnapshot(gun, context) {
@@ -1350,12 +3420,28 @@ async function readAggregatePoint(gun, params) {
   const cached = readAggregatePointCache(context);
   if (cached) return cached;
 
-  const [snapshot, rows] = await Promise.all([
+  const [snapshot, localRows] = await Promise.all([
     readAggregatePointSnapshot(gun, context),
-    readAggregateVoterRows(gun, context),
+    readAggregateVoterRowsFromGun(gun, context),
   ]);
-  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
   const materialized = snapshotAggregate(snapshot);
+  const localAggregate = summarizeAggregateRows(context.pointId, localRows);
+  const shouldReadSelfPeerRows = aggregateVoterSelfPeerReadbackEnabled && (
+    localRows.length === 0 ||
+    (materialized && localAggregate.participants <= materialized.participants)
+  );
+  const rows = shouldReadSelfPeerRows ||
+    (
+      !aggregateVoterSelfPeerReadbackEnabled &&
+      localRows.length === 0 &&
+      (!materialized || materialized.participants <= 0)
+    )
+    ? mergeAggregateRowsByVoter([
+      ...localRows,
+      ...await readAggregateVoterRowsViaSelfPeer(context),
+    ])
+    : localRows;
+  const rowAggregate = summarizeAggregateRows(context.pointId, rows);
   const aggregate = !materialized ||
     rowAggregate.participants > materialized.participants ||
     rowAggregate.weight > materialized.weight
@@ -1598,6 +3684,23 @@ function sanitizeTopicSynthesis(value) {
   };
 }
 
+function sanitizeTopicSynthesisCandidate(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('synthesis-candidate-required');
+  }
+  const topicId = typeof value.topic_id === 'string' ? value.topic_id.trim() : '';
+  const candidateId = typeof value.candidate_id === 'string' ? value.candidate_id.trim() : '';
+  if (!topicId) throw new Error('synthesis-candidate-topic-required');
+  if (!candidateId) throw new Error('synthesis-candidate-id-required');
+  if (!Number.isFinite(value.epoch)) throw new Error('synthesis-candidate-epoch-required');
+  return {
+    ...value,
+    topic_id: topicId,
+    candidate_id: candidateId,
+    epoch: Math.floor(value.epoch),
+  };
+}
+
 function normalizeRequiredString(value, name) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) throw new Error(`${name}-required`);
@@ -1832,6 +3935,103 @@ async function writeForumComment(gun, comment) {
 async function writeTopicSynthesis(gun, synthesis) {
   const clean = sanitizeTopicSynthesis(synthesis);
   injectGraph(gun, buildTopicSynthesisGraph(clean));
+  upsertTopicSynthesisLatestSnapshot(clean);
+  const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
+  if (!readback) {
+    throw new Error('topic-synthesis-readback-failed');
+  }
+  return clean;
+}
+
+async function writeTopicSynthesisCandidate(gun, candidate) {
+  const clean = sanitizeTopicSynthesisCandidate(candidate);
+  const candidateChain = gun
+    .get('vh')
+    .get('topics')
+    .get(clean.topic_id)
+    .get('epochs')
+    .get(String(clean.epoch))
+    .get('candidates')
+    .get(clean.candidate_id);
+  injectGraph(gun, buildTopicSynthesisCandidateGraph(clean));
+  const readback = stripGunMetadata(await readOnce(candidateChain, 5_000));
+  if (!readback || readback.candidate_id !== clean.candidate_id) {
+    throw new Error('topic-synthesis-candidate-readback-failed');
+  }
+  return clean;
+}
+
+async function writeNewsStoryRecord(gun, body) {
+  const clean = sanitizeNewsStoryWrite(body);
+  injectGraph(gun, buildNewsStoryGraph(clean));
+  const readback = await pollNewsStoryBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
+  if (!readback) {
+    throw new Error('news-story-readback-failed');
+  }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    storyRecord: clean.record,
+    reason: 'story_write',
+  });
+  return clean;
+}
+
+async function writeNewsLatestIndexRecord(gun, body) {
+  const clean = sanitizeNewsLatestIndexWrite(body);
+  injectGraph(gun, buildNewsLatestIndexGraph(clean));
+  const readback = await pollNewsLatestIndexBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
+  if (!readback) {
+    throw new Error('news-latest-index-readback-failed');
+  }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    latestRecord: readback,
+    reason: 'latest_index_write',
+  });
+  return clean;
+}
+
+async function writeNewsHotIndexRecord(gun, body) {
+  const clean = sanitizeNewsHotIndexWrite(body);
+  injectGraph(gun, buildNewsHotIndexGraph(clean));
+  const readback = await pollNewsHotIndexBack(
+    gun,
+    clean.story_id,
+    numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
+      numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
+  );
+  if (!readback) {
+    throw new Error('news-hot-index-readback-failed');
+  }
+  return clean;
+}
+
+async function writeNewsSynthesisLifecycleRecord(gun, body) {
+  const clean = sanitizeNewsSynthesisLifecycleWrite(body);
+  injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
+  upsertNewsSynthesisLifecycleSnapshot(clean.record);
+  const readback = await pollNewsSynthesisLifecycleBack(
+    gun,
+    clean.story_id,
+    clean.record,
+    numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
+  );
+  if (!readback) {
+    throw new Error('news-synthesis-lifecycle-readback-failed');
+  }
+  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+    storyId: clean.story_id,
+    lifecycleRecord: readback,
+    reason: 'synthesis_lifecycle_write',
+  });
   return clean;
 }
 
@@ -1848,10 +4048,19 @@ async function writeAggregatePointSnapshot(gun, snapshot) {
 }
 
 function compactHistoricalHealthProbes(gun) {
+  if (healthProbeCompactionMaxRecords <= 0) {
+    logEvent('info', 'health_probe_compaction_skipped', {
+      reason: 'max-records-not-configured',
+    });
+    return;
+  }
   metrics.compactionRuns += 1;
   let tombstoned = 0;
   try {
     gun.get('vh').get('__health').map().once((value, key) => {
+      if (tombstoned >= healthProbeCompactionMaxRecords) {
+        return;
+      }
       if (typeof key !== 'string' || !key.startsWith('__vh_health_probe_')) {
         return;
       }
@@ -1877,7 +4086,9 @@ async function handleWriteRoute(req, res, pathname, kind, write) {
     incMap(metrics.writeSuccesses, label);
     sendJson(res, 200, { ok: true, ...payload });
   } catch (error) {
-    const status = error?.statusCode || (String(error?.message || '').includes('required') ? 400 : 500);
+    const message = String(error?.message || '');
+    const status = error?.statusCode
+      || (/(required|invalid|mismatch|private-field)/.test(message) ? 400 : 500);
     if (status === 401 || status === 403 || status === 503) {
       metrics.authRejects += 1;
     }
@@ -2034,6 +4245,7 @@ const server = http.createServer((req, res) => {
           ok: true,
           story_id: result.story.story_id,
           topic_id: result.story.topic_id,
+          source: result.source ?? 'story-body',
           story: result.story,
           record: result.record,
         });
@@ -2052,13 +4264,61 @@ const server = http.createServer((req, res) => {
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
-    void readNewsLatestIndexRecords(gun, { limit, includeRoot })
+    const includeExcluded = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_EXCLUDED', false)
+      || parsedUrl.searchParams.get('include_excluded') === 'true';
+    const consistencyFilter = parsedUrl.searchParams.get('consistency') === 'false'
+      ? false
+      : undefined;
+    const scanLimit = parsedUrl.searchParams.get('scan_limit');
+    const before = parsedUrl.searchParams.get('before');
+    void readNewsLatestIndexRecordsWithEmptyRetry(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before })
       .then((result) => {
         const payload = {
           ok: true,
           record_count: Object.keys(result.records).length,
           source_key_count: result.sourceKeyCount,
+          window_source_key_count: result.windowSourceKeyCount,
+          scanned_key_count: result.scannedKeyCount,
           truncated: result.truncated,
+          before: result.before,
+          next_cursor: result.nextCursor,
+          consistency: result.consistency,
+          composition: result.composition,
+          composition_backfill_records: result.compositionBackfillRecords,
+          story_states: result.storyStates,
+          records: result.records,
+          stories: result.stories,
+        };
+        if (result.root) payload.root = result.root;
+        if (includeExcluded) {
+          payload.excluded_records = result.excludedRecords;
+          payload.repaired_records = result.repairedRecords;
+        }
+        sendJson(res, 200, payload);
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/hot-index') {
+    const limit = parsedUrl.searchParams.get('limit');
+    const includeRoot = boolEnv('VH_RELAY_NEWS_HOT_INDEX_REST_INCLUDE_ROOT', false)
+      || parsedUrl.searchParams.get('include_root') === 'true';
+    const scanLimit = parsedUrl.searchParams.get('scan_limit');
+    void readNewsHotIndexRecords(gun, { limit, includeRoot, scanLimit })
+      .then((result) => {
+        const payload = {
+          ok: true,
+          record_count: Object.keys(result.records).length,
+          source_key_count: result.sourceKeyCount,
+          scanned_key_count: result.scannedKeyCount,
+          truncated: result.truncated,
+          latest_fallback: result.latestFallback,
           records: result.records,
         };
         if (result.root) payload.root = result.root;
@@ -2068,6 +4328,46 @@ const server = http.createServer((req, res) => {
         sendJson(res, 502, {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/news/synthesis-lifecycle') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    if (!storyId) {
+      sendJson(res, 400, { ok: false, error: 'story_id-required' });
+      return;
+    }
+    void Promise.all([
+      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+      readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
+    ])
+      .then(([direct, fromFields]) => {
+        const lifecycle = direct ?? fromFields;
+        if (!lifecycle) {
+          sendJson(res, 404, {
+            ok: false,
+            error: 'news-synthesis-lifecycle-not-found',
+            story_id: storyId,
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          story_id: storyId,
+          topic_id: lifecycle.topic_id,
+          status: lifecycle.status,
+          frame_table_state: lifecycle.frame_table_state,
+          lifecycle,
+          record: lifecycle,
+        });
+      })
+      .catch((error) => {
+        sendJson(res, 502, {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          story_id: storyId,
         });
       });
     return;
@@ -2192,6 +4492,53 @@ const server = http.createServer((req, res) => {
       return {
         topic_id: synthesis.topic_id,
         synthesis_id: synthesis.synthesis_id,
+      };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/topics/synthesis-candidate') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const candidate = await writeTopicSynthesisCandidate(gun, body.candidate);
+      return {
+        topic_id: candidate.topic_id,
+        epoch: candidate.epoch,
+        candidate_id: candidate.candidate_id,
+      };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/story') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsStoryRecord(gun, body);
+      return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/latest-index') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsLatestIndexRecord(gun, body);
+      return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/hot-index') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsHotIndexRecord(gun, body);
+      return { story_id: write.story_id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/news/synthesis-lifecycle') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const write = await writeNewsSynthesisLifecycleRecord(gun, body);
+      return {
+        story_id: write.story_id,
+        status: write.record.status,
       };
     });
     return;

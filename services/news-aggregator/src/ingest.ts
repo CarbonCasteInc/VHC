@@ -221,6 +221,25 @@ function firstTag(block: string, tag: string): string | undefined {
   return undefined;
 }
 
+function resolveBrokenFeedpressLink(block: string, candidate: string | undefined): string | undefined {
+  if (!candidate) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.hostname !== 'feeds.texastribune.org' || !parsed.pathname.startsWith('/link/')) {
+      return candidate;
+    }
+    const guid = firstTag(block, 'guid');
+    if (guid && /^https:\/\/www\.texastribune\.org\/\?p=\d+/i.test(guid)) {
+      return guid;
+    }
+  } catch {
+    return candidate;
+  }
+  return candidate;
+}
+
 /** Extract href from an Atom `<link>` element. */
 function extractAtomLink(block: string): string | undefined {
   // Match <link ... href="..." .../>  or <link ...>...</link>
@@ -245,7 +264,7 @@ function extractAtomLink(block: string): string | undefined {
 function parseRssItems(xml: string, sourceId: string): RawFeedItem[] {
   const items = extractTags(xml, 'item');
   return items.flatMap((block) => {
-    const url = firstTag(block, 'link');
+    const url = resolveBrokenFeedpressLink(block, firstTag(block, 'link'));
     const title = firstTag(block, 'title');
     if (!url || !title) return [];
     const publishedAt =

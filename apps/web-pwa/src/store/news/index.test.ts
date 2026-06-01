@@ -4,8 +4,13 @@ import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenNewsPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readLatestStoryIdsMock = vi.fn<(client: unknown, limit?: number) => Promise<string[]>>();
-const readNewsLatestIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
-const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
+const readNewsLatestIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number> | {
+  index: Record<string, number>;
+  nextCursor: number | null;
+  recordCount: number;
+  stories?: Record<string, StoryBundle>;
+}>>();
+const readNewsHotIndexMock = vi.fn<(client: unknown, options?: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
 const readNewsStorylineMock = vi.fn<(client: unknown, storylineId: string) => Promise<unknown>>();
 
@@ -16,8 +21,20 @@ vi.mock('./hydration', () => ({
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenNewsPayloadFields: hasForbiddenNewsPayloadFieldsMock,
   readLatestStoryIds: readLatestStoryIdsMock,
-  readNewsHotIndex: readNewsHotIndexMock,
+  readNewsHotIndexWithRelayRestFallback: readNewsHotIndexMock,
   readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
+  readNewsLatestIndexPageWithRelayRestFallback: vi.fn(async (...args: unknown[]) => {
+    const result = await readNewsLatestIndexMock(...args);
+    if (result && typeof result === 'object' && 'index' in result) {
+      return result;
+    }
+    const index = result as Record<string, number>;
+    return {
+      index,
+      nextCursor: null,
+      recordCount: Object.keys(index).length,
+    };
+  }),
   readNewsStory: readNewsStoryMock,
   readNewsStoryViaRelayRest: readNewsStoryMock,
   readNewsStoryWithRelayRestFallback: readNewsStoryMock,
@@ -90,7 +107,7 @@ function deferred<T>(): {
 describe('news store', () => {
   it('exports news store type surface version marker', async () => {
     const { getNewsStoreTypesVersion } = await import('./types');
-    expect(getNewsStoreTypesVersion()).toBe('storycluster-pr5-hot-index-v1');
+    expect(getNewsStoreTypesVersion()).toBe('storycluster-pr6-public-feed-cursor-v1');
   });
 
   beforeEach(() => {
@@ -491,6 +508,101 @@ describe('news store', () => {
     expect(readNewsHotIndexMock).not.toHaveBeenCalled();
   });
 
+  it('refreshLatest can read the same-origin public relay before the app mesh client is ready', async () => {
+    vi.stubGlobal('location', { origin: 'https://venn.example' });
+
+    try {
+      const relayStory = story({
+        story_id: 'relay-story',
+        topic_id: 'c'.repeat(64),
+        headline: 'Relay-visible public story',
+        cluster_window_end: 300,
+      });
+      readNewsLatestIndexMock.mockResolvedValueOnce({
+        index: { 'relay-story': 300 },
+        nextCursor: 300,
+        recordCount: 1,
+        stories: { 'relay-story': relayStory },
+      });
+      readNewsHotIndexMock.mockResolvedValue({});
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      await store.getState().refreshLatest(1);
+
+      expect(hydrateNewsStoreMock).not.toHaveBeenCalled();
+      expect(readNewsLatestIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+            systemWriterPin: expect.objectContaining({ writers: expect.any(Array) }),
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsStoryMock).not.toHaveBeenCalled();
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual(['relay-story']);
+      expect(store.getState().latestIndex).toEqual({ 'relay-story': 300 });
+      expect(store.getState().latestIndexCursor).toBe(300);
+      expect(store.getState().loading).toBe(false);
+      expect(store.getState().error).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('refreshLatest keeps using the same-origin public relay after the app mesh client is ready', async () => {
+    vi.stubGlobal('location', { origin: 'https://venn.example' });
+
+    try {
+      hydrateNewsStoreMock.mockReturnValue(true);
+      const meshClient = { id: 'mesh-client' };
+      const relayStory = story({
+        story_id: 'relay-story-ready',
+        topic_id: 'd'.repeat(64),
+        headline: 'Relay-visible story with mesh ready',
+        cluster_window_end: 400,
+      });
+      readNewsLatestIndexMock.mockResolvedValueOnce({
+        index: { 'relay-story-ready': 400 },
+        nextCursor: 400,
+        recordCount: 1,
+        stories: { 'relay-story-ready': relayStory },
+      });
+      readNewsHotIndexMock.mockResolvedValue({});
+
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => meshClient as never });
+
+      await store.getState().refreshLatest(1);
+
+      expect(hydrateNewsStoreMock).toHaveBeenCalled();
+      expect(readNewsLatestIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+            systemWriterPin: expect.objectContaining({ writers: expect.any(Array) }),
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsHotIndexMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            peers: ['https://venn.example/gun'],
+          }),
+        }),
+        { limit: 1 },
+      );
+      expect(readNewsStoryMock).not.toHaveBeenCalled();
+      expect(store.getState().stories.map((item) => item.story_id)).toEqual(['relay-story-ready']);
+      expect(store.getState().loading).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('ensureStory reads a persisted story by id and mirrors it into discovery', async () => {
     const client = { id: 'client-direct-story' };
     const directStory = story({
@@ -726,7 +838,7 @@ describe('news store', () => {
 
     const client = { id: 'client' };
     readNewsLatestIndexMock
-      .mockResolvedValueOnce({ s1: 200, s2: 100 })
+      .mockResolvedValueOnce({ index: { s1: 200, s2: 100 }, nextCursor: 100, recordCount: 2 })
       .mockResolvedValueOnce({});
     readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
     readNewsStoryMock.mockImplementation(async (_client, storyId) => {
@@ -735,6 +847,8 @@ describe('news store', () => {
     });
 
     const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
     const store = createNewsStore({ resolveClient: () => client as never });
 
     await store.getState().refreshLatest(25);
@@ -742,13 +856,73 @@ describe('news store', () => {
     expect(hydrateNewsStoreMock).toHaveBeenCalled();
     expect(readNewsLatestIndexMock).toHaveBeenCalledTimes(1);
     expect(readLatestStoryIdsMock).not.toHaveBeenCalled();
-    expect(readNewsHotIndexMock).toHaveBeenCalledWith(client);
+    expect(readNewsHotIndexMock).toHaveBeenCalledWith(client, { limit: 25 });
     expect(store.getState().hydrated).toBe(true);
     expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
+    expect(store.getState().latestIndexCursor).toBe(100);
     expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
+    expect(useDiscoveryStore.getState().items.map((item) => item.story_id)).toEqual(['s1', 's2']);
+  });
+
+  it('refreshLatest uses relay-embedded latest-index stories before per-story reads', async () => {
+    const client = { id: 'client-embedded-stories' };
+    const embeddedStory = story({
+      story_id: 'embedded-story',
+      headline: 'Embedded relay story',
+      cluster_window_end: 300,
+    });
+    readNewsLatestIndexMock.mockResolvedValueOnce({
+      index: { 'embedded-story': 300 },
+      nextCursor: 300,
+      recordCount: 1,
+      stories: { 'embedded-story': embeddedStory },
+    });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockRejectedValue(new Error('per-story read should not run'));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(1);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['embedded-story']);
+    expect(store.getState().latestIndex).toEqual({ 'embedded-story': 300 });
+    expect(store.getState().latestIndexCursor).toBe(300);
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest merges an older cursor window into the existing feed', async () => {
+    const client = { id: 'client-cursor-window' };
+    readNewsLatestIndexMock
+      .mockResolvedValueOnce({ newer: 300, current: 200 })
+      .mockResolvedValueOnce({ older: 100 });
+    readNewsHotIndexMock
+      .mockResolvedValueOnce({ newer: 0.7, current: 0.4 })
+      .mockResolvedValueOnce({ older: 0.2 });
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({
+        story_id: storyId,
+        headline: `Story ${storyId}`,
+        cluster_window_end: storyId === 'older' ? 100 : storyId === 'current' ? 200 : 300,
+      }),
+    );
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(2);
+    await store.getState().refreshLatest({ limit: 1, before: 200 });
+
+    expect(readNewsLatestIndexMock).toHaveBeenNthCalledWith(2, client, { limit: 1, before: 200 });
+    expect(readNewsHotIndexMock).toHaveBeenNthCalledWith(2, client, { limit: 3 });
+    expect(store.getState().latestIndex).toEqual({ newer: 300, current: 200, older: 100 });
+    expect(store.getState().hotIndex).toEqual({ newer: 0.7, current: 0.4, older: 0.2 });
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['newer', 'current', 'older']);
   });
 
   it('refreshLatest bounds concurrent story reads for large live indexes', async () => {

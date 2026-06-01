@@ -311,12 +311,29 @@ function extractTagText(xmlFragment: string, tagName: string): string | undefine
 function extractLink(xmlFragment: string): string | undefined {
   const hrefMatch =
     /<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\/?>(?:<\/link>)?/i.exec(xmlFragment);
-  if (hrefMatch?.[1]) {
-    return decodeXmlEntities(hrefMatch[1].trim());
-  }
+  const candidate = hrefMatch?.[1]
+    ? decodeXmlEntities(hrefMatch[1].trim())
+    : extractTagText(xmlFragment, 'link')?.trim();
+  return resolveBrokenFeedpressLink(xmlFragment, candidate);
+}
 
-  const textLink = extractTagText(xmlFragment, 'link');
-  return textLink?.trim();
+function resolveBrokenFeedpressLink(xmlFragment: string, candidate: string | undefined): string | undefined {
+  if (!candidate) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.hostname !== 'feeds.texastribune.org' || !parsed.pathname.startsWith('/link/')) {
+      return candidate;
+    }
+    const guid = extractTagText(xmlFragment, 'guid')?.trim();
+    if (guid && /^https:\/\/www\.texastribune\.org\/\?p=\d+/i.test(guid)) {
+      return guid;
+    }
+  } catch {
+    return candidate;
+  }
+  return candidate;
 }
 
 function isLikelyVideoFeedEntry(

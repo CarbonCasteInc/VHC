@@ -10,6 +10,7 @@ import * as VoteIntentMaterializer from './voteIntentMaterializer';
 import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
 import { clearPublishedIdentity, publishIdentity } from '../store/identityProvider';
+import { POINT_AGGREGATE_REFRESH_EVENT } from './pointAggregateRefreshEvents';
 
 vi.mock('@vh/identity-vault', () => ({
   signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
@@ -223,6 +224,40 @@ describe('useSentimentState', () => {
     expect(signal?.weight).toBeGreaterThan(0);
     expect(signal?.topic_id).toBe(TOPIC);
     expect(signal?.analysis_id).toBe(ANALYSIS);
+  });
+
+  it('emits aggregate refresh events for admitted stance changes', () => {
+    const dispatchSpy = vi.spyOn(globalThis, 'dispatchEvent');
+    const proof = proofFor();
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-1',
+      epoch: 0,
+      desired: 1,
+      constituency_proof: proof,
+    });
+
+    const refreshEvent = dispatchSpy.mock.calls
+      .map((call) => call[0])
+      .find((event) => event.type === POINT_AGGREGATE_REFRESH_EVENT) as
+        | CustomEvent
+        | undefined;
+
+    expect(refreshEvent?.detail).toEqual(
+      expect.objectContaining({
+        topicId: TOPIC,
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: POINT,
+        previousAgreement: 0,
+        nextAgreement: 1,
+        previousWeight: 0,
+        weight: 1,
+        reason: 'local_vote',
+      }),
+    );
   });
 
   it('enforces public-beta action policy before stance votes and stance clears', async () => {

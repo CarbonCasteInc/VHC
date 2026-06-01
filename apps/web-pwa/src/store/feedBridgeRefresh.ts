@@ -1,6 +1,8 @@
 interface RefreshableNewsState {
-  refreshLatest: (limit?: number) => Promise<void>;
+  refreshLatest: (request?: number | { readonly limit?: number; readonly before?: number }) => Promise<void>;
 }
+
+type RefreshLatestRequest = Parameters<RefreshableNewsState['refreshLatest']>[0];
 
 function readBridgeNumber(
   keys: ReadonlyArray<string>,
@@ -44,11 +46,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runRefreshLatestWithTimeout(newsState: RefreshableNewsState): Promise<void> {
+async function runRefreshLatestWithTimeout(
+  newsState: RefreshableNewsState,
+  request?: RefreshLatestRequest,
+): Promise<void> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   try {
     await Promise.race([
-      newsState.refreshLatest(),
+      newsState.refreshLatest(request),
       new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(
           () => reject(new Error(`refreshLatest timeout after ${NEWS_BRIDGE_REFRESH_TIMEOUT_MS}ms`)),
@@ -65,12 +70,13 @@ async function runRefreshLatestWithTimeout(newsState: RefreshableNewsState): Pro
 
 export async function runRefreshLatestWithRetry(
   newsState: RefreshableNewsState,
+  request?: RefreshLatestRequest,
 ): Promise<void> {
   let lastError = new Error('refreshLatest failed');
 
   for (let attempt = 1; attempt <= NEWS_BRIDGE_REFRESH_ATTEMPTS; attempt += 1) {
     try {
-      await runRefreshLatestWithTimeout(newsState);
+      await runRefreshLatestWithTimeout(newsState, request);
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));

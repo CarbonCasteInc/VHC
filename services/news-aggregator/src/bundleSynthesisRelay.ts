@@ -37,6 +37,19 @@ function readEnv(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+function shouldUseVhcPromptRelayPayload(upstreamUrl: string): boolean {
+  const explicit = readEnv('VH_BUNDLE_SYNTHESIS_RELAY_PAYLOAD')?.toLowerCase();
+  if (explicit) {
+    return explicit === 'vhc_prompt' || explicit === 'prompt';
+  }
+  try {
+    const parsed = new URL(upstreamUrl);
+    return parsed.pathname === '/api/analyze';
+  } catch {
+    return false;
+  }
+}
+
 function resolveBundleSynthesisApiKey(request: BundleSynthesisRelayRequest): string | undefined {
   return request.apiKey
     ?? readEnv('VH_BUNDLE_SYNTHESIS_API_KEY')
@@ -62,6 +75,45 @@ function assertBundleRateLimit(ratePerMinute: number, nowMs: number): void {
 
 export function resetBundleSynthesisRelayState(): void {
   requestTimestamps = [];
+}
+
+function readRelayContent(body: unknown): string | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+  const record = body as {
+    content?: unknown;
+    response?: { text?: unknown };
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  if (typeof record.content === 'string' && record.content.trim()) {
+    return record.content;
+  }
+  if (typeof record.response?.text === 'string' && record.response.text.trim()) {
+    return record.response.text;
+  }
+  const choiceContent = record.choices?.[0]?.message?.content;
+  if (typeof choiceContent === 'string' && choiceContent.trim()) {
+    return choiceContent;
+  }
+  return null;
+}
+
+function readRelayModel(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') {
+    return fallback;
+  }
+  const record = body as {
+    model?: unknown;
+    provider?: { model_id?: unknown };
+    response?: { model?: unknown };
+  };
+  for (const candidate of [record.model, record.provider?.model_id, record.response?.model]) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate;
+    }
+  }
+  return fallback;
 }
 
 export async function postBundleSynthesisCompletion(
@@ -98,19 +150,26 @@ export async function postBundleSynthesisCompletion(
   const tokenParam = resolveTokenParam(model);
 
   try {
-    const requestBody = {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: 'You synthesize verified news story bundles. Return only strict JSON.',
-        },
-        { role: 'user', content: prompt },
-      ],
-      [tokenParam]: maxTokens,
-      ...(supportsChatTemperatureParam(model) ? { temperature } : {}),
-      response_format: { type: 'json_object' },
-    };
+    const requestBody = shouldUseVhcPromptRelayPayload(upstreamUrl)
+      ? {
+          prompt,
+          model,
+          max_tokens: maxTokens,
+          ...(supportsChatTemperatureParam(model) ? { temperature } : {}),
+        }
+      : {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: 'You synthesize verified news story bundles. Return only strict JSON.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          [tokenParam]: maxTokens,
+          ...(supportsChatTemperatureParam(model) ? { temperature } : {}),
+          response_format: { type: 'json_object' },
+        };
 
     const response = await fetchFn(upstreamUrl, {
       method: 'POST',
@@ -127,15 +186,13 @@ export async function postBundleSynthesisCompletion(
       throw new Error(`OpenAI bundle synthesis error: HTTP ${response.status}: ${detail.slice(0, 500)}`);
     }
 
-    const body = (await response.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
-    const content = body.choices?.[0]?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) {
+    const body = await response.json();
+    const content = readRelayContent(body);
+    if (!content) {
       throw new Error('OpenAI bundle synthesis response did not include content');
     }
 
-    return { content, model };
+    return { content, model: readRelayModel(body, model) };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Bundle synthesis timed out after ${timeoutMs}ms`);

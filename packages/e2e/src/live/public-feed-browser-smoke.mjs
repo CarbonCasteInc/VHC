@@ -5,7 +5,8 @@ import {
   createClient,
   readAggregateVoterRows,
   readAggregatesWithRelayRestFallback as readAggregates,
-  readNewsLatestIndex,
+  readNewsLatestIndexPageWithRelayRestFallback,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
   readTopicLatestSynthesis,
 } from '@vh/gun-client';
@@ -21,13 +22,13 @@ const DEFAULT_GUN_PEER_URL = 'http://127.0.0.1:7777/gun';
 const DEFAULT_MIN_HEADLINES = 4;
 const DEFAULT_READY_TIMEOUT_MS = 12 * 60_000;
 const DEFAULT_ANALYSIS_TIMEOUT_MS = 120_000;
+const DEFAULT_INITIAL_OPEN_TIMEOUT_MS = 45_000;
 const DEFAULT_REFRESH_TIMEOUT_MS = 15_000;
 const DEFAULT_POSTED_COMMENT_QUERY_TIMEOUT_MS = 5_000;
 const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
 const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
-const DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT = 32;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function normalizeUrl(value) {
@@ -117,6 +118,11 @@ async function navigateToAppRoute(
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNonNegativeInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function boolEnv(value, fallback = false) {
@@ -263,15 +269,17 @@ function readFixtureConst(source, name) {
   return match[1];
 }
 
-function loadSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT, env = process.env) {
+function loadExplicitSystemWriterPin(env = process.env) {
   const explicit = env.VITE_NEWS_SYSTEM_WRITER_PIN_JSON?.trim()
     || env.VH_NEWS_SYSTEM_WRITER_PIN_JSON?.trim()
     || env.VITE_SYSTEM_WRITER_PIN_JSON?.trim()
     || env.VH_SYSTEM_WRITER_PIN_JSON?.trim()
     || env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
     || env.VH_E2E_SYSTEM_WRITER_PIN_JSON?.trim();
-  if (explicit) return JSON.parse(explicit);
+  return explicit ? JSON.parse(explicit) : null;
+}
 
+function loadFixtureSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT) {
   const source = readFileSync(
     path.join(repoRoot, 'packages', 'e2e', 'src', 'live', 'lumaSystemWriterTestFixture.ts'),
     'utf8',
@@ -294,6 +302,121 @@ function loadSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT, env = process.env) {
       },
     ],
   };
+}
+
+function loadRepoSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT) {
+  try {
+    return JSON.parse(readFileSync(
+      path.join(repoRoot, 'apps', 'web-pwa', 'src', 'luma', 'system-writer-pin.json'),
+      'utf8',
+    ));
+  } catch {
+    return null;
+  }
+}
+
+function loadSystemWriterPin(repoRoot = DEFAULT_REPO_ROOT, env = process.env) {
+  return loadExplicitSystemWriterPin(env)
+    ?? loadRepoSystemWriterPin(repoRoot)
+    ?? loadFixtureSystemWriterPin(repoRoot);
+}
+
+function extractViteEnvString(source, name) {
+  const marker = `${name}:`;
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex < 0) return null;
+  let cursor = markerIndex + marker.length;
+  while (/\s/.test(source[cursor] ?? '')) cursor += 1;
+  const quote = source[cursor];
+  if (quote !== '"' && quote !== "'") return null;
+  let escaped = false;
+  for (let end = cursor + 1; end < source.length; end += 1) {
+    const char = source[end];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === quote) {
+      const literal = source.slice(cursor, end + 1);
+      return Function(`"use strict"; return (${literal});`)();
+    }
+  }
+  return null;
+}
+
+async function fetchDeployedSystemWriterPin(baseUrl, fetchImpl = fetch) {
+  if (typeof fetchImpl !== 'function') return null;
+  const appUrl = new URL(baseUrl);
+  const htmlResponse = await fetchImpl(appUrl.href, { headers: { accept: 'text/html' } });
+  if (!htmlResponse.ok) return null;
+  const html = await htmlResponse.text();
+  const initialScriptUrls = new Set();
+  const scriptPattern = /<script\b[^>]*\bsrc=["']([^"']+\.js)["'][^>]*>/gi;
+  const preloadPattern = /<link\b[^>]*\brel=["']modulepreload["'][^>]*\bhref=["']([^"']+\.js)["'][^>]*>/gi;
+  for (const pattern of [scriptPattern, preloadPattern]) {
+    for (const match of html.matchAll(pattern)) {
+      initialScriptUrls.add(new URL(match[1], appUrl).href);
+    }
+  }
+  if (initialScriptUrls.size === 0) return null;
+
+  const queue = [...initialScriptUrls];
+  const visited = new Set();
+  const maxScripts = 32;
+  while (queue.length > 0 && visited.size < maxScripts) {
+    const scriptHref = queue.shift();
+    if (!scriptHref || visited.has(scriptHref)) continue;
+    visited.add(scriptHref);
+
+    const scriptResponse = await fetchImpl(scriptHref, {
+      headers: { accept: 'application/javascript,text/javascript,*/*' },
+    });
+    if (!scriptResponse.ok) continue;
+    const script = await scriptResponse.text();
+    const pinJson = extractViteEnvString(script, 'VITE_NEWS_SYSTEM_WRITER_PIN_JSON')
+      || extractViteEnvString(script, 'VITE_SYSTEM_WRITER_PIN_JSON');
+    if (pinJson) return JSON.parse(pinJson);
+
+    for (const match of script.matchAll(/["']([^"']+\.js)["']/g)) {
+      const candidate = new URL(match[1], scriptHref).href;
+      if (new URL(candidate).origin === appUrl.origin && !visited.has(candidate)) {
+        queue.push(candidate);
+      }
+    }
+  }
+  return null;
+}
+
+async function resolveSystemWriterPin({ repoRoot = DEFAULT_REPO_ROOT, env = process.env, baseUrl, progress = () => {} } = {}) {
+  const explicit = loadExplicitSystemWriterPin(env);
+  if (explicit) {
+    progress('system-writer-pin-source', { source: 'env' });
+    return explicit;
+  }
+  if (baseUrl) {
+    try {
+      const deployed = await fetchDeployedSystemWriterPin(baseUrl);
+      if (deployed) {
+        progress('system-writer-pin-source', { source: 'deployed-app' });
+        return deployed;
+      }
+    } catch (error) {
+      progress('system-writer-pin-deployed-app-unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const repoPin = loadRepoSystemWriterPin(repoRoot);
+  if (repoPin) {
+    progress('system-writer-pin-source', { source: 'repo-public-pin' });
+    return repoPin;
+  }
+  progress('system-writer-pin-source', { source: 'e2e-fixture' });
+  return loadFixtureSystemWriterPin(repoRoot);
 }
 
 function trimText(value, max = 240) {
@@ -375,17 +498,25 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
   });
   client.markSessionReady();
   try {
-    const indexReadTimeoutMs = Math.min(10_000, Math.max(2_000, Math.floor(timeoutMs / 12)));
-    const storyReadTimeoutMs = Math.min(5_000, Math.max(1_500, Math.floor(timeoutMs / 24)));
+    const indexReadTimeoutMs = Math.min(60_000, Math.max(10_000, Math.floor(timeoutMs * 0.75)));
+    const storyReadTimeoutMs = Math.min(20_000, Math.max(3_000, Math.floor(timeoutMs / 6)));
     return await waitFor('gun-latest-index-readback', async () => {
-      const latestIndex = await withTimeout('gun-latest-index-read', readNewsLatestIndex(client), indexReadTimeoutMs);
+      const latestPage = await withTimeout(
+        'gun-latest-index-read',
+        readNewsLatestIndexPageWithRelayRestFallback(client, {
+          limit: Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT),
+        }),
+        indexReadTimeoutMs,
+      );
+      const latestIndex = latestPage.index ?? {};
       const entries = Object.entries(latestIndex)
         .filter(([, timestamp]) => Number.isFinite(timestamp))
         .sort((left, right) => right[1] - left[1]);
       if (entries.length < minHeadlines) return null;
       const stories = [];
       for (const [storyId, updatedAt] of entries.slice(0, Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT))) {
-        const story = await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
+        const embeddedStory = latestPage.stories?.[storyId] ?? null;
+        const story = embeddedStory ?? await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
         if (story) {
           const synthesis = story.topic_id
             ? await withTimeout(
@@ -394,6 +525,14 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
               storyReadTimeoutMs,
             ).catch(() => null)
             : null;
+          const lifecycle = synthesis
+            ? await withTimeout(
+              'gun-story-synthesis-lifecycle-read',
+              readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, storyId),
+              storyReadTimeoutMs,
+            ).catch(() => null)
+            : null;
+          const acceptedCurrent = acceptedSynthesisCurrentForStory(story, synthesis, lifecycle);
           stories.push({
             storyId,
             topicId: story.topic_id,
@@ -403,8 +542,11 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
             sourceLabels: (story.sources ?? [])
               .map((source) => source.publisher || source.source || source.url)
               .filter(Boolean),
-            acceptedSynthesisReady: Boolean(synthesis?.facts_summary?.trim() && (synthesis.frames?.length ?? 0) > 0),
+            acceptedSynthesisReady: acceptedCurrent,
+            staleAcceptedSynthesisReady: Boolean(acceptedSynthesisReady(synthesis) && !acceptedCurrent),
             synthesisId: synthesis?.synthesis_id ?? null,
+            lifecycleStatus: lifecycle?.status ?? null,
+            lifecycleSourceSetRevision: lifecycle?.source_set_revision ?? null,
           });
         }
       }
@@ -424,8 +566,16 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
 }
 
 function latestIndexRecordTimestamp(record) {
+  if (typeof record === 'number' && Number.isFinite(record)) {
+    return record;
+  }
+  if (typeof record === 'string' && Number.isFinite(Number(record))) {
+    return Number(record);
+  }
   const candidates = [
     record?.latest_activity_at,
+    record?.cluster_window_end,
+    record?.created_at,
     record?.updated_at,
     record?.published_at,
     record?._systemIssuedAt,
@@ -454,13 +604,26 @@ function storySourceLabels(story) {
 
 async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json') {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeout;
+  const timeoutError = new Error(`${label}-timeout:${timeoutMs}`);
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(timeoutError);
+    }, timeoutMs);
+  });
   try {
-    const response = await fetch(url, {
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    const text = await response.text();
+    const response = await Promise.race([
+      fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      }),
+      timeoutPromise,
+    ]);
+    const text = await Promise.race([
+      response.text(),
+      timeoutPromise,
+    ]);
     if (!response.ok) {
       throw new Error(`${label}-http-${response.status}:${text.slice(0, 240)}`);
     }
@@ -517,55 +680,716 @@ function acceptedSynthesisReady(synthesis) {
   return Boolean(String(synthesis?.facts_summary ?? '').trim() && (synthesis?.frames?.length ?? 0) > 0);
 }
 
+function acceptedSynthesisCurrentForStory(story, synthesis, lifecycle) {
+  if (!story?.story_id || !story?.provenance_hash || !acceptedSynthesisReady(synthesis)) {
+    return false;
+  }
+  if (!lifecycle || lifecycle.status !== 'accepted_available') {
+    return false;
+  }
+  if (lifecycle.story_id !== story.story_id) {
+    return false;
+  }
+  if (lifecycle.source_set_revision !== story.provenance_hash) {
+    return false;
+  }
+  if (lifecycle.synthesis_id && lifecycle.synthesis_id !== synthesis.synthesis_id) {
+    return false;
+  }
+  if (
+    lifecycle.epoch !== undefined
+    && lifecycle.epoch !== null
+    && synthesis.epoch !== undefined
+    && Number(lifecycle.epoch) !== Number(synthesis.epoch)
+  ) {
+    return false;
+  }
+  const storyBundleIds = Array.isArray(synthesis.inputs?.story_bundle_ids)
+    ? synthesis.inputs.story_bundle_ids
+    : [];
+  if (storyBundleIds.length > 0 && !storyBundleIds.includes(story.story_id)) {
+    return false;
+  }
+  return true;
+}
+
+function latestIndexEntryStoryId(storyId, record) {
+  const direct = String(record?.story_id || record?.storyId || storyId || '').trim();
+  return direct || null;
+}
+
+function finiteNonNegativeIndexNumber(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function latestIndexRecordsFromPayload(payload) {
+  const rawRecords = payload?.records && typeof payload.records === 'object'
+    ? payload.records
+    : payload?.index && typeof payload.index === 'object'
+      ? payload.index
+      : {};
+  return Object.entries(rawRecords)
+    .map(([storyId, record]) => ({
+      storyId: latestIndexEntryStoryId(storyId, record),
+      record,
+      latestActivityAt: latestIndexRecordTimestamp(record),
+    }))
+    .filter((entry) => entry.storyId)
+    .sort((left, right) => right.latestActivityAt - left.latestActivityAt || left.storyId.localeCompare(right.storyId));
+}
+
+async function readPublicRelayLatestIndexPage({
+  baseUrl,
+  limit,
+  before,
+  scanLimit,
+  timeoutMs = 15_000,
+} = {}) {
+  const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
+  const indexUrl = new URL('/vh/news/latest-index', root);
+  indexUrl.searchParams.set('limit', String(parsePositiveInt(limit, DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT)));
+  if (Number.isFinite(before) && before >= 0) {
+    indexUrl.searchParams.set('before', String(Math.floor(before)));
+  }
+  if (Number.isFinite(scanLimit) && scanLimit > 0) {
+    indexUrl.searchParams.set('scan_limit', String(Math.floor(scanLimit)));
+  }
+  const payload = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index-page');
+  const entries = latestIndexRecordsFromPayload(payload);
+  return {
+    requestUrl: indexUrl.href,
+    recordCount: entries.length,
+    storyIds: entries.map((entry) => entry.storyId),
+    latestActivityValues: entries.map((entry) => entry.latestActivityAt).filter((value) => Number.isFinite(value) && value >= 0),
+    nextCursor: finiteNonNegativeIndexNumber(payload?.next_cursor),
+    before: finiteNonNegativeIndexNumber(payload?.before),
+    sourceKeyCount: finiteNonNegativeIndexInt(payload?.source_key_count),
+    windowSourceKeyCount: finiteNonNegativeIndexInt(payload?.window_source_key_count),
+    scannedKeyCount: finiteNonNegativeIndexInt(payload?.scanned_key_count),
+    truncated: Boolean(payload?.truncated),
+    composition: payload?.composition && typeof payload.composition === 'object' ? payload.composition : null,
+    storyStateCount: payload?.story_states && typeof payload.story_states === 'object'
+      ? Object.keys(payload.story_states).length
+      : 0,
+  };
+}
+
+async function readPublicRelayPaginationReadback({
+  baseUrl,
+  pageLimit = 6,
+  timeoutMs = 15_000,
+} = {}) {
+  const normalizedPageLimit = parsePositiveInt(pageLimit, 6);
+  const scanLimit = Math.max(normalizedPageLimit * 4, normalizedPageLimit);
+  const firstPage = await readPublicRelayLatestIndexPage({
+    baseUrl,
+    limit: normalizedPageLimit,
+    scanLimit,
+    timeoutMs,
+  });
+  if (firstPage.recordCount === 0) {
+    return {
+      status: 'fail',
+      failure: 'first-page-empty',
+      pageLimit: normalizedPageLimit,
+      firstPage,
+      secondPage: null,
+      olderStoryIds: [],
+      overlapStoryIds: [],
+    };
+  }
+  if (!Number.isFinite(firstPage.nextCursor)) {
+    return {
+      status: 'unproven',
+      failure: 'first-page-next-cursor-missing',
+      pageLimit: normalizedPageLimit,
+      firstPage,
+      secondPage: null,
+      olderStoryIds: [],
+      overlapStoryIds: [],
+    };
+  }
+  const secondPage = await readPublicRelayLatestIndexPage({
+    baseUrl,
+    limit: normalizedPageLimit,
+    before: firstPage.nextCursor,
+    scanLimit,
+    timeoutMs,
+  });
+  const firstStoryIds = new Set(firstPage.storyIds);
+  const overlapStoryIds = secondPage.storyIds.filter((storyId) => firstStoryIds.has(storyId));
+  const olderStoryIds = secondPage.storyIds.filter((storyId) => !firstStoryIds.has(storyId));
+  const newestSecondPageActivity = Math.max(0, ...secondPage.latestActivityValues);
+  const secondPageIsExclusive =
+    secondPage.recordCount > 0
+    && olderStoryIds.length > 0
+    && overlapStoryIds.length === 0
+    && newestSecondPageActivity < firstPage.nextCursor;
+  return {
+    status: secondPageIsExclusive ? 'pass' : 'fail',
+    failure: secondPageIsExclusive
+      ? null
+      : secondPage.recordCount === 0
+        ? 'second-page-empty'
+        : overlapStoryIds.length > 0
+          ? 'second-page-overlaps-first-page'
+          : newestSecondPageActivity >= firstPage.nextCursor
+            ? 'second-page-not-older-than-exclusive-cursor'
+            : 'second-page-has-no-new-story-ids',
+    pageLimit: normalizedPageLimit,
+    firstPage,
+    secondPage,
+    olderStoryIds,
+    overlapStoryIds,
+  };
+}
+
+function assertPublicRelayPaginationReadback(paginationReadback, env = process.env, sourceHealthEvidence = null) {
+  const requirePagination = String(env.VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION ?? 'true').trim().toLowerCase() !== 'false';
+  if (!requirePagination) {
+    return;
+  }
+  const firstPage = paginationReadback?.firstPage ?? {};
+  const pageLimit = Number(paginationReadback?.pageLimit ?? 0);
+  const visibleSourceKeyCount = Math.max(
+    Number(firstPage.sourceKeyCount ?? 0),
+    Number(firstPage.windowSourceKeyCount ?? 0),
+    Number(firstPage.recordCount ?? 0),
+  );
+  const sourceHealthBundleCount = Number(sourceHealthEvidence?.totalBundleCount ?? 0);
+  const sourceHealthCorroboratedCount = Number(sourceHealthEvidence?.totalCorroboratedBundleCount ?? 0);
+  const shouldRequireOlderWindow =
+    pageLimit > 0
+    && (
+      visibleSourceKeyCount > pageLimit
+      || sourceHealthBundleCount > pageLimit
+      || sourceHealthCorroboratedCount > 0
+    );
+  if (!shouldRequireOlderWindow) {
+    return;
+  }
+  if (paginationReadback?.status !== 'pass') {
+    throw new Error(
+      `public-relay-latest-index-pagination-unavailable:${paginationReadback?.failure ?? 'unknown'}`,
+    );
+  }
+}
+
+function finiteNonNegativeIndexInt(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function classifyLatestIndexProductMetadata(record, story) {
+  if (!record || typeof record !== 'object') return 'missing';
+  const expectedSourceCount = Array.isArray(story?.sources)
+    ? story.sources.length
+    : storySources(story).length;
+  const expectedCanonicalSourceCount = Array.isArray(story?.primary_sources)
+    ? story.primary_sources.length
+    : expectedSourceCount;
+  const expectedStoryCreatedAt = finiteNonNegativeIndexInt(story?.created_at);
+  const expectedClusterWindowStart = finiteNonNegativeIndexInt(story?.cluster_window_start);
+  const recordSourceCount = finiteNonNegativeIndexInt(record.source_count);
+  const recordCanonicalSourceCount = finiteNonNegativeIndexInt(record.canonical_source_count);
+  const recordStoryCreatedAt = finiteNonNegativeIndexInt(record.story_created_at);
+  const recordClusterWindowStart = finiteNonNegativeIndexInt(record.cluster_window_start);
+  const hasSchema = record.product_state_schema_version === 'vh-news-product-feed-index-v1';
+  const hasTopic = String(record.topic_id ?? '').trim() === String(story?.topic_id ?? '').trim();
+  const storyRevision = String(story?.provenance_hash ?? '').trim();
+  const hasRevision = storyRevision && String(record.source_set_revision ?? '').trim() === storyRevision;
+  const hasSourceCounts =
+    recordSourceCount === expectedSourceCount &&
+    recordCanonicalSourceCount === expectedCanonicalSourceCount;
+  const hasTimestamps =
+    expectedStoryCreatedAt !== null &&
+    expectedClusterWindowStart !== null &&
+    recordStoryCreatedAt === expectedStoryCreatedAt &&
+    recordClusterWindowStart === expectedClusterWindowStart;
+  if (hasSchema && hasTopic && hasRevision && hasSourceCounts && hasTimestamps) {
+    return 'complete';
+  }
+  return hasSchema || hasTopic || recordSourceCount !== null || recordCanonicalSourceCount !== null
+    ? 'partial_or_mismatch'
+    : 'missing';
+}
+
+function sourceUrl(source) {
+  return String(source?.url || source?.canonical_url || source?.href || '').trim();
+}
+
+function storySources(story) {
+  if (Array.isArray(story?.sources)) return story.sources;
+  if (Array.isArray(story?.primary_sources)) return story.primary_sources;
+  return [];
+}
+
+function sourceLooksVideoWatch(source) {
+  const text = `${sourceUrl(source)} ${source?.title ?? ''} ${source?.source_id ?? ''}`.toLowerCase();
+  return /(?:\byoutube\.com\b|\byoutu\.be\b|\bvideo\b|\bvideos\b|\/watch(?:[/?#]|$)|\bwatch\b|\blive\b)/.test(text);
+}
+
+function classifyStoryMedia(story) {
+  const sources = storySources(story);
+  if (sources.length === 0) return 'unknown';
+  const videoCount = sources.filter(sourceLooksVideoWatch).length;
+  if (videoCount === 0) return 'text';
+  if (videoCount === sources.length) return 'video_watch';
+  return 'mixed';
+}
+
+function durableTerminalUnavailableReason(...values) {
+  const keys = [
+    'accepted_synthesis_unavailable_reason',
+    'synthesis_unavailable_reason',
+    'terminal_unavailable_reason',
+    'terminal_reason',
+    'rejection_reason',
+    'reason',
+  ];
+  for (const value of values) {
+    if (!value || typeof value !== 'object') continue;
+    for (const key of keys) {
+      const reason = String(value[key] ?? '').trim();
+      if (reason) return reason;
+    }
+  }
+  return null;
+}
+
+function classifySourceFilterStatus(source) {
+  const raw = String(
+    source?.source_filter_status
+      || source?.sourceFilterStatus
+      || source?.admission_status
+      || source?.admissionStatus
+      || '',
+  ).toLowerCase();
+  if (['pass', 'passed', 'eligible', 'accepted', 'admitted'].includes(raw)) return 'pass';
+  if (['fail', 'failed', 'excluded', 'rejected', 'blocked'].includes(raw)) return 'fail';
+  return 'unknown';
+}
+
+async function readArticleTextSampleStatus({ root, story, timeoutMs }) {
+  const firstUrl = storySources(story).map(sourceUrl).find(Boolean);
+  if (!firstUrl) return 'no_source_url';
+  const articleUrl = new URL('/article-text', root);
+  articleUrl.searchParams.set('url', firstUrl);
+  try {
+    const payload = await fetchJsonWithTimeout(articleUrl.href, timeoutMs, 'public-relay-article-text');
+    const text = String(payload?.text || payload?.article_text || '').trim();
+    return text ? '200_text' : '200_empty';
+  } catch (error) {
+    const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+    return match?.[1] ?? 'error';
+  }
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length || 1));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+}
+
 async function readPublicRelaySynthesisCandidates({
   baseUrl,
   indexLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT,
-  scanLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_SCAN_LIMIT,
+  scanLimit = indexLimit,
   timeoutMs = 15_000,
 } = {}) {
   const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
   const indexUrl = new URL('/vh/news/latest-index', root);
   indexUrl.searchParams.set('limit', String(indexLimit));
   const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index');
-  const records = Object.values(index?.records ?? {})
-    .filter((record) => record && typeof record === 'object')
-    .sort((left, right) => latestIndexRecordTimestamp(right) - latestIndexRecordTimestamp(left));
+  const storyStates = index?.story_states && typeof index.story_states === 'object'
+    ? index.story_states
+    : {};
+  const relayStoryStatesPresent = Boolean(index?.story_states && typeof index.story_states === 'object');
+  const relayComposition = index?.composition && typeof index.composition === 'object'
+    ? index.composition
+    : null;
+  const records = latestIndexRecordsFromPayload(index);
   const topStories = [];
-  for (const record of records.slice(0, scanLimit)) {
-    const storyId = String(record.story_id || record.storyId || '').trim();
-    if (!storyId) continue;
-    const storyUrl = new URL('/vh/news/story', root);
-    storyUrl.searchParams.set('story_id', storyId);
-    const storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story')
-      .catch(() => null);
-    const story = storyPayload?.story;
-    if (!story?.story_id || !story?.topic_id || !story?.headline) continue;
-    const synthesisUrl = new URL('/vh/topics/synthesis', root);
-    synthesisUrl.searchParams.set('topic_id', story.topic_id);
-    const synthesisPayload = await fetchJsonWithTimeout(
-      synthesisUrl.href,
-      timeoutMs,
-      'public-relay-topic-synthesis',
-    ).catch(() => null);
-    const synthesis = synthesisPayload?.synthesis;
-    if (!acceptedSynthesisReady(synthesis)) continue;
-    const labels = storySourceLabels(story);
-    topStories.push({
-      storyId: story.story_id,
-      topicId: story.topic_id,
-      updatedAt: latestIndexRecordTimestamp(record) || Number(story.cluster_window_end) || Date.now(),
-      headline: story.headline,
-      sourceCount: labels.length,
-      sourceLabels: labels,
-      acceptedSynthesisReady: true,
-      synthesisId: synthesis.synthesis_id ?? null,
-    });
+  const sampledStoryIds = [];
+  const sampledTopicIds = [];
+  const storyBodyStatusCounts = {};
+  const synthesisStatusCounts = {};
+  const frameCountDistribution = {};
+  const mediaClassCounts = {};
+  const sourceFilterStatusCounts = {};
+  const articleTextSampleStatusCounts = {};
+  const latestIndexProductMetadataStatusCounts = {};
+  const missingLatestIndexProductMetadataStories = [];
+  let singletonReadableCount = 0;
+  let multiSourceReadableCount = 0;
+  let singletonVisibleAcceptedCount = 0;
+  let storyReadbackCount = 0;
+  let framePointIdsPresent = 0;
+  let reframePointIdsPresent = 0;
+  let frameRows = 0;
+  const missingAcceptedSynthesisStories = [];
+  const terminalUnavailableReasonCounts = {};
+  const publicStateCounts = {};
+  const candidateConcurrency = parsePositiveInt(
+    process.env.VH_PUBLIC_RELAY_SYNTHESIS_CANDIDATE_CONCURRENCY,
+    6,
+  );
+  const candidateResults = await mapWithConcurrency(
+    records.slice(0, scanLimit),
+    candidateConcurrency,
+    async (entry) => {
+      const record = entry.record;
+      const storyId = entry.storyId;
+      const relayStoryState = storyStates[storyId] && typeof storyStates[storyId] === 'object'
+        ? storyStates[storyId]
+        : null;
+      const result = {
+        storyId,
+        sampledTopicId: null,
+        storyBodyStatus: null,
+        storyReadback: false,
+        synthesisStatus: null,
+        publicState: '',
+        mediaClass: null,
+        sourceFilterStatuses: [],
+        latestMetadataStatus: null,
+        missingLatestIndexProductMetadataStory: null,
+        singletonReadable: false,
+        multiSourceReadable: false,
+        singletonVisibleAccepted: false,
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+        articleTextStatus: null,
+        terminalReason: null,
+        missingAcceptedSynthesisStory: null,
+        topStory: null,
+      };
+      if (!storyId) return result;
+
+      const storyUrl = new URL('/vh/news/story', root);
+      storyUrl.searchParams.set('story_id', storyId);
+      let storyPayload = null;
+      try {
+        storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story');
+        result.storyBodyStatus = '200';
+        result.storyReadback = true;
+      } catch (error) {
+        const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+        result.storyBodyStatus = match?.[1] ?? 'error';
+        return result;
+      }
+
+      const story = storyPayload?.story;
+      if (!story?.story_id || !story?.topic_id || !story?.headline) return result;
+      result.sampledTopicId = story.topic_id;
+      const latestMetadataStatus = classifyLatestIndexProductMetadata(record, story);
+      result.latestMetadataStatus = latestMetadataStatus;
+      if (latestMetadataStatus !== 'complete') {
+        result.missingLatestIndexProductMetadataStory = {
+          storyId: story.story_id,
+          status: latestMetadataStatus,
+          expectedSourceCount: Array.isArray(story.sources) ? story.sources.length : storySources(story).length,
+          recordSourceCount: finiteNonNegativeIndexInt(record?.source_count),
+        };
+      }
+
+      const labels = storySourceLabels(story);
+      const mediaClass = classifyStoryMedia(story);
+      result.mediaClass = mediaClass;
+      result.sourceFilterStatuses = storySources(story).map(classifySourceFilterStatus);
+      result.singletonReadable = labels.length === 1;
+      result.multiSourceReadable = labels.length > 1;
+
+      const synthesisUrl = new URL('/vh/topics/synthesis', root);
+      synthesisUrl.searchParams.set('topic_id', story.topic_id);
+      let synthesisPayload = null;
+      try {
+        synthesisPayload = await fetchJsonWithTimeout(
+          synthesisUrl.href,
+          timeoutMs,
+          'public-relay-topic-synthesis',
+        );
+        result.synthesisStatus = '200';
+      } catch (error) {
+        const match = String(error instanceof Error ? error.message : error).match(/http-(\d+)/);
+        result.synthesisStatus = match?.[1] ?? 'error';
+      }
+
+      const synthesis = synthesisPayload?.synthesis;
+      const relaySynthesisState = String(relayStoryState?.synthesis_state ?? '').trim();
+      result.publicState = relaySynthesisState;
+      const relayAcceptedSynthesis = relaySynthesisState === 'accepted_synthesis_available';
+      const currentAcceptedSynthesisReady = relayAcceptedSynthesis && acceptedSynthesisReady(synthesis);
+      const rows = currentAcceptedSynthesisReady && Array.isArray(synthesis?.frames) ? synthesis.frames : [];
+      result.frameRows = rows.length;
+      for (const row of rows) {
+        if (typeof row?.frame_point_id === 'string' && row.frame_point_id.trim()) result.framePointIdsPresent += 1;
+        if (typeof row?.reframe_point_id === 'string' && row.reframe_point_id.trim()) result.reframePointIdsPresent += 1;
+      }
+
+      if (!currentAcceptedSynthesisReady) {
+        const honestNonAcceptedState = [
+          'synthesis_pending',
+          'synthesis_loading',
+          'synthesis_retryable',
+          'synthesis_terminal_unavailable',
+          'accepted_synthesis_suppressed',
+        ].includes(relaySynthesisState);
+        result.articleTextStatus = honestNonAcceptedState
+          ? `not_checked_${relaySynthesisState}`
+          : await readArticleTextSampleStatus({ root, story, timeoutMs });
+        const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
+        result.terminalReason = terminalReason;
+        if (
+          !terminalReason
+          && !honestNonAcceptedState
+          && (mediaClass === 'text' || mediaClass === 'mixed')
+          && result.articleTextStatus === '200_text'
+        ) {
+          result.missingAcceptedSynthesisStory = {
+            storyId: story.story_id,
+            topicId: story.topic_id,
+            headline: trimText(story.headline, 160),
+            mediaClass,
+            articleTextStatus: result.articleTextStatus,
+            relaySynthesisState: relaySynthesisState || null,
+          };
+        }
+        return result;
+      }
+
+      result.singletonVisibleAccepted = labels.length === 1;
+      result.topStory = {
+        storyId: story.story_id,
+        topicId: story.topic_id,
+        updatedAt: latestIndexRecordTimestamp(record) || Number(story.cluster_window_end) || Date.now(),
+        headline: story.headline,
+        sourceCount: labels.length,
+        sourceLabels: labels,
+        acceptedSynthesisReady: true,
+        synthesisId: synthesis.synthesis_id ?? null,
+      };
+      return result;
+    },
+  );
+  for (const result of candidateResults) {
+    if (!result?.storyId) continue;
+    sampledStoryIds.push(result.storyId);
+    if (result.storyBodyStatus) {
+      storyBodyStatusCounts[result.storyBodyStatus] = (storyBodyStatusCounts[result.storyBodyStatus] ?? 0) + 1;
+    }
+    if (result.storyReadback) storyReadbackCount += 1;
+    if (!result.storyReadback) continue;
+    if (result.sampledTopicId) sampledTopicIds.push(result.sampledTopicId);
+    if (result.latestMetadataStatus) {
+      latestIndexProductMetadataStatusCounts[result.latestMetadataStatus] =
+        (latestIndexProductMetadataStatusCounts[result.latestMetadataStatus] ?? 0) + 1;
+    }
+    if (result.missingLatestIndexProductMetadataStory) {
+      missingLatestIndexProductMetadataStories.push(result.missingLatestIndexProductMetadataStory);
+    }
+    if (result.mediaClass) {
+      mediaClassCounts[result.mediaClass] = (mediaClassCounts[result.mediaClass] ?? 0) + 1;
+    }
+    for (const sourceFilterStatus of result.sourceFilterStatuses) {
+      sourceFilterStatusCounts[sourceFilterStatus] = (sourceFilterStatusCounts[sourceFilterStatus] ?? 0) + 1;
+    }
+    if (result.singletonReadable) singletonReadableCount += 1;
+    if (result.multiSourceReadable) multiSourceReadableCount += 1;
+    if (result.synthesisStatus) {
+      synthesisStatusCounts[result.synthesisStatus] = (synthesisStatusCounts[result.synthesisStatus] ?? 0) + 1;
+    }
+    if (result.publicState) {
+      publicStateCounts[result.publicState] = (publicStateCounts[result.publicState] ?? 0) + 1;
+    }
+    frameRows += result.frameRows;
+    frameCountDistribution[String(result.frameRows)] = (frameCountDistribution[String(result.frameRows)] ?? 0) + 1;
+    framePointIdsPresent += result.framePointIdsPresent;
+    reframePointIdsPresent += result.reframePointIdsPresent;
+    if (result.articleTextStatus) {
+      articleTextSampleStatusCounts[result.articleTextStatus] =
+        (articleTextSampleStatusCounts[result.articleTextStatus] ?? 0) + 1;
+    }
+    if (result.terminalReason) {
+      terminalUnavailableReasonCounts[result.terminalReason] =
+        (terminalUnavailableReasonCounts[result.terminalReason] ?? 0) + 1;
+    }
+    if (result.missingAcceptedSynthesisStory) {
+      missingAcceptedSynthesisStories.push(result.missingAcceptedSynthesisStory);
+    }
+    if (result.singletonVisibleAccepted) singletonVisibleAcceptedCount += 1;
+    if (result.topStory) topStories.push(result.topStory);
   }
   return {
     latestIndexCount: records.length,
-    storyReadbackCount: topStories.length,
+    sampledStoryIds,
+    sampledTopicIds: [...new Set(sampledTopicIds)],
+    storyBodyStatusCounts,
+    synthesisStatusCounts,
+    publicStateCounts,
+    relayCapability: {
+      composition_present: Boolean(relayComposition),
+      story_states_present: relayStoryStatesPresent,
+      story_state_count: Object.keys(storyStates).length,
+    },
+    relayComposition,
+    mediaClassCounts,
+    sourceFilterStatusCounts,
+    articleTextSampleStatusCounts,
+    latestIndexProductMetadataStatusCounts,
+    missingLatestIndexProductMetadataStoryCount: missingLatestIndexProductMetadataStories.length,
+    missingLatestIndexProductMetadataStories,
+    terminalUnavailableReasonCounts,
+    missingAcceptedSynthesisStoryCount: missingAcceptedSynthesisStories.length,
+    missingAcceptedSynthesisStories,
+    singletonReadableCount,
+    multiSourceReadableCount,
+    singletonVisibleAcceptedCount,
+    frameCountDistribution,
+    pointIdPresence: {
+      frameRows,
+      framePointIdsPresent,
+      reframePointIdsPresent,
+    },
+    storyReadbackCount,
+    acceptedSynthesisStoryCount: topStories.length,
     topStories,
   };
+}
+
+function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env = process.env) {
+  const requireRelayStateSurface = String(env.VH_PUBLIC_FEED_REQUIRE_RELAY_STATE_SURFACE ?? 'true').trim().toLowerCase() !== 'false';
+  if (requireRelayStateSurface) {
+    const capability = publicRelaySynthesisReadback.relayCapability ?? {};
+    if (!capability.composition_present) {
+      throw new Error('public-relay-latest-index-missing-composition');
+    }
+    if (!capability.story_states_present) {
+      throw new Error('public-relay-latest-index-missing-story-states');
+    }
+  }
+
+  const requireLatestIndexProductMetadata = String(
+    env.VH_PUBLIC_FEED_REQUIRE_LATEST_INDEX_PRODUCT_METADATA ?? 'true',
+  ).trim().toLowerCase() !== 'false';
+  if (requireLatestIndexProductMetadata) {
+    const missingMetadataCount = Number(
+      publicRelaySynthesisReadback.missingLatestIndexProductMetadataStoryCount
+        ?? publicRelaySynthesisReadback.missingLatestIndexProductMetadataStories?.length
+        ?? 0,
+    );
+    if (missingMetadataCount > 0) {
+      const sample = (publicRelaySynthesisReadback.missingLatestIndexProductMetadataStories ?? [])
+        .slice(0, 5)
+        .map((story) => story.storyId)
+        .filter(Boolean)
+        .join(',');
+      throw new Error(
+        `public-relay-latest-index-product-metadata-missing:${missingMetadataCount}${sample ? `:${sample}` : ''}`,
+      );
+    }
+  }
+
+  const requireMixedComposition = String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false';
+  const singletonReadableCount = Number(publicRelaySynthesisReadback.singletonReadableCount ?? 0);
+  const multiSourceReadableCount = Number(publicRelaySynthesisReadback.multiSourceReadableCount ?? 0);
+  if (requireMixedComposition) {
+    if (singletonReadableCount <= 0) {
+      throw new Error('public-relay-feed-composition-missing-singleton');
+    }
+    if (multiSourceReadableCount <= 0) {
+      throw new Error('public-relay-feed-composition-missing-multi-source');
+    }
+  }
+
+  const freshnessWindowMs = parseNonNegativeInt(
+    env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS,
+    72 * 60 * 60 * 1000,
+    0,
+  );
+  const relayFreshnessAge = Number(publicRelaySynthesisReadback.relayComposition?.freshness_age_ms ?? Number.NaN);
+  const sampledLatestActivity = Math.max(
+    0,
+    ...(publicRelaySynthesisReadback.topStories ?? []).map((story) => Number(story.updatedAt)).filter(Number.isFinite),
+  );
+  const sampledFreshnessAge = sampledLatestActivity > 0 ? Math.max(0, Date.now() - sampledLatestActivity) : Number.NaN;
+  const freshnessAge = Number.isFinite(relayFreshnessAge) ? relayFreshnessAge : sampledFreshnessAge;
+  if (freshnessWindowMs > 0 && Number.isFinite(freshnessAge) && freshnessAge > freshnessWindowMs) {
+    throw new Error(`public-relay-feed-stale:${freshnessAge}/${freshnessWindowMs}`);
+  }
+
+  const acceptedRepairWindowStory404Threshold = parseNonNegativeInt(
+    env.VH_PUBLIC_FEED_REPAIR_WINDOW_STORY_404_THRESHOLD,
+    0,
+    0,
+  );
+  const storyBody404Count = Number(publicRelaySynthesisReadback.storyBodyStatusCounts?.['404'] ?? 0);
+  if (storyBody404Count > acceptedRepairWindowStory404Threshold) {
+    throw new Error(`public-relay-latest-index-story-404:${storyBody404Count}/${acceptedRepairWindowStory404Threshold}`);
+  }
+
+  const missingAcceptedSynthesisStoryCount = Number(
+    publicRelaySynthesisReadback.missingAcceptedSynthesisStoryCount
+      ?? publicRelaySynthesisReadback.missingAcceptedSynthesisStories?.length
+      ?? 0,
+  );
+  if (missingAcceptedSynthesisStoryCount > 0) {
+    const sample = (publicRelaySynthesisReadback.missingAcceptedSynthesisStories ?? [])
+      .slice(0, 5)
+      .map((story) => story.storyId)
+      .filter(Boolean)
+      .join(',');
+    throw new Error(
+      `public-relay-readable-text-synthesis-missing:${missingAcceptedSynthesisStoryCount}${sample ? `:${sample}` : ''}`,
+    );
+  }
+
+  const requireAcceptedSynthesis = String(
+    env.VH_PUBLIC_FEED_REQUIRE_ACCEPTED_SYNTHESIS
+      ?? env.VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS
+      ?? 'true',
+  ).trim().toLowerCase() !== 'false';
+  if (requireAcceptedSynthesis && Number(publicRelaySynthesisReadback.acceptedSynthesisStoryCount ?? 0) <= 0) {
+    throw new Error('public-relay-current-accepted-synthesis-missing');
+  }
+
+  const pointPresence = publicRelaySynthesisReadback.pointIdPresence ?? {};
+  const frameRows = Number(pointPresence.frameRows ?? 0);
+  if (
+    frameRows > 0
+    && (
+      Number(pointPresence.framePointIdsPresent ?? 0) < frameRows
+      || Number(pointPresence.reframePointIdsPresent ?? 0) < frameRows
+    )
+  ) {
+    throw new Error(`public-relay-synthesis-point-ids-missing:${JSON.stringify(pointPresence)}`);
+  }
+}
+
+function capturePublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env = process.env) {
+  try {
+    assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, env);
+    return { status: 'pass' };
+  } catch (error) {
+    return {
+      status: 'fail',
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: formatError(error),
+    };
+  }
 }
 
 async function readPublicPointAggregate({ baseUrl, gunPeerUrl, topicId, synthesisId, epoch, pointId }) {
@@ -654,6 +1478,110 @@ async function refreshLatest(page, limit = 120, timeoutMs = DEFAULT_REFRESH_TIME
   }));
 }
 
+async function installRefreshLatestRecorder(page) {
+  return page.evaluate(() => {
+    const store = window.__VH_NEWS_STORE__;
+    const state = store?.getState?.();
+    const refresh = state?.refreshLatest;
+    if (!store || typeof store.setState !== 'function' || typeof refresh !== 'function') {
+      return { installed: false, reason: 'news-store-refreshLatest-missing' };
+    }
+    if (window.__VH_PUBLIC_FEED_REFRESH_RECORDER_INSTALLED) {
+      window.__VH_PUBLIC_FEED_REFRESH_CALLS = [];
+      return { installed: true, reused: true };
+    }
+    window.__VH_PUBLIC_FEED_REFRESH_CALLS = [];
+    window.__VH_PUBLIC_FEED_REFRESH_RECORDER_INSTALLED = true;
+    store.setState({
+      refreshLatest: async (...args) => {
+        window.__VH_PUBLIC_FEED_REFRESH_CALLS.push({
+          args,
+          at: Date.now(),
+        });
+        return refresh(...args);
+      },
+    });
+    return { installed: true, reused: false };
+  }).catch((error) => ({
+    installed: false,
+    reason: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+async function readRefreshLatestRecorder(page) {
+  return page.evaluate(() => Array.isArray(window.__VH_PUBLIC_FEED_REFRESH_CALLS)
+    ? window.__VH_PUBLIC_FEED_REFRESH_CALLS
+    : [])
+    .catch(() => []);
+}
+
+async function readPublicNewsStoreSnapshot(page) {
+  return page.evaluate(() => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    if (!store) return null;
+    return {
+      latestIndexCount: store.latestIndex && typeof store.latestIndex === 'object'
+        ? Object.keys(store.latestIndex).length
+        : null,
+      storyCount: Array.isArray(store.stories) ? store.stories.length : null,
+      loading: Boolean(store.loading),
+      error: store.error ? String(store.error).slice(0, 240) : null,
+    };
+  }).catch(() => null);
+}
+
+async function waitForPublicNewsStoreIdle(page, timeoutMs, progress, label) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction(() => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    return !store || store.loading === false;
+  }, null, { timeout: timeoutMs }).then(
+    () => ({ status: 'idle', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('news-store-idle-wait', { label, ...result });
+  return result;
+}
+
+async function waitForPublicNewsStoreGrowth(page, initialCount, timeoutMs, progress) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction((count) => {
+    const store = window.__VH_NEWS_STORE__?.getState?.();
+    if (!store) return false;
+    const storyCount = Array.isArray(store.stories) ? store.stories.length : 0;
+    return storyCount > count && store.loading === false;
+  }, initialCount, { timeout: timeoutMs }).then(
+    () => ({ status: 'grew', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('news-store-growth-wait', { initialCount, ...result });
+  return result;
+}
+
+async function waitForVisibleCardGrowth(page, initialCount, timeoutMs, progress) {
+  const startedAt = Date.now();
+  const result = await page.waitForFunction((count) => (
+    document.querySelectorAll('article[data-testid^="news-card-"]').length > count
+  ), initialCount, { timeout: timeoutMs }).then(
+    () => ({ status: 'grew', elapsedMs: Date.now() - startedAt }),
+    (error) => ({
+      status: 'timeout',
+      elapsedMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  progress('visible-card-growth-wait', { initialCount, ...result });
+  return result;
+}
+
 async function visibleCards(page) {
   return page.evaluate(() => Array.from(document.querySelectorAll('article[data-testid^="news-card-"]'))
     .map((card) => {
@@ -684,10 +1612,14 @@ async function summarizeFeedState(page) {
       bodyExcerpt: (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 240),
       store: store
         ? {
-          latestIndexCount: Array.isArray(store.latestIndex) ? store.latestIndex.length : null,
-          storyCount: store.storiesById && typeof store.storiesById === 'object'
-            ? Object.keys(store.storiesById).length
+          latestIndexCount: store.latestIndex && typeof store.latestIndex === 'object'
+            ? Object.keys(store.latestIndex).length
             : null,
+          storyCount: Array.isArray(store.stories)
+            ? store.stories.length
+            : store.storiesById && typeof store.storiesById === 'object'
+              ? Object.keys(store.storiesById).length
+              : null,
           loading: Boolean(store.loading),
           error: store.error ? String(store.error).slice(0, 240) : null,
           peerCount: Array.isArray(store.peerConfig?.peers) ? store.peerConfig.peers.length : null,
@@ -695,6 +1627,25 @@ async function summarizeFeedState(page) {
         : null,
     };
   });
+}
+
+function summarizeBrowserLogDiagnostics(logs) {
+  const browserErrors = logs
+    .filter((entry) => ['error', 'pageerror'].includes(String(entry?.type ?? '').toLowerCase()))
+    .map((entry) => String(entry?.text ?? '').trim())
+    .filter(Boolean);
+  const cspViolations = browserErrors.filter((text) =>
+    /content security policy|connect-src|refused to connect/i.test(text),
+  );
+  const criticalCspViolations = cspViolations.filter((text) =>
+    /healthz|\/gun\b|\/vh\/news\/|\/vh\/topics\/synthesis|\/vh\/aggregates\//i.test(text),
+  );
+  return {
+    browserErrorCount: browserErrors.length,
+    cspViolationCount: cspViolations.length,
+    criticalCspViolationCount: criticalCspViolations.length,
+    criticalCspViolations: criticalCspViolations.slice(0, 12),
+  };
 }
 
 function readbackStoryToVisibleCard(row) {
@@ -745,6 +1696,30 @@ async function waitForHeadlines(page, minHeadlines, timeoutMs, progress = () => 
   }, { timeoutMs, intervalMs: 1_000 });
 }
 
+async function waitForInitialOpenHeadlines(page, minHeadlines, timeoutMs, progress = () => {}) {
+  const startedAt = Date.now();
+  let lastProgressAt = 0;
+  return waitFor('public-feed-initial-open-headlines', async () => {
+    const rows = await visibleCards(page);
+    if (rows.length >= minHeadlines) return rows;
+    const now = Date.now();
+    if (now - lastProgressAt >= 10_000) {
+      lastProgressAt = now;
+      const diagnostics = await withTimeout('initial-open-diagnostics', summarizeFeedState(page), 3_000)
+        .catch((error) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      progress('initial-open-wait-diagnostics', {
+        elapsedMs: now - startedAt,
+        rows: rows.length,
+        minHeadlines,
+        diagnostics,
+      });
+    }
+    return null;
+  }, { timeoutMs, intervalMs: 500 });
+}
+
 function findVisibleStoryRow(rows, targetRow) {
   return rows.find((row) => row.storyId === targetRow.storyId)
     ?? rows.find((row) => row.topicId === targetRow.topicId)
@@ -775,6 +1750,12 @@ async function gotoFeed(page, baseUrl, minHeadlines, timeoutMs, progress = () =>
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
   return waitForHeadlines(page, minHeadlines, timeoutMs, progress);
+}
+
+async function gotoFeedInitialOpen(page, baseUrl, minHeadlines, timeoutMs, progress = () => {}) {
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.getByTestId('user-link').waitFor({ state: 'visible', timeout: 30_000 });
+  return waitForInitialOpenHeadlines(page, minHeadlines, timeoutMs, progress);
 }
 
 async function ensureIdentity(page, baseUrl, label) {
@@ -907,6 +1888,63 @@ async function waitForSynthesis(page, card, row, timeoutMs) {
   }, { timeoutMs, intervalMs: 750 });
 }
 
+async function readVisibleNonAcceptedSynthesisState(scope, row) {
+  const detail = firstTestId(scope, `news-card-detail-${row.topicId}`);
+  const root = await detail.count().catch(() => 0) > 0 ? detail : scope;
+  const summary = trimText(
+    await firstTestId(root, `news-card-summary-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    2_000,
+  );
+  const basis = trimText(
+    await firstTestId(root, `news-card-summary-basis-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    500,
+  );
+  const pending = trimText(
+    await firstTestId(root, `news-card-synthesis-unavailable-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const terminal = trimText(
+    await firstTestId(root, `news-card-synthesis-terminal-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const retryable = trimText(
+    await firstTestId(root, `news-card-synthesis-retryable-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const correction = trimText(
+    await firstTestId(root, `news-card-synthesis-correction-state-${row.topicId}`).textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const biasEmpty = trimText(
+    await root.getByTestId('bias-table-empty').textContent(locatorTimeout()).catch(() => ''),
+    1_000,
+  );
+  const voteButtons = await root.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
+  const stateText = pending || terminal || retryable || correction;
+  if (!stateText && !/pending|unavailable|retrying|suppressed|correction/i.test(`${basis} ${biasEmpty}`)) {
+    return null;
+  }
+  return {
+    summary,
+    basis,
+    stateText,
+    biasEmpty,
+    voteButtonCount: voteButtons,
+  };
+}
+
+async function waitForNonAcceptedSynthesisState(page, card, row, timeoutMs) {
+  return waitFor('non-accepted-synthesis-state-visible', async () => {
+    for (const scope of await synthesisScopeCandidates(page, card, row)) {
+      const state = await readVisibleNonAcceptedSynthesisState(scope, row);
+      if (state) {
+        return state;
+      }
+    }
+    return null;
+  }, { timeoutMs, intervalMs: 750 });
+}
+
 async function openStoryWithAcceptedSynthesis(page, candidateRows, analysisTimeoutMs) {
   const candidates = [];
   const seenStoryIds = new Set();
@@ -948,6 +1986,42 @@ async function openStoryWithAcceptedSynthesis(page, candidateRows, analysisTimeo
 
   throw new Error(
     `accepted-synthesis-visible-timeout:${rejectedCandidates.map((item) => `${item.storyId}:${item.reason}`).join('|')}`,
+  );
+}
+
+async function openStoryWithNonAcceptedSynthesisState(page, candidateRows, analysisTimeoutMs) {
+  const rejectedCandidates = [];
+  const perCandidateTimeoutMs = Math.min(30_000, analysisTimeoutMs);
+  for (const row of candidateRows.slice(0, 8)) {
+    let card;
+    try {
+      card = await openStory(page, row);
+    } catch (error) {
+      rejectedCandidates.push({
+        storyId: row.storyId,
+        headline: row.headline,
+        reason: `open-story-failed:${error instanceof Error ? error.message : String(error)}`,
+      });
+      continue;
+    }
+    try {
+      const state = await waitForNonAcceptedSynthesisState(page, card, row, perCandidateTimeoutMs);
+      if (state.voteButtonCount > 0) {
+        throw new Error(`non-accepted-synthesis-votable:${state.voteButtonCount}`);
+      }
+      return { row, card, state, rejectedCandidates };
+    } catch (error) {
+      rejectedCandidates.push({
+        storyId: row.storyId,
+        headline: row.headline,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      await closeStory(card, row);
+    }
+  }
+
+  throw new Error(
+    `non-accepted-synthesis-state-timeout:${rejectedCandidates.map((item) => `${item.storyId}:${item.reason}`).join('|')}`,
   );
 }
 
@@ -1133,6 +2207,7 @@ async function ensureStoryThread(page, row, commentVisibilityTimeoutMs = DEFAULT
   const sectionId = `news-card-${row.topicId}`;
   const section = page.getByTestId(`${sectionId}-discussion`);
   await section.waitFor({ state: 'visible', timeout: 30_000 });
+  await section.scrollIntoViewIfNeeded({ timeout: 30_000 }).catch(() => {});
   const composeToggle = page.getByTestId(`${sectionId}-discussion-compose-toggle`);
   const newThreadToggle = page.getByTestId(`${sectionId}-discussion-new-thread-toggle`);
   const action = await waitFor('story-thread-action-ready', async () => {
@@ -1483,15 +2558,20 @@ async function verifySecondBrowser({
       voteCount: voteVisibility.count,
       source: voteVisibility.source,
     });
-    await waitFor('second-browser-comment-visibility', async () =>
-      (await postedCommentVisible(page, commentBody)) ? true : null,
-    { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
-    progress('second-browser-comment-visible');
+    if (commentBody) {
+      await waitFor('second-browser-comment-visibility', async () =>
+        (await postedCommentVisible(page, commentBody)) ? true : null,
+      { timeoutMs: commentVisibilityTimeoutMs, intervalMs: 500 });
+      progress('second-browser-comment-visible');
+    } else {
+      progress('second-browser-comment-skipped', { reason: 'not_required_for_vote_convergence' });
+    }
     return {
       voteCount: voteVisibility.count,
       voteCountSource: voteVisibility.source,
       publicAggregate: voteVisibility.publicAggregate ?? null,
-      commentVisible: true,
+      commentVisible: Boolean(commentBody),
+      commentSkippedReason: commentBody ? null : 'not_required_for_vote_convergence',
     };
   } catch (error) {
     progress('second-browser-diagnostics', {
@@ -1515,10 +2595,21 @@ async function runPublicFeedBrowserSmoke({
   const minHeadlines = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_MIN_HEADLINES, DEFAULT_MIN_HEADLINES);
   const readyTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_READY_TIMEOUT_MS, DEFAULT_READY_TIMEOUT_MS);
   const analysisTimeoutMs = parsePositiveInt(env.VH_PUBLIC_FEED_SMOKE_ANALYSIS_TIMEOUT_MS, DEFAULT_ANALYSIS_TIMEOUT_MS);
+  const initialOpenTimeoutMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_INITIAL_OPEN_TIMEOUT_MS,
+    Math.min(DEFAULT_INITIAL_OPEN_TIMEOUT_MS, Math.max(15_000, Math.floor(readyTimeoutMs / 8))),
+  );
+  const publicRelayReadbackTimeoutMs = parsePositiveInt(
+    env.VH_PUBLIC_FEED_SMOKE_PUBLIC_RELAY_READBACK_TIMEOUT_MS,
+    Math.min(60_000, Math.max(30_000, Math.floor(readyTimeoutMs / 12))),
+  );
   const commentVisibilityTimeoutMs = parsePositiveInt(
     env.VH_PUBLIC_FEED_SMOKE_COMMENT_VISIBILITY_TIMEOUT_MS,
     DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS,
   );
+  const requireStoryComments = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_STORY_COMMENTS, false);
+  const requireSecondBrowserVote = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_SECOND_BROWSER_VOTE, false);
+  const requireAcceptedSynthesis = boolEnv(env.VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS, true);
   const secondBrowserVoteVisibilityTimeoutMs = parsePositiveInt(
     env.VH_PUBLIC_FEED_SMOKE_SECOND_BROWSER_VOTE_TIMEOUT_MS,
     DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS,
@@ -1554,8 +2645,13 @@ async function runPublicFeedBrowserSmoke({
       gunPeerUrl,
       minHeadlines,
       readyTimeoutMs,
+      initialOpenTimeoutMs,
       analysisTimeoutMs,
+      publicRelayReadbackTimeoutMs,
       commentVisibilityTimeoutMs,
+      requireStoryComments,
+      requireSecondBrowserVote,
+      requireAcceptedSynthesis,
       secondBrowserVoteVisibilityTimeoutMs,
     },
     status: 'fail',
@@ -1567,11 +2663,11 @@ async function runPublicFeedBrowserSmoke({
       gunPeerUrl,
       minHeadlines,
       timeoutMs: readyTimeoutMs,
-      systemWriterPin: loadSystemWriterPin(repoRoot, env),
+      systemWriterPin: await resolveSystemWriterPin({ repoRoot, env, baseUrl, progress }),
     });
     const publicRelaySynthesisReadback = await readPublicRelaySynthesisCandidates({
       baseUrl,
-      timeoutMs: Math.min(15_000, Math.max(5_000, Math.floor(readyTimeoutMs / 24))),
+      timeoutMs: publicRelayReadbackTimeoutMs,
     }).catch((error) => {
       progress('public-relay-synthesis-readback-unavailable', {
         error: error instanceof Error ? error.message : String(error),
@@ -1581,7 +2677,47 @@ async function runPublicFeedBrowserSmoke({
     progress('public-relay-synthesis-readback', {
       latestIndexCount: publicRelaySynthesisReadback.latestIndexCount,
       storyReadbackCount: publicRelaySynthesisReadback.storyReadbackCount,
+      storyBodyStatusCounts: publicRelaySynthesisReadback.storyBodyStatusCounts,
+      synthesisStatusCounts: publicRelaySynthesisReadback.synthesisStatusCounts,
+      publicStateCounts: publicRelaySynthesisReadback.publicStateCounts,
+      relayCapability: publicRelaySynthesisReadback.relayCapability,
+      relayComposition: publicRelaySynthesisReadback.relayComposition,
+      singletonReadableCount: publicRelaySynthesisReadback.singletonReadableCount,
+      multiSourceReadableCount: publicRelaySynthesisReadback.multiSourceReadableCount,
+      mediaClassCounts: publicRelaySynthesisReadback.mediaClassCounts,
+      sourceFilterStatusCounts: publicRelaySynthesisReadback.sourceFilterStatusCounts,
+      articleTextSampleStatusCounts: publicRelaySynthesisReadback.articleTextSampleStatusCounts,
+      latestIndexProductMetadataStatusCounts: publicRelaySynthesisReadback.latestIndexProductMetadataStatusCounts,
+      missingLatestIndexProductMetadataStoryCount: publicRelaySynthesisReadback.missingLatestIndexProductMetadataStoryCount,
+      terminalUnavailableReasonCounts: publicRelaySynthesisReadback.terminalUnavailableReasonCounts,
+      missingAcceptedSynthesisStoryCount: publicRelaySynthesisReadback.missingAcceptedSynthesisStoryCount,
+      frameCountDistribution: publicRelaySynthesisReadback.frameCountDistribution,
+      pointIdPresence: publicRelaySynthesisReadback.pointIdPresence,
     });
+    const publicRelayAnalysisFrameCoverage = capturePublicRelayAnalysisFrameCoverage(
+      publicRelaySynthesisReadback,
+      env,
+    );
+    progress('public-relay-analysis-frame-coverage', publicRelayAnalysisFrameCoverage);
+    const publicRelayPaginationReadback = await readPublicRelayPaginationReadback({
+      baseUrl,
+      pageLimit: parsePositiveInt(env.VH_PUBLIC_FEED_PAGINATION_PAGE_LIMIT, 6),
+      timeoutMs: publicRelayReadbackTimeoutMs,
+    }).catch((error) => ({
+      status: 'fail',
+      failure: error instanceof Error ? error.message : String(error),
+    }));
+    progress('public-relay-pagination-readback', publicRelayPaginationReadback);
+    summary = {
+      ...summary,
+      checks: {
+        ...summary.checks,
+        daemonGunLatestIndexReadback: gunReadback,
+        publicRelaySynthesisReadback,
+        publicRelayAnalysisFrameCoverage,
+        publicRelayPaginationReadback,
+      },
+    };
     browser = await launchBrowserFn();
     context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1200 } });
     await addConsumerInitScript(context, gunPeerUrl);
@@ -1590,29 +2726,67 @@ async function runPublicFeedBrowserSmoke({
     page.on('console', (message) => logs.push({ type: message.type(), text: message.text() }));
     page.on('pageerror', (error) => logs.push({ type: 'pageerror', text: formatError(error) }));
 
-    progress('identity-start');
-    const identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
-    progress('identity-complete', identity);
-    progress('initial-feed-wait-start', { minHeadlines });
-    const initialCards = await gotoFeed(page, baseUrl, minHeadlines, readyTimeoutMs, progress);
+    let identity = {
+      status: 'skipped',
+      reason: 'no-current-accepted-synthesis',
+    };
+    progress('initial-feed-wait-start', {
+      minHeadlines,
+      timeoutMs: initialOpenTimeoutMs,
+      manualRefreshAllowed: false,
+    });
+    const initialCards = await gotoFeedInitialOpen(page, baseUrl, minHeadlines, initialOpenTimeoutMs, progress);
     await page.screenshot(viewportScreenshotOptions(screenshots.initialFeed));
     progress('initial-feed-screenshot', { count: initialCards.length });
     const cardsWithSources = initialCards.filter((card) => card.sourceLabels.length > 0);
     const cardsWithTimestamps = initialCards.filter((card) => /Created .+Updated /i.test(card.meta));
+    const initialStoryIds = new Set(initialCards.map((card) => card.storyId).filter(Boolean));
     if (cardsWithSources.length < minHeadlines) throw new Error(`source-labels-missing:${cardsWithSources.length}/${minHeadlines}`);
     if (cardsWithTimestamps.length < minHeadlines) throw new Error(`timestamps-missing:${cardsWithTimestamps.length}/${minHeadlines}`);
 
     await clickFeedRefresh(page);
     const afterRefreshCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
+    await waitForPublicNewsStoreIdle(page, 60_000, progress, 'after-refresh-before-scroll');
     await page.screenshot(viewportScreenshotOptions(screenshots.afterRefresh));
     progress('refresh-screenshot', { count: afterRefreshCards.length });
 
+    const beforeScrollNewsStore = await readPublicNewsStoreSnapshot(page);
+    const refreshRecorder = await installRefreshLatestRecorder(page);
+    const meshIndexCount = Math.max(
+      Number(gunReadback.latestIndexCount ?? 0),
+      Number(publicRelaySynthesisReadback.latestIndexCount ?? 0),
+    );
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(1_500);
+    if (meshIndexCount > initialCards.length) {
+      await waitForPublicNewsStoreGrowth(page, initialCards.length, 45_000, progress);
+      await waitForVisibleCardGrowth(page, initialCards.length, 15_000, progress);
+    } else {
+      await page.waitForTimeout(1_500);
+    }
     const afterScrollCards = await visibleCards(page);
+    const loadMoreRefreshCalls = await readRefreshLatestRecorder(page);
+    const afterScrollNewsStore = await readPublicNewsStoreSnapshot(page);
     await page.screenshot(viewportScreenshotOptions(screenshots.afterScroll));
-    progress('scroll-screenshot', { count: afterScrollCards.length });
+    const afterScrollNewStoryIds = afterScrollCards
+      .map((card) => card.storyId)
+      .filter((storyId) => storyId && !initialStoryIds.has(storyId));
+    progress('scroll-screenshot', {
+      count: afterScrollCards.length,
+      newStoryIds: afterScrollNewStoryIds.slice(0, 12),
+      meshIndexCount,
+      initialCount: initialCards.length,
+      beforeScrollNewsStore,
+      afterScrollNewsStore,
+      refreshRecorder,
+      loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 12),
+    });
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
+    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length > 0 && loadMoreRefreshCalls.length === 0) {
+      throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}:preloaded-window`);
+    }
+    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length === 0) {
+      throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}`);
+    }
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const topCards = await waitForHeadlines(page, minHeadlines, 60_000, progress);
@@ -1628,6 +2802,10 @@ async function runPublicFeedBrowserSmoke({
       .filter((story) => story.acceptedSynthesisReady && story.topicId && story.storyId && story.headline)
       .map(readbackStoryToVisibleCard);
     const synthesisReadyCards = topCards.filter((card) => synthesisReadyStoryIds.has(card.storyId));
+    const hasCurrentAcceptedSynthesisCandidate =
+      synthesisReadyCards.length > 0 ||
+      publicRelaySynthesisReadyRows.length > 0 ||
+      synthesisReadyReadbackRows.length > 0;
     let detailCandidates = synthesisReadyCards.length > 0 ? synthesisReadyCards : [
       ...publicRelaySynthesisReadyRows,
       ...synthesisReadyReadbackRows,
@@ -1638,6 +2816,13 @@ async function runPublicFeedBrowserSmoke({
       publicRelayReady: publicRelaySynthesisReadyRows.length,
       total: detailCandidates.length,
     });
+    if (hasCurrentAcceptedSynthesisCandidate) {
+      progress('identity-start');
+      identity = await ensureIdentity(page, baseUrl, 'launchsmoke');
+      progress('identity-complete', identity);
+    } else {
+      progress('identity-skipped', { reason: identity.reason });
+    }
     const routeFocus = synthesisReadyCards[0] ?? publicRelaySynthesisReadyRows[0] ?? synthesisReadyReadbackRows[0];
     if (routeFocus) {
       const navigation = await navigateToAppRoute(page, storyDetailUrl(baseUrl, routeFocus.storyId), {
@@ -1669,66 +2854,125 @@ async function runPublicFeedBrowserSmoke({
         routed: Boolean(routedReadyCard),
       });
     }
-    const detail = await openStoryWithAcceptedSynthesis(page, detailCandidates, analysisTimeoutMs);
-    const target = detail.row;
-    const card = detail.card;
-    const synthesis = detail.synthesis;
-    await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
-    progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
-    const voteProof = await voteAgree(card, target, gunPeerUrl, baseUrl);
-    progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
-    await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
-    const comment = await withTimeout(
-      'story-comment-overall',
-      createStoryComment(page, target, commentVisibilityTimeoutMs),
-      Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 60_000)),
-    );
-    await page.screenshot(viewportScreenshotOptions(screenshots.afterComment));
-    progress('comment-screenshot', { threadId: comment.sectionId, body: comment.body });
-    const reload = await withTimeout(
-      'reload-persistence-overall',
-      verifyReloadPersistence(
-        page,
-        baseUrl,
-        target,
-        voteProof,
-        comment.body,
-        analysisTimeoutMs,
-        commentVisibilityTimeoutMs,
-        progress,
-      ),
-      Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
-    );
-    await page.screenshot(viewportScreenshotOptions(screenshots.reloadPersistence));
-    progress('reload-persistence-screenshot');
-    const secondBrowser = await withTimeout(
-      'second-browser-overall',
-      verifySecondBrowser({
-        browser,
-        baseUrl,
-        gunPeerUrl,
-        row: target,
-        voteProof,
-        commentBody: comment.body,
-        analysisTimeoutMs,
-        commentVisibilityTimeoutMs,
-        secondBrowserVoteVisibilityTimeoutMs,
-        progress,
-      }),
-      Math.max(
-        180_000,
-        Math.min(
-          720_000,
-          analysisTimeoutMs + secondBrowserVoteVisibilityTimeoutMs + commentVisibilityTimeoutMs + 30_000,
+    let target;
+    let card;
+    let synthesis = null;
+    let detail;
+    let storyDetailCheck;
+    let voteProof = {
+      status: 'skipped',
+      reason: 'no-current-accepted-synthesis',
+    };
+    if (hasCurrentAcceptedSynthesisCandidate) {
+      detail = await openStoryWithAcceptedSynthesis(page, detailCandidates, analysisTimeoutMs);
+      target = detail.row;
+      card = detail.card;
+      synthesis = detail.synthesis;
+      await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
+      progress('story-detail-screenshot', { storyId: target.storyId, topicId: target.topicId });
+      voteProof = await voteAgree(card, target, gunPeerUrl, baseUrl);
+      progress('vote-readback', { pointId: voteProof.pointId, afterAgree: voteProof.afterAgree });
+      await reloadStoryDetailForNextStep(page, baseUrl, target, analysisTimeoutMs, progress);
+      storyDetailCheck = {
+        mode: 'accepted_synthesis',
+        storyId: target.storyId,
+        topicId: target.topicId,
+        headline: target.headline,
+        rejectedPendingCandidates: detail.rejectedCandidates,
+      };
+    } else {
+      detail = await openStoryWithNonAcceptedSynthesisState(page, topCards, analysisTimeoutMs);
+      target = detail.row;
+      card = detail.card;
+      await page.screenshot(viewportScreenshotOptions(screenshots.storyDetail));
+      progress('story-detail-non-accepted-screenshot', {
+        storyId: target.storyId,
+        topicId: target.topicId,
+        stateText: detail.state.stateText,
+        voteButtonCount: detail.state.voteButtonCount,
+      });
+      storyDetailCheck = {
+        mode: 'non_accepted_synthesis',
+        storyId: target.storyId,
+        topicId: target.topicId,
+        headline: target.headline,
+        rejectedPendingCandidates: detail.rejectedCandidates,
+        state: detail.state,
+      };
+    }
+    let comment = {
+      status: 'skipped',
+      reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
+    };
+    let reload = {
+      status: 'skipped',
+      reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
+    };
+    let secondBrowser = {
+      status: 'skipped',
+      reason: 'story-comment-workflow-not-required-for-analysis-frame-smoke',
+    };
+    if ((requireStoryComments || requireSecondBrowserVote) && hasCurrentAcceptedSynthesisCandidate) {
+      if (requireStoryComments) {
+        comment = await withTimeout(
+          'story-comment-overall',
+          createStoryComment(page, target, commentVisibilityTimeoutMs),
+          Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 60_000)),
+        );
+        await page.screenshot(viewportScreenshotOptions(screenshots.afterComment));
+        progress('comment-screenshot', { threadId: comment.sectionId, body: comment.body });
+        reload = await withTimeout(
+          'reload-persistence-overall',
+          verifyReloadPersistence(
+            page,
+            baseUrl,
+            target,
+            voteProof,
+            comment.body,
+            analysisTimeoutMs,
+            commentVisibilityTimeoutMs,
+            progress,
+          ),
+          Math.max(180_000, Math.min(300_000, analysisTimeoutMs + 120_000)),
+        );
+        await page.screenshot(viewportScreenshotOptions(screenshots.reloadPersistence));
+        progress('reload-persistence-screenshot');
+      }
+      secondBrowser = await withTimeout(
+        'second-browser-overall',
+        verifySecondBrowser({
+          browser,
+          baseUrl,
+          gunPeerUrl,
+          row: target,
+          voteProof,
+          commentBody: requireStoryComments ? comment.body : null,
+          analysisTimeoutMs,
+          commentVisibilityTimeoutMs,
+          secondBrowserVoteVisibilityTimeoutMs,
+          progress,
+        }),
+        Math.max(
+          180_000,
+          Math.min(
+            720_000,
+            analysisTimeoutMs + secondBrowserVoteVisibilityTimeoutMs + commentVisibilityTimeoutMs + 30_000,
+          ),
         ),
-      ),
-    );
-    progress('second-browser-complete');
+      );
+      progress('second-browser-complete');
+    } else if (requireStoryComments || requireSecondBrowserVote) {
+      progress('story-comment-workflow-skipped', { reason: 'no-current-accepted-synthesis' });
+    } else {
+      progress('story-comment-workflow-skipped', { reason: comment.reason });
+    }
 
+    const browserLogDiagnostics = summarizeBrowserLogDiagnostics(logs);
     summary = {
       ...summary,
       generatedAt: new Date().toISOString(),
       status: 'pass',
+      browserLogDiagnostics,
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
@@ -1749,13 +2993,14 @@ async function runPublicFeedBrowserSmoke({
         },
         scrollWorks: {
           count: afterScrollCards.length,
+          initialCount: initialCards.length,
+          meshIndexCount,
+          newStoryIds: afterScrollNewStoryIds.slice(0, 24),
+          beforeScrollNewsStore,
+          afterScrollNewsStore,
+          loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 24),
         },
-        storyDetailOpens: {
-          storyId: target.storyId,
-          topicId: target.topicId,
-          headline: target.headline,
-          rejectedPendingCandidates: detail.rejectedCandidates,
-        },
+        storyDetailOpens: storyDetailCheck,
         acceptedAnalysisSynthesisVisible: synthesis,
         pointStanceWriteReadback: voteProof,
         storyThreadCreateComment: comment,
@@ -1763,11 +3008,19 @@ async function runPublicFeedBrowserSmoke({
         secondBrowserVisibility: secondBrowser,
       },
     };
+    if (browserLogDiagnostics.criticalCspViolationCount > 0) {
+      throw new Error(`public-feed-browser-csp-violations:${browserLogDiagnostics.criticalCspViolationCount}`);
+    }
+    if (publicRelayAnalysisFrameCoverage.status !== 'pass') {
+      throw new Error(publicRelayAnalysisFrameCoverage.errorMessage || 'public-relay-analysis-frame-coverage-failed');
+    }
+    assertPublicRelayPaginationReadback(publicRelayPaginationReadback, env);
   } catch (error) {
     summary = {
       ...summary,
       generatedAt: new Date().toISOString(),
       status: 'fail',
+      browserLogDiagnostics: summarizeBrowserLogDiagnostics(logs),
       errorMessage: error instanceof Error ? error.message : String(error),
       errorStack: formatError(error),
     };
@@ -1820,14 +3073,32 @@ export const publicFeedBrowserSmokeInternal = {
   ensureStoryThread,
   ensureIdentity,
   readFixtureConst,
+  extractViteEnvString,
+  fetchDeployedSystemWriterPin,
   refreshLatest,
+  installRefreshLatestRecorder,
+  readRefreshLatestRecorder,
+  readPublicNewsStoreSnapshot,
   findVisibleStoryRow,
+  summarizeBrowserLogDiagnostics,
+  waitForInitialOpenHeadlines,
+  gotoFeedInitialOpen,
   resolveArtifactDir,
+  resolveSystemWriterPin,
   isAcceptedSynthesisText,
+  acceptedSynthesisCurrentForStory,
+  readVisibleNonAcceptedSynthesisState,
   loadSystemWriterPin,
   parsePublicPointAggregatePayload,
   readPublicPointAggregateViaOrigin,
+  loadRepoSystemWriterPin,
+  latestIndexRecordsFromPayload,
+  readPublicRelayLatestIndexPage,
+  readPublicRelayPaginationReadback,
+  assertPublicRelayPaginationReadback,
   readPublicRelaySynthesisCandidates,
+  assertPublicRelayAnalysisFrameCoverage,
+  capturePublicRelayAnalysisFrameCoverage,
   storyThreadVisibilityTimeoutMs,
   storyDetailUrl,
   isNavigationAbortError,

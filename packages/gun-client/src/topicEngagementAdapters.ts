@@ -21,6 +21,7 @@ import {
 import type { VennClient } from './types';
 
 const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const SYSTEM_WRITER_COMPAT_NULL_FIELDS = ['_system', '_Signature', '_WriterId', '_IssuedAt'] as const;
 
 type TopicEngagementSummaryRecord = TopicEngagementAggregateV1 & Record<string, unknown>;
 
@@ -123,6 +124,9 @@ function stripSystemWriterFields(payload: Record<string, unknown>): Record<strin
     _systemIssuedAt: _omittedSystemIssuedAt,
     ...summaryPayload
   } = payload;
+  for (const field of SYSTEM_WRITER_COMPAT_NULL_FIELDS) {
+    delete summaryPayload[field];
+  }
   return summaryPayload;
 }
 

@@ -232,6 +232,156 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('reconciles raw stories into product feed indexes after acquiring leadership', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const reconcileProductFeed = vi.fn().mockResolvedValue({ repaired_latest_index: 1 });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-reconcile' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      reconcileProductFeed,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    expect(reconcileProductFeed).toHaveBeenCalledWith({ id: 'client-reconcile' });
+    expect(reconcileProductFeed.mock.invocationCallOrder[0]).toBeLessThan(
+      startRuntime.mock.invocationCallOrder[0],
+    );
+
+    const heartbeatTick = timers.ticks[0];
+    heartbeatTick?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+
+    await daemon.stop();
+  });
+
+  it('reconciles raw stories into product feed indexes again after the repair interval elapses', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const reconcileProductFeed = vi.fn().mockResolvedValue({ repaired_latest_index: 1 });
+    let nowMs = 1_700_000_000_000;
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-reconcile-periodic' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      reconcileProductFeed,
+      productFeedReconcileIntervalMs: 1_000,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => nowMs,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+
+    const heartbeatTick = timers.ticks[0];
+    nowMs += 1_001;
+    heartbeatTick?.();
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(2);
+    });
+    expect(reconcileProductFeed).toHaveBeenLastCalledWith({ id: 'client-reconcile-periodic' });
+
+    await daemon.stop();
+  });
+
+  it('enqueues pending product-visible stories for synthesis catch-up after acquiring leadership', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+    const collectPendingSynthesisCandidates = vi.fn().mockResolvedValue({
+      scanned: 1,
+      enqueued: 1,
+      skipped: 0,
+      staleInProgress: 0,
+      bootstrappedMissingLifecycle: 0,
+      acceptedMissingSynthesis: 0,
+      candidates: [
+        {
+          story: { story_id: CANDIDATE.story_id },
+          lifecycle: { status: 'pending' },
+          candidate: CANDIDATE,
+        },
+      ],
+    });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const client = { id: 'client-synthesis-catchup' } as VennClient;
+
+    const daemon = createNewsAggregatorDaemon({
+      client,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      enrichmentWorker,
+      collectPendingSynthesisCandidates,
+      synthesisCatchupSampleLimit: 7,
+      synthesisInProgressStaleMs: 123_456,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledTimes(1);
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledWith(client, {
+      limit: 7,
+      logger,
+      now: expect.any(Function),
+      staleInProgressMs: 123_456,
+    });
+    expect(collectPendingSynthesisCandidates.mock.invocationCallOrder[0]).toBeLessThan(
+      startRuntime.mock.invocationCallOrder[0],
+    );
+    await vi.waitFor(() => {
+      expect(enrichmentWorker).toHaveBeenCalledWith(CANDIDATE);
+    });
+
+    await daemon.stop();
+  });
+
   it('refuses publish writes when daemon lease is no longer held', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();

@@ -20,23 +20,38 @@ import {
 } from './systemWriter';
 import {
   DEFAULT_NEWS_HOTNESS_CONFIG,
+  buildNewsSynthesisLifecycleRecord,
   computeStoryHotness,
   getNewsHotIndexChain,
   getNewsIngestionLeaseChain,
+  getNewsSynthesisLifecycleChain,
   getNewsStoryChain,
   getNewsStoriesChain,
   getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
   newsAdapterInternal,
+  parseNewsHotIndexProductRecord,
+  parseNewsLatestIndexEntryRecord,
+  parseNewsLatestIndexProductRecord,
   parseRemovalEntry,
   readLatestStoryIds,
   readNewsHotIndex,
+  readNewsHotIndexProductRecord,
+  readNewsHotIndexViaRelayRest,
+  readNewsHotIndexWithRelayRestFallback,
   readNewsIngestionLease,
   readNewsLatestIndex,
+  readNewsLatestIndexPageViaRelayRest,
+  readNewsLatestIndexProductRecord,
   readNewsLatestIndexViaRelayRest,
   readNewsLatestIndexWithRelayRestFallback,
   readNewsRemoval,
+  readNewsSynthesisLifecycleStatus,
+  readNewsSynthesisLifecycleStatusViaRelayRest,
+  readNewsSynthesisLifecycleStatusWithRelayRestFallback,
   readNewsStory,
+  readNewsStoryIds,
+  readNewsStoryRepairCandidate,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
   removeNewsBundle,
@@ -50,6 +65,7 @@ import {
   writeNewsHotIndexEntry,
   writeNewsIngestionLease,
   writeNewsLatestIndexEntry,
+  writeNewsSynthesisLifecycleStatus,
   writeNewsStory
 } from './newsAdapters';
 
@@ -60,6 +76,7 @@ interface FakeMesh {
   setReadHang: (path: string) => void;
   setReadDelay: (path: string, delayMs: number) => void;
   setOnSequence: (path: string, values: Array<{ value: unknown; delayMs?: number }>) => void;
+  setMapEntries: (path: string, values: Array<{ key: string; value: unknown; delayMs?: number }>) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutDoubleAck: (path: string) => void;
@@ -70,6 +87,7 @@ function createFakeMesh(): FakeMesh {
   const readHangs = new Set<string>();
   const readDelays = new Map<string, number>();
   const onSequences = new Map<string, Array<{ value: unknown; delayMs?: number }>>();
+  const mapEntries = new Map<string, Array<{ key: string; value: unknown; delayMs?: number }>>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putDoubleAcks = new Set<string>();
@@ -118,6 +136,26 @@ function createFakeMesh(): FakeMesh {
         }
       }),
       off: vi.fn(),
+      map: vi.fn(() => {
+        const entries = mapEntries.get(path) ?? [];
+        return {
+          on: vi.fn((cb?: (data: unknown, key?: string) => void) => {
+            if (!cb) {
+              return;
+            }
+            for (const entry of entries) {
+              const delayMs = entry.delayMs ?? 0;
+              setTimeout(() => {
+                cb(entry.value, entry.key);
+              }, delayMs);
+            }
+          }),
+          off: vi.fn(),
+          once: vi.fn(),
+          put: vi.fn(),
+          get: vi.fn((key: string) => makeNode([...segments, key])),
+        };
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -148,6 +186,9 @@ function createFakeMesh(): FakeMesh {
     },
     setOnSequence(path: string, values: Array<{ value: unknown; delayMs?: number }>) {
       onSequences.set(path, values);
+    },
+    setMapEntries(path: string, values: Array<{ key: string; value: unknown; delayMs?: number }>) {
+      mapEntries.set(path, values);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -198,6 +239,7 @@ function createClient(
       systemWriterId: TEST_SYSTEM_WRITER_ID,
       systemWriterNow: () => TEST_SYSTEM_ISSUED_AT,
       systemWriterSign: defaultSystemWriterSign,
+      requireNewsWriteReadback: false,
       ...config,
     },
     hydrationBarrier: barrier,
@@ -278,6 +320,7 @@ function expectSystemLatestIndexRecord(
   value: unknown,
   storyId: string,
   latestActivityAt: number,
+  story?: StoryBundle,
 ): SystemWriterLatestIndexRecord {
   expect(value).toMatchObject({
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -288,6 +331,17 @@ function expectSystemLatestIndexRecord(
     story_id: storyId,
     latest_activity_at: latestActivityAt,
   });
+  if (story) {
+    expect(value).toMatchObject({
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: (story.primary_sources ?? story.sources).length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    });
+  }
   expect(value).not.toHaveProperty('_authorScheme');
   expect(value).not.toHaveProperty('signedWriteEnvelope');
   return value as SystemWriterLatestIndexRecord;
@@ -297,6 +351,7 @@ function expectSystemHotIndexRecord(
   value: unknown,
   storyId: string,
   hotness: number,
+  story?: StoryBundle,
 ): SystemWriterHotIndexRecord {
   expect(value).toMatchObject({
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -307,9 +362,37 @@ function expectSystemHotIndexRecord(
     story_id: storyId,
     hotness,
   });
+  if (story) {
+    expect(value).toMatchObject({
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: (story.primary_sources ?? story.sources).length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+    });
+  }
   expect(value).not.toHaveProperty('_authorScheme');
   expect(value).not.toHaveProperty('signedWriteEnvelope');
   return value as SystemWriterHotIndexRecord;
+}
+
+function expectSystemLifecycleRecord(value: unknown, storyId: string) {
+  expect(value).toMatchObject({
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: TEST_SYSTEM_WRITER_ID,
+    _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+    _systemSignature: expect.any(String),
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: storyId,
+    topic_id: STORY.topic_id,
+    source_set_revision: STORY.provenance_hash,
+  });
+  expect(value).not.toHaveProperty('_authorScheme');
+  expect(value).not.toHaveProperty('signedWriteEnvelope');
+  return value as Record<string, unknown>;
 }
 
 const STORY: StoryBundle = {
@@ -373,6 +456,25 @@ describe('newsAdapters', () => {
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/index/hot/story-xyz/', 0.625);
   });
 
+  it('builds synthesis lifecycle chain and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const record = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      updatedAt: 1_700_000_040_000,
+    });
+
+    const lifecycleChain = getNewsSynthesisLifecycleChain(client, STORY.story_id);
+    await lifecycleChain.put(record);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/news/stories/story-123/synthesis_lifecycle/latest/',
+      record,
+    );
+  });
+
   it('detects forbidden payload fields recursively', () => {
     expect(hasForbiddenNewsPayloadFields({ ok: true })).toBe(false);
     expect(hasForbiddenNewsPayloadFields({ access_token: 'x' })).toBe(true);
@@ -404,6 +506,56 @@ describe('newsAdapters', () => {
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
     ).toEqual(STORY);
+  });
+
+  it('writes and reads signed synthesis lifecycle records for story source revisions', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const { pin, sign } = await createRealSystemWriterHooks();
+    const verify = vi.fn(async () => true);
+    const client = createClient(mesh, guard, {
+      systemWriterPin: pin,
+      systemWriterSign: sign,
+      systemWriterVerify: verify,
+    });
+    const pending = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      frameTableState: 'frame_table_pending',
+      updatedAt: 1_700_000_040_000,
+    });
+
+    await expect(writeNewsSynthesisLifecycleStatus(client, pending)).resolves.toEqual(pending);
+
+    expect(mesh.writes).toHaveLength(1);
+    expect(mesh.writes[0].path).toBe('news/stories/story-123/synthesis_lifecycle/latest');
+    const signed = expectSystemLifecycleRecord(mesh.writes[0].value, STORY.story_id);
+    expect(signed.status).toBe('pending');
+    mesh.setRead('news/stories/story-123/synthesis_lifecycle/latest', signed);
+
+    await expect(readNewsSynthesisLifecycleStatus(client, STORY.story_id)).resolves.toMatchObject({
+      schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+      story_id: STORY.story_id,
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: 1,
+      canonical_source_count: 1,
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      updated_at: 1_700_000_040_000,
+    });
+  });
+
+  it('does not infer frame-table readiness for accepted synthesis without an explicit readiness check', () => {
+    const record = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'accepted_available',
+      synthesisId: 'synthesis-1',
+      epoch: 4,
+      updatedAt: 1_700_000_040_000,
+    });
+
+    expect(record.frame_table_state).toBe('frame_table_unavailable');
   });
 
   it('removeNewsStory clears a story node', async () => {
@@ -683,6 +835,37 @@ describe('newsAdapters', () => {
     await expect(writeNewsStory(client, STORY)).rejects.toThrow('write failed');
   });
 
+  it('writeNewsStory accepts an ack error only when required readback confirms persistence', async () => {
+    const mesh = createFakeMesh();
+    mesh.setPutError('news/stories/story-123', 'JSON error!');
+    mesh.setRead('news/stories/story-123', STORY);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    delete client.config.requireNewsWriteReadback;
+
+    await expect(writeNewsStory(client, STORY)).resolves.toEqual(STORY);
+    expect(mesh.writes).toHaveLength(1);
+  });
+
+  it('writeNewsStory requires readback after ack for default production clients', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      delete client.config.requireNewsWriteReadback;
+
+      const writePromise = writeNewsStory(client, STORY);
+      await expect(writePromise).rejects.toThrow(
+        'news-story write acknowledged but readback did not confirm persistence',
+      );
+      expect(mesh.writes).toHaveLength(1);
+    } finally {
+      warning.mockRestore();
+    }
+  }, 10_000);
+
   it('writeNewsStory resolves when put ack times out and readback confirms persistence', async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -803,6 +986,48 @@ describe('newsAdapters', () => {
     expect(story).toEqual(STORY);
   });
 
+  it('readNewsStoryIds lists durable raw story root keys without treating metadata as stories', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories', {
+      'story-b': { '#': 'vh/news/stories/story-b' },
+      _: {
+        '>': {
+          'story-a': 123,
+          _: 456,
+        },
+      },
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStoryIds(client, { limit: 1 })).resolves.toEqual(['story-a']);
+    await expect(readNewsStoryIds(client)).resolves.toEqual(['story-a', 'story-b']);
+  });
+
+  it('readNewsStoryIds supplements sparse roots from Gun map events for product-feed repair scans', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories', {
+      _: {
+        '>': {
+          'story-a': 123,
+        },
+      },
+    });
+    mesh.setMapEntries('news/stories', [
+      { key: 'story-corroborated', value: { '#': 'vh/news/stories/story-corroborated' } },
+      { key: 'story-b', value: { '#': 'vh/news/stories/story-b' } },
+      { key: '_', value: { '#': 'metadata' } },
+    ]);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStoryIds(client, { limit: 3 })).resolves.toEqual([
+      'story-a',
+      'story-b',
+      'story-corroborated',
+    ]);
+  });
+
   it('readNewsStory parses encoded bundle payloads', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/story-123', {
@@ -856,6 +1081,50 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('reads direct-route stories from a later configured relay when the first peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+    });
+    const record = {
+      __story_bundle_json: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({ ok: false }), { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        story_id: STORY.story_id,
+        topic_id: STORY.topic_id,
+        record,
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsStoryViaRelayRest(client, 'story-123')).resolves.toEqual(STORY);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/story?story_id=story-123',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('readNewsStoryWithRelayRestFallback returns a local mesh story before probing relay REST', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/story-123', {
@@ -890,10 +1159,18 @@ describe('newsAdapters', () => {
 
     await writeNewsLatestIndexEntry(client, 'story-a', 123.9);
     const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const relayedStory = { ...STORY, story_id: 'story-a', cluster_window_end: 123 };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       record_count: 1,
+      next_cursor: 123,
+      composition: {
+        total_visible: 1,
+        singleton_visible: 1,
+        multi_source_visible: 0,
+      },
       records: { 'story-a': record },
+      stories: { 'story-a': relayedStory },
     }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -907,8 +1184,227 @@ describe('newsAdapters', () => {
 
     try {
       await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({ 'story-a': 123 });
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { 'story-a': 123 },
+        nextCursor: 123,
+        recordCount: 1,
+        composition: {
+          total_visible: 1,
+          singleton_visible: 1,
+          multi_source_visible: 0,
+        },
+        stories: { 'story-a': relayedStory },
+      });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps relay-embedded latest-index stories when legacy index signatures cannot be revalidated in the browser', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    const relayedStory = {
+      ...STORY,
+      story_id: 'story-relayed-embedded',
+      cluster_window_end: 456,
+    };
+    await writeNewsLatestIndexEntry(client, relayedStory.story_id, relayedStory.cluster_window_end, relayedStory);
+    const record = {
+      ...expectSystemLatestIndexRecord(
+        mesh.writes[0].value,
+        relayedStory.story_id,
+        relayedStory.cluster_window_end,
+        relayedStory,
+      ),
+      _systemSignature: 'tampered-signature-from-legacy-peer-copy',
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      next_cursor: relayedStory.cluster_window_end,
+      records: { [relayedStory.story_id]: record },
+      stories: { [relayedStory.story_id]: relayedStory },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { [relayedStory.story_id]: relayedStory.cluster_window_end },
+        stories: { [relayedStory.story_id]: relayedStory },
+      });
+      await expect(readNewsLatestIndexViaRelayRest(client)).resolves.toEqual({
+        [relayedStory.story_id]: relayedStory.cluster_window_end,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('merges latest-index rows across configured relay peers when one peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-a', 123);
+    await writeNewsLatestIndexEntry(signingClient, 'story-b', 456);
+    const storyARecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const storyBRecord = expectSystemLatestIndexRecord(mesh.writes[1].value, 'story-b', 456);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          records: { 'story-a': storyARecord },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-b': storyBRecord },
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsLatestIndexViaRelayRest(reader)).resolves.toEqual({
+        'story-a': 123,
+        'story-b': 456,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/latest-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('starts latest-index relay peer reads without waiting for a slow first peer', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-fast', 456);
+    const storyFastRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-fast', 456);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-slow.example/gun', 'wss://gun-fast.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    let releaseSlowPeer!: (response: Response) => void;
+    const slowPeer = new Promise<Response>((resolve) => {
+      releaseSlowPeer = resolve;
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url.startsWith('https://gun-slow.example/')) {
+        return slowPeer;
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-fast': storyFastRecord },
+      }), { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const readPromise = readNewsLatestIndexViaRelayRest(reader);
+      for (let attempt = 0; attempt < 20 && fetchMock.mock.calls.length < 2; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      releaseSlowPeer(new Response(JSON.stringify({
+        ok: true,
+        record_count: 0,
+        records: {},
+      }), { status: 200 }));
+      await expect(readPromise).resolves.toEqual({ 'story-fast': 456 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('merges hot-index rows across configured relay peers', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsHotIndexEntry(signingClient, 'story-a', 0.25);
+    await writeNewsHotIndexEntry(signingClient, 'story-b', 0.75);
+    const storyARecord = expectSystemHotIndexRecord(mesh.writes[0].value, 'story-a', 0.25);
+    const storyBRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-b', 0.75);
+    const reader = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+      systemWriterPin: hooks.pin,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          records: { 'story-a': storyARecord },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record_count: 1,
+        records: { 'story-b': storyBRecord },
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(readNewsHotIndexViaRelayRest(reader)).resolves.toEqual({
+        'story-b': 0.75,
+        'story-a': 0.25,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/hot-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/hot-index?limit=80',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {
@@ -945,6 +1441,90 @@ describe('newsAdapters', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('validates protocol-shaped latest-index subscription records with the same pinned writer semantics', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-live', 456.9);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-live', 456);
+
+    await expect(parseNewsLatestIndexEntryRecord(signingClient, 'story-live', record)).resolves.toBe(456);
+
+    const readerWithoutPin = createClient(createFakeMesh(), guard);
+    await expect(parseNewsLatestIndexEntryRecord(readerWithoutPin, 'story-live', record)).resolves.toBeNull();
+    await expect(parseNewsLatestIndexEntryRecord(signingClient, '   ', record)).resolves.toBeNull();
+    await expect(
+      parseNewsLatestIndexEntryRecord(signingClient, 'other-story', record),
+    ).resolves.toBeNull();
+
+    await writeNewsLatestIndexEntry(signingClient, STORY.story_id, STORY.cluster_window_end, STORY);
+    const productRecord = expectSystemLatestIndexRecord(
+      mesh.writes.at(-1)?.value,
+      STORY.story_id,
+      STORY.cluster_window_end,
+      STORY,
+    );
+    await expect(
+      parseNewsLatestIndexProductRecord(signingClient, STORY.story_id, productRecord),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+    mesh.setRead(`news/index/latest/${STORY.story_id}`, productRecord);
+    await expect(
+      readNewsLatestIndexProductRecord(signingClient, STORY.story_id),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+    });
+
+    await writeNewsHotIndexEntry(signingClient, STORY.story_id, 0.625, STORY);
+    const hotProductRecord = expectSystemHotIndexRecord(
+      mesh.writes.at(-1)?.value,
+      STORY.story_id,
+      0.625,
+      STORY,
+    );
+    await expect(
+      parseNewsHotIndexProductRecord(signingClient, STORY.story_id, hotProductRecord),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      hotness: 0.625,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+    mesh.setRead(`news/index/hot/${STORY.story_id}`, hotProductRecord);
+    await expect(
+      readNewsHotIndexProductRecord(signingClient, STORY.story_id),
+    ).resolves.toMatchObject({
+      story_id: STORY.story_id,
+      hotness: 0.625,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+    });
+    await expect(parseNewsHotIndexProductRecord(signingClient, 'other-story', hotProductRecord)).resolves.toBeNull();
   });
 
   it('readNewsLatestIndexWithRelayRestFallback prefers validated REST records before scanning the direct root', async () => {
@@ -1010,6 +1590,75 @@ describe('newsAdapters', () => {
     try {
       await expect(readNewsLatestIndexWithRelayRestFallback(client)).resolves.toEqual({
         'story-direct': 100,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsHotIndexWithRelayRestFallback prefers validated REST hot rows before scanning the direct root', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, 'story-direct', 0.1);
+    const directRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-direct', 0.1);
+    await writeNewsHotIndexEntry(client, 'story-relay', 0.9);
+    const relayRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-relay', 0.9);
+    mesh.setRead('news/index/hot', { 'story-direct': directRecord });
+
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: { 'story-relay': relayRecord },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsHotIndexWithRelayRestFallback(client)).resolves.toEqual({
+        'story-relay': 0.9,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/hot-index?limit=80',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsHotIndexWithRelayRestFallback keeps the direct hot index when relay REST is empty', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, 'story-direct', 0.7);
+    const directRecord = expectSystemHotIndexRecord(mesh.writes.at(-1)?.value, 'story-direct', 0.7);
+    mesh.setRead('news/index/hot', { 'story-direct': directRecord });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 0,
+      records: {},
+    }), { status: 200 })));
+
+    try {
+      await expect(readNewsHotIndexWithRelayRestFallback(client)).resolves.toEqual({
+        'story-direct': 0.7,
       });
     } finally {
       vi.unstubAllGlobals();
@@ -1129,6 +1778,206 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('readNewsLatestIndexWithRelayRestFallback requests and enforces older cursor windows', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      records: {
+        'story-new': 300,
+        'story-mid': 200,
+        'story-old': 100,
+      },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsLatestIndexWithRelayRestFallback(client, { limit: 2, before: 250 }),
+      ).resolves.toEqual({
+        'story-mid': 200,
+        'story-old': 100,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/latest-index?limit=2&before=250',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsSynthesisLifecycleStatusWithRelayRestFallback reads lifecycle through same-origin relay REST', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle',
+      topic_id: 'topic-lifecycle',
+      provenance_hash: 'source-set-lifecycle',
+      sources: [
+        STORY.sources[0],
+        {
+          ...STORY.sources[0],
+          source_id: 'src-2',
+          publisher: 'Daily Bugle',
+          url: 'https://example.com/story-2',
+          url_hash: 'hash-2',
+          title: 'Second source',
+        },
+      ],
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'terminal_unavailable',
+      frameTableState: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      updatedAt: 400,
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record: lifecycle,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle'),
+      ).resolves.toEqual(lifecycle);
+      await expect(
+        readNewsSynthesisLifecycleStatusWithRelayRestFallback(client, 'story-lifecycle'),
+      ).resolves.toEqual(lifecycle);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/synthesis-lifecycle?story_id=story-lifecycle',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsSynthesisLifecycleStatusViaRelayRest accepts relay-validated lifecycle bodies without a local writer pin', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: null,
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle-relay-validated',
+      topic_id: 'topic-lifecycle-relay-validated',
+      provenance_hash: 'source-set-relay-validated',
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'accepted_available',
+      frameTableState: 'frame_table_ready',
+      retryable: false,
+      synthesisId: 'synthesis-relay-validated',
+      epoch: 0,
+      updatedAt: 600,
+    });
+    const signedLifecycle = {
+      ...lifecycle,
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: 'unconfigured-public-writer',
+      _systemIssuedAt: 600,
+      _systemSignature: 'not-locally-verifiable',
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      lifecycle: signedLifecycle,
+      record: signedLifecycle,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle-relay-validated'),
+      ).resolves.toEqual(lifecycle);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reads synthesis lifecycle from a later configured relay when the first peer is stale', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-empty.example/gun', 'wss://gun-good.example/gun'],
+    });
+    const story = {
+      ...STORY,
+      story_id: 'story-lifecycle-later-peer',
+      topic_id: 'topic-lifecycle-later-peer',
+      provenance_hash: 'source-set-lifecycle-later-peer',
+    };
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story,
+      status: 'terminal_unavailable',
+      frameTableState: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      updatedAt: 500,
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-empty.example/')) {
+        return new Response(JSON.stringify({ ok: false }), { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        record: lifecycle,
+      }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await expect(
+        readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-lifecycle-later-peer'),
+      ).resolves.toEqual(lifecycle);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'https://gun-empty.example/vh/news/synthesis-lifecycle?story_id=story-lifecycle-later-peer',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://gun-good.example/vh/news/synthesis-lifecycle?story_id=story-lifecycle-later-peer',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('falls back to the unscoped ingestion lease when a configured scope normalizes empty', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/runtime/lease/ingester', {
@@ -1169,6 +2018,133 @@ describe('newsAdapters', () => {
     mesh.setRead('news/stories/story-123', record);
 
     await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+  });
+
+  it('readNewsStory ignores Gun structural links and stale story mirror fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    mesh.setRead('news/stories/story-123', {
+      ...record,
+      synthesis_lifecycle: { '#': 'vh/news/stories/story-123/synthesis_lifecycle' },
+      topic_id: STORY.topic_id,
+      provenance_hash: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      s: STORY.schemaVersion,
+    });
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+  });
+
+  it('readNewsLatestIndexProductRecord ignores stale non-contract fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY);
+    const record = expectSystemLatestIndexRecord(
+      mesh.writes[0].value,
+      STORY.story_id,
+      STORY.cluster_window_end,
+      STORY,
+    );
+    mesh.setRead('news/index/latest/story-123', {
+      ...record,
+      sset_revision: 'stale-legacy-alias',
+    });
+
+    await expect(readNewsLatestIndexProductRecord(client, STORY.story_id)).resolves.toEqual({
+      story_id: STORY.story_id,
+      latest_activity_at: STORY.cluster_window_end,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+  });
+
+  it('readNewsHotIndexProductRecord ignores stale non-contract fields when validating signed records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsHotIndexEntry(client, STORY.story_id, 0.5, STORY);
+    const record = expectSystemHotIndexRecord(mesh.writes[0].value, STORY.story_id, 0.5, STORY);
+    mesh.setRead('news/index/hot/story-123', {
+      ...record,
+      sset_revision: 'stale-legacy-alias',
+    });
+
+    await expect(readNewsHotIndexProductRecord(client, STORY.story_id)).resolves.toEqual({
+      story_id: STORY.story_id,
+      hotness: 0.5,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: STORY.topic_id,
+      source_set_revision: STORY.provenance_hash,
+      source_count: STORY.sources.length,
+      canonical_source_count: STORY.sources.length,
+      story_created_at: STORY.created_at,
+      cluster_window_start: STORY.cluster_window_start,
+    });
+  });
+
+  it('readNewsSynthesisLifecycleStatus ignores stale accepted fields on signed pending lifecycle records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    const pending = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      reason: 'storycluster_public_feed_repair',
+      updatedAt: 1_700_000_020_000,
+    });
+
+    await writeNewsSynthesisLifecycleStatus(client, pending);
+    const record = expectSystemLifecycleRecord(mesh.writes[0].value, STORY.story_id);
+    mesh.setRead('news/stories/story-123/synthesis_lifecycle/latest', {
+      ...record,
+      synthesis_id: 'stale-accepted-synthesis',
+      epoch: 0,
+    });
+
+    await expect(readNewsSynthesisLifecycleStatus(client, STORY.story_id)).resolves.toEqual(pending);
+  });
+
+  it('readNewsStory rejects unsigned legacy records carrying old system signature fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+    mesh.setRead('news/stories/story-123', {
+      [STORY_BUNDLE_JSON_KEY]: JSON.stringify(STORY),
+      _Signature: 'legacy-signature',
+      _WriterId: TEST_SYSTEM_WRITER_ID,
+      _IssuedAt: TEST_SYSTEM_ISSUED_AT,
+    });
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
   });
 
   it('readNewsStory rejects tampered system story metadata and payloads', async () => {
@@ -1215,6 +2191,41 @@ describe('newsAdapters', () => {
       mesh.setRead('news/stories/story-123', tampered);
       await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
     }
+  });
+
+  it('readNewsStoryRepairCandidate recovers only signature-valid rows missing story mirror fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    const {
+      story_id: _omittedStoryId,
+      created_at: _omittedCreatedAt,
+      schemaVersion: _omittedSchemaVersion,
+      ...missingMirrors
+    } = record;
+
+    mesh.setRead('news/stories/story-123', missingMirrors);
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toEqual(STORY);
+
+    mesh.setRead('news/stories/story-123', {
+      ...missingMirrors,
+      [STORY_BUNDLE_JSON_KEY]: JSON.stringify({ ...STORY, headline: 'tampered' }),
+    });
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toBeNull();
+
+    mesh.setRead('news/stories/story-123', {
+      ...missingMirrors,
+      signedWriteEnvelope: { signature: 'not-for-system-repair' },
+    });
+    await expect(readNewsStoryRepairCandidate(client, 'story-123')).resolves.toBeNull();
   });
 
   it('readNewsStory rejects system records whose signed story id does not match the path', async () => {
@@ -1786,6 +2797,12 @@ describe('newsAdapters', () => {
         _systemSignature: 'not-allowed',
         latest_activity_at: 128,
       },
+      'legacy-old-signature-downgrade': {
+        _Signature: 'not-allowed',
+        _WriterId: TEST_SYSTEM_WRITER_ID,
+        _IssuedAt: TEST_SYSTEM_ISSUED_AT,
+        latest_activity_at: 129,
+      },
     });
     mesh.setRead('news/index/hot', {
       'legacy-scalar': 0.5,
@@ -1801,6 +2818,10 @@ describe('newsAdapters', () => {
         _writerKind: 'legacy',
         signedWriteEnvelope: { signature: 'not-allowed' },
         hotness: 0.9,
+      },
+      'legacy-old-signature-downgrade': {
+        _system: 'not-allowed',
+        hotness: 1,
       },
     });
 
@@ -1999,7 +3020,13 @@ describe('newsAdapters', () => {
       }),
     });
 
+    await expect(writeNewsHotIndexEntry(client, STORY.story_id, 0.5, STORY)).resolves.toBe(0.5);
+    expectSystemHotIndexRecord(mesh.writes[3].value, STORY.story_id, 0.5, STORY);
+
     await expect(writeNewsHotIndexEntry(client, '   ', 0.1)).rejects.toThrow('storyId is required');
+    await expect(writeNewsHotIndexEntry(client, 'story-other', 0.1, STORY)).rejects.toThrow(
+      'hot-index story metadata must match storyId',
+    );
   });
 
   it('writeNewsLatestIndexEntry and writeNewsHotIndexEntry confirm signed readback after ack timeout', async () => {
@@ -2026,6 +3053,56 @@ describe('newsAdapters', () => {
       await vi.advanceTimersByTimeAsync(1000);
       await expect(latestPromise).resolves.toBeUndefined();
 
+      const metadataStory = { ...STORY, story_id: 'story-metadata' };
+      mesh.setPutHang('news/index/latest/story-metadata');
+      mesh.setRead('news/index/latest/story-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: metadataStory.story_id,
+        latest_activity_at: metadataStory.cluster_window_end,
+        product_state_schema_version: 'vh-news-product-feed-index-v1',
+        topic_id: metadataStory.topic_id,
+        source_set_revision: metadataStory.provenance_hash,
+        source_count: metadataStory.sources.length,
+        canonical_source_count: metadataStory.sources.length,
+        story_created_at: metadataStory.created_at,
+        cluster_window_start: metadataStory.cluster_window_start,
+      });
+      const metadataPromise = writeNewsLatestIndexEntry(
+        client,
+        metadataStory.story_id,
+        metadataStory.cluster_window_end,
+        metadataStory,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(metadataPromise).resolves.toBeUndefined();
+
+      const metadataMissingStory = { ...STORY, story_id: 'story-missing-metadata' };
+      mesh.setPutHang('news/index/latest/story-missing-metadata');
+      mesh.setRead('news/index/latest/story-missing-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: metadataMissingStory.story_id,
+        latest_activity_at: metadataMissingStory.cluster_window_end,
+      });
+      const missingMetadataPromise = expect(
+        writeNewsLatestIndexEntry(
+          client,
+          metadataMissingStory.story_id,
+          metadataMissingStory.cluster_window_end,
+          metadataMissingStory,
+        ),
+      ).rejects.toThrow('news latest-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingMetadataPromise;
+
       mesh.setPutHang('news/index/hot/story-a');
       mesh.setRead('news/index/hot/story-a', {
         _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -2039,6 +3116,56 @@ describe('newsAdapters', () => {
       const hotPromise = writeNewsHotIndexEntry(client, 'story-a', 0.5);
       await vi.advanceTimersByTimeAsync(1000);
       await expect(hotPromise).resolves.toBe(0.5);
+
+      const hotMetadataStory = { ...STORY, story_id: 'story-hot-metadata' };
+      mesh.setPutHang('news/index/hot/story-hot-metadata');
+      mesh.setRead('news/index/hot/story-hot-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: hotMetadataStory.story_id,
+        hotness: 0.25,
+        product_state_schema_version: 'vh-news-product-feed-index-v1',
+        topic_id: hotMetadataStory.topic_id,
+        source_set_revision: hotMetadataStory.provenance_hash,
+        source_count: hotMetadataStory.sources.length,
+        canonical_source_count: hotMetadataStory.sources.length,
+        story_created_at: hotMetadataStory.created_at,
+        cluster_window_start: hotMetadataStory.cluster_window_start,
+      });
+      const hotMetadataPromise = writeNewsHotIndexEntry(
+        client,
+        hotMetadataStory.story_id,
+        0.25,
+        hotMetadataStory,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(hotMetadataPromise).resolves.toBe(0.25);
+
+      const hotMissingMetadataStory = { ...STORY, story_id: 'story-hot-missing-metadata' };
+      mesh.setPutHang('news/index/hot/story-hot-missing-metadata');
+      mesh.setRead('news/index/hot/story-hot-missing-metadata', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: hotMissingMetadataStory.story_id,
+        hotness: 0.25,
+      });
+      const missingHotMetadataPromise = expect(
+        writeNewsHotIndexEntry(
+          client,
+          hotMissingMetadataStory.story_id,
+          0.25,
+          hotMissingMetadataStory,
+        ),
+      ).rejects.toThrow('news hot-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingHotMetadataPromise;
 
       mesh.setPutHang('news/index/latest/story-missing');
       mesh.setRead('news/index/latest/story-missing', null);
@@ -2096,21 +3223,42 @@ describe('newsAdapters', () => {
           _writerKind: 'system',
           story_id: STORY.story_id,
           latest_activity_at: STORY.cluster_window_end,
+          product_state_schema_version: 'vh-news-product-feed-index-v1',
+          topic_id: STORY.topic_id,
+          source_set_revision: STORY.provenance_hash,
+          source_count: STORY.sources.length,
+          canonical_source_count: STORY.sources.length,
         }),
       });
-      expectSystemLatestIndexRecord(mesh.writes[1].value, STORY.story_id, STORY.cluster_window_end);
+      expectSystemLatestIndexRecord(mesh.writes[1].value, STORY.story_id, STORY.cluster_window_end, STORY);
       expect(mesh.writes[2]).toEqual({
         path: 'news/index/hot/story-123',
         value: expect.objectContaining({
           _writerKind: 'system',
           story_id: STORY.story_id,
           hotness: computeStoryHotness(STORY, Date.now()),
+          product_state_schema_version: 'vh-news-product-feed-index-v1',
+          topic_id: STORY.topic_id,
+          source_set_revision: STORY.provenance_hash,
+          source_count: STORY.sources.length,
+          canonical_source_count: STORY.sources.length,
         }),
       });
-      expectSystemHotIndexRecord(mesh.writes[2].value, STORY.story_id, computeStoryHotness(STORY, Date.now()));
+      expectSystemHotIndexRecord(mesh.writes[2].value, STORY.story_id, computeStoryHotness(STORY, Date.now()), STORY);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rejects latest-index source metadata that does not match the story id', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      writeNewsLatestIndexEntry(client, 'story-other', STORY.cluster_window_end, STORY),
+    ).rejects.toThrow('latest-index story metadata must match storyId');
+    expect(mesh.writes).toHaveLength(0);
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {

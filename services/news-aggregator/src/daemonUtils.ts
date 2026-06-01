@@ -321,6 +321,11 @@ export function resolveFeedSourceConfig(raw: string | undefined): ResolvedStarte
       }
     }
 
+    if (valid.length === 0) {
+      console.warn('[vh:news-daemon] feed source override contained no valid sources; using starter feed slate');
+      return resolveStarterFeedSources();
+    }
+
     return resolveStarterFeedSources({ feedSources: valid });
   } catch {
     return resolveStarterFeedSources();

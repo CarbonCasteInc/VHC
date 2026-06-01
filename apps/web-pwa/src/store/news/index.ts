@@ -1,9 +1,11 @@
 import { create, type StoreApi } from 'zustand';
 import {
-  readNewsHotIndex,
+  readNewsHotIndexWithRelayRestFallback,
   readNewsLatestIndexWithRelayRestFallback,
+  readNewsLatestIndexPageWithRelayRestFallback,
   readNewsStoryViaRelayRest,
   readNewsStoryWithRelayRestFallback,
+  type SystemWriterPin,
   type VennClient,
 } from '@vh/gun-client';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
@@ -11,7 +13,8 @@ import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
 import { loadStorylinesForStories } from './storylines';
 import { createStorylineRecord, removeOrphanedStoryline } from './storylineState';
-import type { NewsState, NewsDeps } from './types';
+import systemWriterPin from '../../luma/system-writer-pin.json';
+import type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 import {
   buildSeedIndex,
   dedupeStories,
@@ -25,12 +28,13 @@ import {
   sortStories,
 } from './storeHelpers';
 
-export type { NewsState, NewsDeps } from './types';
+export type { NewsState, NewsDeps, NewsRefreshRequest } from './types';
 
 const INITIAL_STATE: Pick<NewsState,
-  'stories' | 'latestIndex' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
+  'stories' | 'latestIndex' | 'latestIndexCursor' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
   stories: [],
   latestIndex: {},
+  latestIndexCursor: null,
   hotIndex: {},
   storylinesById: {},
   hydrated: false,
@@ -47,6 +51,15 @@ function selectLatestStoryIds(latestIndex: Record<string, number>, limit = 50): 
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, Math.floor(limit))
     .map(([storyId]) => storyId);
+}
+
+function normalizeRefreshRequest(request: number | NewsRefreshRequest | undefined): Required<NewsRefreshRequest> {
+  const limit = request === undefined ? 50 : typeof request === 'number' ? request : request.limit ?? 50;
+  const before = typeof request === 'number' ? undefined : request?.before;
+  return {
+    limit: Number.isFinite(limit) && (limit as number) > 0 ? Math.floor(limit as number) : 0,
+    before: Number.isFinite(before) && (before as number) >= 0 ? Math.floor(before as number) : Number.POSITIVE_INFINITY,
+  };
 }
 
 function readNewsStoreNumber(
@@ -74,7 +87,7 @@ function readNewsStoreNumber(
 
 const NEWS_REFRESH_TIMEOUT_MS = readNewsStoreNumber(
   ['VITE_NEWS_REFRESH_TIMEOUT_MS', 'VH_NEWS_REFRESH_TIMEOUT_MS'],
-  15_000,
+  35_000,
   1_000,
 );
 
@@ -92,13 +105,13 @@ const NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS = readNewsStoreNumber(
 
 const NEWS_REFRESH_STORY_LIST_TIMEOUT_MS = readNewsStoreNumber(
   ['VITE_NEWS_REFRESH_STORY_LIST_TIMEOUT_MS', 'VH_NEWS_REFRESH_STORY_LIST_TIMEOUT_MS'],
-  Math.max(2_000, NEWS_REFRESH_TIMEOUT_MS - NEWS_OPTIONAL_INDEX_TIMEOUT_MS - NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS - 1_000),
+  Math.max(12_000, NEWS_REFRESH_TIMEOUT_MS - NEWS_OPTIONAL_INDEX_TIMEOUT_MS - NEWS_OPTIONAL_STORYLINES_TIMEOUT_MS - 1_000),
   500,
 );
 
 const NEWS_REFRESH_STORY_READ_CONCURRENCY = readNewsStoreNumber(
   ['VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY', 'VH_NEWS_REFRESH_STORY_READ_CONCURRENCY'],
-  8,
+  16,
   1,
 );
 
@@ -113,6 +126,79 @@ const NEWS_DIRECT_STORY_READ_RETRY_MS = readNewsStoreNumber(
   500,
   0,
 );
+
+function sameOriginPublicNewsPeer(): string | null {
+  const location = (globalThis as { location?: Location }).location;
+  const origin = typeof location?.origin === 'string' ? location.origin : '';
+  if (!/^https?:\/\//.test(origin)) {
+    return null;
+  }
+  return `${origin.replace(/\/+$/, '')}/gun`;
+}
+
+function noopRelayOnlyChain(): VennClient['mesh'] {
+  const chain = {
+    once(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    put(_value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) {
+      callback?.({ err: 'relay-only public news client is read-only' });
+    },
+    get() {
+      return chain;
+    },
+    on(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    off() {},
+    map() {
+      return chain;
+    },
+  };
+  return chain as VennClient['mesh'];
+}
+
+function createPublicRelayReadClient(): VennClient | null {
+  const peer = sameOriginPublicNewsPeer();
+  if (!peer) {
+    return null;
+  }
+  const mesh = noopRelayOnlyChain();
+  return {
+    config: {
+      peers: [peer],
+      systemWriterPin: systemWriterPin as SystemWriterPin,
+      requireNewsWriteReadback: false,
+    },
+    mesh,
+    sessionReady: true,
+    hydrationBarrier: { markReady() {}, prepare: async () => undefined } as VennClient['hydrationBarrier'],
+    storage: { close: async () => undefined } as VennClient['storage'],
+    topologyGuard: { validateWrite() {} } as unknown as VennClient['topologyGuard'],
+    gun: {} as VennClient['gun'],
+    user: {} as VennClient['user'],
+    chat: {} as VennClient['chat'],
+    outbox: {} as VennClient['outbox'],
+    markSessionReady() {},
+    linkDevice: async () => undefined,
+    shutdown: async () => undefined,
+  };
+}
+
+function resolveNewsReadClient(resolveClient: () => VennClient | null): {
+  readonly client: VennClient | null;
+  readonly hasMeshClient: boolean;
+} {
+  const meshClient = resolveClient();
+  const publicRelayClient = createPublicRelayReadClient();
+  if (publicRelayClient) {
+    return { client: publicRelayClient, hasMeshClient: Boolean(meshClient) };
+  }
+  if (meshClient) {
+    return { client: meshClient, hasMeshClient: true };
+  }
+  return { client: null, hasMeshClient: false };
+}
 
 async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -163,22 +249,37 @@ function delay(ms: number): Promise<void> {
 async function readLatestStoriesBounded(
   client: VennClient,
   storyIds: readonly string[],
+  embeddedStories: Readonly<Record<string, StoryBundle>> = {},
 ): Promise<Array<StoryBundle | null>> {
   if (storyIds.length === 0) {
     return [];
   }
 
   const results = new Array<StoryBundle | null>(storyIds.length);
+  const pendingIndexes: number[] = [];
+  for (let index = 0; index < storyIds.length; index += 1) {
+    const storyId = storyIds[index]!;
+    const embeddedStory = parseStory(embeddedStories[storyId]);
+    if (embeddedStory && isStoryFromConfiguredSources(embeddedStory)) {
+      results[index] = embeddedStory;
+    } else {
+      pendingIndexes.push(index);
+    }
+  }
+  if (pendingIndexes.length === 0) {
+    return results;
+  }
+
   let nextIndex = 0;
   let timedOut = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const workerCount = Math.max(
     1,
-    Math.min(Math.floor(NEWS_REFRESH_STORY_READ_CONCURRENCY), storyIds.length),
+    Math.min(Math.floor(NEWS_REFRESH_STORY_READ_CONCURRENCY), pendingIndexes.length),
   );
   const workers = Promise.all(Array.from({ length: workerCount }, async () => {
-    while (!timedOut && nextIndex < storyIds.length) {
-      const currentIndex = nextIndex;
+    while (!timedOut && nextIndex < pendingIndexes.length) {
+      const currentIndex = pendingIndexes[nextIndex]!;
       nextIndex += 1;
       try {
         results[currentIndex] = await readConfiguredStoryByIdRelayFirst(
@@ -350,6 +451,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       const sanitized = sanitizeLatestIndex(index);
       set((state) => ({
         latestIndex: sanitized,
+        latestIndexCursor: null,
         stories: sortStories([...state.stories], sanitized),
         error: null
       }));
@@ -478,12 +580,14 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         return true;
       }
 
-      const client = deps.resolveClient();
+      const { client, hasMeshClient } = resolveNewsReadClient(deps.resolveClient);
       if (!client) {
         return false;
       }
 
-      get().startHydration();
+      if (hasMeshClient) {
+        get().startHydration();
+      }
 
       try {
         let story = await readConfiguredStoryById(client, normalizedStoryId, { attempts: 1 });
@@ -522,22 +626,30 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }
     },
 
-    async refreshLatest(limit = 50) {
-      const client = deps.resolveClient();
+    async refreshLatest(request = 50) {
+      const { client, hasMeshClient } = resolveNewsReadClient(deps.resolveClient);
       if (!client) {
         set({ loading: false, error: null });
         return;
       }
 
-      get().startHydration();
+      const refreshRequest = normalizeRefreshRequest(request);
+      const isCursorWindow = Number.isFinite(refreshRequest.before);
+      if (hasMeshClient) {
+        get().startHydration();
+      }
       const generation = ++refreshGeneration;
       set({ loading: true, error: null });
 
       try {
-        const { filteredStories, hotIndex, latestIndex, storylines } =
+        const { filteredStories, hotIndex, latestIndex, latestIndexCursor, storylines } =
           await withNewsRefreshTimeout((async () => {
-            const nextLatestIndex = await readNewsLatestIndexWithRelayRestFallback(client)
-              .then(sanitizeLatestIndex);
+            const latestPage = await readNewsLatestIndexPageWithRelayRestFallback(client, {
+              limit: refreshRequest.limit,
+              ...(isCursorWindow ? { before: refreshRequest.before } : {}),
+            });
+            const nextLatestIndex = sanitizeLatestIndex(latestPage.index);
+            const nextLatestIndexCursor = latestPage.nextCursor;
 
             const currentState = get();
             const shouldPreserveExistingFeed =
@@ -549,17 +661,29 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
                 filteredStories: [...currentState.stories],
                 hotIndex: { ...currentState.hotIndex },
                 latestIndex: { ...currentState.latestIndex },
+                latestIndexCursor: currentState.latestIndexCursor,
                 storylines: Object.values(currentState.storylinesById),
               };
             }
 
-            const storyIds = selectLatestStoryIds(nextLatestIndex, limit);
-            const stories = await readLatestStoriesBounded(client, storyIds);
+            const effectiveLatestIndex = isCursorWindow
+              ? { ...currentState.latestIndex, ...nextLatestIndex }
+              : nextLatestIndex;
+            const effectiveLatestIndexCursor = nextLatestIndexCursor;
+            const storyIds = selectLatestStoryIds(
+              isCursorWindow ? nextLatestIndex : effectiveLatestIndex,
+              refreshRequest.limit,
+            );
+            const stories = await readLatestStoriesBounded(client, storyIds, latestPage.stories ?? {});
             const validStories = parseStories(stories);
             const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
+            const hotIndexLimit = Math.max(
+              refreshRequest.limit,
+              Object.keys(effectiveLatestIndex).length,
+            );
             const [nextHotIndex, nextStorylines] = await Promise.all([
               withOptionalNewsTimeout(
-                readNewsHotIndex(client).then(sanitizeHotIndex),
+                readNewsHotIndexWithRelayRestFallback(client, { limit: hotIndexLimit }).then(sanitizeHotIndex),
                 {},
                 NEWS_OPTIONAL_INDEX_TIMEOUT_MS,
               ),
@@ -573,7 +697,8 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
             return {
               filteredStories: nextFilteredStories,
               hotIndex: nextHotIndex,
-              latestIndex: nextLatestIndex,
+              latestIndex: effectiveLatestIndex,
+              latestIndexCursor: effectiveLatestIndexCursor,
               storylines: nextStorylines,
             };
           })());
@@ -583,19 +708,30 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         }
 
         let mergedStories: StoryBundle[] = [];
+        let mergedStorylinesById: Record<string, StorylineGroup> = {};
         set((state) => {
-          mergedStories = dedupeStories(filteredStories, state.stories);
+          mergedStories = dedupeStories(
+            isCursorWindow ? [...state.stories, ...filteredStories] : filteredStories,
+            state.stories,
+          );
+          mergedStorylinesById = isCursorWindow
+            ? createStorylineRecord([...Object.values(state.storylinesById), ...storylines])
+            : createStorylineRecord(storylines);
+          const mergedHotIndex = isCursorWindow
+            ? { ...state.hotIndex, ...hotIndex }
+            : hotIndex;
           return {
             latestIndex,
-            hotIndex,
-            storylinesById: createStorylineRecord(storylines),
+            latestIndexCursor,
+            hotIndex: mergedHotIndex,
+            storylinesById: mergedStorylinesById,
             stories: sortStories(mergedStories, latestIndex),
             loading: false,
             error: null,
           };
         });
 
-        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, createStorylineRecord(storylines));
+        await mirrorStoriesIntoDiscovery(mergedStories, get().hotIndex, mergedStorylinesById);
       } catch (error: unknown) {
         if (generation !== refreshGeneration) {
           return;

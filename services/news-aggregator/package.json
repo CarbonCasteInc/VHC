@@ -10,6 +10,8 @@
     "report:source-admission": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
     "report:source-health": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
     "report:source-scout": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceCandidateScout.js",
+    "replay:bundle-synthesis-lifecycle": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/synthesisLifecycleReplay.js",
+    "catchup:public-synthesis": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/publicSynthesisCatchup.js",
     "check:source-health": "pnpm build:source-health-deps && tsc -p tsconfig.json && VH_NEWS_SOURCE_HEALTH_ENFORCE_RELEASE_EVIDENCE=1 node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
     "daemon": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/daemon.js",
     "lint": "echo 'lint: ok (no sources yet)'"

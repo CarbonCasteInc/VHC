@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
-import { useFeedStore } from '../../hooks/useFeedStore';
+import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
+import { useAppStore } from '../../store';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useNewsStore } from '../../store/news';
 import { feedItemMatchesDetailId } from '../../utils/feedItemIdentity';
@@ -15,6 +16,9 @@ const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
 const DIRECT_STORY_LOAD_RETRY_MS = 1_000;
 const DIRECT_STORY_LOAD_MAX_ATTEMPTS = 12;
+const PUBLIC_NEWS_REFRESH_INITIAL_LIMIT = FEED_PAGE_SIZE;
+const PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP = FEED_PAGE_SIZE;
+const PUBLIC_NEWS_REFRESH_MAX_LIMIT = 250;
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -34,6 +38,11 @@ function normalizeDirectNewsStoryId(detailId: string | null, storyId: string | n
 
   const candidate = normalizedDetailId.slice('news:'.length).trim();
   return candidate && !candidate.includes(':') ? candidate : null;
+}
+
+function hasBrowserPublicNewsRelay(): boolean {
+  const origin = typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : '';
+  return /^https?:\/\//.test(origin);
 }
 
 /**
@@ -67,9 +76,16 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const loadingMore = useStore(useFeedStore, (state) => state.loading);
   const setDiscoveryFeed = useStore(useFeedStore, (state) => state.setDiscoveryFeed);
   const discoveryItems = useStore(useDiscoveryStore, (state) => state.items);
+  const publicNewsClientReady = useStore(useAppStore, (state) => state.client !== null);
   const refreshLatest = useStore(useNewsStore, (state) => state.refreshLatest);
   const ensureStory = useStore(useNewsStore, (state) => state.ensureStory);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
+  const loadedPublicNewsStoryCount = useStore(useNewsStore, (state) => state.stories.length);
+  const publicNewsLatestIndex = useStore(useNewsStore, (state) => state.latestIndex);
+  const publicNewsLatestIndexCursor = useStore(useNewsStore, (state) => state.latestIndexCursor);
+  const publicNewsLoading = useStore(useNewsStore, (state) => state.loading);
+  const publicRelayReady = hasBrowserPublicNewsRelay();
+  const publicRelayColdStartReady = publicRelayReady && loadedPublicNewsStoryCount === 0;
   const {
     expandedStoryId,
     searchDetailId,
@@ -91,11 +107,16 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
 
   const deferredFeedRef = useRef<ReadonlyArray<FeedItem> | null>(null);
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
+  const initialPublicNewsRefreshRef = useRef(false);
+  const mountedRef = useRef(true);
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [newsRefreshLimit, setNewsRefreshLimit] = useState(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
+  const [meshLoadingMore, setMeshLoadingMore] = useState(false);
+  const [meshPaginationExhausted, setMeshPaginationExhausted] = useState(false);
 
   const focusedStoryline = selectedStorylineId ? storylinesById[selectedStorylineId] ?? null : null;
   const directRouteStoryId = useMemo(
@@ -223,13 +244,127 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
+    setMeshPaginationExhausted(false);
+    setNewsRefreshLimit(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
     try {
-      await refreshLatest();
+      await refreshLatest(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
       applyDeferredFeed(true);
     } finally {
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setRefreshing(false);
+      }
     }
   }, [applyDeferredFeed, refreshLatest, refreshing]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      initialPublicNewsRefreshRef.current ||
+      (!publicNewsClientReady && !publicRelayColdStartReady) ||
+      loading ||
+      publicNewsLoading
+    ) {
+      return;
+    }
+
+    initialPublicNewsRefreshRef.current = true;
+    setMeshPaginationExhausted(false);
+    setNewsRefreshLimit(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
+    setRefreshing(true);
+
+    void refreshLatest(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT)
+      .then(() => {
+        if (mountedRef.current) {
+          applyDeferredFeed(true);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setRefreshing(false);
+        }
+      });
+  }, [
+    applyDeferredFeed,
+    loading,
+    loadedPublicNewsStoryCount,
+    publicNewsClientReady,
+    publicRelayColdStartReady,
+    publicNewsLoading,
+    refreshLatest,
+  ]);
+
+  const canRequestMorePublicNews =
+    !hasMore &&
+    !loading &&
+    !error &&
+    newsCount > 0 &&
+    loadedPublicNewsStoryCount > 0 &&
+    !meshPaginationExhausted &&
+    newsRefreshLimit < PUBLIC_NEWS_REFRESH_MAX_LIMIT;
+
+  const handleLoadMore = useCallback(() => {
+    if (hasMore) {
+      loadMore();
+      return;
+    }
+
+    if (!canRequestMorePublicNews || meshLoadingMore || refreshing) {
+      return;
+    }
+
+    const previousStoryIds = new Set(
+      useNewsStore.getState().stories.map((story) => story.story_id),
+    );
+    const loadedLatestActivityValues = Object.values(publicNewsLatestIndex)
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const fallbackBeforeCursor = loadedLatestActivityValues.length > 0
+      ? Math.min(...loadedLatestActivityValues)
+      : null;
+    const beforeCursor = typeof publicNewsLatestIndexCursor === 'number' && Number.isFinite(publicNewsLatestIndexCursor)
+      ? publicNewsLatestIndexCursor
+      : fallbackBeforeCursor;
+    const nextLimit = Math.min(
+      PUBLIC_NEWS_REFRESH_MAX_LIMIT,
+      newsRefreshLimit + PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP,
+    );
+
+    setMeshLoadingMore(true);
+    void refreshLatest(
+      beforeCursor === null
+        ? nextLimit
+        : { limit: PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP, before: beforeCursor },
+    )
+      .then(() => {
+        const nextStories = useNewsStore.getState().stories;
+        const discoveredAdditionalStory = nextStories.some(
+          (story) => !previousStoryIds.has(story.story_id),
+        );
+        setNewsRefreshLimit(nextLimit);
+        if (!discoveredAdditionalStory || nextLimit >= PUBLIC_NEWS_REFRESH_MAX_LIMIT) {
+          setMeshPaginationExhausted(true);
+        }
+        applyDeferredFeed(false);
+      })
+      .finally(() => {
+        setMeshLoadingMore(false);
+      });
+  }, [
+    applyDeferredFeed,
+    canRequestMorePublicNews,
+    hasMore,
+    loadMore,
+    meshLoadingMore,
+    newsRefreshLimit,
+    publicNewsLatestIndex,
+    publicNewsLatestIndexCursor,
+    refreshLatest,
+    refreshing,
+  ]);
 
   useEffect(() => {
     const updateNearTop = () => {
@@ -262,7 +397,11 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     const mustPrimeRestoredRouteState =
       (detailToEnsure !== null && !pagedFeedHasDetail) ||
       (searchStoryId !== null && !pagedFeedHasFocusedStory);
-    const deferUpdates = (expandedStoryId !== null || !isNearTop) && !mustPrimeRestoredRouteState;
+    const visibleFeedIsUnderfilled = pagedFeed.length < Math.min(feed.length, FEED_PAGE_SIZE);
+    const shouldApplyCurrentWindow = refreshing || meshLoadingMore || visibleFeedIsUnderfilled;
+    const deferUpdates =
+      (expandedStoryId !== null || (!isNearTop && !shouldApplyCurrentWindow)) &&
+      !mustPrimeRestoredRouteState;
     if (deferUpdates && !modeChanged) {
       deferredFeedRef.current = feed;
       setHasDeferredUpdates(true);
@@ -281,6 +420,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     feed,
     filter,
     isNearTop,
+    meshLoadingMore,
+    pagedFeed.length,
+    refreshing,
     searchDetailId,
     searchStoryId,
     setDiscoveryFeed,
@@ -411,9 +553,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
           feed={pagedFeed}
           loading={loading}
           error={error}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          loadMore={loadMore}
+          hasMore={hasMore || canRequestMorePublicNews}
+          loadingMore={loadingMore || meshLoadingMore}
+          loadMore={handleLoadMore}
         />
       </div>
     </div>

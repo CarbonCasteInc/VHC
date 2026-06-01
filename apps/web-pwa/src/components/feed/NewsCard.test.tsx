@@ -7,6 +7,7 @@ import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
+import { setClientResolver } from '../../store/clientResolver';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCard } from './NewsCard';
@@ -15,6 +16,14 @@ import {
   getCachedSynthesisForStory,
   synthesizeStoryFromAnalysisPipeline,
 } from './newsCardAnalysis';
+const readNewsSynthesisLifecycleStatusMock = vi.hoisted(() => vi.fn());
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    readNewsSynthesisLifecycleStatusWithRelayRestFallback: readNewsSynthesisLifecycleStatusMock,
+  };
+});
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
@@ -145,6 +154,44 @@ function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): Topi
     ...overrides,
   };
 }
+function makeAcceptedLifecycle(overrides: Partial<import('@vh/gun-client').NewsSynthesisLifecycleRecord> = {}) {
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1' as const,
+    story_id: 'story-news-1',
+    topic_id: CANONICAL_TOPIC_ID,
+    source_set_revision: 'prov-1',
+    source_count: 1,
+    canonical_source_count: 1,
+    status: 'accepted_available' as const,
+    frame_table_state: 'frame_table_ready' as const,
+    retryable: false,
+    synthesis_id: 'syn-1',
+    epoch: 2,
+    updated_at: NOW,
+    ...overrides,
+  };
+}
+function makeReadableMockClient() {
+  const chain = {
+    get: vi.fn(() => chain),
+    once: vi.fn((callback: (value: unknown) => void) => {
+      callback(null);
+      return chain;
+    }),
+    on: vi.fn(() => chain),
+    off: vi.fn(() => undefined),
+    map: vi.fn(() => chain),
+    put: vi.fn((_value: unknown, callback?: (ack?: { err?: string }) => void) => {
+      callback?.({});
+      return chain;
+    }),
+  };
+  return {
+    mesh: chain,
+    hydrationBarrier: { prepare: vi.fn().mockResolvedValue(undefined) },
+    topologyGuard: { validateWrite: vi.fn() },
+  };
+}
 describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
@@ -160,6 +207,9 @@ describe('NewsCard', () => {
       signals: [],
     });
     localStorage.clear();
+    setClientResolver(() => makeReadableMockClient() as never);
+    readNewsSynthesisLifecycleStatusMock.mockReset();
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle());
     mockUseViewTracking.mockReturnValue(false);
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
@@ -195,6 +245,7 @@ describe('NewsCard', () => {
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    setClientResolver(() => null);
     resetExpandedCardStore();
     useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
     mockUseViewTracking.mockReset();
@@ -443,6 +494,84 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 
+  it('treats topic synthesis from an old source-set revision as pending for a grown story', async () => {
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle({
+      source_set_revision: 'prov-2',
+      status: 'pending',
+      frame_table_state: 'frame_table_pending',
+      synthesis_id: 'syn-1',
+      epoch: 2,
+    }));
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        provenance_hash: 'prov-2',
+        sources: [
+          ...makeStoryBundle().sources,
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW,
+            title: 'Metro desk corroborates transit plan vote',
+          },
+        ],
+      }),
+    ]);
+    useSynthesisStore
+      .getState()
+      .setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Feed summary hint; synthesis pending',
+    );
+    expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Transit vote split council members along budget priorities.',
+    );
+    expect(screen.queryByTestId('news-card-synthesis-provenance-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis frame rows are pending for this story.',
+    );
+  });
+
+  it('renders accepted frame rows without point ids but keeps stance controls unavailable', async () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.setState({
+      topics: {
+        'news-1': {
+          topicId: 'news-1',
+          epoch: 2,
+          synthesis: makeSynthesis({
+            frames: [
+              {
+                frame: 'Public investment is overdue',
+                reframe: 'Budget risk should slow rollout',
+              },
+            ],
+          } as Partial<TopicSynthesisV2>) as TopicSynthesisV2,
+          correction: null,
+          effectiveStatus: 'accepted_available',
+          hydrated: true,
+          loading: false,
+          error: null,
+        },
+      },
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByText('Public investment is overdue')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-stance-unavailable-news-1')).toHaveTextContent(
+      'persisted point IDs',
+    );
+    expect(screen.queryByTestId(/^cell-vote-agree-/)).not.toBeInTheDocument();
+  });
+
   it('renders suppressed synthesis as corrected and hides stale summary, provenance, and frame rows', async () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
@@ -485,6 +614,10 @@ describe('NewsCard', () => {
   });
 
   it('ignores stale corrections when a newer accepted synthesis is current', async () => {
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle({
+      synthesis_id: 'syn-2',
+      epoch: 3,
+    }));
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ synthesis_id: 'syn-2', epoch: 3 }));
     useSynthesisStore.getState().setTopicCorrection('news-1', makeCorrection());
@@ -679,9 +812,11 @@ describe('NewsCard', () => {
       'Feed summary hint; synthesis pending',
     );
     expect(screen.getByTestId('news-card-synthesis-unavailable-news-1')).toHaveTextContent(
-      'Publish-time synthesis has not been published for this story yet.',
+      'Accepted synthesis is pending for this story.',
     );
-    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent('No bias analysis available yet');
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis frame rows are pending for this story.',
+    );
     expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
@@ -747,6 +882,44 @@ describe('NewsCard', () => {
       'Synthesis unavailable.',
     );
   });
+
+  it('renders terminal lifecycle state without enabling stance controls', async () => {
+    const startHydrationSpy = vi.spyOn(useSynthesisStore.getState(), 'startHydration').mockImplementation(() => undefined);
+    const refreshSpy = vi.spyOn(useSynthesisStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    setClientResolver(() => makeReadableMockClient() as never);
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue({
+      schemaVersion: 'news-synthesis-lifecycle-v1',
+      story_id: 'story-news-1',
+      topic_id: CANONICAL_TOPIC_ID,
+      source_set_revision: 'prov-1',
+      status: 'terminal_unavailable',
+      frame_table_state: 'frame_table_unavailable',
+      retryable: false,
+      reason: 'source_text_unavailable',
+      synthesis_id: null,
+      epoch: null,
+      updated_at: NOW,
+    });
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-synthesis-terminal-news-1')).toHaveTextContent(
+      'source_text_unavailable',
+    );
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Publish-time synthesis terminal unavailable',
+    );
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent(
+      'Accepted synthesis is unavailable for this story.',
+    );
+    expect(screen.queryByRole('button', { name: /Agree with /i })).not.toBeInTheDocument();
+    expect(readNewsSynthesisLifecycleStatusMock).toHaveBeenCalledWith(expect.anything(), 'story-news-1');
+    refreshSpy.mockRestore();
+    startHydrationSpy.mockRestore();
+  });
+
   it('renders story-detail stance controls from accepted synthesis point IDs', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);

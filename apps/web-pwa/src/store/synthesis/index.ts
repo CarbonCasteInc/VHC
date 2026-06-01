@@ -9,11 +9,13 @@ import {
   hasForbiddenSynthesisPayloadFields,
   readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesisWithRelayRestFallback,
+  type SystemWriterPin,
   type VennClient
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateSynthesisStore, releaseSynthesisHydration } from './hydration';
 import type { SynthesisState, SynthesisDeps, SynthesisTopicState } from './types';
+import systemWriterPin from '../../luma/system-writer-pin.json';
 
 export type { SynthesisState, SynthesisDeps, SynthesisTopicState } from './types';
 
@@ -94,6 +96,79 @@ function withReadTimeout<T>(work: Promise<T>, timeoutMs: number, label: string):
       }
     );
   });
+}
+
+function sameOriginPublicSynthesisPeer(): string | null {
+  const location = (globalThis as { location?: Location }).location;
+  const origin = typeof location?.origin === 'string' ? location.origin : '';
+  if (!/^https?:\/\//.test(origin)) {
+    return null;
+  }
+  return `${origin.replace(/\/+$/, '')}/gun`;
+}
+
+function noopRelayOnlyChain(): VennClient['mesh'] {
+  const chain = {
+    once(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    put(_value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) {
+      callback?.({ err: 'relay-only public synthesis client is read-only' });
+    },
+    get() {
+      return chain;
+    },
+    on(callback?: (data: Record<string, unknown> | undefined) => void) {
+      callback?.(undefined);
+    },
+    off() {},
+    map() {
+      return chain;
+    },
+  };
+  return chain as VennClient['mesh'];
+}
+
+function createPublicRelayReadClient(): VennClient | null {
+  const peer = sameOriginPublicSynthesisPeer();
+  if (!peer) {
+    return null;
+  }
+  const mesh = noopRelayOnlyChain();
+  return {
+    config: {
+      peers: [peer],
+      systemWriterPin: systemWriterPin as SystemWriterPin,
+      requireNewsWriteReadback: false,
+    },
+    mesh,
+    sessionReady: true,
+    hydrationBarrier: { markReady() {}, prepare: async () => undefined } as VennClient['hydrationBarrier'],
+    storage: { close: async () => undefined } as VennClient['storage'],
+    topologyGuard: { validateWrite() {} } as unknown as VennClient['topologyGuard'],
+    gun: {} as VennClient['gun'],
+    user: {} as VennClient['user'],
+    chat: {} as VennClient['chat'],
+    outbox: {} as VennClient['outbox'],
+    markSessionReady() {},
+    linkDevice: async () => undefined,
+    shutdown: async () => undefined,
+  };
+}
+
+function resolveSynthesisReadClient(resolveClient: () => VennClient | null): {
+  readonly client: VennClient | null;
+  readonly hasMeshClient: boolean;
+} {
+  const meshClient = resolveClient();
+  const publicRelayClient = createPublicRelayReadClient();
+  if (publicRelayClient) {
+    return { client: publicRelayClient, hasMeshClient: Boolean(meshClient) };
+  }
+  if (meshClient) {
+    return { client: meshClient, hasMeshClient: true };
+  }
+  return { client: null, hasMeshClient: false };
 }
 
 function parseSynthesis(value: unknown): TopicSynthesisV2 | null {
@@ -269,14 +344,16 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
         return;
       }
 
-      const client = deps.resolveClient();
+      const { client, hasMeshClient } = resolveSynthesisReadClient(deps.resolveClient);
       if (!client) {
         get().setTopicLoading(normalizedTopicId, false);
         get().setTopicError(normalizedTopicId, null);
         return;
       }
 
-      get().startHydration(normalizedTopicId);
+      if (hasMeshClient) {
+        get().startHydration(normalizedTopicId);
+      }
       get().setTopicLoading(normalizedTopicId, true);
       get().setTopicError(normalizedTopicId, null);
 

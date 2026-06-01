@@ -16,6 +16,7 @@ const gunMocks = vi.hoisted(() => ({
   getNewsLatestIndexChain: vi.fn(),
   getNewsHotIndexChain: vi.fn(),
   hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>(),
+  parseNewsLatestIndexEntryRecord: vi.fn(),
   readNewsStory: vi.fn(),
 }));
 
@@ -25,7 +26,8 @@ vi.mock('@vh/gun-client', () => ({
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
   hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
-  readNewsStory: gunMocks.readNewsStory,
+  parseNewsLatestIndexEntryRecord: gunMocks.parseNewsLatestIndexEntryRecord,
+  readNewsStoryWithRelayRestFallback: gunMocks.readNewsStory,
 }));
 
 const CANONICAL_TOPIC_ID = 'a'.repeat(64);
@@ -137,6 +139,16 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
   return { store, state };
 }
 
+async function flushHydrationQueue(): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe('hydrateNewsStore', () => {
   beforeEach(() => {
     gunMocks.getNewsStoriesChain.mockReset();
@@ -144,8 +156,10 @@ describe('hydrateNewsStore', () => {
     gunMocks.getNewsLatestIndexChain.mockReset();
     gunMocks.getNewsHotIndexChain.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReset();
+    gunMocks.parseNewsLatestIndexEntryRecord.mockReset();
     gunMocks.readNewsStory.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReturnValue(false);
+    gunMocks.parseNewsLatestIndexEntryRecord.mockResolvedValue(null);
     gunMocks.readNewsStory.mockResolvedValue(null);
     gunMocks.getNewsStorylinesChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
     vi.resetModules();
@@ -380,6 +394,83 @@ describe('hydrateNewsStore', () => {
 
     expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-missing');
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-missing' }));
+  });
+
+  it('hydrates signed latest-index subscription records through the relay-capable story reader', async () => {
+    const client = { id: 'client-signed-index-fetch' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.parseNewsLatestIndexEntryRecord.mockResolvedValue(789);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 'story-signed' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit({
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'writer-1',
+      _systemSignature: 'signature',
+      story_id: 'story-signed',
+      latest_activity_at: 789,
+    }, 'story-signed');
+    await flushHydrationQueue();
+
+    expect(gunMocks.parseNewsLatestIndexEntryRecord).toHaveBeenCalledWith(
+      client,
+      'story-signed',
+      expect.objectContaining({
+        _writerKind: 'system',
+        story_id: 'story-signed',
+      }),
+    );
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('story-signed', 789);
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-signed');
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-signed' }));
+  });
+
+  it('rejects unpinned protocol-shaped latest-index live rows before story hydration', async () => {
+    const client = { id: 'client-unpinned-index' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.parseNewsLatestIndexEntryRecord.mockResolvedValue(null);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 'story-stale' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit({
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'relay-c-legacy-writer',
+      _systemSignature: 'invalid-signature',
+      story_id: 'story-stale',
+      latest_activity_at: 999,
+    }, 'story-stale');
+    await flushHydrationQueue();
+
+    expect(gunMocks.parseNewsLatestIndexEntryRecord).toHaveBeenCalledWith(
+      client,
+      'story-stale',
+      expect.objectContaining({
+        _systemWriterId: 'relay-c-legacy-writer',
+      }),
+    );
+    expect(state.upsertLatestIndex).not.toHaveBeenCalledWith('story-stale', 999);
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalledWith(client, 'story-stale');
+    expect(state.upsertStory).not.toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-stale' }));
   });
 
   it('deduplicates in-flight and already-fetched latest-index story reads', async () => {

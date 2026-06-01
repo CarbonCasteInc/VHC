@@ -175,8 +175,56 @@ Public mesh paths:
 - `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 - `vh/topics/<topicId>/latest` (pointer)
 - `vh/topics/<topicId>/digests/<digestId>`
+- `vh/news/stories/<storyId>/synthesis_lifecycle/latest` (news story/source-set lifecycle; owned by `spec-news-aggregator-v0.md`)
 
 Sensitive material (proofs, tokens, identity) is forbidden in these paths.
+
+## 7. Public MVP lifecycle states
+
+Public story detail must distinguish accepted synthesis from provisional or
+unavailable analysis:
+
+- `accepted_synthesis_loading`: the client is inside the bounded readiness
+  window and is still reading the accepted `TopicSynthesisV2` record.
+- `accepted_synthesis_available`: the latest accepted synthesis validates,
+  has non-empty `facts_summary`, carries frame/reframe rows, and matches the
+  current story/source-set lifecycle record. Rows without point ids may render
+  as explanatory text, but stance controls are unavailable for those rows.
+- `accepted_synthesis_pending`: the story is readable and eligible, but the
+  worker has not yet reached a written or terminal lifecycle outcome.
+- `accepted_synthesis_retryable_failure`: the worker recorded a durable
+  retryable infrastructure/schema/write failure and may replay. The story stays
+  visible, and stance controls stay unavailable until accepted synthesis and
+  frame-table readiness are published.
+- `accepted_synthesis_terminal_unavailable`: the worker recorded a durable
+  terminal domain reason such as missing story, no analysis-capable sources, or
+  source text unavailable. Public UI may show the reason class, but must not
+  expose provider secrets or raw upstream errors.
+- `accepted_synthesis_suppressed_by_correction`: an operator correction hides
+  the accepted synthesis, and the stale frame table must not remain votable.
+- `provisional_analysis_available`: optional card-open analysis that is
+  explicitly labeled provisional and non-votable. It must not be written or
+  displayed as accepted synthesis.
+
+Every visible readable text story in the public MVP feed must be accountable as
+pending, rejected, skipped, written, latest-write skipped/failed, readback
+failed, or terminal unavailable. Retry/replay is allowed only for retryable
+infrastructure/schema/write classes; terminal domain outcomes must not be
+retried indefinitely.
+
+News-story lifecycle status is published separately from the accepted synthesis
+record at `vh/news/stories/<storyId>/synthesis_lifecycle/latest`. This keeps
+raw story publication, product feed visibility, accepted synthesis, and
+frame-table votability as separate states.
+
+Readers must join the two records before rendering an accepted-current frame
+table: the lifecycle record must be `accepted_available`, its
+`source_set_revision` must equal the current `StoryBundle.provenance_hash`, its
+`synthesis_id`/`epoch` must match the `TopicSynthesisV2`, and
+`TopicSynthesisV2.inputs.story_bundle_ids` must include the current `story_id`.
+When a story's source set grows, the older topic latest synthesis remains
+historical/non-votable until lifecycle for the new source-set revision reaches
+accepted or terminal state.
 
 Current storage contract: new `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 and `vh/topics/<topicId>/latest` writes are system-writer signed records.

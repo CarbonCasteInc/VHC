@@ -9,7 +9,8 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8080;
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 const DEFAULT_RELAY_PROXY_TIMEOUT_MS = 10_000;
-const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 5_000;
+const DEFAULT_RELAY_FANOUT_TIMEOUT_MS = 30_000;
+const DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS = 60_000;
 const AGGREGATE_FANOUT_WRITE_PATHS = new Set([
   '/vh/aggregates/voter',
   '/vh/aggregates/point-snapshot',
@@ -24,7 +25,9 @@ const FORUM_FANOUT_READ_PATHS = new Set([
 ]);
 const NEWS_FANOUT_READ_PATHS = new Set([
   '/vh/news/latest-index',
+  '/vh/news/hot-index',
   '/vh/news/story',
+  '/vh/news/synthesis-lifecycle',
   '/vh/topics/synthesis',
 ]);
 
@@ -46,6 +49,7 @@ const MIME_TYPES = new Map([
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
+  'host',
   'keep-alive',
   'proxy-authenticate',
   'proxy-authorization',
@@ -146,6 +150,8 @@ function isRelayProxyRoute(pathname) {
     || pathname === '/vh/topics/synthesis'
     || pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
+    || pathname === '/vh/news/hot-index'
+    || pathname === '/vh/news/synthesis-lifecycle'
     || pathname === '/vh/aggregates/point'
     || pathname === '/vh/aggregates/voter'
     || pathname === '/vh/aggregates/point-snapshot';
@@ -155,6 +161,8 @@ function isRelayProxyMethodAllowed(pathname, method) {
   if (
     pathname === '/vh/news/story'
     || pathname === '/vh/news/latest-index'
+    || pathname === '/vh/news/hot-index'
+    || pathname === '/vh/news/synthesis-lifecycle'
     || pathname === '/vh/aggregates/point'
   ) {
     return method === 'GET';
@@ -341,15 +349,44 @@ function selectBestForumRead(results, pathname) {
 
 function relayRecordScore(payload, pathname) {
   if (!payload?.ok) return -1;
-  if (pathname === '/vh/news/latest-index') {
+  if (pathname === '/vh/news/latest-index' || pathname === '/vh/news/hot-index') {
     const records = payload.records && typeof payload.records === 'object'
       ? payload.records
       : payload.index && typeof payload.index === 'object'
         ? payload.index
         : null;
-    return records ? Object.keys(records).length : -1;
+    if (!records) return -1;
+    const recordCount = Object.keys(records).length;
+    const composition = payload.composition && typeof payload.composition === 'object'
+      ? payload.composition
+      : null;
+    if (!composition) return recordCount;
+    const totalVisible = Number.isFinite(Number(composition.total_visible))
+      ? Number(composition.total_visible)
+      : recordCount;
+    const multiSourceVisible = Number.isFinite(Number(composition.multi_source_visible))
+      ? Number(composition.multi_source_visible)
+      : 0;
+    const maxSourceCount = Number.isFinite(Number(composition.max_source_count))
+      ? Number(composition.max_source_count)
+      : 0;
+    const freshnessAgeMs = Number(composition.freshness_age_ms);
+    const freshnessPenalty = Number.isFinite(freshnessAgeMs)
+      ? Math.min(Math.floor(Math.max(0, freshnessAgeMs) / 60_000), 10_080)
+      : 10_080;
+    return recordCount
+      + (totalVisible * 10)
+      + (multiSourceVisible * 100_000)
+      + (maxSourceCount * 1_000)
+      - freshnessPenalty;
   }
-  if (pathname === '/vh/news/story' || pathname === '/vh/topics/synthesis') {
+  if (pathname === '/vh/news/story') {
+    return (payload.record && typeof payload.record === 'object')
+      || (payload.story && typeof payload.story === 'object')
+      ? 1
+      : -1;
+  }
+  if (pathname === '/vh/topics/synthesis') {
     return payload.record && typeof payload.record === 'object' ? 1 : -1;
   }
   return -1;
@@ -367,6 +404,26 @@ function selectBestNewsRead(results, pathname) {
     }
   }
   return best?.result ?? results.find((result) => result.ok) ?? results[0] ?? null;
+}
+
+function isUsableOrderedNewsRead(result, pathname) {
+  if (!result?.ok || result.status < 200 || result.status >= 300) return false;
+  const payload = jsonFromRelayResult(result);
+  const score = relayRecordScore(payload, pathname);
+  if (score <= 0) return false;
+  if (pathname !== '/vh/news/latest-index') return true;
+  const records = payload?.records && typeof payload.records === 'object'
+    ? payload.records
+    : payload?.index && typeof payload.index === 'object'
+      ? payload.index
+      : null;
+  if (!records || Object.keys(records).length === 0) return false;
+  const composition = payload?.composition && typeof payload.composition === 'object'
+    ? payload.composition
+    : null;
+  if (!composition) return true;
+  const multiSourceVisible = Number(composition.multi_source_visible);
+  return Number.isFinite(multiSourceVisible) && multiSourceVisible > 0;
 }
 
 function writeRelayResult(res, result) {
@@ -395,6 +452,28 @@ async function proxyRelayFanout(req, res, relayTargets, timeoutMs) {
     selected = selectBestAggregateWrite(results);
   }
   writeRelayResult(res, selected);
+}
+
+async function proxyRelayOrderedNewsRead(req, res, relayTargets, timeoutMs) {
+  const pathname = new URL(req.url || '/', 'http://vh-public-origin.local').pathname;
+  const results = [];
+  let pending = relayTargets.map((target) => {
+    const item = {};
+    item.promise = fetchRelayTarget(req, target, timeoutMs).then((result) => ({ item, result }));
+    return item;
+  });
+
+  while (pending.length > 0) {
+    const { item, result } = await Promise.race(pending.map((candidate) => candidate.promise));
+    pending = pending.filter((candidate) => candidate !== item);
+    results.push(result);
+    if (isUsableOrderedNewsRead(result, pathname)) {
+      writeRelayResult(res, result);
+      return;
+    }
+  }
+
+  writeRelayResult(res, selectBestNewsRead(results, pathname));
 }
 
 async function proxyRequest(req, res, targetBaseUrl, timeoutMs) {
@@ -503,6 +582,10 @@ export function createPublicBetaOriginHandler(options) {
     relayProxyTimeoutMs,
     options.relayFanoutTimeoutMs || DEFAULT_RELAY_FANOUT_TIMEOUT_MS,
   );
+  const relayNewsFanoutTimeoutMs = Math.min(
+    relayFanoutTimeoutMs,
+    options.relayNewsFanoutTimeoutMs || DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS,
+  );
 
   return async function publicBetaOriginHandler(req, res) {
     const parsed = new URL(req.url || '/', 'http://vh-public-origin.local');
@@ -548,16 +631,25 @@ export function createPublicBetaOriginHandler(options) {
         sendJson(res, 503, { error: 'Relay proxy not configured' });
         return;
       }
+      const isNewsFanoutRead = NEWS_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET';
       if (
         relayTargets.length > 1
         && (
           (pathname === '/vh/aggregates/point' && (req.method || 'GET') === 'GET')
-          || (NEWS_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
+          || isNewsFanoutRead
           || (AGGREGATE_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
           || (FORUM_FANOUT_READ_PATHS.has(pathname) && (req.method || 'GET') === 'GET')
           || (FORUM_FANOUT_WRITE_PATHS.has(pathname) && (req.method || 'GET') === 'POST')
         )
       ) {
+        if (isNewsFanoutRead) {
+          if (pathname === '/vh/news/hot-index') {
+            await proxyRelayFanout(req, res, relayTargets, relayNewsFanoutTimeoutMs);
+            return;
+          }
+          await proxyRelayOrderedNewsRead(req, res, relayTargets, relayNewsFanoutTimeoutMs);
+          return;
+        }
         await proxyRelayFanout(req, res, relayTargets, relayFanoutTimeoutMs);
         return;
       }
@@ -611,6 +703,10 @@ async function main() {
     cspConnectSrc: process.env.VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC || "'self'",
     proxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_PROXY_TIMEOUT_MS || DEFAULT_PROXY_TIMEOUT_MS),
     relayProxyTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS || DEFAULT_RELAY_PROXY_TIMEOUT_MS),
+    relayFanoutTimeoutMs: Number(process.env.VH_PUBLIC_ORIGIN_RELAY_FANOUT_TIMEOUT_MS || DEFAULT_RELAY_FANOUT_TIMEOUT_MS),
+    relayNewsFanoutTimeoutMs: Number(
+      process.env.VH_PUBLIC_ORIGIN_RELAY_NEWS_FANOUT_TIMEOUT_MS || DEFAULT_RELAY_NEWS_FANOUT_TIMEOUT_MS,
+    ),
   });
   const address = server.address();
   const label = typeof address === 'object' && address

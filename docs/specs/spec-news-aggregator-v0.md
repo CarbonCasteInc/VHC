@@ -135,14 +135,38 @@ interface StoryBundle {
 }
 ```
 
-`story_id` and `topic_id` must be stable for the same cluster window and feature set.
+`story_id` and `topic_id` must be stable for the same cluster window and event
+identity. `story_id` MUST NOT be derived from the complete current source URL
+set: source-set growth changes `provenance_hash` / `source_set_revision`, not
+the public story card identity.
 `storyline_id`, when present, identifies a broader narrative grouping and must not widen canonical event-bundle membership.
 
 Canonical publication contract:
 - `StoryBundle` publication may represent a single-source story when only one readable canonical report exists;
 - `StoryBundle` publication may also represent a single-source publisher-hosted video/watch story from an admitted source when no corroborating article bundle exists yet;
 - later corroborating coverage may widen the bundle if and only if it is the same incident or same developing episode;
-- adding later sources must not churn the existing `story_id`.
+- adding later sources must not churn the existing `story_id`;
+- in production mode, the remote StoryCluster service is the same-event
+  authority for publication. The runtime MUST NOT silently apply an additional
+  local title-overlap heuristic that drops a remote multi-source `StoryBundle`
+  before raw story publication. Heuristic publication filters may still protect
+  local/non-production fallback clustering;
+- raw publication failures MUST be scoped to the failing `story_id` and surfaced
+  through daemon/runtime error telemetry. One failed story write MUST NOT abort
+  publication of later selected singleton or multi-source bundles in the same
+  tick. If every selected bundle fails to publish, the tick is failed rather
+  than reported as a successful empty publication;
+- production daemon source configuration MUST NOT collapse to an empty source
+  slate merely because `VITE_NEWS_FEED_SOURCES` is present but empty, malformed,
+  or contains no valid feed sources. In that case the daemon falls back to the
+  evidence-admitted starter source slate and source-health policy, because an
+  accidental empty source override is a setup error, not a valid singleton-only
+  public feed state;
+- when the production remote StoryCluster request must be split by
+  `remoteClusterMaxItemsPerRequest`, the orchestrator MUST pack likely
+  same-event reports into the same request chunk before slicing. Request size
+  limits must not turn a clusterable multi-source event into separate singleton
+  requests merely because unrelated feed items appeared between the reports;
 - single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
 - corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
@@ -156,8 +180,12 @@ Public story-node storage contract:
   'luma-public-v1'`, `_writerKind: 'system'`, `_systemWriterId`,
   `_systemIssuedAt`, and `_systemSignature`.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`. New system-writer rewrites MUST
+  tombstone legacy signature residue so Gun field-merge behavior cannot
+  invalidate otherwise current signed rows.
 - The signed story node MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; story bundles are system-published, not user-authored.
 - Legacy bare `story-bundle-v0` nodes remain read-compatible. A node carrying
@@ -166,6 +194,47 @@ Public story-node storage contract:
 - Latest/hot index entries under `vh/news/index/latest/<storyId>` and
   `vh/news/index/hot/<storyId>` migrate through their own M0.B index-entry
   contract below. They are written after the story node by `writeNewsBundle`.
+- Public latest-index readers MUST NOT expose an index entry as feed-visible
+  until the corresponding `vh/news/stories/<storyId>` body route is readable.
+  If an index entry is discovered without a readable body, the relay/origin
+  read path must either repair the index record from the readable story body or
+  suppress the row and record a bounded repair/tombstone reason. A missing
+  story body outside that explicit repair window is a public-beta release gate
+  failure, not a normal empty-feed state.
+- Relay/origin latest-index consistency repair MUST also synthesize a
+  product-metadata-complete response row from the readable story body when the
+  stored latest row is a legacy scalar/object or carries stale/mismatched
+  `vh-news-product-feed-index-v1` metadata. The repair reason must be explicit;
+  daemon reconciliation remains responsible for durable mesh rewrite.
+- Feed hydration must parse signed system-writer index records with the same
+  acceptance semantics as the shared Gun client adapter. Direct subscriptions
+  and relay REST fallback must agree on `story_id` and `latest_activity_at`
+  before the Web PWA tries to hydrate a story card.
+- Product visibility is a downstream state of a readable, eligible story body
+  and source-set admission. It MUST NOT require accepted synthesis. Eligible
+  singleton stories and corroborated multi-source bundles both remain valid
+  feed rows while synthesis is pending, retrying, terminally unavailable, or
+  suppressed by correction. Relay/latest-index responses MUST expose the public
+  synthesis lifecycle and frame-table state rather than silently filtering rows.
+- The daemon MUST reconcile durable raw stories back into product feed indexes
+  after acquiring the ingestion lease and on a bounded recurring interval while
+  it remains leader. If an eligible `vh/news/stories/<storyId>` body exists but
+  latest index rows are missing, stale, or missing required product metadata,
+  the daemon rewrites those product rows with system-writer readback.
+  Timestamp-only latest-index agreement is not sufficient
+  reconciliation evidence because public relay/app gates need the durable
+  source counts, source-set revision, creation time, and cluster window. Hot
+  index rows are likewise rewritten when they are missing, legacy, or
+  metadata-insufficient. Missing lifecycle records are initialized to
+  `pending`; lifecycle records for an unchanged `source_set_revision` are
+  preserved.
+- A malformed system-marked story body MUST NOT become product-visible through
+  relaxed reader rules. The daemon MAY repair a stale row that is missing the
+  required top-level story mirror fields only when the embedded
+  `__story_bundle_json` parses as a valid `StoryBundle` for that path and the
+  existing `_systemSignature` verifies after reconstructing those mirror fields.
+  Rows that cannot pass that reconstructed-signature check remain invalid and
+  are skipped or reported as repair failures.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
@@ -211,6 +280,7 @@ Analysis frame/reframe output contract:
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
 - analysis artifacts: `vh/news/stories/<storyId>/analysis/<analysisKey>`
 - latest analysis pointer: `vh/news/stories/<storyId>/analysis_latest`
+- synthesis lifecycle latest record: `vh/news/stories/<storyId>/synthesis_lifecycle/latest`
 
 Storyline publication contract:
 
@@ -225,8 +295,10 @@ Public storyline-node storage contract:
   `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'system'`,
   `_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`.
 - The signed storyline node MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; storyline groups are system-published, not
   user-authored.
@@ -241,8 +313,12 @@ Public storyline-node storage contract:
 
 Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest activity** timestamps.
 
-- Target write shape: system-writer signed child node with `story_id` and
-  `latest_activity_at` (activity, aligned with `cluster_window_end`).
+- Target write shape: system-writer signed child node with `story_id`,
+  `latest_activity_at` (activity, aligned with `cluster_window_end`), and when
+  the publishing path has the `StoryBundle`, product feed metadata:
+  `product_state_schema_version: 'vh-news-product-feed-index-v1'`, `topic_id`,
+  `source_set_revision`, `source_count`, `canonical_source_count`,
+  `story_created_at`, and `cluster_window_start`.
 - Transitional read compatibility (must be supported):
   - scalar timestamp string/number
   - object payloads carrying `cluster_window_end` or `latest_activity_at`
@@ -260,17 +336,61 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
 Public latest/hot index-entry storage contract:
 - Product code continues to consume `Record<string, number>` DTOs from
   `readNewsLatestIndex` and `readNewsHotIndex`.
+- Relay REST reads of `vh/news/index/latest` MUST support bounded older windows
+  using an exclusive `before=<latest_activity_at>` cursor. Web PWA load-more
+  must use this cursor/window path and merge the returned older rows into the
+  existing feed state rather than relying only on a larger initial top-N window.
+  Relay pages MUST be ordered and cursor-filtered by the resolved latest-index
+  record timestamp after linked child reads and consistency repair, not by Gun
+  root field-state/link write order. Compatibility reads with the consistency
+  filter explicitly disabled may use root timestamp prefiltering for scalar
+  legacy rows.
+  The initial public latest refresh should be bounded to the visible feed page
+  size; revealing rows from a larger in-memory first window is not sufficient
+  scroll/load-more evidence. Release gates MUST also verify the relay itself can
+  return a second non-overlapping older latest-index page through `before`, so a
+  small singleton-only first window cannot satisfy pagination readiness.
+- Relay REST `/vh/news/latest-index` responses MAY include a `stories` map keyed
+  by `story_id` for the same selected rows when the relay has verified each
+  story body through the public route. Browsers may hydrate from those embedded
+  `StoryBundle` bodies before issuing per-story reads, but each embedded body
+  MUST still match a selected latest-index row and parse under the normal public
+  story eligibility rules. The embedded map is a read-through optimization and
+  does not replace durable `vh/news/stories/<storyId>` persistence or per-peer
+  story-body readback gates.
+- Relay REST reads of `vh/news/index/hot` MUST expose a bounded
+  `/vh/news/hot-index?limit=<n>` read path sorted by resolved hotness after
+  linked child reads. The Web PWA and release gates may use this REST path as a
+  public-peer fallback when the direct Gun hot-index root is sparse; returned
+  records must parse with the same signed system-writer and legacy-compatible
+  semantics as `readNewsHotIndex`, and must not fork story identities from the
+  latest feed.
 - New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
   `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
-  `_systemSignature`.
+  `_systemSignature`. Story publication and accepted-synthesis republish paths
+  MUST include the product feed metadata above so public readers and release
+  gates can audit singleton versus multi-source composition without relying on
+  in-memory daemon state. When a write includes `StoryBundle` metadata, durable
+  write readback must verify the metadata fields as well as the timestamp; a
+  timestamp-only readback does not prove product feed row persistence. Older
+  minimal signed latest entries remain read-compatible but are insufficient as
+  new publication output.
 - New writes to `vh/news/index/hot/<storyId>` MUST store an object carrying
   `story_id`, `hotness`, `_protocolVersion: 'luma-public-v1'`,
   `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
-  `_systemSignature`.
+  `_systemSignature`. When the writer has the `StoryBundle`, hot index writes
+  MUST include the same product feed metadata as latest index writes and
+  readback-confirm those metadata fields. Scalar hotness readback remains
+  transitional-reader compatible but is not sufficient proof for new
+  story-backed product hot rows.
 - `_systemSignature` uses `jcs-ed25519-sha256-v1` over
-  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
-  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+  JCS-canonical(node minus `_systemSignature` and known legacy signature
+  residue fields: `_system`, `_Signature`, `_WriterId`, `_IssuedAt`) and MUST
+  validate through the shared system-writer validator in
+  `packages/gun-client/src/systemWriter.ts`. New index rewrites MUST tombstone
+  legacy signature residue so public readers do not reject a current
+  `_systemSignature` because an older field survived Gun merge semantics.
 - Signed latest/hot index entries MUST NOT carry `_authorScheme` or
   `SignedWriteEnvelope`; they are system-published, not user-authored.
 - Legacy scalar, string, object, and explicit legacy-marked entries remain
@@ -316,6 +436,68 @@ Public analysis storage contract:
 - The `vh/news/stories/<storyId>/analysis/` root map, `analysis_pending`, and
   removal tombstones are not part of this M0.B analysis-node migration and do
   not gain system-writer metadata in this slice.
+
+### 5.3 Synthesis lifecycle contract
+
+Accepted synthesis is a downstream state of a published story/source-set
+revision. Raw story publication and product feed visibility MUST NOT depend on
+accepted synthesis.
+
+Public lifecycle storage contract:
+- New writes to `vh/news/stories/<storyId>/synthesis_lifecycle/latest` MUST
+  store an object carrying `schemaVersion: 'vh-news-synthesis-lifecycle-v1'`,
+  `story_id`, `topic_id`, `source_set_revision`, `status`,
+  `frame_table_state`, `retryable`, optional `reason`, optional `synthesis_id`,
+  optional `epoch`, `updated_at`, `_protocolVersion: 'luma-public-v1'`,
+  `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
+  `_systemSignature`.
+- Relay/origin daemon write surfaces MAY accept the same lifecycle record at
+  `POST /vh/news/synthesis-lifecycle` and MUST durably write/readback-confirm it
+  to `vh/news/stories/<storyId>/synthesis_lifecycle/latest` without adding user
+  identity, token, or private author fields.
+- Relay/origin read surfaces MUST expose the latest public lifecycle record at
+  `GET /vh/news/synthesis-lifecycle?story_id=<storyId>` so browser detail views
+  can render pending, terminal, retryable, accepted, and suppressed states even
+  when direct Gun parent-node reads are incomplete. A missing lifecycle record is
+  an honest pending/unknown state for product-visible stories, not a story
+  visibility filter.
+- `status` is one of `pending`, `in_progress`, `accepted_available`,
+  `retryable_failure`, `terminal_unavailable`, or `suppressed`.
+- `frame_table_state` is one of `frame_table_pending`, `frame_table_ready`, or
+  `frame_table_unavailable`.
+- `source_set_revision` is the StoryBundle provenance/source-set revision. If
+  a singleton story gains corroborating sources, the existing `story_id`
+  remains stable, `source_set_revision` advances, and synthesis lifecycle
+  returns to `pending`/`in_progress` until the revised source set reaches an
+  accepted or terminal state.
+- Republishing the same story/source-set revision MUST preserve the existing
+  lifecycle record. Routine daemon refreshes MUST NOT downgrade
+  `accepted_available`, `terminal_unavailable`, `suppressed`,
+  `retryable_failure`, or `in_progress` back to `pending` unless
+  `source_set_revision` has changed.
+- `accepted_available` means accepted `TopicSynthesisV2` exists for the
+  current story/source-set revision. `frame_table_ready` additionally requires a
+  non-empty facts summary, non-empty frames, and persisted `frame_point_id` and
+  `reframe_point_id` for every visible row.
+- Public relay and app readers MUST NOT treat a topic latest synthesis as
+  accepted for a visible story unless the story's latest lifecycle record is
+  `accepted_available`, its `source_set_revision` equals the current
+  `StoryBundle.provenance_hash`, its `synthesis_id`/`epoch` match the accepted
+  `TopicSynthesisV2`, and the synthesis inputs include the current
+  `story_id`. If a singleton grows into a bundle and lifecycle returns to
+  `pending`/`in_progress`, any older topic latest synthesis remains non-votable
+  historical data until the new source-set revision reaches accepted or
+  terminal state.
+- Public relay readers SHOULD reread lifecycle scalar fields before declaring
+  an accepted topic synthesis stale when the parent lifecycle object appears
+  older than the current accepted synthesis; the accepted-state rule above still
+  applies to the reread record.
+- `terminal_unavailable` is product-visible and must carry an auditable reason.
+  It is not a silent feed filter. `retryable_failure` is also product-visible
+  and must not enable point-stance controls.
+- Signed lifecycle records MUST NOT carry `_authorScheme`,
+  `SignedWriteEnvelope`, identity fields, tokens, private proof material, or
+  local vote-intent fields.
 
 ## 6. Privacy and safety
 

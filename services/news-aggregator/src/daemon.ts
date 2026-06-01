@@ -10,14 +10,18 @@ import {
 } from '@vh/ai-engine';
 import {
   readNewsIngestionLease,
+  readNewsSynthesisLifecycleStatus,
   removeNewsBundle,
   removeNewsStoryline,
+  buildNewsSynthesisLifecycleRecord,
+  writeNewsBundle,
   writeNewsIngestionLease,
+  writeNewsSynthesisLifecycleStatus,
   writeNewsStoryline,
-  writeStoryBundle,
   type NewsIngestionLease,
   type VennClient,
 } from '@vh/gun-client';
+import { StoryBundleSchema } from '@vh/data-model';
 import { createNodeMeshClient } from '@vh/gun-client/node';
 import {
   buildLeasePayload,
@@ -55,10 +59,30 @@ import {
   replayAcceptedAnalysisEvalSyntheses,
   resolveAnalysisEvalReplayArtifactDirFromEnv,
 } from './analysisEvalReplay';
+import { reconcileProductFeedFromRawStories } from './productFeedReconciler';
+import {
+  DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+  collectPendingSynthesisCatchupCandidates,
+  type PendingSynthesisCatchupResult,
+} from './pendingSynthesisCatchup';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
 };
+function hasReadableMesh(client: VennClient): boolean {
+  return Boolean(client.mesh && typeof client.mesh.get === 'function');
+}
+
+const DEFAULT_PRODUCT_FEED_RECONCILE_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_SYNTHESIS_CATCHUP_INTERVAL_MS = 5 * 60 * 1000;
+
+function normalizePositiveIntervalMs(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : fallback;
+}
+
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
   feedSources: FeedSource[];
@@ -76,6 +100,15 @@ export interface NewsAggregatorDaemonConfig {
   enrichmentQueueOptions?: AsyncEnrichmentQueueOptions;
   writeLanes?: DaemonWriteLaneRegistry;
   replayAcceptedSynthesis?: (client: VennClient) => Promise<unknown>;
+  reconcileProductFeed?: (client: VennClient) => Promise<unknown>;
+  productFeedReconcileIntervalMs?: number;
+  collectPendingSynthesisCandidates?: (
+    client: VennClient,
+    options: { limit?: number; logger?: LoggerLike; now?: () => number; staleInProgressMs?: number },
+  ) => Promise<PendingSynthesisCatchupResult>;
+  synthesisCatchupIntervalMs?: number;
+  synthesisCatchupSampleLimit?: number;
+  synthesisInProgressStaleMs?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -99,7 +132,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const startRuntime = config.startRuntime ?? startNewsRuntime;
   const readLease = config.readLease ?? readNewsIngestionLease;
   const writeLease = config.writeLease ?? writeNewsIngestionLease;
-  const writeBundle = config.writeBundle ?? writeStoryBundle;
+  const writeBundle = config.writeBundle ?? writeNewsBundle;
   const removeBundle = config.removeBundle ?? removeNewsBundle;
   const nowFn = config.now ?? Date.now;
   const randomFn = config.random ?? Math.random;
@@ -126,6 +159,38 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
   let acceptedSynthesisReplayAttempted = false;
+  const productFeedReconcileIntervalMs = normalizePositiveIntervalMs(
+    config.productFeedReconcileIntervalMs
+    ?? parseOptionalPositiveInt(readEnvVar('VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS')),
+    DEFAULT_PRODUCT_FEED_RECONCILE_INTERVAL_MS,
+  );
+  let nextProductFeedReconciliationAt = Number.NEGATIVE_INFINITY;
+  const synthesisCatchupIntervalMs = normalizePositiveIntervalMs(
+    config.synthesisCatchupIntervalMs
+    ?? parseOptionalPositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_CATCHUP_INTERVAL_MS'))
+    ?? DEFAULT_SYNTHESIS_CATCHUP_INTERVAL_MS,
+    DEFAULT_SYNTHESIS_CATCHUP_INTERVAL_MS,
+  );
+  const synthesisCatchupSampleLimit = config.synthesisCatchupSampleLimit
+    ?? parseOptionalPositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_CATCHUP_SAMPLE_LIMIT'))
+    ?? 25;
+  const synthesisInProgressStaleMs = normalizePositiveIntervalMs(
+    config.synthesisInProgressStaleMs
+    ?? parseOptionalPositiveInt(readEnvVar('VH_BUNDLE_SYNTHESIS_IN_PROGRESS_STALE_MS'))
+    ?? DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+    DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
+  );
+  const collectPendingSynthesisCandidates =
+    config.collectPendingSynthesisCandidates ?? collectPendingSynthesisCatchupCandidates;
+  let nextSynthesisCatchupAt = Number.NEGATIVE_INFINITY;
+  const reconcileProductFeed = config.reconcileProductFeed ?? ((client: VennClient) =>
+    hasReadableMesh(client)
+      ? reconcileProductFeedFromRawStories(client, {
+          logger,
+          now: nowFn,
+          sampleLimit: parseOptionalPositiveInt(readEnvVar('VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT')),
+        })
+      : Promise.resolve({ skipped: 'mesh_unavailable' }));
   const leaseGuard = createLeaseGuard({ client: config.client, readLease, verificationWindowMs: leaseVerificationWindowMs });
   const stopRuntime = () => {
     if (!runtimeHandle) {
@@ -160,7 +225,41 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         const storyId = typeof bundle === 'object' && bundle !== null ? (bundle as { story_id?: unknown }).story_id : null;
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle', { story_id: storyId ?? null }, async () => {
-          return writeBundle(runtimeClient as VennClient, bundle);
+          const written = await writeBundle(runtimeClient as VennClient, bundle);
+          const parsedWritten = StoryBundleSchema.safeParse(written).success
+            ? StoryBundleSchema.parse(written)
+            : StoryBundleSchema.safeParse(bundle).success
+              ? StoryBundleSchema.parse(bundle)
+              : null;
+          if (parsedWritten) {
+            const existingLifecycle = await readNewsSynthesisLifecycleStatus(
+              runtimeClient as VennClient,
+              parsedWritten.story_id,
+            ).catch((error) => {
+              logger.warn('[vh:news-daemon] synthesis lifecycle read failed before pending transition', {
+                story_id: parsedWritten.story_id,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return null;
+            });
+            if (existingLifecycle?.source_set_revision === parsedWritten.provenance_hash) {
+              logger.info('[vh:news-daemon] preserving synthesis lifecycle for unchanged source set', {
+                story_id: parsedWritten.story_id,
+                source_set_revision: parsedWritten.provenance_hash,
+                status: existingLifecycle.status,
+              });
+            } else {
+              await writeLanes.run('news_synthesis_lifecycle', { story_id: parsedWritten.story_id, status: 'pending' }, async () =>
+                writeNewsSynthesisLifecycleStatus(runtimeClient as VennClient, buildNewsSynthesisLifecycleRecord({
+                  story: parsedWritten,
+                  status: 'pending',
+                  frameTableState: 'frame_table_pending',
+                  updatedAt: nowFn(),
+                })),
+              );
+            }
+          }
+          return written;
         });
       },
       removeStoryBundle: async (runtimeClient: unknown, storyId: string) => {
@@ -251,6 +350,48 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         await config.replayAcceptedSynthesis(config.client);
       } catch (error) {
         logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
+      }
+    }
+    if (nowMs >= nextProductFeedReconciliationAt) {
+      nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
+      try {
+        const result = await reconcileProductFeed(config.client);
+        logger.info('[vh:news-daemon] product feed reconciliation attempted', {
+          holder_id: holderId,
+          next_reconcile_at: nextProductFeedReconciliationAt,
+          interval_ms: productFeedReconcileIntervalMs,
+          result,
+        });
+      } catch (error) {
+        logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
+      }
+    }
+    if (config.enrichmentWorker && nowMs >= nextSynthesisCatchupAt) {
+      nextSynthesisCatchupAt = nowMs + synthesisCatchupIntervalMs;
+      try {
+        const result = await collectPendingSynthesisCandidates(config.client, {
+          limit: synthesisCatchupSampleLimit,
+          logger,
+          now: nowFn,
+          staleInProgressMs: synthesisInProgressStaleMs,
+        });
+        for (const candidate of result.candidates) {
+          queue.enqueue(candidate.candidate);
+        }
+        logger.info('[vh:news-daemon] pending synthesis catch-up attempted', {
+          holder_id: holderId,
+          next_catchup_at: nextSynthesisCatchupAt,
+          interval_ms: synthesisCatchupIntervalMs,
+          sample_limit: synthesisCatchupSampleLimit,
+          scanned: result.scanned,
+          enqueued: result.enqueued,
+          skipped: result.skipped,
+          stale_in_progress: result.staleInProgress,
+          in_progress_stale_ms: synthesisInProgressStaleMs,
+          enrichment_queue: queue.snapshot(),
+        });
+      } catch (error) {
+        logger.warn('[vh:news-daemon] pending synthesis catch-up failed', error);
       }
     }
     startRuntimeIfNeeded();

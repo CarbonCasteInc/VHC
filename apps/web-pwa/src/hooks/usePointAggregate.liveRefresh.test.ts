@@ -3,8 +3,10 @@ import React from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { dispatchPointAggregateRefresh } from './pointAggregateRefreshEvents';
 
 const readAggregatesMock = vi.hoisted(() => vi.fn());
+const createClientMock = vi.hoisted(() => vi.fn());
 const getAggregatePointsChainMock = vi.hoisted(() => vi.fn());
 const getAggregateVotersChainMock = vi.hoisted(() => vi.fn());
 const resolveClientFromAppStoreMock = vi.hoisted(() => vi.fn());
@@ -12,6 +14,7 @@ const consumeVoteTimestampMock = vi.hoisted(() => vi.fn());
 const logConvergenceLagMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@vh/gun-client', () => ({
+  createClient: (...args: unknown[]) => createClientMock(...args),
   readAggregatesWithRelayRestFallback: (...args: unknown[]) => readAggregatesMock(...args),
   getAggregatePointsChain: (...args: unknown[]) => getAggregatePointsChainMock(...args),
   getAggregateVotersChain: (...args: unknown[]) => getAggregateVotersChainMock(...args),
@@ -110,12 +113,17 @@ function createSignalChain() {
 describe('usePointAggregate live refresh', () => {
   beforeEach(() => {
     readAggregatesMock.mockReset();
+    createClientMock.mockReset();
     getAggregatePointsChainMock.mockReset();
     getAggregateVotersChainMock.mockReset();
     resolveClientFromAppStoreMock.mockReset();
     consumeVoteTimestampMock.mockReset();
     logConvergenceLagMock.mockReset();
     resolveClientFromAppStoreMock.mockReturnValue({} as any);
+    createClientMock.mockImplementation(() => ({
+      config: { peers: [] },
+      markSessionReady: vi.fn(),
+    }));
     consumeVoteTimestampMock.mockReturnValue(null);
     getAggregatePointsChainMock.mockImplementation(() => createSignalChain());
     getAggregateVotersChainMock.mockImplementation(() => createSignalChain());
@@ -126,11 +134,56 @@ describe('usePointAggregate live refresh', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.unstubAllEnvs();
     globalThis.localStorage?.clear();
     delete (globalThis as { __VH_FORCE_LIVE_AGGREGATE_REFRESH__?: boolean }).__VH_FORCE_LIVE_AGGREGATE_REFRESH__;
     delete (globalThis as { __VH_IMPORT_META_MODE__?: string }).__VH_IMPORT_META_MODE__;
+  });
+
+  it('uses a read-only same-origin public client for deployed aggregate reads', async () => {
+    const appClient = { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } };
+    const publicReadClient = { config: { peers: [] }, markSessionReady: vi.fn() };
+    vi.stubGlobal('location', {
+      origin: 'https://venn.carboncaste.io',
+      hostname: 'venn.carboncaste.io',
+      protocol: 'https:',
+    });
+    resolveClientFromAppStoreMock.mockReturnValue(appClient);
+    createClientMock.mockReturnValue(publicReadClient);
+    readAggregatesMock.mockResolvedValue(aggregateFixture({ agree: 7, participants: 7, weight: 7 }));
+
+    await renderHarness(
+      {
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+      },
+      { mode: 'test' },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(createClientMock).toHaveBeenCalledWith({
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      requireSession: false,
+      gunLocalStorage: false,
+      gunRadisk: false,
+    });
+    expect(publicReadClient.markSessionReady).toHaveBeenCalledTimes(1);
+    expect(readAggregatesMock).toHaveBeenCalledWith(
+      publicReadClient,
+      'topic-1',
+      'synth-1',
+      0,
+      'point-1',
+    );
+    expect(readHookResult().aggregate).toMatchObject({ agree: 7, participants: 7 });
   });
 
   it('enables live refresh without force override when mode is non-test', async () => {
@@ -435,6 +488,55 @@ describe('usePointAggregate live refresh', () => {
 
     expect(call).toBeGreaterThan(beforeSignalCalls);
     expect(readHookResult().aggregate?.agree).toBe(2);
+  });
+
+  it('applies local vote refresh events and schedules authoritative mesh rereads', async () => {
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 1, disagree: 0, participants: 1, weight: 1 }),
+    );
+
+    await renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const beforeEventCalls = readAggregatesMock.mock.calls.length;
+
+    await act(async () => {
+      dispatchPointAggregateRefresh({
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+        previousAgreement: 0,
+        nextAgreement: 1,
+        previousWeight: 0,
+        weight: 1,
+        reason: 'local_vote',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readHookResult()).toEqual({
+      aggregate: aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }),
+      status: 'success',
+      error: null,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readAggregatesMock.mock.calls.length).toBeGreaterThan(beforeEventCalls);
   });
 
   it('removes point and voter subscriptions on unmount', async () => {

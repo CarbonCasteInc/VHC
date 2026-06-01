@@ -10,7 +10,7 @@ type FeedSource = {
 
 const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
-  'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
+  'washingtonexaminer-politics': { id: 'washingtonexaminer-politics', name: 'Washington Examiner Politics', displayName: 'Washington Examiner', rssUrl: 'https://www.washingtonexaminer.com/tag/politics.rss', perspectiveTag: 'conservative', iconKey: 'washingtonexaminer', enabled: true },
   'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
   'huffpost-us': { id: 'huffpost-us', name: 'HuffPost', displayName: 'HuffPost', rssUrl: 'https://www.huffpost.com/section/us-news/feed', perspectiveTag: 'progressive', iconKey: 'huffpost', enabled: true },
   'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
@@ -34,10 +34,8 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'kffhealthnews-original': { id: 'kffhealthnews-original', name: 'KFF Health News', displayName: 'KFF Health News', rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss', perspectiveTag: 'health-policy', iconKey: 'kff', enabled: true },
   'scotusblog-main': { id: 'scotusblog-main', name: 'SCOTUSblog', displayName: 'SCOTUSblog', rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs', perspectiveTag: 'courts-legal', iconKey: 'scotusblog', enabled: true },
   'canarymedia-main': { id: 'canarymedia-main', name: 'Canary Media', displayName: 'Canary Media', rssUrl: 'https://www.canarymedia.com/rss.rss', perspectiveTag: 'climate-policy', iconKey: 'canarymedia', enabled: true },
-  'sky-world': { id: 'sky-world', name: 'Sky News World', displayName: 'Sky News', rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml', perspectiveTag: 'international-wire', iconKey: 'sky', enabled: true },
   'aljazeera-all': { id: 'aljazeera-all', name: 'Al Jazeera', displayName: 'Al Jazeera', rssUrl: 'https://www.aljazeera.com/xml/rss/all.xml', perspectiveTag: 'international-wire', iconKey: 'aljazeera', enabled: true },
   'globalnews-politics': { id: 'globalnews-politics', name: 'Global News Politics', displayName: 'Global News', rssUrl: 'https://globalnews.ca/politics/feed/', perspectiveTag: 'broadcast-news', iconKey: 'globalnews', enabled: true },
-  'channelnewsasia-latest': { id: 'channelnewsasia-latest', name: 'Channel NewsAsia Latest', displayName: 'Channel NewsAsia', rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', perspectiveTag: 'international-wire', iconKey: 'cna', enabled: true },
   'dw-top': { id: 'dw-top', name: 'Deutsche Welle Top Stories', displayName: 'DW', rssUrl: 'https://rss.dw.com/rdf/rss-en-top', perspectiveTag: 'international-wire', iconKey: 'dw', enabled: true },
 };
 
@@ -45,7 +43,7 @@ const DEFAULT_SOURCE_IDS = [
   'guardian-us',
   'cbs-politics',
   'bbc-us-canada',
-  'nypost-politics',
+  'washingtonexaminer-politics',
   'fox-latest',
 ];
 
