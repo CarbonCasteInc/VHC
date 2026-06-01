@@ -5,7 +5,7 @@
 > Last Reviewed: 2026-05-31
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
-Version: 0.7
+Version: 0.8
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
@@ -21,6 +21,30 @@ No public-beta launch claim may proceed unless the release owner produces a pass
 The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
 
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
+
+Superseding public app/feed recovery update, 2026-05-31: PR #631 head
+`ab570f70b517ec4e3979354fe861bb170bc77d8e` is deployed on the public relay
+image `vhc-public-beta-relay:20260531-pr631-feed-mvp-vab570f70-aggregate-self-fanin-amd64`;
+the public origin continues serving the current Web PWA bundle from
+`vhc-public-beta-origin:20260531-pr631-feed-mvp-v56913189-public-aggregate-wss-readclient-peerconfig-amd64`.
+The strict deployed browser gate
+`pnpm check:public-feed:stance-aggregate-decay` passed against
+`https://venn.carboncaste.io` with artifact
+`packages/e2e/.tmp/release-evidence/public-feed-browser-smoke/1780272232-ab570f70-aggregate-self-fanin-rerun/public-feed-browser-smoke-summary.json`.
+Observed live relay composition was 80 visible stories: 59 singleton, 21
+multi-source/corroborated, 77 synthesis-pending, 3 accepted-synthesis
+available, 3 frame-table-ready, average source count 1.413, max source count 6,
+and 9/9 frame/reframe point ids present. The Web PWA opened to 15 current cards
+without manual refresh, refresh preserved 15, load-more/cursor pagination grew
+the visible set to 30 cards from mesh/relay data, an accepted story opened with
+frame/reframe content, a `+` stance write read back as aggregate count 1, reload
+preserved the detail state, and a second browser observed the public aggregate
+count from the DOM. This supersedes earlier same-day entries that reported
+accepted synthesis, identity creation, or second-browser stance convergence as
+unproven. It remains a focused public-feed/stance gate pass, not a blanket MVP
+release-ready claim: fresh RSS ingest-to-feed propagation, all configured public
+WSS peer convergence, the full umbrella `pnpm check:mvp-release-gates` packet,
+and release-owner signoff still require separate current evidence.
 
 Operational recovery note, 2026-05-31: PR #631 restored the deployed public REST feed path from StoryCluster-derived product rows, deployed bounded relay repair/fanout, and fixed the Web PWA underfilled first-page refresh path for `venn.carboncaste.io`. Current recovery evidence from `.tmp/release-evidence/public-feed-composition-freshness/1780228000865/public-feed-composition-freshness-summary.json` shows the public latest-index returns 80 product-visible stories with live story-body readback for every sampled row: 59 singleton and 21 multi-source/corroborated rows, with `acceptedSynthesisStoryCount: 0`. Lifecycle accountability now passes in `.tmp/release-evidence/public-feed-lifecycle-accountability/1780229577328/public-feed-lifecycle-accountability-summary.json`: 80/80 sampled raw stories are product-visible, 59 singleton and 21 multi-source rows are visible, hot-index product metadata is complete for 80/80 rows, and no eligible multi-source story is hidden because synthesis is pending. Browser-level recovery evidence includes `.tmp/release-evidence/public-feed-browser-smoke/1780226628317/public-feed-browser-smoke-summary.json`, which proved app open populated 15 current stories without a manual refresh, refresh preserved the mixed feed, and scroll/load-more issued `refreshLatest({ limit: 15, before: 1780190425000 })`, grew the store from 15 to 30 stories, and rendered non-overlapping older relay-cursor rows. A post-fix browser-only check on 2026-05-31 again observed 15 visible stories on app open and 30 after mobile scroll. This recovery packet is still not release-ready evidence. The latest strict browser smoke fails at `.tmp/release-evidence/public-feed-browser-smoke/1780230262620/public-feed-browser-smoke-summary.json` with `gun-latest-index-readback-timeout` after direct Gun latest-index and story-body rows fail public system-writer validation (`signature-invalid`, `unknown-signer-id`, and legacy missing signature fields). Current live public feed synthesis remains pending-only (`accepted_available: 0`, `frame_table_ready: 0`), so accepted synthesis/frame-table visibility and stance/aggregate/decay public-mesh convergence are unproven. Fresh RSS ingest-to-feed propagation, synthesis worker catch-up/current accepted synthesis, frame/reframe point-id readiness, stance/aggregate/decay public-mesh convergence, and direct Gun signature cleanup remain blocking or unproven. Relay-backed recovery is allowed only as explicit operational repair evidence and must not be described as release readiness unless all configured public peers, fresh ingest, synthesis, browser, lifecycle, direct Gun/WSS, and stance/aggregate gates pass.
 
