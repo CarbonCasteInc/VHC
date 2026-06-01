@@ -30,7 +30,7 @@ the public origin continues serving the current Web PWA bundle from
 The strict deployed browser gate
 `pnpm check:public-feed:stance-aggregate-decay` passed against
 `https://venn.carboncaste.io` with artifact
-`packages/e2e/.tmp/release-evidence/public-feed-browser-smoke/1780272232-ab570f70-aggregate-self-fanin-rerun/public-feed-browser-smoke-summary.json`.
+`packages/e2e/packages/e2e/.tmp/release-evidence/public-feed-browser-smoke/1780272232-ab570f70-aggregate-self-fanin-rerun/public-feed-browser-smoke-summary.json`.
 Observed live relay composition was 80 visible stories: 59 singleton, 21
 multi-source/corroborated, 77 synthesis-pending, 3 accepted-synthesis
 available, 3 frame-table-ready, average source count 1.413, max source count 6,
