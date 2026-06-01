@@ -21,6 +21,14 @@ const DEFAULT_PUBLIC_APP_BOOT_TIMEOUT_MS = 30_000;
 const LOCAL_COMMAND = 'pnpm test:mesh:deployed-wss-peer-config';
 const PUBLIC_COMMAND = 'pnpm test:mesh:deployed-wss-peer-config:public';
 const PUBLIC_ENV_FLAG = 'VH_MESH_DEPLOYED_WSS_PUBLIC_PROOF';
+const APP_PUBLIC_MESH_CONNECT_SRC = Object.freeze([
+  'https://gun-a.carboncaste.io',
+  'https://gun-b.carboncaste.io',
+  'https://gun-c.carboncaste.io',
+  'wss://gun-a.carboncaste.io',
+  'wss://gun-b.carboncaste.io',
+  'wss://gun-c.carboncaste.io',
+]);
 const PUBLIC_ENV_KEYS = {
   appUrl: ['VH_MESH_PUBLIC_APP_URL'],
   configId: ['VH_MESH_PUBLIC_CONFIG_ID'],
@@ -1370,6 +1378,7 @@ async function runLocalDeployedWssCanary() {
   writeJson(insecurePeersFixturePath, await signPayload(insecurePeersPayload, pair));
 
   const expectedCspConnectSrc = Array.from(new Set([
+    ...APP_PUBLIC_MESH_CONNECT_SRC,
     ...peerUrls.map(originOf),
     originOf(configUrl),
   ]));

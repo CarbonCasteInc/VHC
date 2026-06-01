@@ -110,6 +110,33 @@ describe('peerConfig', () => {
     });
   });
 
+  it('uses explicit env peers in async strict mode before same-origin public fallback', async () => {
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubEnv('VITE_VH_ALLOW_LOCAL_MESH_PEERS', 'true');
+    vi.stubEnv('VITE_GUN_PEERS', JSON.stringify([
+      'http://127.0.0.1:7788/gun',
+      'http://127.0.0.1:7789/gun',
+      'http://127.0.0.1:7790/gun',
+    ]));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+
+    await expect(resolveGunPeerTopology('app.example')).resolves.toMatchObject({
+      peers: [
+        'http://127.0.0.1:7788/gun',
+        'http://127.0.0.1:7789/gun',
+        'http://127.0.0.1:7790/gun',
+      ],
+      source: 'env-peers',
+      strict: true,
+      signed: false,
+      allowLocalPeers: true,
+      quorumRequired: 2,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('requires and verifies signed remote peer config in strict mode', async () => {
     const issuedAt = Date.now() - 1_000;
     const expiresAt = issuedAt + 86_400_000;

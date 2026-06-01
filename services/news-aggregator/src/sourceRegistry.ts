@@ -22,7 +22,7 @@ export const STARTER_FEED_URLS = Object.freeze(
 
 const DOMAIN_ALIASES: Record<string, readonly string[]> = {
   'moxie.foxnews.com': ['foxnews.com', 'www.foxnews.com'],
-  'nypost.com': ['www.nypost.com'],
+  'www.washingtonexaminer.com': ['washingtonexaminer.com'],
   'thefederalist.com': ['www.thefederalist.com'],
   'www.theguardian.com': ['theguardian.com'],
   'www.huffpost.com': ['huffpost.com', 'chaski.huffpost.com'],

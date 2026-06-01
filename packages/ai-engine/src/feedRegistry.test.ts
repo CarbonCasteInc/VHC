@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(28);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(27);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -42,7 +42,7 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(6);
+      expect(wire.length).toBeGreaterThanOrEqual(5);
     });
 
     it('includes the highest-confidence statehouse and specialist additions', () => {
@@ -317,15 +317,15 @@ describe('feedRegistry', () => {
     });
 
     it('returns metadata for newly admitted specialist and international sources', () => {
+      expect(getSourceMetadata('washingtonexaminer-politics')).toEqual({
+        displayName: 'Washington Examiner',
+        perspectiveTag: 'conservative',
+        iconKey: 'washingtonexaminer',
+      });
       expect(getSourceMetadata('texastribune-main')).toEqual({
         displayName: 'Texas Tribune',
         perspectiveTag: 'statehouse',
         iconKey: 'texastribune',
-      });
-      expect(getSourceMetadata('channelnewsasia-latest')).toEqual({
-        displayName: 'Channel NewsAsia',
-        perspectiveTag: 'international-wire',
-        iconKey: 'cna',
       });
       expect(getSourceMetadata('ap-topnews')).toEqual({
         displayName: 'AP',
@@ -355,8 +355,9 @@ describe('feedRegistry', () => {
     });
 
     it('returns undefined for sources pruned from the starter surface', () => {
+      expect(getSourceMetadata('channelnewsasia-latest')).toBeUndefined();
       expect(getSourceMetadata('sky-world')).toBeUndefined();
-      expect(getSourceMetadata('washingtonexaminer-politics')).toBeUndefined();
+      expect(getSourceMetadata('nypost-politics')).toBeUndefined();
     });
 
     it('falls back to name when displayName is absent', () => {

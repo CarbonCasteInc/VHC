@@ -306,15 +306,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'canarymedia',
     enabled: true,
   },
-  'sky-world': {
-    id: 'sky-world',
-    name: 'Sky News World',
-    displayName: 'Sky News',
-    rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'sky',
-    enabled: true,
-  },
   'aljazeera-all': {
     id: 'aljazeera-all',
     name: 'Al Jazeera',
@@ -331,15 +322,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     rssUrl: 'https://globalnews.ca/politics/feed/',
     perspectiveTag: 'broadcast-news',
     iconKey: 'globalnews',
-    enabled: true,
-  },
-  'channelnewsasia-latest': {
-    id: 'channelnewsasia-latest',
-    name: 'Channel NewsAsia Latest',
-    displayName: 'Channel NewsAsia',
-    rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'cna',
     enabled: true,
   },
   'dw-top': {

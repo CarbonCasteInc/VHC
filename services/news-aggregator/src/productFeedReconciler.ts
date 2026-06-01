@@ -21,6 +21,12 @@ interface LoggerLike {
   warn(message?: unknown, ...optionalParams: unknown[]): void;
 }
 
+const DEFAULT_INCOMPLETE_LIFECYCLE_REFRESH_MS = 60 * 60 * 1000;
+const INCOMPLETE_LIFECYCLE_STATUSES = new Set<NewsSynthesisLifecycleRecord['status']>([
+  'pending',
+  'retryable_failure',
+]);
+
 export interface ProductFeedReconciliationFailure {
   readonly story_id: string;
   readonly reason: string;
@@ -36,6 +42,7 @@ export interface ProductFeedReconciliationResult {
   readonly repaired_latest_index: number;
   readonly repaired_hot_index: number;
   readonly repaired_lifecycle: number;
+  readonly refreshed_incomplete_lifecycle: number;
   readonly preserved_lifecycle: number;
   readonly failures: readonly ProductFeedReconciliationFailure[];
 }
@@ -55,6 +62,7 @@ export interface ProductFeedReconcilerDependencies {
 
 export interface ProductFeedReconcilerOptions {
   readonly sampleLimit?: number;
+  readonly incompleteLifecycleRefreshMs?: number;
   readonly now?: () => number;
   readonly logger?: LoggerLike;
   readonly dependencies?: ProductFeedReconcilerDependencies;
@@ -105,6 +113,33 @@ function lifecycleNeedsPendingRepair(
   return !lifecycle || lifecycle.source_set_revision !== story.provenance_hash;
 }
 
+function normalizePositiveMs(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.floor(parsed)
+    : fallback;
+}
+
+function lifecycleNeedsIncompleteRefresh(
+  lifecycle: NewsSynthesisLifecycleRecord | null,
+  story: StoryBundle,
+  nowMs: number,
+  refreshMs: number,
+): boolean {
+  if (
+    !lifecycle
+    || lifecycle.story_id !== story.story_id
+    || lifecycle.source_set_revision !== story.provenance_hash
+    || !INCOMPLETE_LIFECYCLE_STATUSES.has(lifecycle.status)
+  ) {
+    return false;
+  }
+  const updatedAt = Number(lifecycle.updated_at);
+  return !Number.isFinite(updatedAt)
+    || updatedAt <= 0
+    || Math.max(0, Math.floor(nowMs - updatedAt)) > refreshMs;
+}
+
 export async function reconcileProductFeedFromRawStories(
   client: VennClient,
   options: ProductFeedReconcilerOptions = {},
@@ -123,6 +158,10 @@ export async function reconcileProductFeedFromRawStories(
   const now = options.now ?? Date.now;
   const logger = options.logger ?? console;
   const sampleLimit = normalizeSampleLimit(options.sampleLimit);
+  const incompleteLifecycleRefreshMs = normalizePositiveMs(
+    options.incompleteLifecycleRefreshMs ?? DEFAULT_INCOMPLETE_LIFECYCLE_REFRESH_MS,
+    DEFAULT_INCOMPLETE_LIFECYCLE_REFRESH_MS,
+  );
 
   const storyIds = await readStoryIds(client, { limit: sampleLimit });
 
@@ -134,6 +173,7 @@ export async function reconcileProductFeedFromRawStories(
   let repairedLatestIndex = 0;
   let repairedHotIndex = 0;
   let repairedLifecycle = 0;
+  let refreshedIncompleteLifecycle = 0;
   let preservedLifecycle = 0;
   const failures: ProductFeedReconciliationFailure[] = [];
 
@@ -177,6 +217,16 @@ export async function reconcileProductFeedFromRawStories(
           updatedAt: now(),
         }));
         repairedLifecycle += 1;
+      } else if (lifecycle && lifecycleNeedsIncompleteRefresh(lifecycle, story, now(), incompleteLifecycleRefreshMs)) {
+        await writeLifecycle(client, buildNewsSynthesisLifecycleRecord({
+          story,
+          status: lifecycle.status,
+          frameTableState: lifecycle.frame_table_state,
+          retryable: lifecycle.retryable,
+          reason: lifecycle.reason ?? 'product_feed_reconciled_incomplete_lifecycle',
+          updatedAt: now(),
+        }));
+        refreshedIncompleteLifecycle += 1;
       } else {
         preservedLifecycle += 1;
       }
@@ -198,6 +248,7 @@ export async function reconcileProductFeedFromRawStories(
     repaired_latest_index: repairedLatestIndex,
     repaired_hot_index: repairedHotIndex,
     repaired_lifecycle: repairedLifecycle,
+    refreshed_incomplete_lifecycle: refreshedIncompleteLifecycle,
     preserved_lifecycle: preservedLifecycle,
     failures,
   };
