@@ -3405,13 +3405,22 @@ async function readAggregatePoint(gun, params) {
     readAggregateVoterRowsFromGun(gun, context),
   ]);
   const materialized = snapshotAggregate(snapshot);
-  const rows = localRows.length > 0 ||
-    (materialized && materialized.participants > 0)
-    ? localRows
-    : mergeAggregateRowsByVoter([
+  const localAggregate = summarizeAggregateRows(context.pointId, localRows);
+  const shouldReadSelfPeerRows = aggregateVoterSelfPeerReadbackEnabled && (
+    localRows.length === 0 ||
+    (materialized && localAggregate.participants <= materialized.participants)
+  );
+  const rows = shouldReadSelfPeerRows ||
+    (
+      !aggregateVoterSelfPeerReadbackEnabled &&
+      localRows.length === 0 &&
+      (!materialized || materialized.participants <= 0)
+    )
+    ? mergeAggregateRowsByVoter([
       ...localRows,
       ...await readAggregateVoterRowsViaSelfPeer(context),
-    ]);
+    ])
+    : localRows;
   const rowAggregate = summarizeAggregateRows(context.pointId, rows);
   const aggregate = !materialized ||
     rowAggregate.participants > materialized.participants ||
