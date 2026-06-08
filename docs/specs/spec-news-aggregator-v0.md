@@ -358,6 +358,17 @@ Public latest/hot index-entry storage contract:
   story eligibility rules. The embedded map is a read-through optimization and
   does not replace durable `vh/news/stories/<storyId>` persistence or per-peer
   story-body readback gates.
+- Relay REST `/vh/news/latest-index` responses that use the emergency mixed-feed
+  UX backfill MUST expose the backfill separately from organic page composition:
+  `composition.organic_selected_count`, `organic_singleton_visible`,
+  `organic_multi_source_visible`, `scan_window_selected_count`,
+  `scan_window_singleton_visible`, `scan_window_multi_source_visible`,
+  `backfill_used`, `backfill_story_ids`, plus top-level
+  `composition_backfill_records`, `backfill_used`, and `backfill_story_ids`.
+  Release gates MUST NOT count a backfilled row as proof that the organic
+  latest window is mixed. If the organic selected window is singleton-only while
+  the scan window contains a corroborated story, the verdict is a product/feed
+  ordering failure, not release-ready mixed composition.
 - Relay REST reads of `vh/news/index/hot` MUST expose a bounded
   `/vh/news/hot-index?limit=<n>` read path sorted by resolved hotness after
   linked child reads. The Web PWA and release gates may use this REST path as a

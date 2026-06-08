@@ -1833,6 +1833,40 @@ function finalizeFeedComposition(composition) {
   return composition;
 }
 
+function feedCompositionForEntries(entries, now = Date.now()) {
+  const composition = createFeedCompositionAccumulator(now);
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (entry?.story && entry?.storyState) {
+      accumulateFeedComposition(composition, entry.story, entry.entry?.[1], entry.storyState);
+    }
+  }
+  return finalizeFeedComposition(composition);
+}
+
+function addFeedCompositionWindowFields(composition, {
+  organicEntries = [],
+  scanWindowEntries = [],
+  backfillRecords = [],
+  now = Date.now(),
+} = {}) {
+  const organicComposition = feedCompositionForEntries(organicEntries, now);
+  const scanWindowComposition = feedCompositionForEntries(scanWindowEntries, now);
+  const backfillStoryIds = (Array.isArray(backfillRecords) ? backfillRecords : [])
+    .map((record) => String(record?.story_id ?? '').trim())
+    .filter(Boolean);
+  return {
+    ...composition,
+    organic_selected_count: Array.isArray(organicEntries) ? organicEntries.length : 0,
+    organic_singleton_visible: organicComposition.singleton_visible,
+    organic_multi_source_visible: organicComposition.multi_source_visible,
+    scan_window_selected_count: Array.isArray(scanWindowEntries) ? scanWindowEntries.length : 0,
+    scan_window_singleton_visible: scanWindowComposition.singleton_visible,
+    scan_window_multi_source_visible: scanWindowComposition.multi_source_visible,
+    backfill_used: backfillStoryIds.length > 0,
+    backfill_story_ids: backfillStoryIds,
+  };
+}
+
 function synthesizeLatestIndexRecordFromStory(storyId, story, fallbackPriority) {
   const latestActivityAt = resolveLatestActivityFromStory(story) ?? Math.max(0, Math.floor(fallbackPriority || 0));
   const sourceCount = Array.isArray(story?.sources) ? story.sources.length : 0;
@@ -2090,7 +2124,8 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const storyStates = {};
   const excludedRecords = [];
   const repairedRecords = [];
-  const composition = createFeedCompositionAccumulator();
+  const compositionNow = Date.now();
+  const composition = createFeedCompositionAccumulator(compositionNow);
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
     const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
       ? stripGunMetadata(readableRoot[storyId])
@@ -2264,7 +2299,12 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       story_fallback_enabled: Boolean(consistencyFilter && storyFallbackEnabled),
       story_fallback_key_count: storyFallbackKeys.length,
     },
-    composition: finalizeFeedComposition(composition),
+    composition: addFeedCompositionWindowFields(finalizeFeedComposition(composition), {
+      organicEntries: chronologicalPageEntries,
+      scanWindowEntries: visibleEntries,
+      backfillRecords: compositionBackfillRecords,
+      now: compositionNow,
+    }),
     storyStates,
     excludedRecords,
     repairedRecords,
@@ -2821,7 +2861,8 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
   const records = {};
   const stories = {};
   const storyStates = {};
-  const composition = createFeedCompositionAccumulator();
+  const compositionNow = Date.now();
+  const composition = createFeedCompositionAccumulator(compositionNow);
   for (const entry of selectedEntries) {
     records[entry.entry[0]] = entry.entry[1];
     if (entry.story) {
@@ -2849,7 +2890,12 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       snapshot_story_body_readback: bodyReadbackResult.info,
       snapshot_story_state_refresh: refreshResult.info,
     },
-    composition: finalizeFeedComposition(composition),
+    composition: addFeedCompositionWindowFields(finalizeFeedComposition(composition), {
+      organicEntries: chronologicalPageEntries,
+      scanWindowEntries: visibleEntries,
+      backfillRecords: compositionBackfillRecords,
+      now: compositionNow,
+    }),
     storyStates,
     excludedRecords: [],
     repairedRecords: snapshot.repairedRecords ?? [],
@@ -4285,6 +4331,10 @@ const server = http.createServer((req, res) => {
           consistency: result.consistency,
           composition: result.composition,
           composition_backfill_records: result.compositionBackfillRecords,
+          backfill_used: result.compositionBackfillRecords.length > 0,
+          backfill_story_ids: result.compositionBackfillRecords
+            .map((record) => String(record?.story_id ?? '').trim())
+            .filter(Boolean),
           story_states: result.storyStates,
           records: result.records,
           stories: result.stories,

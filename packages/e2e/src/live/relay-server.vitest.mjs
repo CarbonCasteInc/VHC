@@ -1871,7 +1871,17 @@ describe('infra relay server', () => {
           total_visible: 3,
           singleton_visible: 2,
           multi_source_visible: 1,
+          organic_selected_count: 2,
+          organic_singleton_visible: 2,
+          organic_multi_source_visible: 0,
+          scan_window_selected_count: 3,
+          scan_window_singleton_visible: 2,
+          scan_window_multi_source_visible: 1,
+          backfill_used: true,
+          backfill_story_ids: ['story-old-bundle'],
         }),
+        backfill_used: true,
+        backfill_story_ids: ['story-old-bundle'],
         composition_backfill_records: [
           expect.objectContaining({
             story_id: 'story-old-bundle',

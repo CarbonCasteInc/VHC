@@ -29,6 +29,7 @@ const DEFAULT_COMMENT_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_SECOND_BROWSER_VOTE_VISIBILITY_TIMEOUT_MS = 120_000;
 const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
 const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
+const DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
 function normalizeUrl(value) {
@@ -742,6 +743,29 @@ function latestIndexRecordsFromPayload(payload) {
     .sort((left, right) => right.latestActivityAt - left.latestActivityAt || left.storyId.localeCompare(right.storyId));
 }
 
+function compositionBackfillRecordsFromPayload(payload) {
+  return Array.isArray(payload?.composition_backfill_records)
+    ? payload.composition_backfill_records.filter((record) => record && typeof record === 'object')
+    : [];
+}
+
+function backfillStoryIdsFromPayload(payload) {
+  const explicit = Array.isArray(payload?.backfill_story_ids)
+    ? payload.backfill_story_ids
+    : Array.isArray(payload?.composition?.backfill_story_ids)
+      ? payload.composition.backfill_story_ids
+      : compositionBackfillRecordsFromPayload(payload).map((record) => record.story_id);
+  return [...new Set(explicit.map((storyId) => String(storyId ?? '').trim()).filter(Boolean))];
+}
+
+function mvpFreshnessWindowMsFromEnv(env = process.env) {
+  return parseNonNegativeInt(
+    env.VH_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS ?? env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS,
+    DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS,
+    0,
+  );
+}
+
 async function readPublicRelayLatestIndexPage({
   baseUrl,
   limit,
@@ -760,6 +784,8 @@ async function readPublicRelayLatestIndexPage({
   }
   const payload = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index-page');
   const entries = latestIndexRecordsFromPayload(payload);
+  const compositionBackfillRecords = compositionBackfillRecordsFromPayload(payload);
+  const backfillStoryIds = backfillStoryIdsFromPayload(payload);
   return {
     requestUrl: indexUrl.href,
     recordCount: entries.length,
@@ -772,6 +798,9 @@ async function readPublicRelayLatestIndexPage({
     scannedKeyCount: finiteNonNegativeIndexInt(payload?.scanned_key_count),
     truncated: Boolean(payload?.truncated),
     composition: payload?.composition && typeof payload.composition === 'object' ? payload.composition : null,
+    compositionBackfillRecords,
+    backfillUsed: Boolean(payload?.backfill_used ?? payload?.composition?.backfill_used ?? compositionBackfillRecords.length > 0),
+    backfillStoryIds,
     storyStateCount: payload?.story_states && typeof payload.story_states === 'object'
       ? Object.keys(payload.story_states).length
       : 0,
@@ -1020,6 +1049,23 @@ async function readPublicRelaySynthesisCandidates({
   const relayComposition = index?.composition && typeof index.composition === 'object'
     ? index.composition
     : null;
+  const compositionBackfillRecords = compositionBackfillRecordsFromPayload(index);
+  const backfillStoryIds = backfillStoryIdsFromPayload(index);
+  const backfillUsed = Boolean(index?.backfill_used ?? relayComposition?.backfill_used ?? compositionBackfillRecords.length > 0);
+  const organicComposition = relayComposition
+    ? {
+      selectedCount: finiteNonNegativeIndexInt(relayComposition.organic_selected_count),
+      singletonVisible: finiteNonNegativeIndexInt(relayComposition.organic_singleton_visible),
+      multiSourceVisible: finiteNonNegativeIndexInt(relayComposition.organic_multi_source_visible),
+    }
+    : null;
+  const scanWindowComposition = relayComposition
+    ? {
+      selectedCount: finiteNonNegativeIndexInt(relayComposition.scan_window_selected_count),
+      singletonVisible: finiteNonNegativeIndexInt(relayComposition.scan_window_singleton_visible),
+      multiSourceVisible: finiteNonNegativeIndexInt(relayComposition.scan_window_multi_source_visible),
+    }
+    : null;
   const records = latestIndexRecordsFromPayload(index);
   const topStories = [];
   const sampledStoryIds = [];
@@ -1246,6 +1292,13 @@ async function readPublicRelaySynthesisCandidates({
       story_state_count: Object.keys(storyStates).length,
     },
     relayComposition,
+    compositionBackfill: {
+      used: backfillUsed,
+      storyIds: backfillStoryIds,
+      records: compositionBackfillRecords,
+    },
+    organicComposition,
+    scanWindowComposition,
     mediaClassCounts,
     sourceFilterStatusCounts,
     articleTextSampleStatusCounts,
@@ -1306,20 +1359,35 @@ function assertPublicRelayAnalysisFrameCoverage(publicRelaySynthesisReadback, en
   const requireMixedComposition = String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false';
   const singletonReadableCount = Number(publicRelaySynthesisReadback.singletonReadableCount ?? 0);
   const multiSourceReadableCount = Number(publicRelaySynthesisReadback.multiSourceReadableCount ?? 0);
+  const organicSingletonVisible = finiteNonNegativeIndexInt(
+    publicRelaySynthesisReadback.organicComposition?.singletonVisible
+      ?? publicRelaySynthesisReadback.relayComposition?.organic_singleton_visible,
+  ) ?? singletonReadableCount;
+  const organicMultiSourceVisible = finiteNonNegativeIndexInt(
+    publicRelaySynthesisReadback.organicComposition?.multiSourceVisible
+      ?? publicRelaySynthesisReadback.relayComposition?.organic_multi_source_visible,
+  ) ?? multiSourceReadableCount;
+  const scanWindowMultiSourceVisible = finiteNonNegativeIndexInt(
+    publicRelaySynthesisReadback.scanWindowComposition?.multiSourceVisible
+      ?? publicRelaySynthesisReadback.relayComposition?.scan_window_multi_source_visible,
+  ) ?? multiSourceReadableCount;
+  const backfillUsed = Boolean(
+    publicRelaySynthesisReadback.compositionBackfill?.used
+      ?? publicRelaySynthesisReadback.relayComposition?.backfill_used,
+  );
   if (requireMixedComposition) {
-    if (singletonReadableCount <= 0) {
+    if (organicSingletonVisible <= 0) {
       throw new Error('public-relay-feed-composition-missing-singleton');
     }
-    if (multiSourceReadableCount <= 0) {
+    if (organicMultiSourceVisible <= 0) {
+      if (backfillUsed || scanWindowMultiSourceVisible > 0) {
+        throw new Error('public-relay-feed-composition-backfill-only-multi-source');
+      }
       throw new Error('public-relay-feed-composition-missing-multi-source');
     }
   }
 
-  const freshnessWindowMs = parseNonNegativeInt(
-    env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS,
-    72 * 60 * 60 * 1000,
-    0,
-  );
+  const freshnessWindowMs = mvpFreshnessWindowMsFromEnv(env);
   const relayFreshnessAge = Number(publicRelaySynthesisReadback.relayComposition?.freshness_age_ms ?? Number.NaN);
   const sampledLatestActivity = Math.max(
     0,

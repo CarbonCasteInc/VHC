@@ -9,6 +9,7 @@ const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 const DEFAULT_BASE_URL = 'http://127.0.0.1:2048/';
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 const DEFAULT_PUBLIC_PEER_STORY_SAMPLE_LIMIT = 3;
+const DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function normalizeUrl(value) {
   const trimmed = String(value ?? '').trim();
@@ -397,6 +398,7 @@ function classifyPublicFeedCompositionFailure(message, sourceHealthEvidence) {
     || text.includes('public-relay-readable-text-synthesis-missing')
     || text.includes('public-relay-synthesis-point-ids-missing')
     || text.includes('public-relay-latest-index-story-404')
+    || text.includes('public-relay-feed-composition-backfill-only-multi-source')
   ) {
     return 'fail';
   }
@@ -476,7 +478,11 @@ async function runPublicFeedCompositionFreshnessGate({
       requireMixedComposition: String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false',
       requireCursorPagination: String(env.VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION ?? 'true').trim().toLowerCase() !== 'false',
       requirePublicPeerReadback: publicPeerReadback.required,
-      freshnessWindowMs: Number(env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS ?? 72 * 60 * 60 * 1000),
+      freshnessWindowMs: Number(
+        env.VH_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS
+          ?? env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS
+          ?? DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS,
+      ),
     },
     counts: {
       latestIndexCount: readback.latestIndexCount,
@@ -487,6 +493,9 @@ async function runPublicFeedCompositionFreshnessGate({
       missingAcceptedSynthesisStoryCount: readback.missingAcceptedSynthesisStoryCount,
     },
     composition: readback.relayComposition,
+    organicComposition: readback.organicComposition,
+    scanWindowComposition: readback.scanWindowComposition,
+    compositionBackfill: readback.compositionBackfill,
     sampledStoryIds: readback.sampledStoryIds,
     topStories: readback.topStories,
     storyBodyStatusCounts: readback.storyBodyStatusCounts,

@@ -292,6 +292,8 @@ export function classifyGateFailure(output) {
     text.includes('public-relay-current-accepted-synthesis-missing') ||
     text.includes('public-relay-peer-readback-not-configured') ||
     text.includes('public-relay-peer-readback-failed') ||
+    text.includes('public-relay-feed-composition-backfill-only-multi-source') ||
+    text.includes('public-relay-feed-stale') ||
     text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
     text.includes('source-labels-missing') ||
     text.includes('timestamps-missing')

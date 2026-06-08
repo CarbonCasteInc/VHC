@@ -19,6 +19,8 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('product_visible_synthesis_lifecycle_pending_stale')).toBe('fail');
     expect(classifyGateFailure('public-relay-peer-readback-not-configured')).toBe('fail');
     expect(classifyGateFailure('public-relay-peer-readback-failed:https://gun-b.example/:story_states_missing')).toBe('fail');
+    expect(classifyGateFailure('public-relay-feed-composition-backfill-only-multi-source')).toBe('fail');
+    expect(classifyGateFailure('public-relay-feed-stale:90000000/86400000')).toBe('fail');
     expect(classifyGateFailure('fail:eligible_raw_story_hidden_without_allowed_reason,public_feed_composition_missing_multi_source')).toBe('fail');
     expect(classifyGateFailure('public-feed-initial-open-headlines-timeout public-relay-feed-composition-missing-multi-source')).toBe('fail');
     expect(classifyGateFailure('public-feed-load-more-not-from-mesh public-relay-feed-composition-missing-multi-source')).toBe('fail');

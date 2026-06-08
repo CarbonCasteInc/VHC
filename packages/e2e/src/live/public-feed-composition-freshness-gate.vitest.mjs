@@ -265,6 +265,7 @@ describe('public feed composition freshness gate', () => {
           VH_PUBLIC_FEED_COMPOSITION_ARTIFACT_DIR: artifactDir,
           VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION: 'false',
           VH_PUBLIC_FEED_REQUIRE_PUBLIC_PEER_READBACK: 'false',
+          VH_PUBLIC_FEED_REQUIRE_ACCEPTED_SYNTHESIS: 'false',
         },
       });
 
@@ -424,6 +425,158 @@ describe('public feed composition freshness gate', () => {
       expect(summary.counts).toMatchObject({
         singletonReadableCount: 1,
         multiSourceReadableCount: 0,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails when the latest page is mixed only because relay backfilled an older bundled row', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-composition-gate-'));
+    const sourceHealthPath = path.join(
+      repoRoot,
+      'services',
+      'news-aggregator',
+      '.tmp',
+      'news-source-admission',
+      'latest',
+      'source-health-report.json',
+    );
+    await mkdir(path.dirname(sourceHealthPath), { recursive: true });
+    await writeFile(sourceHealthPath, JSON.stringify({
+      schemaVersion: 'news-source-health-report-v1',
+      generatedAt: '2026-06-08T12:00:00.000Z',
+      readinessStatus: 'ready',
+      releaseEvidence: { status: 'pass' },
+      sourceCount: 28,
+      feedContribution: {
+        totalBundleCount: 3,
+        totalSingletonBundleCount: 2,
+        totalCorroboratedBundleCount: 1,
+      },
+    }));
+    const artifactDir = path.join(repoRoot, 'artifacts');
+    const now = Date.now();
+    const stories = {
+      'story-singleton-a': {
+        story_id: 'story-singleton-a',
+        topic_id: 'topic-singleton-a',
+        headline: 'Fresh singleton A',
+        provenance_hash: 'prov-singleton-a',
+        created_at: now - 2_000,
+        cluster_window_start: now - 3_000,
+        sources: [{ publisher: 'source-a', url: 'https://source.example/a' }],
+      },
+      'story-singleton-b': {
+        story_id: 'story-singleton-b',
+        topic_id: 'topic-singleton-b',
+        headline: 'Fresh singleton B',
+        provenance_hash: 'prov-singleton-b',
+        created_at: now - 4_000,
+        cluster_window_start: now - 5_000,
+        sources: [{ publisher: 'source-b', url: 'https://source.example/b' }],
+      },
+      'story-old-bundle': {
+        story_id: 'story-old-bundle',
+        topic_id: 'topic-old-bundle',
+        headline: 'Older bundled story',
+        provenance_hash: 'prov-old-bundle',
+        created_at: now - 100_000,
+        cluster_window_start: now - 101_000,
+        sources: [
+          { publisher: 'source-a', url: 'https://source.example/old-a' },
+          { publisher: 'source-c', url: 'https://source.example/old-c' },
+        ],
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/vh/news/latest-index') {
+        return jsonResponse({
+          records: Object.fromEntries(Object.entries(stories).map(([storyId, story], index) => [
+            storyId,
+            {
+              story_id: storyId,
+              latest_activity_at: now - index * 1_000,
+              product_state_schema_version: 'vh-news-product-feed-index-v1',
+              topic_id: story.topic_id,
+              source_set_revision: story.provenance_hash,
+              source_count: story.sources.length,
+              canonical_source_count: story.sources.length,
+              story_created_at: story.created_at,
+              cluster_window_start: story.cluster_window_start,
+            },
+          ])),
+          composition: {
+            total_visible: 3,
+            singleton_visible: 2,
+            multi_source_visible: 1,
+            organic_selected_count: 2,
+            organic_singleton_visible: 2,
+            organic_multi_source_visible: 0,
+            scan_window_selected_count: 3,
+            scan_window_singleton_visible: 2,
+            scan_window_multi_source_visible: 1,
+            backfill_used: true,
+            backfill_story_ids: ['story-old-bundle'],
+            freshness_age_ms: 1_000,
+          },
+          backfill_used: true,
+          backfill_story_ids: ['story-old-bundle'],
+          composition_backfill_records: [{
+            story_id: 'story-old-bundle',
+            reason: 'freshest_visible_corroborated_story_backfilled_for_mixed_feed_window',
+            source_count: 2,
+            latest_activity_at: now - 2_000,
+          }],
+          story_states: Object.fromEntries(Object.keys(stories).map((storyId) => [
+            storyId,
+            {
+              synthesis_state: 'synthesis_pending',
+              frame_table_state: 'frame_table_pending',
+              lifecycle_status: 'pending',
+            },
+          ])),
+        });
+      }
+      if (parsed.pathname === '/vh/news/story') {
+        const story = stories[parsed.searchParams.get('story_id')];
+        return story
+          ? jsonResponse({ story })
+          : jsonResponse({ ok: false, error: 'story-not-found' }, { ok: false, status: 404 });
+      }
+      if (parsed.pathname === '/vh/topics/synthesis') {
+        return jsonResponse({ ok: false, error: 'topic-synthesis-not-found' }, { ok: false, status: 404 });
+      }
+      return jsonResponse({});
+    }));
+
+    try {
+      await expect(runPublicFeedCompositionFreshnessGate({
+        repoRoot,
+        env: {
+          VH_PUBLIC_FEED_APP_URL: 'https://venn.example/',
+          VH_PUBLIC_FEED_COMPOSITION_ARTIFACT_DIR: artifactDir,
+          VH_PUBLIC_FEED_REQUIRE_PUBLIC_PEER_READBACK: 'false',
+          VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION: 'false',
+        },
+      })).rejects.toThrow('fail:public-relay-feed-composition-backfill-only-multi-source');
+
+      const summary = JSON.parse(await readFile(
+        path.join(artifactDir, 'public-feed-composition-freshness-summary.json'),
+        'utf8',
+      ));
+      expect(summary.status).toBe('fail');
+      expect(summary.organicComposition).toMatchObject({
+        singletonVisible: 2,
+        multiSourceVisible: 0,
+      });
+      expect(summary.scanWindowComposition).toMatchObject({
+        multiSourceVisible: 1,
+      });
+      expect(summary.compositionBackfill).toMatchObject({
+        used: true,
+        storyIds: ['story-old-bundle'],
       });
     } finally {
       vi.unstubAllGlobals();

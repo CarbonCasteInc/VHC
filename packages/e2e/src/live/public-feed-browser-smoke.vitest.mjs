@@ -710,6 +710,83 @@ describe('public feed browser smoke helpers', () => {
     })).toThrow('public-relay-feed-composition-missing-multi-source');
   });
 
+  it('fails coverage when mixed composition exists only because relay backfill appended an older bundle', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 3,
+      },
+      storyBodyStatusCounts: { 200: 3 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      relayComposition: {
+        total_visible: 3,
+        singleton_visible: 2,
+        multi_source_visible: 1,
+        organic_selected_count: 2,
+        organic_singleton_visible: 2,
+        organic_multi_source_visible: 0,
+        scan_window_selected_count: 3,
+        scan_window_singleton_visible: 2,
+        scan_window_multi_source_visible: 1,
+        backfill_used: true,
+        backfill_story_ids: ['story-old-bundle'],
+        freshness_age_ms: 1_000,
+      },
+      compositionBackfill: {
+        used: true,
+        storyIds: ['story-old-bundle'],
+        records: [{ story_id: 'story-old-bundle' }],
+      },
+      organicComposition: {
+        selectedCount: 2,
+        singletonVisible: 2,
+        multiSourceVisible: 0,
+      },
+      scanWindowComposition: {
+        selectedCount: 3,
+        singletonVisible: 2,
+        multiSourceVisible: 1,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-feed-composition-backfill-only-multi-source');
+  });
+
+  it('uses a 24 hour MVP freshness window by default', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 2,
+      },
+      storyBodyStatusCounts: { 200: 2 },
+      missingAcceptedSynthesisStoryCount: 0,
+      missingLatestIndexProductMetadataStoryCount: 0,
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      relayComposition: {
+        total_visible: 2,
+        singleton_visible: 1,
+        multi_source_visible: 1,
+        organic_selected_count: 2,
+        organic_singleton_visible: 1,
+        organic_multi_source_visible: 1,
+        freshness_age_ms: 25 * 60 * 60 * 1000,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow(`public-relay-feed-stale:${25 * 60 * 60 * 1000}/${24 * 60 * 60 * 1000}`);
+  });
+
   it('fails coverage when the public relay latest-index omits composition or story states', () => {
     expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
       relayCapability: {
