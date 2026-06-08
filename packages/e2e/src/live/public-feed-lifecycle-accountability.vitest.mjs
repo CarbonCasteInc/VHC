@@ -251,6 +251,10 @@ describe('public feed lifecycle accountability helpers', () => {
         env: {
           VH_PUBLIC_FEED_APP_URL: 'https://venn.carboncaste.io/',
           VH_PUBLIC_FEED_GUN_PEER_URL: 'wss://gun-a.carboncaste.io/gun',
+          VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS: JSON.stringify([
+            'https://venn.carboncaste.io',
+            'https://gun-a.carboncaste.io',
+          ]),
           VH_PUBLIC_FEED_LIFECYCLE_ARTIFACT_DIR: artifactDir,
           VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS: '1000',
         },
@@ -266,6 +270,17 @@ describe('public feed lifecycle accountability helpers', () => {
         code: 'public_feed_lifecycle_readback_failed',
         error: expect.stringContaining('http-530:https://venn.carboncaste.io/vh/news/latest-index?limit=120'),
       })]);
+      expect(summary.publicPeerReadback).toMatchObject({
+        status: 'fail',
+        required: true,
+        originCount: 2,
+      });
+      expect(summary.publicPeerReadback.origins).toEqual(expect.arrayContaining([
+        'https://venn.carboncaste.io/',
+        'https://gun-a.carboncaste.io/',
+      ]));
+      expect(summary.publicPeerReadback.failedOrigins).toHaveLength(2);
+      expect(summary.publicPeerReadback.failedOrigins[0].failures[0]).toContain('latest_index_fetch_failed');
       expect(await readlink(latestPath).catch(() => null)).toBe(latestBefore);
     } finally {
       vi.unstubAllGlobals();

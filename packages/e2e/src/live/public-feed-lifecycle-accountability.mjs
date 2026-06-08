@@ -7,7 +7,11 @@ import {
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { summarizeSourceHealthReport } from './public-feed-composition-freshness-gate.mjs';
+import {
+  publicRelayPeerOriginsFromEnv,
+  readPublicRelayPeerReadbacks,
+  summarizeSourceHealthReport,
+} from './public-feed-composition-freshness-gate.mjs';
 import { publicFeedBrowserSmokeInternal } from './public-feed-browser-smoke.mjs';
 
 const DEFAULT_REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -657,6 +661,7 @@ async function runPublicFeedLifecycleAccountability({
     sourceHealthEvidence,
     stories: [],
     failures: [],
+    publicPeerReadback: null,
   };
 
   const systemWriterPin = await publicFeedBrowserSmokeInternal.resolveSystemWriterPin({
@@ -944,6 +949,25 @@ async function runPublicFeedLifecycleAccountability({
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (!summary.publicPeerReadback) {
+      summary.publicPeerReadback = await readPublicRelayPeerReadbacks({
+        env,
+        baseUrl,
+        expectedStoryIds: [],
+        indexLimit: sampleLimit,
+        scanLimit: sampleLimit,
+        timeoutMs,
+      }).catch((peerReadbackError) => ({
+        status: 'fail',
+        required: true,
+        origins: publicRelayPeerOriginsFromEnv(env),
+        originCount: publicRelayPeerOriginsFromEnv(env).length,
+        expectedStoryIds: [],
+        failedOrigins: [],
+        readbacks: [],
+        failure: peerReadbackError instanceof Error ? peerReadbackError.message : String(peerReadbackError),
+      }));
+    }
     const failures = summary.failures?.length
       ? summary.failures
       : [{ code: 'public_feed_lifecycle_readback_failed', error: message }];

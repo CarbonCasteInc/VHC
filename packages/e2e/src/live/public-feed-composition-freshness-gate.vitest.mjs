@@ -596,6 +596,10 @@ describe('public feed composition freshness gate', () => {
         repoRoot,
         env: {
           VH_PUBLIC_FEED_APP_URL: 'https://venn.carboncaste.io/',
+          VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS: JSON.stringify([
+            'https://venn.carboncaste.io',
+            'https://gun-a.carboncaste.io',
+          ]),
           VH_PUBLIC_FEED_COMPOSITION_ARTIFACT_DIR: artifactDir,
           VH_PUBLIC_FEED_COMPOSITION_TIMEOUT_MS: '1000',
         },
@@ -614,6 +618,17 @@ describe('public feed composition freshness gate', () => {
       });
       expect(summary.failure).toContain('public-relay-latest-index-http-530');
       expect(summary.failure).toContain('cloudflare-1033');
+      expect(summary.publicPeerReadback).toMatchObject({
+        status: 'fail',
+        required: true,
+        originCount: 2,
+      });
+      expect(summary.publicPeerReadback.origins).toEqual(expect.arrayContaining([
+        'https://venn.carboncaste.io/',
+        'https://gun-a.carboncaste.io/',
+      ]));
+      expect(summary.publicPeerReadback.failedOrigins).toHaveLength(2);
+      expect(summary.publicPeerReadback.failedOrigins[0].failures[0]).toContain('latest_index_fetch_failed');
       await expect(readlink(latestPath)).rejects.toThrow();
     } finally {
       vi.unstubAllGlobals();

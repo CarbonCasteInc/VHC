@@ -542,6 +542,25 @@ async function runPublicFeedCompositionFreshnessGate({
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (!summary.publicPeerReadback) {
+      summary.publicPeerReadback = await readPublicRelayPeerReadbacks({
+        env,
+        baseUrl,
+        expectedStoryIds: [],
+        indexLimit,
+        scanLimit: indexLimit,
+        timeoutMs,
+      }).catch((peerReadbackError) => ({
+        status: 'fail',
+        required: requirePublicPeerReadback,
+        origins: publicRelayPeerOriginsFromEnv(env),
+        originCount: publicRelayPeerOriginsFromEnv(env).length,
+        expectedStoryIds: [],
+        failedOrigins: [],
+        readbacks: [],
+        failure: peerReadbackError instanceof Error ? peerReadbackError.message : String(peerReadbackError),
+      }));
+    }
     summary.generatedAt = new Date().toISOString();
     summary.status = classifyPublicFeedCompositionFailure(message, sourceHealthEvidence);
     summary.failure = message;

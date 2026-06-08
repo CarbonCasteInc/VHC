@@ -26,15 +26,22 @@ Source slate correction, 2026-06-08: The current live source-health runs held re
 
 Current PR #632 blocker audit, 2026-06-08: Branch
 `coord/mvp-public-news-feed-organic-composition-v1` has green GitHub checks on
-the current PR head; commit-sensitive LUMA/mesh evidence must match the final
-release commit before any release claim. The branch is not release-ready. The
-public feed/read-path probes for `https://venn.carboncaste.io`,
+the previously verified PR head `4d5096ae5654d8662c4f0cd0ba3ca42e11d51736`;
+commit-sensitive LUMA/mesh evidence matched that head and must be regenerated
+after later branch commits before any release claim. The branch is not
+release-ready. The
+public composition artifact at
+`.tmp/release-evidence/public-feed-composition-freshness/1780962519359/public-feed-composition-freshness-summary.json`
+and lifecycle artifact at
+`.tmp/release-evidence/public-feed-lifecycle-accountability/1780962519337/public-feed-lifecycle-accountability-summary.json`
+now record peer-by-peer early-failure readback evidence: `https://venn.carboncaste.io`,
 `https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, and
-`https://gun-c.carboncaste.io` all returned Cloudflare `530` with body
-`error code: 1033` for `/vh/news/latest-index?limit=5&scan_limit=20`, so the
-public latest feed, story-body readback, refresh, pagination, lifecycle, and
-stance gates cannot be claimed from current deployed evidence. The explicit
-public WSS proof canary also remains blocked at
+`https://gun-c.carboncaste.io` all returned Cloudflare `530` / Error `1033` for
+the public latest-index surface. Because latest-index is unreadable across the
+configured public HTTP relay origins, the public latest feed, story-body
+readback, refresh, pagination, lifecycle, and stance gates cannot be claimed
+from current deployed evidence. The explicit public WSS proof canary also
+remains blocked at
 `.tmp/mesh-production-readiness/mesh-public-wss-proof-1780935739356-06ca2bc4/mesh-production-readiness-report.json`:
 the signed peer config URL returned non-JSON Cloudflare error content, public
 app boot returned HTTP 530, and all `gun-a`/`gun-b`/`gun-c`
@@ -44,7 +51,7 @@ reduced Mesh release blockers to `public-wss-deployment-proof` only; that does
 not clear public distribution readiness. Fresh propagation is also still
 blocked: after the ESM build patch, the publisher canary starts the daemon,
 ingests 15 RSS items, normalizes 13, and sends 13 items to StoryCluster, then
-fails closed in `language_translation` on OpenAI HTTP 401 `invalid_api_key`
+fails closed in `document_classification` on OpenAI HTTP 401 `invalid_api_key`
 with the key redacted. This is neither `setup_scarcity` nor a pass; it is a
 live credential/deployment blocker and no release note may claim production
 feed freshness, public WSS release readiness, or deployed MVP distribution
@@ -57,20 +64,19 @@ configured public peer set instead of inheriting local defaults:
 `https://gun-b.carboncaste.io`, `https://gun-c.carboncaste.io`, and WSS peers
 `wss://gun-a.carboncaste.io/gun`, `wss://gun-b.carboncaste.io/gun`,
 `wss://gun-c.carboncaste.io/gun`. The composition and lifecycle gates now
-write failure summaries even when the first public latest-index readback fails.
-The 2026-06-08 local umbrella rerun at
+write failure summaries with configured public peer-origin readback tables even
+when the first public latest-index readback fails. The 2026-06-08 local
+umbrella rerun at
 `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` recorded
-`overallStatus: fail` with 14 passing gates and 7 failing gates. Public feed
+`overallStatus: fail` with 15 passing gates and 6 failing gates. Public feed
 analysis/frame reliability and stance/aggregate browser smoke both failed on
 `gun-latest-index-readback-timeout`; composition and lifecycle failed on
 Cloudflare 530 from the deployed latest-index route; fresh propagation failed
 after live RSS ingest/normalize when StoryCluster reached the redacted invalid
 OpenAI key; pagination reused the same public browser-smoke failure. The LUMA
-row in that pre-commit umbrella packet also failed only because the repository
-was intentionally dirty during this patch verification and must be rerun on the
-clean release commit. These are launch blockers, not `setup_scarcity`, because
-source-health evidence still reports 25 admitted sources and corroborated
-bundle supply.
+row passed on the clean verified head. These are launch blockers, not
+`setup_scarcity`, because source-health evidence still reports 25 admitted
+sources and corroborated bundle supply.
 
 The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
 
