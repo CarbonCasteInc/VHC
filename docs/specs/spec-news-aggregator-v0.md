@@ -81,6 +81,7 @@ Readable-article eligibility requirements:
 - article extraction must clear the readable-text quality bar
 - paywalled, truncated, robots-blocked, empty, or chronically unreadable article paths must not count toward production-ready source coverage
 - feed-carried video/watch entries from an admitted source must not count against article-readability sampling; admission should continue scanning feed items until it finds the required number of non-video article candidates or exhausts the feed
+- an admitted source that later samples durable missing or unreadable article URLs below the configured keep threshold must be pruned or moved back to review/backlog. The release gate must not lower `keepMinReadableSampleRate`, ignore the failed sample, or relabel the condition as `setup_scarcity` while other admitted sources remain readable and contributing.
 
 ## 3. Story clustering contract
 

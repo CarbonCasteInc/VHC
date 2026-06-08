@@ -286,6 +286,7 @@ function createClient(
       systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
       systemWriterSign: defaultSystemWriterSign,
       systemWriterVerify: vi.fn(() => true),
+      requireNewsWriteReadback: false,
       ...config,
     },
     hydrationBarrier: barrier,

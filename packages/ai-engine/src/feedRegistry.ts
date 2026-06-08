@@ -167,7 +167,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nevadaindependent',
     enabled: true,
   }),
-  // Regional / specialist policy / legal / climate (8)
+  // Regional / specialist policy / legal / climate (6)
   FeedSourceSchema.parse({
     id: 'latimes-california',
     name: 'Los Angeles Times California',
@@ -196,15 +196,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'democracydocket-alerts',
-    name: 'Democracy Docket Democracy Alerts',
-    displayName: 'Democracy Docket',
-    rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
-    perspectiveTag: 'election-law',
-    iconKey: 'democracydocket',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'bigbendsentinel-border-wall',
     name: 'Big Bend Sentinel Border Wall Updates',
     displayName: 'Big Bend Sentinel',
@@ -220,15 +211,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss',
     perspectiveTag: 'health-policy',
     iconKey: 'kff',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'scotusblog-main',
-    name: 'SCOTUSblog',
-    displayName: 'SCOTUSblog',
-    rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
-    perspectiveTag: 'courts-legal',
-    iconKey: 'scotusblog',
     enabled: true,
   }),
   FeedSourceSchema.parse({

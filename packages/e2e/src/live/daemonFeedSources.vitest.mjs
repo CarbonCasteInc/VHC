@@ -49,10 +49,8 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
       'kffhealthnews-original',
-      'scotusblog-main',
       'canarymedia-main',
       'aljazeera-all',
       'globalnews-politics',
@@ -81,7 +79,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ].join(',');
 
@@ -92,7 +89,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
     expect(sources.map((source) => source.rssUrl)).toEqual([
@@ -100,7 +96,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'https://www.latimes.com/california.rss',
       'https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml',
       'https://www.fedsmith.com/feed/',
-      'https://www.democracydocket.com/article-type/democracy-alert/feed/',
       'https://bigbendsentinel.com/feed/',
     ]);
   });

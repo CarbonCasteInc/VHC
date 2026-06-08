@@ -579,7 +579,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'texastribune-main',
       'kffhealthnews-original',
       'aljazeera-all',
-      'scotusblog-main',
       'dw-top',
       'globalnews-politics',
       'nevadaindependent-main',
@@ -596,7 +595,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'latimes-california',
       'bbc-general',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
   });
@@ -627,7 +625,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'texastribune-main',
       'kffhealthnews-original',
       'aljazeera-all',
-      'scotusblog-main',
       'dw-top',
       'globalnews-politics',
       'nevadaindependent-main',
@@ -644,7 +641,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'latimes-california',
       'bbc-general',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
   });

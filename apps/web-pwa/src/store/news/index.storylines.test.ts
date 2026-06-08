@@ -4,6 +4,7 @@ import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const readLatestStoryIdsMock = vi.fn();
 const readNewsLatestIndexMock = vi.fn();
+const readNewsLatestIndexPageMock = vi.fn();
 const readNewsHotIndexMock = vi.fn();
 const readNewsStoryMock = vi.fn();
 const readNewsStorylineMock = vi.fn();
@@ -18,6 +19,7 @@ vi.mock('@vh/gun-client', () => ({
   readLatestStoryIds: readLatestStoryIdsMock,
   readNewsHotIndexWithRelayRestFallback: readNewsHotIndexMock,
   readNewsLatestIndexWithRelayRestFallback: readNewsLatestIndexMock,
+  readNewsLatestIndexPageWithRelayRestFallback: readNewsLatestIndexPageMock,
   readNewsStory: readNewsStoryMock,
   readNewsStoryViaRelayRest: readNewsStoryMock,
   readNewsStoryWithRelayRestFallback: readNewsStoryMock,
@@ -76,6 +78,7 @@ describe('news store storylines', () => {
     hydrateNewsStoreMock.mockReset();
     readLatestStoryIdsMock.mockReset();
     readNewsLatestIndexMock.mockReset();
+    readNewsLatestIndexPageMock.mockReset();
     readNewsHotIndexMock.mockReset();
     readNewsStoryMock.mockReset();
     readNewsStorylineMock.mockReset();
@@ -84,6 +87,7 @@ describe('news store storylines', () => {
     hydrateNewsStoreMock.mockReturnValue(false);
     readLatestStoryIdsMock.mockResolvedValue([]);
     readNewsLatestIndexMock.mockResolvedValue({});
+    readNewsLatestIndexPageMock.mockResolvedValue({ index: {}, stories: {}, nextCursor: null });
     readNewsHotIndexMock.mockResolvedValue({});
     readNewsStoryMock.mockResolvedValue(null);
     readNewsStorylineMock.mockResolvedValue(null);
@@ -106,7 +110,7 @@ describe('news store storylines', () => {
 
   it('refreshLatest loads referenced storylines for fetched stories', async () => {
     const client = { id: 'client' };
-    readNewsLatestIndexMock.mockResolvedValue({ 'story-1': 20 });
+    readNewsLatestIndexPageMock.mockResolvedValue({ index: { 'story-1': 20 }, stories: {}, nextCursor: null });
     readNewsStoryMock.mockResolvedValue(story());
     readNewsStorylineMock.mockResolvedValue(storyline());
 

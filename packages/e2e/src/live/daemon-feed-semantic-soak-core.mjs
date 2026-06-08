@@ -60,7 +60,6 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'texastribune-main',
   'kffhealthnews-original',
   'aljazeera-all',
-  'scotusblog-main',
   'dw-top',
   'globalnews-politics',
   'nevadaindependent-main',
@@ -77,10 +76,9 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'latimes-california',
   'bbc-general',
   'fedsmith-news',
-  'democracydocket-alerts',
   'bigbendsentinel-border-wall',
 ].join(',');
-const PUBLIC_SMOKE_SOURCE_LIMIT = 28;
+const PUBLIC_SMOKE_SOURCE_LIMIT = 25;
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
 const PUBLIC_SMOKE_REMOTE_MAX_ITEMS_PER_REQUEST = '50';
 const PUBLIC_SMOKE_MAX_PUBLISHED_BUNDLES = '64';
