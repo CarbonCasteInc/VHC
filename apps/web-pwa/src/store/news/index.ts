@@ -54,7 +54,12 @@ function selectLatestStoryIds(latestIndex: Record<string, number>, limit = 50): 
 }
 
 function normalizeRefreshRequest(request: number | NewsRefreshRequest | undefined): Required<NewsRefreshRequest> {
-  const limit = request === undefined ? 50 : typeof request === 'number' ? request : request.limit ?? 50;
+  let limit = 50;
+  if (typeof request === 'number') {
+    limit = request;
+  } else if (request && request.limit !== undefined) {
+    limit = request.limit;
+  }
   const before = typeof request === 'number' ? undefined : request?.before;
   return {
     limit: Number.isFinite(limit) && (limit as number) > 0 ? Math.floor(limit as number) : 0,

@@ -124,6 +124,56 @@ describe('writeWithDurability', () => {
     ]);
   });
 
+  it('uses relay fallback after an ack error when readback does not confirm persistence', async () => {
+    const events: string[] = [];
+    const relayFallback = vi.fn(async () => true);
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({ err: 'JSON error!' }));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'ack-error-relay' },
+      writeClass: 'test-ack-error-relay',
+      timeoutMs: 100,
+      readbackAttempts: 1,
+      readback: async () => null,
+      readbackPredicate: () => false,
+      requireReadback: true,
+      relayFallback,
+      onEvent: (event) => events.push(event.stage),
+    })).resolves.toMatchObject({
+      ack: { acknowledged: false, timedOut: false, error: 'JSON error!' },
+      readback_confirmed: false,
+      relay_fallback: true,
+    });
+    expect(relayFallback).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['ack-error', 'relay-fallback']);
+  });
+
+  it('uses relay fallback after an acknowledged write when required readback fails', async () => {
+    const events: string[] = [];
+    const relayFallback = vi.fn(async () => true);
+    const chain = makeChain<Record<string, unknown>>((_value, callback) => callback?.({}));
+
+    await expect(writeWithDurability({
+      chain,
+      value: { id: 'acked-relay' },
+      writeClass: 'test-acked-relay',
+      timeoutMs: 100,
+      readbackAttempts: 1,
+      readback: async () => null,
+      readbackPredicate: () => false,
+      requireReadback: true,
+      relayFallback,
+      onEvent: (event) => events.push(event.stage),
+    })).resolves.toMatchObject({
+      ack: { acknowledged: true, timedOut: false },
+      readback_confirmed: false,
+      relay_fallback: true,
+    });
+    expect(relayFallback).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(['acked', 'relay-fallback']);
+  });
+
   it('recovers a timed-out write when readback confirms persistence', async () => {
     vi.useFakeTimers();
     const events: string[] = [];

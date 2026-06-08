@@ -226,6 +226,55 @@ describe('newsOrchestrator storyline batches', () => {
     expect(result).toEqual(snapshots[2]);
   });
 
+  it('keeps same-event remote chunks together when a later item fits the component max timestamp', async () => {
+    const base = Date.UTC(2026, 1, 1, 0, 0, 0);
+    normalizeAndDedupMock.mockReturnValue([
+      normalizedItem('first', {
+        title: 'Council approves transit budget',
+        publishedAt: base,
+        entity_keys: ['council', 'transit'],
+      }),
+      normalizedItem('second', {
+        title: 'Council approves transit budget after amendments',
+        publishedAt: base + 6 * 60 * 60 * 1_000,
+        entity_keys: ['council', 'transit'],
+      }),
+      normalizedItem('third', {
+        title: 'Council approves transit budget final vote',
+        publishedAt: base + 12 * 60 * 60 * 1_000,
+        entity_keys: ['council', 'transit'],
+      }),
+    ]);
+
+    const batchSizes: number[] = [];
+    const clusterEngine = {
+      engineId: 'storycluster-max-window-test',
+      async clusterBatch() {
+        return [];
+      },
+      async clusterStoryBatch(input: { items: unknown[] }) {
+        batchSizes.push(input.items.length);
+        return {
+          bundles: [bundle(`story-${batchSizes.length}`)],
+          storylines: [],
+        };
+      },
+    };
+
+    await orchestrateNewsPipeline(
+      {
+        feedSources: [FEED_SOURCE],
+        topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+      },
+      {
+        clusterEngine,
+        remoteClusterMaxItemsPerRequest: 2,
+      },
+    );
+
+    expect(batchSizes).toEqual([2, 1]);
+  });
+
   it('rejects invalid remote chunk sizes before clustering', () => {
     expect(() => newsOrchestratorInternal.normalizeRemoteClusterMaxItemsPerRequest(0)).toThrow(
       'remoteClusterMaxItemsPerRequest must be a positive finite number',

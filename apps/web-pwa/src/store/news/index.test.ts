@@ -541,6 +541,28 @@ describe('news store', () => {
         }),
         { limit: 1 },
       );
+      const relayClient = readNewsLatestIndexMock.mock.calls[0]?.[0] as {
+        mesh: {
+          once: (callback?: (data: unknown) => void) => void;
+          on: (callback?: (data: unknown) => void) => void;
+          put: (value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) => void;
+          map: () => { on: (callback?: (data: unknown) => void) => void };
+          get: () => unknown;
+        };
+      };
+      const once = vi.fn();
+      const on = vi.fn();
+      const mapOn = vi.fn();
+      const putAck = vi.fn();
+      relayClient.mesh.once(once);
+      relayClient.mesh.on(on);
+      relayClient.mesh.map().on(mapOn);
+      relayClient.mesh.put({ story_id: 'relay-story' }, putAck);
+      expect(relayClient.mesh.get()).toBe(relayClient.mesh);
+      expect(once).toHaveBeenCalledWith(undefined);
+      expect(on).toHaveBeenCalledWith(undefined);
+      expect(mapOn).toHaveBeenCalledWith(undefined);
+      expect(putAck).toHaveBeenCalledWith({ err: 'relay-only public news client is read-only' });
       expect(readNewsStoryMock).not.toHaveBeenCalled();
       expect(store.getState().stories.map((item) => item.story_id)).toEqual(['relay-story']);
       expect(store.getState().latestIndex).toEqual({ 'relay-story': 300 });
@@ -923,6 +945,52 @@ describe('news store', () => {
     expect(store.getState().latestIndex).toEqual({ newer: 300, current: 200, older: 100 });
     expect(store.getState().hotIndex).toEqual({ newer: 0.7, current: 0.4, older: 0.2 });
     expect(store.getState().stories.map((item) => item.story_id)).toEqual(['newer', 'current', 'older']);
+  });
+
+  it('refreshLatest defaults object requests without an explicit limit', async () => {
+    const client = { id: 'client-default-object-limit' };
+    readNewsLatestIndexMock.mockResolvedValueOnce({
+      index: { beforeOnly: 100 },
+      nextCursor: 100,
+      recordCount: 1,
+    });
+    readNewsHotIndexMock.mockResolvedValue({ beforeOnly: 0.5 });
+    readNewsStoryMock.mockResolvedValue(story({
+      story_id: 'beforeOnly',
+      headline: 'Before-only story',
+      cluster_window_end: 100,
+    }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest({ before: 200 });
+
+    expect(readNewsLatestIndexMock).toHaveBeenCalledWith(client, { limit: 50, before: 200 });
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['beforeOnly']);
+  });
+
+  it('refreshLatest defaults omitted requests to the first latest page', async () => {
+    const client = { id: 'client-default-first-page' };
+    readNewsLatestIndexMock.mockResolvedValueOnce({
+      index: { latestDefault: 300 },
+      nextCursor: 300,
+      recordCount: 1,
+    });
+    readNewsHotIndexMock.mockResolvedValue({ latestDefault: 0.8 });
+    readNewsStoryMock.mockResolvedValue(story({
+      story_id: 'latestDefault',
+      headline: 'Latest default story',
+      cluster_window_end: 300,
+    }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest();
+
+    expect(readNewsLatestIndexMock).toHaveBeenCalledWith(client, { limit: 50 });
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['latestDefault']);
   });
 
   it('refreshLatest bounds concurrent story reads for large live indexes', async () => {

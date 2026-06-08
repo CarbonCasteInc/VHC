@@ -464,6 +464,18 @@ describe('peerConfig', () => {
     await expect(resolveGunPeerTopology('app.example')).rejects.toThrow('failed to fetch peer config: 503');
   });
 
+  it('rejects failed strict default public beta peer-config fetches', async () => {
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      text: async () => '',
+    })));
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+
+    await expect(resolveGunPeerTopology('venn.carboncaste.io')).rejects.toThrow('failed to fetch peer config: 503');
+  });
+
   it('maps Gun peer URLs to relay health endpoints', async () => {
     const { peerHealthUrl } = await import('./peerConfig');
 

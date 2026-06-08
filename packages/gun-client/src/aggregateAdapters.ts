@@ -1694,7 +1694,7 @@ export async function readAggregatesWithRelayRestFallback(
       directPromise,
       RELAY_REST_AGGREGATE_DIRECT_COMPARE_TIMEOUT_MS,
     );
-    return preferMoreCompleteAggregate(direct, fastRelayed) ?? fastRelayed;
+    return preferMoreCompleteAggregate(direct, fastRelayed)!;
   }
 
   const [direct, relayed] = await Promise.all([

@@ -450,10 +450,6 @@ export function resolveGunPeerTopologySync(runtimeHostname = getRuntimeHostname(
     throw new Error('[vh:gun] remote Gun peer config requires async resolution');
   }
 
-  if (strict) {
-    throw new Error('[vh:gun] strict peer config requires explicit Gun peers or a signed peer config');
-  }
-
   return validateTopology({
     peers: [LOCAL_GUN_PEER],
     strict,

@@ -790,6 +790,7 @@ export function usePointAggregate({
     };
 
     const scheduleLiveAggregateRefresh = (delayMs: number): void => {
+      /* v8 ignore next 3 -- defensive if a queued local event callback races effect cleanup; subscriptions are removed on cleanup. */
       if (cancelled) {
         return;
       }

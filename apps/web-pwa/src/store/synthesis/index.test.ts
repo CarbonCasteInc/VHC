@@ -364,6 +364,28 @@ describe('synthesis store', () => {
     expect(readClient).not.toBe(meshClient);
     expect(readClient.config?.peers).toEqual(['https://venn.carboncaste.io/gun']);
     expect(correctionClient.config?.peers).toEqual(['https://venn.carboncaste.io/gun']);
+    const relayMesh = (readClient as {
+      mesh?: {
+        once: (callback?: (data: unknown) => void) => void;
+        on: (callback?: (data: unknown) => void) => void;
+        put: (value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) => void;
+        map: () => { on: (callback?: (data: unknown) => void) => void };
+        get: () => unknown;
+      };
+    }).mesh;
+    const once = vi.fn();
+    const on = vi.fn();
+    const mapOn = vi.fn();
+    const putAck = vi.fn();
+    relayMesh?.once(once);
+    relayMesh?.on(on);
+    relayMesh?.map().on(mapOn);
+    relayMesh?.put({ synthesis_id: 'synth-1' }, putAck);
+    expect(relayMesh?.get()).toBe(relayMesh);
+    expect(once).toHaveBeenCalledWith(undefined);
+    expect(on).toHaveBeenCalledWith(undefined);
+    expect(mapOn).toHaveBeenCalledWith(undefined);
+    expect(putAck).toHaveBeenCalledWith({ err: 'relay-only public synthesis client is read-only' });
     expect(store.getState().getTopicState('topic-1').effectiveStatus).toBe('accepted_available');
   });
 
