@@ -16,6 +16,7 @@ import {
   requiredSampleFloorIssuesForSources,
   sampleFloorValidationFailuresForReport,
 } from './sample-floor-contract.mjs';
+import { parseLastJsonObjectFromOutput } from './noisy-json-output.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -468,16 +469,6 @@ function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
   };
 }
 
-function parseLastJsonObject(text) {
-  if (typeof text !== 'string' || text.trim().length === 0) return null;
-  const start = text.lastIndexOf('\n{');
-  const first = text.indexOf('{');
-  if (start < 0 && first < 0) return null;
-  const jsonText = start >= 0 ? text.slice(start + 1) : text.slice(first);
-  if (!jsonText || jsonText.trim().length === 0) return null;
-  return JSON.parse(jsonText);
-}
-
 function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
   const sourceDirArg = path.relative(repoRoot, artifactDir);
   const command = ['pnpm', 'check:mesh-evidence-scrub', '--', '--source-dir', sourceDirArg];
@@ -501,7 +492,7 @@ function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
   let output = null;
   let parseError = null;
   try {
-    output = parseLastJsonObject(result.stdout || '');
+    output = parseLastJsonObjectFromOutput(result.stdout || '', result.stderr || '');
   } catch (error) {
     parseError = error instanceof Error ? error.message : String(error);
   }
