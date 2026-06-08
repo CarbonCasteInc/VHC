@@ -11,6 +11,17 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../..');
 const latestDir = path.join(repoRoot, '.tmp/mvp-release-gates/latest');
 const latestReportPath = path.join(latestDir, 'mvp-release-gates-report.json');
+export const PUBLIC_FEED_RELEASE_ENV = [
+  'VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io',
+  'VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun',
+  'VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS=["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]',
+  'VH_PUBLIC_FEED_PUBLIC_WSS_PEERS=["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]',
+];
+
+function withPublicFeedReleaseEnv(command, extraEnv = []) {
+  const [bin, args] = command;
+  return ['env', [...PUBLIC_FEED_RELEASE_ENV, ...extraEnv, bin, ...args]];
+}
 
 export const GATES = [
   {
@@ -49,7 +60,7 @@ export const GATES = [
   {
     id: 'public_feed_analysis_frame_reliability',
     label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
-    command: ['pnpm', ['test:public-feed:browser-smoke']],
+    command: withPublicFeedReleaseEnv(['pnpm', ['test:public-feed:browser-smoke']]),
     artifactRefs: [
       'packages/e2e/src/live/public-feed-browser-smoke.mjs',
       '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
@@ -59,7 +70,7 @@ export const GATES = [
   {
     id: 'public_feed_composition_freshness',
     label: 'Public feed composition and freshness',
-    command: ['pnpm', ['check:public-feed:composition-freshness']],
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:composition-freshness']]),
     artifactRefs: [
       'packages/e2e/src/live/public-feed-composition-freshness-gate.mjs',
       '.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json',
@@ -68,7 +79,7 @@ export const GATES = [
   {
     id: 'public_feed_lifecycle_accountability',
     label: 'Raw story, product feed, and synthesis lifecycle accountability',
-    command: ['pnpm', ['check:public-feed:lifecycle-accountability']],
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:lifecycle-accountability']]),
     artifactRefs: [
       'packages/e2e/src/live/public-feed-lifecycle-accountability.mjs',
       '.tmp/release-evidence/public-feed-lifecycle-accountability/latest/public-feed-lifecycle-accountability-summary.json',
@@ -77,14 +88,10 @@ export const GATES = [
   {
     id: 'public_feed_fresh_propagation',
     label: 'Fresh RSS item propagation through daemon, StoryCluster, product feed, relay, and PWA refresh',
-    command: [
-      'env',
-      [
-        'VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE=true',
-        'pnpm',
-        'check:public-feed:fresh-propagation',
-      ],
-    ],
+    command: withPublicFeedReleaseEnv(
+      ['pnpm', ['check:public-feed:fresh-propagation']],
+      ['VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE=true'],
+    ),
     artifactRefs: [
       'packages/e2e/src/live/public-feed-fresh-propagation-gate.mjs',
       '.tmp/release-evidence/public-feed-fresh-propagation/latest/public-feed-fresh-propagation-summary.json',
@@ -118,7 +125,7 @@ export const GATES = [
   {
     id: 'public_feed_pagination_refresh',
     label: 'Public feed refresh and load-more pagination from mesh',
-    command: ['pnpm', ['test:public-feed:browser-smoke']],
+    command: withPublicFeedReleaseEnv(['pnpm', ['test:public-feed:browser-smoke']]),
     reusePreviousCommandResult: true,
     artifactRefs: [
       'packages/e2e/src/live/public-feed-browser-smoke.mjs',
@@ -129,7 +136,7 @@ export const GATES = [
   {
     id: 'stance_aggregate_decay_public_mesh',
     label: 'Stance persistence, public aggregate snapshots, and capped decay math',
-    command: ['pnpm', ['check:public-feed:stance-aggregate-decay']],
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:stance-aggregate-decay']]),
     artifactRefs: [
       'apps/web-pwa/src/components/feed/voteSemantics.ts',
       'apps/web-pwa/src/hooks/useSentimentState.ts',

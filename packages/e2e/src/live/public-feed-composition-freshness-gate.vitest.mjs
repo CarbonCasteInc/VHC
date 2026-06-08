@@ -582,4 +582,39 @@ describe('public feed composition freshness gate', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('writes a failure summary when the public latest-index fetch fails before readback sampling', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-public-composition-fetch-fail-'));
+    const artifactDir = path.join(repoRoot, 'artifacts');
+    await mkdir(path.dirname(artifactDir), { recursive: true });
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ error: 'cloudflare-1033' }, { ok: false, status: 530 })));
+
+    try {
+      await expect(runPublicFeedCompositionFreshnessGate({
+        repoRoot,
+        env: {
+          VH_PUBLIC_FEED_APP_URL: 'https://venn.carboncaste.io/',
+          VH_PUBLIC_FEED_COMPOSITION_ARTIFACT_DIR: artifactDir,
+          VH_PUBLIC_FEED_COMPOSITION_TIMEOUT_MS: '1000',
+        },
+      })).rejects.toThrow('fail:public-relay-latest-index-http-530');
+
+      const summary = JSON.parse(await readFile(
+        path.join(artifactDir, 'public-feed-composition-freshness-summary.json'),
+        'utf8',
+      ));
+      expect(summary).toMatchObject({
+        status: 'fail',
+        config: {
+          baseUrl: 'https://venn.carboncaste.io/',
+        },
+        counts: {},
+      });
+      expect(summary.failure).toContain('public-relay-latest-index-http-530');
+      expect(summary.failure).toContain('cloudflare-1033');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

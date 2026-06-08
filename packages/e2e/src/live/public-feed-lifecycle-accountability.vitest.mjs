@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
 import {
   classifyLifecycleLedgerStatus,
   classifySynthesisLifecycleFreshness,
@@ -6,9 +10,22 @@ import {
   classifyProductIndexMetadata,
   isAcceptedFrameReady,
   isAcceptedSynthesisCurrentForStory,
+  resolveGunPeers,
+  runPublicFeedLifecycleAccountability,
   selectLifecycleSampleIds,
   sourceCount,
 } from './public-feed-lifecycle-accountability.mjs';
+
+function jsonResponse(payload, init = {}) {
+  return {
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  };
+}
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('public feed lifecycle accountability helpers', () => {
   it('uses canonical primary sources when counting story composition', () => {
@@ -198,5 +215,57 @@ describe('public feed lifecycle accountability helpers', () => {
       story_created_at: 100,
       cluster_window_start: 90,
     }, story)).toBe('partial_or_mismatch');
+  });
+
+  it('uses explicit public WSS peers instead of deriving a WSS peer for every HTTP relay origin', () => {
+    expect(resolveGunPeers({
+      VH_PUBLIC_FEED_GUN_PEER_URL: 'wss://gun-a.carboncaste.io/gun',
+      VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS: JSON.stringify([
+        'https://venn.carboncaste.io',
+        'https://gun-a.carboncaste.io',
+        'https://gun-b.carboncaste.io',
+        'https://gun-c.carboncaste.io',
+      ]),
+      VH_PUBLIC_FEED_PUBLIC_WSS_PEERS: JSON.stringify([
+        'wss://gun-a.carboncaste.io/gun',
+        'wss://gun-b.carboncaste.io/gun',
+        'wss://gun-c.carboncaste.io/gun',
+      ]),
+    })).toEqual([
+      'wss://gun-a.carboncaste.io/gun',
+      'wss://gun-b.carboncaste.io/gun',
+      'wss://gun-c.carboncaste.io/gun',
+    ]);
+  });
+
+  it('writes a failure summary when public relay latest readback fails before sampling', async () => {
+    const artifactDir = await mkdtemp(path.join(os.tmpdir(), 'vh-public-lifecycle-fetch-fail-'));
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ error: 'cloudflare-1033' }, { ok: false, status: 530 })));
+
+    try {
+      await expect(runPublicFeedLifecycleAccountability({
+        repoRoot,
+        env: {
+          VH_PUBLIC_FEED_APP_URL: 'https://venn.carboncaste.io/',
+          VH_PUBLIC_FEED_GUN_PEER_URL: 'wss://gun-a.carboncaste.io/gun',
+          VH_PUBLIC_FEED_LIFECYCLE_ARTIFACT_DIR: artifactDir,
+          VH_PUBLIC_FEED_LIFECYCLE_TIMEOUT_MS: '1000',
+        },
+      })).rejects.toThrow('fail:public_feed_lifecycle_readback_failed');
+
+      const summary = JSON.parse(await readFile(
+        path.join(artifactDir, 'public-feed-lifecycle-accountability-summary.json'),
+        'utf8',
+      ));
+      expect(summary.status).toBe('fail');
+      expect(summary.config.baseUrl).toBe('https://venn.carboncaste.io/');
+      expect(summary.failures).toEqual([expect.objectContaining({
+        code: 'public_feed_lifecycle_readback_failed',
+        error: expect.stringContaining('http-530:https://venn.carboncaste.io/vh/news/latest-index?limit=120'),
+      })]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

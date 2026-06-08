@@ -440,30 +440,10 @@ async function runPublicFeedCompositionFreshnessGate({
   const summaryPath = path.join(artifactDir, 'public-feed-composition-freshness-summary.json');
   await mkdir(artifactDir, { recursive: true });
   const sourceHealthEvidence = await readSourceHealthEvidence(env, repoRoot);
-
-  const readback = await publicFeedBrowserSmokeInternal.readPublicRelaySynthesisCandidates({
-    baseUrl,
-    indexLimit,
-    scanLimit: indexLimit,
-    timeoutMs,
-  });
-  const paginationReadback = await publicFeedBrowserSmokeInternal.readPublicRelayPaginationReadback({
-    baseUrl,
-    pageLimit: paginationPageLimit,
-    timeoutMs,
-  }).catch((error) => ({
-    status: 'fail',
-    failure: error instanceof Error ? error.message : String(error),
-    pageLimit: paginationPageLimit,
-  }));
-  const publicPeerReadback = await readPublicRelayPeerReadbacks({
-    env,
-    baseUrl,
-    expectedStoryIds: readback.sampledStoryIds,
-    indexLimit,
-    scanLimit: indexLimit,
-    timeoutMs,
-  });
+  const requirePublicPeerReadback = boolEnv(
+    env.VH_PUBLIC_FEED_REQUIRE_PUBLIC_PEER_READBACK,
+    !isLocalUrl(baseUrl),
+  );
   const summary = {
     schemaVersion: 'public-feed-composition-freshness-v1',
     generatedAt: new Date().toISOString(),
@@ -477,44 +457,78 @@ async function runPublicFeedCompositionFreshnessGate({
       paginationPageLimit,
       requireMixedComposition: String(env.VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION ?? 'true').trim().toLowerCase() !== 'false',
       requireCursorPagination: String(env.VH_PUBLIC_FEED_REQUIRE_CURSOR_PAGINATION ?? 'true').trim().toLowerCase() !== 'false',
-      requirePublicPeerReadback: publicPeerReadback.required,
+      requirePublicPeerReadback,
       freshnessWindowMs: Number(
         env.VH_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS
           ?? env.VH_PUBLIC_FEED_FRESHNESS_WINDOW_MS
           ?? DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS,
       ),
     },
-    counts: {
-      latestIndexCount: readback.latestIndexCount,
-      storyReadbackCount: readback.storyReadbackCount,
-      singletonReadableCount: readback.singletonReadableCount,
-      multiSourceReadableCount: readback.multiSourceReadableCount,
-      acceptedSynthesisStoryCount: readback.acceptedSynthesisStoryCount,
-      missingAcceptedSynthesisStoryCount: readback.missingAcceptedSynthesisStoryCount,
-    },
-    composition: readback.relayComposition,
-    organicComposition: readback.organicComposition,
-    scanWindowComposition: readback.scanWindowComposition,
-    compositionBackfill: readback.compositionBackfill,
-    sampledStoryIds: readback.sampledStoryIds,
-    topStories: readback.topStories,
-    storyBodyStatusCounts: readback.storyBodyStatusCounts,
-    synthesisStatusCounts: readback.synthesisStatusCounts,
-    publicStateCounts: readback.publicStateCounts,
-    articleTextSampleStatusCounts: readback.articleTextSampleStatusCounts,
-    latestIndexProductMetadataStatusCounts: readback.latestIndexProductMetadataStatusCounts,
-    missingLatestIndexProductMetadataStoryCount: readback.missingLatestIndexProductMetadataStoryCount,
-    missingLatestIndexProductMetadataStories: readback.missingLatestIndexProductMetadataStories,
-    relayCapability: readback.relayCapability,
-    pagination: paginationReadback,
-    publicPeerReadback,
-    terminalUnavailableReasonCounts: readback.terminalUnavailableReasonCounts,
-    missingAcceptedSynthesisStories: readback.missingAcceptedSynthesisStories,
-    pointIdPresence: readback.pointIdPresence,
+    counts: {},
+    composition: null,
+    organicComposition: null,
+    scanWindowComposition: null,
+    compositionBackfill: null,
+    sampledStoryIds: [],
+    topStories: [],
+    pagination: null,
+    publicPeerReadback: null,
     sourceHealthEvidence,
   };
 
   try {
+    const readback = await publicFeedBrowserSmokeInternal.readPublicRelaySynthesisCandidates({
+      baseUrl,
+      indexLimit,
+      scanLimit: indexLimit,
+      timeoutMs,
+    });
+    const paginationReadback = await publicFeedBrowserSmokeInternal.readPublicRelayPaginationReadback({
+      baseUrl,
+      pageLimit: paginationPageLimit,
+      timeoutMs,
+    }).catch((error) => ({
+      status: 'fail',
+      failure: error instanceof Error ? error.message : String(error),
+      pageLimit: paginationPageLimit,
+    }));
+    const publicPeerReadback = await readPublicRelayPeerReadbacks({
+      env,
+      baseUrl,
+      expectedStoryIds: readback.sampledStoryIds,
+      indexLimit,
+      scanLimit: indexLimit,
+      timeoutMs,
+    });
+    Object.assign(summary, {
+      counts: {
+        latestIndexCount: readback.latestIndexCount,
+        storyReadbackCount: readback.storyReadbackCount,
+        singletonReadableCount: readback.singletonReadableCount,
+        multiSourceReadableCount: readback.multiSourceReadableCount,
+        acceptedSynthesisStoryCount: readback.acceptedSynthesisStoryCount,
+        missingAcceptedSynthesisStoryCount: readback.missingAcceptedSynthesisStoryCount,
+      },
+      composition: readback.relayComposition,
+      organicComposition: readback.organicComposition,
+      scanWindowComposition: readback.scanWindowComposition,
+      compositionBackfill: readback.compositionBackfill,
+      sampledStoryIds: readback.sampledStoryIds,
+      topStories: readback.topStories,
+      storyBodyStatusCounts: readback.storyBodyStatusCounts,
+      synthesisStatusCounts: readback.synthesisStatusCounts,
+      publicStateCounts: readback.publicStateCounts,
+      articleTextSampleStatusCounts: readback.articleTextSampleStatusCounts,
+      latestIndexProductMetadataStatusCounts: readback.latestIndexProductMetadataStatusCounts,
+      missingLatestIndexProductMetadataStoryCount: readback.missingLatestIndexProductMetadataStoryCount,
+      missingLatestIndexProductMetadataStories: readback.missingLatestIndexProductMetadataStories,
+      relayCapability: readback.relayCapability,
+      pagination: paginationReadback,
+      publicPeerReadback,
+      terminalUnavailableReasonCounts: readback.terminalUnavailableReasonCounts,
+      missingAcceptedSynthesisStories: readback.missingAcceptedSynthesisStories,
+      pointIdPresence: readback.pointIdPresence,
+    });
     publicFeedBrowserSmokeInternal.assertPublicRelayAnalysisFrameCoverage(readback, env);
     publicFeedBrowserSmokeInternal.assertPublicRelayPaginationReadback(paginationReadback, env, sourceHealthEvidence);
     assertPublicRelayPeerReadbacks(publicPeerReadback);
@@ -524,6 +538,7 @@ async function runPublicFeedCompositionFreshnessGate({
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    summary.generatedAt = new Date().toISOString();
     summary.status = classifyPublicFeedCompositionFailure(message, sourceHealthEvidence);
     summary.failure = message;
     await writeJson(summaryPath, summary);

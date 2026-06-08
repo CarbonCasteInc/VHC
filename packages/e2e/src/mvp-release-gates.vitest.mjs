@@ -4,6 +4,7 @@ import {
   classifyGateFailure,
   findReusableGateResult,
   GATES,
+  PUBLIC_FEED_RELEASE_ENV,
   REPORT_SCHEMA_VERSION,
   VALID_STATUSES,
 } from './mvp-release-gates.mjs';
@@ -53,21 +54,43 @@ describe('mvp-release-gates runner helpers', () => {
 
   it('uses the live public browser smoke for stance aggregate decay public mesh evidence', () => {
     expect(GATES.find((gate) => gate.id === 'stance_aggregate_decay_public_mesh')?.command)
-      .toEqual(['pnpm', ['check:public-feed:stance-aggregate-decay']]);
+      .toEqual(['env', [...PUBLIC_FEED_RELEASE_ENV, 'pnpm', 'check:public-feed:stance-aggregate-decay']]);
+  });
+
+  it('pins public feed release gates to the deployed VHC public app and peer set', () => {
+    expect(PUBLIC_FEED_RELEASE_ENV).toEqual(expect.arrayContaining([
+      'VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io',
+      'VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun',
+      'VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS=["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]',
+      'VH_PUBLIC_FEED_PUBLIC_WSS_PEERS=["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]',
+    ]));
+
+    for (const gateId of [
+      'public_feed_analysis_frame_reliability',
+      'public_feed_composition_freshness',
+      'public_feed_lifecycle_accountability',
+      'public_feed_fresh_propagation',
+      'public_feed_pagination_refresh',
+      'stance_aggregate_decay_public_mesh',
+    ]) {
+      const command = GATES.find((gate) => gate.id === gateId)?.command;
+      expect(command?.[0]).toBe('env');
+      expect(command?.[1]).toEqual(expect.arrayContaining(PUBLIC_FEED_RELEASE_ENV));
+    }
   });
 
   it('reuses the prior browser-smoke packet for the duplicate pagination gate without weakening failure semantics', () => {
     const firstSmokeGate = GATES.find((gate) => gate.id === 'public_feed_analysis_frame_reliability');
     const paginationGate = GATES.find((gate) => gate.id === 'public_feed_pagination_refresh');
-    expect(firstSmokeGate?.command).toEqual(['pnpm', ['test:public-feed:browser-smoke']]);
-    expect(paginationGate?.command).toEqual(['pnpm', ['test:public-feed:browser-smoke']]);
+    expect(firstSmokeGate?.command).toEqual(['env', [...PUBLIC_FEED_RELEASE_ENV, 'pnpm', 'test:public-feed:browser-smoke']]);
+    expect(paginationGate?.command).toEqual(['env', [...PUBLIC_FEED_RELEASE_ENV, 'pnpm', 'test:public-feed:browser-smoke']]);
     expect(paginationGate?.reusePreviousCommandResult).toBe(true);
 
     const previousResult = {
       id: 'public_feed_analysis_frame_reliability',
       label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
       status: 'fail',
-      command: 'pnpm test:public-feed:browser-smoke',
+      command: "env VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun 'VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS=[\"https://venn.carboncaste.io\",\"https://gun-a.carboncaste.io\",\"https://gun-b.carboncaste.io\",\"https://gun-c.carboncaste.io\"]' 'VH_PUBLIC_FEED_PUBLIC_WSS_PEERS=[\"wss://gun-a.carboncaste.io/gun\",\"wss://gun-b.carboncaste.io/gun\",\"wss://gun-c.carboncaste.io/gun\"]' pnpm test:public-feed:browser-smoke",
       startedAt: '2026-06-08T00:00:00.000Z',
       endedAt: '2026-06-08T00:01:00.000Z',
       durationMs: 60000,
@@ -97,7 +120,7 @@ describe('mvp-release-gates runner helpers', () => {
       id: 'public_feed_analysis_frame_reliability',
       label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
       status: 'pass',
-      command: 'pnpm test:public-feed:browser-smoke',
+      command: "env VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun 'VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS=[\"https://venn.carboncaste.io\",\"https://gun-a.carboncaste.io\",\"https://gun-b.carboncaste.io\",\"https://gun-c.carboncaste.io\"]' 'VH_PUBLIC_FEED_PUBLIC_WSS_PEERS=[\"wss://gun-a.carboncaste.io/gun\",\"wss://gun-b.carboncaste.io/gun\",\"wss://gun-c.carboncaste.io/gun\"]' pnpm test:public-feed:browser-smoke",
       startedAt: '2026-06-08T00:00:00.000Z',
       endedAt: '2026-06-08T00:01:00.000Z',
       durationMs: 60000,

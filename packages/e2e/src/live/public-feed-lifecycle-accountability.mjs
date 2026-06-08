@@ -31,17 +31,21 @@ function parsePositiveInt(value, fallback) {
 }
 
 function parsePeer(value) {
+  return parsePeerList(value)[0] ?? '';
+}
+
+function parsePeerList(value) {
   const raw = String(value ?? '').trim();
-  if (!raw) return '';
+  if (!raw) return [];
   if (raw.startsWith('[')) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsePeer(parsed[0]);
+      if (Array.isArray(parsed)) return parsed.flatMap(parsePeerList);
     } catch {
-      return '';
+      return [];
     }
   }
-  return normalizeGunPeer(raw.split(/[,\s]+/).find(Boolean));
+  return raw.split(/[,\s]+/).map(normalizeGunPeer).filter(Boolean);
 }
 
 function resolveGunPeer(env) {
@@ -79,6 +83,13 @@ function gunPeerFromRelayOrigin(origin) {
 }
 
 function resolveGunPeers(env) {
+  const explicitPublicPeers = [
+    ...parsePeerList(env.VH_PUBLIC_FEED_PUBLIC_WSS_PEERS),
+    ...parsePeerList(env.VH_MESH_PUBLIC_WSS_PEERS),
+  ].filter(Boolean);
+  if (explicitPublicPeers.length > 0) {
+    return [...new Set([resolveGunPeer(env), ...explicitPublicPeers].filter(Boolean))];
+  }
   const peers = [
     resolveGunPeer(env),
     ...parseOriginList(env.VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS).map(gunPeerFromRelayOrigin),
@@ -927,6 +938,20 @@ async function runPublicFeedLifecycleAccountability({
       throw new Error(`${summary.status}:${codes}`);
     }
     return summary;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failures = summary.failures?.length
+      ? summary.failures
+      : [{ code: 'public_feed_lifecycle_readback_failed', error: message }];
+    summary = {
+      ...summary,
+      generatedAt: new Date().toISOString(),
+      status: classifyLifecycleAccountabilityStatus(failures),
+      failures,
+    };
+    await writeJson(summaryPath, summary);
+    await updateLatestSymlink(artifactDir, repoRoot);
+    throw new Error(`${summary.status}:${failures.map((failure) => failure.code).join(',')}`);
   } finally {
     await Promise.race([
       client.shutdown(),
@@ -948,6 +973,7 @@ async function main() {
 
 export {
   runPublicFeedLifecycleAccountability,
+  resolveGunPeers,
   readRelayLatest,
   readRelayHot,
   sourceCount,
