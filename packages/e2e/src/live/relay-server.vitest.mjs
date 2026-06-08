@@ -2571,12 +2571,13 @@ describe('infra relay server', () => {
       topic_id: 'topic-scalar-only',
       headline: 'Scalar-only relay story',
     };
+    const storySoul = gun.get(`vh/news/stories/${story.story_id}`);
     await putGunValueAndWaitForReadback(
-      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+      storySoul.get('__story_bundle_json'),
       JSON.stringify(story),
     );
     await expect(readGunOnce(
-      gun.get('vh').get('news').get('stories').get(story.story_id).get('__story_bundle_json'),
+      storySoul.get('__story_bundle_json'),
     )).resolves.toBe(JSON.stringify(story));
 
     const startedAt = Date.now();

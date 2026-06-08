@@ -622,6 +622,31 @@ function readOnce(chain, timeoutMs = 1_500) {
   });
 }
 
+function readNonNullOnce(chain, timeoutMs = 1_500, intervalMs = 50) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value ?? null);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const poll = () => {
+      if (settled) return;
+      chain.once((data) => {
+        if (settled) return;
+        if (data !== null && data !== undefined) {
+          finish(data);
+          return;
+        }
+        setTimeout(poll, intervalMs);
+      });
+    };
+    poll();
+  });
+}
+
 async function putScalarRecord(chain, record, options = {}) {
   const rootTimeoutMs = options.rootTimeoutMs ?? 3_000;
   const fieldTimeoutMs = options.fieldTimeoutMs ?? 1_000;
@@ -1417,7 +1442,11 @@ function upsertNewsSynthesisLifecycleSnapshot(record) {
 }
 
 async function readNewsStoryRecord(gun, storyId, options = {}) {
-  const storyChain = gun.get('vh').get('news').get('stories').get(storyId);
+  const storyChains = [
+    gun.get('vh/news/stories').get(storyId),
+    gun.get(`vh/news/stories/${storyId}`),
+    gun.get('vh').get('news').get('stories').get(storyId),
+  ];
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
   const allowSnapshotFallback = options.allowSnapshotFallback !== false
     && boolEnv('VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK', true);
@@ -1444,15 +1473,19 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
     }
     return null;
   };
-  const directRead = readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value }));
-  const scalarRead = readOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
-    .then((value) => ({ kind: 'scalar', value }));
-  const first = await Promise.race([directRead, scalarRead]);
-  const parsedFirst = parseReadResult(first);
-  if (parsedFirst) return parsedFirst;
-  const second = first.kind === 'direct' ? await scalarRead : await directRead;
-  const parsedSecond = parseReadResult(second);
-  if (parsedSecond) return parsedSecond;
+  const pending = storyChains.flatMap((storyChain) => [
+    readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value })),
+    readNonNullOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
+      .then((value) => ({ kind: 'scalar', value })),
+  ]);
+  while (pending.length > 0) {
+    const { index, result } = await Promise.race(
+      pending.map((promise, index) => promise.then((result) => ({ index, result }))),
+    );
+    pending.splice(index, 1);
+    const parsed = parseReadResult(result);
+    if (parsed) return parsed;
+  }
   return allowSnapshotFallback ? readNewsStoryRecordFromLatestIndexSnapshot(storyId) : null;
 }
 

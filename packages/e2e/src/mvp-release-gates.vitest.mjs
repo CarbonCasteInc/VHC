@@ -21,6 +21,10 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('public-relay-peer-readback-failed:https://gun-b.example/:story_states_missing')).toBe('fail');
     expect(classifyGateFailure('public-relay-feed-composition-backfill-only-multi-source')).toBe('fail');
     expect(classifyGateFailure('public-relay-feed-stale:90000000/86400000')).toBe('fail');
+    expect(classifyGateFailure('fresh-propagation-fixture-only')).toBe('fail');
+    expect(classifyGateFailure('fresh-propagation-public-browser-smoke-missing')).toBe('fail');
+    expect(classifyGateFailure('fresh-propagation-latest-activity-stale:90000000/86400000')).toBe('fail');
+    expect(classifyGateFailure('setup_scarcity:fresh-propagation-feed-stage-outage')).toBe('setup_scarcity');
     expect(classifyGateFailure('fail:eligible_raw_story_hidden_without_allowed_reason,public_feed_composition_missing_multi_source')).toBe('fail');
     expect(classifyGateFailure('public-feed-initial-open-headlines-timeout public-relay-feed-composition-missing-multi-source')).toBe('fail');
     expect(classifyGateFailure('public-feed-load-more-not-from-mesh public-relay-feed-composition-missing-multi-source')).toBe('fail');
@@ -33,6 +37,7 @@ describe('mvp-release-gates runner helpers', () => {
     expect(gateIds).toEqual(expect.arrayContaining([
       'public_feed_composition_freshness',
       'public_feed_lifecycle_accountability',
+      'public_feed_fresh_propagation',
       'story_identity_growth',
       'public_feed_pagination_refresh',
       'stance_aggregate_decay_public_mesh',

@@ -34,13 +34,14 @@ Season 0 production-readiness contract:
 1. StoryCluster correctness must pass through the deterministic corpus/replay gate plus the daemon-first semantic gate;
 2. source-health release evidence must remain fresh and pass over the complete configured recent run window; consolidated release gates treat source-health `warn` evidence as non-green until the latest run returns to `pass`;
 3. headline-soak release evidence must remain fresh and pass over the recent run window;
-4. headline-soak release evidence currently passes the recent run window only when all of these are true:
+4. fresh propagation evidence must prove at least one current live RSS item progressed through daemon ingest, normalization, StoryCluster request/response, raw story publication, latest/hot product index publication, public relay readback/refresh evidence, and Web PWA consumer render/open; fixture-only evidence is not production-readiness proof;
+5. headline-soak release evidence currently passes the recent run window only when all of these are true:
    - at least 4 recent executions are present;
    - at least 2 recent executions are promotable;
    - at most 1 recent execution is `not_ready`;
    - average corroborated bundle rate is at least `0.5`;
    - average unique visible source count is at least `2`;
-5. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
+6. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
 
 Changing the headline-soak release thresholds requires a spec update and a matching implementation change in `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-semantic-soak-report.mjs`.
 
@@ -216,6 +217,15 @@ Public story-node storage contract:
   feed rows while synthesis is pending, retrying, terminally unavailable, or
   suppressed by correction. Relay/latest-index responses MUST expose the public
   synthesis lifecycle and frame-table state rather than silently filtering rows.
+- Release evidence for current-news freshness MUST distinguish a live RSS
+  propagation proof from a static or fixture feed proof. A freshness timestamp
+  on an already-persisted latest index is not sufficient: the release packet
+  must show daemon ingest, normalization, StoryCluster request/response, raw
+  story body publication, latest/hot product index publication, public relay
+  readback or refresh evidence, and Web PWA consumer render/open for current
+  live source input. If source-health proves no usable live item was available,
+  the gate may return `setup_scarcity`; otherwise stale latest activity,
+  missing stage evidence, or fixture-only proof is a release failure.
 - The daemon MUST reconcile durable raw stories back into product feed indexes
   after acquiring the ingestion lease and on a bounded recurring interval while
   it remains leader. If an eligible `vh/news/stories/<storyId>` body exists but

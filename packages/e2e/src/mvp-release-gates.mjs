@@ -75,6 +75,25 @@ export const GATES = [
     ],
   },
   {
+    id: 'public_feed_fresh_propagation',
+    label: 'Fresh RSS item propagation through daemon, StoryCluster, product feed, relay, and PWA refresh',
+    command: [
+      'env',
+      [
+        'VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE=true',
+        'pnpm',
+        'check:public-feed:fresh-propagation',
+      ],
+    ],
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-fresh-propagation-gate.mjs',
+      '.tmp/release-evidence/public-feed-fresh-propagation/latest/public-feed-fresh-propagation-summary.json',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      '.tmp/daemon-feed-publisher-canary',
+      '.tmp/daemon-feed-consumer-smoke',
+    ],
+  },
+  {
     id: 'story_identity_growth',
     label: 'Story identity remains stable when singleton stories gain corroborating sources',
     command: [
@@ -294,7 +313,20 @@ export function classifyGateFailure(output) {
     text.includes('public-relay-peer-readback-failed') ||
     text.includes('public-relay-feed-composition-backfill-only-multi-source') ||
     text.includes('public-relay-feed-stale') ||
+    text.includes('fresh-propagation-fixture-only') ||
+    text.includes('fresh-propagation-public-browser-smoke-missing') ||
+    text.includes('fresh-propagation-public-browser-smoke-not-passing') ||
+    text.includes('fresh-propagation-public-relay-latest-empty') ||
+    text.includes('fresh-propagation-public-relay-story-body-empty') ||
+    text.includes('fresh-propagation-public-browser-initial-empty') ||
+    text.includes('fresh-propagation-public-browser-refresh-empty') ||
+    text.includes('fresh-propagation-public-relay-pagination-failed') ||
+    text.includes('fresh-propagation-consumer-not-browser') ||
+    text.includes('fresh-propagation-consumer-fixture-mismatch') ||
+    text.includes('fresh-propagation-consumer-summary-mismatch') ||
+    text.includes('fresh-propagation-latest-activity-stale') ||
     text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
+    text.includes('fail:fresh-propagation') ||
     text.includes('source-labels-missing') ||
     text.includes('timestamps-missing')
   ) {
@@ -303,6 +335,8 @@ export function classifyGateFailure(output) {
   if (
     text.includes('blocked_setup_scarcity') ||
     text.includes('setup_scarcity') ||
+    text.includes('fresh-propagation-feed-stage-outage') ||
+    text.includes('publisher-not-passing:feed_stage_outage') ||
     text.includes('vote-capable-preflight-failed') ||
     text.includes('feed_stage_outage') ||
     text.includes('public-relay-feed-composition-missing-multi-source') ||

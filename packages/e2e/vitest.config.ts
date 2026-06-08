@@ -5,6 +5,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.{ts,js,mjs}', 'src/**/*.vitest.mjs'],
     exclude: ['**/node_modules/**', '**/dist/**'],
+    fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
