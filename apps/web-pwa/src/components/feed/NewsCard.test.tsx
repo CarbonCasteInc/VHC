@@ -525,9 +525,11 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
-    expect(await screen.findByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
-      'Feed summary hint; synthesis pending',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+        'Feed summary hint; synthesis pending',
+      );
+    });
     expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent(
       'Transit vote split council members along budget priorities.',
     );
@@ -808,9 +810,11 @@ describe('NewsCard', () => {
     expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
       'Transit vote split council members along budget priorities.',
     );
-    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
-      'Feed summary hint; synthesis pending',
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+        'Feed summary hint; synthesis pending',
+      );
+    });
     expect(screen.getByTestId('news-card-synthesis-unavailable-news-1')).toHaveTextContent(
       'Accepted synthesis is pending for this story.',
     );
