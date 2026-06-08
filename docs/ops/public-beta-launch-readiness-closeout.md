@@ -2,10 +2,10 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-05-31
+> Last Reviewed: 2026-06-08
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
-Version: 0.8
+Version: 0.9
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
@@ -23,6 +23,32 @@ Public feed organic-composition gate update, 2026-06-08: The relay latest-index 
 Fresh propagation gate update, 2026-06-08: `pnpm check:public-feed:fresh-propagation` now writes `.tmp/release-evidence/public-feed-fresh-propagation/latest/public-feed-fresh-propagation-summary.json` and validates a current live RSS producer run separately from fixture evidence. It requires daemon ingest, normalization, StoryCluster request/response, raw story snapshot, latest/hot product indexes, readable story bodies, and Web PWA consumer render/open evidence; inside `pnpm check:mvp-release-gates` it also requires the current public browser-smoke artifact so relay readback, refresh, and cursor pagination stay tied to the same release packet. Empty or stale propagation may classify as `setup_scarcity` only when source-health/publisher evidence shows no usable live input; fixture-only, stale latest activity with source supply, missing stage logs, missing browser smoke, and failed relay refresh evidence are hard failures.
 
 Source slate correction, 2026-06-08: The current live source-health runs held release evidence because `democracydocket-alerts` sampled one durable article 404 and fell below the MVP `keepMinReadableSampleRate: 1` rule (`readableSampleRate: 0.75`, `watchSourceIds: ["democracydocket-alerts"]`), and then `scotusblog-main` became feed-unavailable through the FeedBurner URL (`feed_links_unavailable`, `feed_fetch_error`, zero contribution; direct `curl` timed out after 15 seconds). This branch prunes both sources from the admitted starter/live source surface rather than weakening the threshold or classifying the issue as scarcity. The remaining admitted slate still has 25 keep sources with contributing and corroborating source evidence; a release claim still requires a fresh passing source-health packet on the final commit.
+
+Current PR #632 blocker audit, 2026-06-08: Branch
+`coord/mvp-public-news-feed-organic-composition-v1` at head
+`9bd06a1b043d871c9a4ee1251bd334dc00cc6aba` has green GitHub checks and
+passing local LUMA/mesh boundary evidence, but it is not release-ready. The
+public feed/read-path probes for `https://venn.carboncaste.io`,
+`https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, and
+`https://gun-c.carboncaste.io` all returned Cloudflare `530` with body
+`error code: 1033` for `/vh/news/latest-index?limit=5&scan_limit=20`, so the
+public latest feed, story-body readback, refresh, pagination, lifecycle, and
+stance gates cannot be claimed from current deployed evidence. The explicit
+public WSS proof canary also remains blocked at
+`.tmp/mesh-production-readiness/mesh-public-wss-proof-1780935739356-06ca2bc4/mesh-production-readiness-report.json`:
+the signed peer config URL returned non-JSON Cloudflare error content, public
+app boot returned HTTP 530, and all `gun-a`/`gun-b`/`gun-c`
+health/ready/metrics probes returned HTTP 530. The canonical mesh aggregate
+with `VH_MESH_SOAK_DURATION_MS=1800000` passed the full 30-minute soak and
+reduced Mesh release blockers to `public-wss-deployment-proof` only; that does
+not clear public distribution readiness. Fresh propagation is also still
+blocked: after the ESM build patch, the publisher canary starts the daemon,
+ingests 15 RSS items, normalizes 13, and sends 13 items to StoryCluster, then
+fails closed in `language_translation` on OpenAI HTTP 401 `invalid_api_key`
+with the key redacted. This is neither `setup_scarcity` nor a pass; it is a
+live credential/deployment blocker and no release note may claim production
+feed freshness, public WSS release readiness, or deployed MVP distribution
+readiness from this packet.
 
 The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
 
