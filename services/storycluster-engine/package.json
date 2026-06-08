@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ../../tools/scripts/patch-esm-relative-imports.mjs dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage --config ./vitest.config.ts"
   },
