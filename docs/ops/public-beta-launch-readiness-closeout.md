@@ -25,9 +25,9 @@ Fresh propagation gate update, 2026-06-08: `pnpm check:public-feed:fresh-propaga
 Source slate correction, 2026-06-08: The current live source-health runs held release evidence because `democracydocket-alerts` sampled one durable article 404 and fell below the MVP `keepMinReadableSampleRate: 1` rule (`readableSampleRate: 0.75`, `watchSourceIds: ["democracydocket-alerts"]`), and then `scotusblog-main` became feed-unavailable through the FeedBurner URL (`feed_links_unavailable`, `feed_fetch_error`, zero contribution; direct `curl` timed out after 15 seconds). This branch prunes both sources from the admitted starter/live source surface rather than weakening the threshold or classifying the issue as scarcity. The remaining admitted slate still has 25 keep sources with contributing and corroborating source evidence; a release claim still requires a fresh passing source-health packet on the final commit.
 
 Current PR #632 blocker audit, 2026-06-08: Branch
-`coord/mvp-public-news-feed-organic-composition-v1` at head
-`9bd06a1b043d871c9a4ee1251bd334dc00cc6aba` has green GitHub checks and
-passing local LUMA/mesh boundary evidence, but it is not release-ready. The
+`coord/mvp-public-news-feed-organic-composition-v1` has green GitHub checks on
+the current PR head; commit-sensitive LUMA/mesh evidence must match the final
+release commit before any release claim. The branch is not release-ready. The
 public feed/read-path probes for `https://venn.carboncaste.io`,
 `https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, and
 `https://gun-c.carboncaste.io` all returned Cloudflare `530` with body
