@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -586,6 +586,7 @@ describe('public feed composition freshness gate', () => {
   it('writes a failure summary when the public latest-index fetch fails before readback sampling', async () => {
     const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-public-composition-fetch-fail-'));
     const artifactDir = path.join(repoRoot, 'artifacts');
+    const latestPath = path.join(repoRoot, '.tmp', 'release-evidence', 'public-feed-composition-freshness', 'latest');
     await mkdir(path.dirname(artifactDir), { recursive: true });
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse({ error: 'cloudflare-1033' }, { ok: false, status: 530 })));
@@ -613,6 +614,7 @@ describe('public feed composition freshness gate', () => {
       });
       expect(summary.failure).toContain('public-relay-latest-index-http-530');
       expect(summary.failure).toContain('cloudflare-1033');
+      await expect(readlink(latestPath)).rejects.toThrow();
     } finally {
       vi.unstubAllGlobals();
     }

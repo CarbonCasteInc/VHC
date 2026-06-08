@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -240,6 +240,8 @@ describe('public feed lifecycle accountability helpers', () => {
 
   it('writes a failure summary when public relay latest readback fails before sampling', async () => {
     const artifactDir = await mkdtemp(path.join(os.tmpdir(), 'vh-public-lifecycle-fetch-fail-'));
+    const latestPath = path.join(repoRoot, '.tmp', 'release-evidence', 'public-feed-lifecycle-accountability', 'latest');
+    const latestBefore = await readlink(latestPath).catch(() => null);
     vi.stubGlobal('fetch', vi.fn(async () =>
       jsonResponse({ error: 'cloudflare-1033' }, { ok: false, status: 530 })));
 
@@ -264,6 +266,7 @@ describe('public feed lifecycle accountability helpers', () => {
         code: 'public_feed_lifecycle_readback_failed',
         error: expect.stringContaining('http-530:https://venn.carboncaste.io/vh/news/latest-index?limit=120'),
       })]);
+      expect(await readlink(latestPath).catch(() => null)).toBe(latestBefore);
     } finally {
       vi.unstubAllGlobals();
     }

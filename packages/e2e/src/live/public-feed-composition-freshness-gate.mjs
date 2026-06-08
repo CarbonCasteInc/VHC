@@ -418,7 +418,11 @@ async function writeJson(filePath, value) {
 }
 
 async function updateLatestSymlink(artifactDir, repoRoot) {
-  const latestPath = path.join(repoRoot, '.tmp', 'release-evidence', 'public-feed-composition-freshness', 'latest');
+  const evidenceRoot = path.join(repoRoot, '.tmp', 'release-evidence', 'public-feed-composition-freshness');
+  const resolvedArtifactDir = path.resolve(artifactDir);
+  const resolvedEvidenceRoot = path.resolve(evidenceRoot);
+  if (!resolvedArtifactDir.startsWith(`${resolvedEvidenceRoot}${path.sep}`)) return;
+  const latestPath = path.join(evidenceRoot, 'latest');
   await rm(latestPath, { recursive: true, force: true });
   try {
     await symlink(artifactDir, latestPath, 'dir');
