@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { classifyGateFailure, GATES, REPORT_SCHEMA_VERSION, VALID_STATUSES } from './mvp-release-gates.mjs';
+import {
+  buildReusedGateResult,
+  classifyGateFailure,
+  findReusableGateResult,
+  GATES,
+  REPORT_SCHEMA_VERSION,
+  VALID_STATUSES,
+} from './mvp-release-gates.mjs';
 
 describe('mvp-release-gates runner helpers', () => {
   it('publishes the expected report schema and terminal states', () => {
@@ -47,5 +54,67 @@ describe('mvp-release-gates runner helpers', () => {
   it('uses the live public browser smoke for stance aggregate decay public mesh evidence', () => {
     expect(GATES.find((gate) => gate.id === 'stance_aggregate_decay_public_mesh')?.command)
       .toEqual(['pnpm', ['check:public-feed:stance-aggregate-decay']]);
+  });
+
+  it('reuses the prior browser-smoke packet for the duplicate pagination gate without weakening failure semantics', () => {
+    const firstSmokeGate = GATES.find((gate) => gate.id === 'public_feed_analysis_frame_reliability');
+    const paginationGate = GATES.find((gate) => gate.id === 'public_feed_pagination_refresh');
+    expect(firstSmokeGate?.command).toEqual(['pnpm', ['test:public-feed:browser-smoke']]);
+    expect(paginationGate?.command).toEqual(['pnpm', ['test:public-feed:browser-smoke']]);
+    expect(paginationGate?.reusePreviousCommandResult).toBe(true);
+
+    const previousResult = {
+      id: 'public_feed_analysis_frame_reliability',
+      label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
+      status: 'fail',
+      command: 'pnpm test:public-feed:browser-smoke',
+      startedAt: '2026-06-08T00:00:00.000Z',
+      endedAt: '2026-06-08T00:01:00.000Z',
+      durationMs: 60000,
+      exitCode: 1,
+      artifactRefs: firstSmokeGate.artifactRefs,
+      failureClassification: 'fail',
+      summary: 'gun-latest-index-readback-timeout',
+    };
+
+    expect(findReusableGateResult(paginationGate, [previousResult])).toBe(previousResult);
+    const reused = buildReusedGateResult(paginationGate, previousResult);
+    expect(reused).toMatchObject({
+      id: 'public_feed_pagination_refresh',
+      status: 'fail',
+      exitCode: 1,
+      failureClassification: 'fail',
+      reusedFromGateId: 'public_feed_analysis_frame_reliability',
+      durationMs: 0,
+    });
+    expect(reused.summary).toContain('gun-latest-index-readback-timeout');
+  });
+
+  it('can reuse a passing browser-smoke packet for duplicate public-feed proof without rerunning it', () => {
+    const firstSmokeGate = GATES.find((gate) => gate.id === 'public_feed_analysis_frame_reliability');
+    const paginationGate = GATES.find((gate) => gate.id === 'public_feed_pagination_refresh');
+    const previousResult = {
+      id: 'public_feed_analysis_frame_reliability',
+      label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
+      status: 'pass',
+      command: 'pnpm test:public-feed:browser-smoke',
+      startedAt: '2026-06-08T00:00:00.000Z',
+      endedAt: '2026-06-08T00:01:00.000Z',
+      durationMs: 60000,
+      exitCode: 0,
+      artifactRefs: firstSmokeGate.artifactRefs,
+      failureClassification: null,
+      summary: 'Public feed latest-index, accepted synthesis, and frame-table reliability passed.',
+    };
+
+    const reused = buildReusedGateResult(paginationGate, previousResult);
+    expect(reused).toMatchObject({
+      id: 'public_feed_pagination_refresh',
+      status: 'pass',
+      exitCode: 0,
+      failureClassification: null,
+      reusedFromGateId: 'public_feed_analysis_frame_reliability',
+    });
+    expect(reused.summary).toContain('passed using the public_feed_analysis_frame_reliability browser-smoke evidence packet');
   });
 });

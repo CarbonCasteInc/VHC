@@ -119,6 +119,7 @@ export const GATES = [
     id: 'public_feed_pagination_refresh',
     label: 'Public feed refresh and load-more pagination from mesh',
     command: ['pnpm', ['test:public-feed:browser-smoke']],
+    reusePreviousCommandResult: true,
     artifactRefs: [
       'packages/e2e/src/live/public-feed-browser-smoke.mjs',
       '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
@@ -417,6 +418,35 @@ async function runGate(gate) {
   };
 }
 
+export function findReusableGateResult(gate, completedGates) {
+  if (!gate.reusePreviousCommandResult) {
+    return null;
+  }
+  const commandText = commandToString(gate.command);
+  return completedGates.find((completedGate) => completedGate.command === commandText) ?? null;
+}
+
+export function buildReusedGateResult(gate, previousResult) {
+  const timestamp = nowIso();
+  return {
+    id: gate.id,
+    label: gate.label,
+    status: previousResult.status,
+    command: commandToString(gate.command),
+    startedAt: timestamp,
+    endedAt: timestamp,
+    durationMs: 0,
+    exitCode: previousResult.exitCode,
+    artifactRefs: gate.artifactRefs,
+    failureClassification: previousResult.failureClassification,
+    reusedFromGateId: previousResult.id,
+    summary:
+      previousResult.status === 'pass'
+        ? `${gate.label} passed using the ${previousResult.id} browser-smoke evidence packet.`
+        : `${gate.label} failed using the ${previousResult.id} browser-smoke evidence packet: ${previousResult.summary}`,
+  };
+}
+
 async function writeReport(report) {
   await rm(latestDir, { recursive: true, force: true });
   await mkdir(latestDir, { recursive: true });
@@ -429,7 +459,11 @@ export async function runMvpReleaseGates() {
   const commit = await gitValue(['rev-parse', 'HEAD']);
   const gates = [];
   for (const gate of GATES) {
-    const result = await runGate(gate);
+    const reusableResult = findReusableGateResult(gate, gates);
+    const result = reusableResult ? buildReusedGateResult(gate, reusableResult) : await runGate(gate);
+    if (reusableResult) {
+      console.info(`[mvp-release-gates] ${gate.id}: reused ${reusableResult.id} result`);
+    }
     gates.push(result);
   }
 
