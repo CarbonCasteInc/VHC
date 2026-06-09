@@ -925,8 +925,15 @@ async function runAppBoot({ config, appUrl, expectedConfigId, gateName }) {
   };
 }
 
+export function latestDirNameForDeployedWssReport(report) {
+  const deploymentScope = report?.run?.deployment_scope;
+  return deploymentScope === 'public_wss_deployment' || deploymentScope === 'public_wss_deployment_blocked'
+    ? 'latest-public-wss-proof'
+    : 'latest';
+}
+
 function writeReport({ artifactDir, report, positiveFixturePath, rolloverFixturePath, manifestPath, browserEvidencePath }) {
-  const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness/latest');
+  const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness', latestDirNameForDeployedWssReport(report));
   fs.rmSync(latestDir, { recursive: true, force: true });
   fs.mkdirSync(latestDir, { recursive: true });
 

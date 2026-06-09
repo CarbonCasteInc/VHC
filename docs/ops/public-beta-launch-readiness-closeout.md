@@ -25,17 +25,19 @@ Fresh propagation gate update, 2026-06-08: `pnpm check:public-feed:fresh-propaga
 Source slate correction, 2026-06-08: The current live source-health runs held release evidence because `democracydocket-alerts` sampled one durable article 404 and fell below the MVP `keepMinReadableSampleRate: 1` rule (`readableSampleRate: 0.75`, `watchSourceIds: ["democracydocket-alerts"]`), and then `scotusblog-main` became feed-unavailable through the FeedBurner URL (`feed_links_unavailable`, `feed_fetch_error`, zero contribution; direct `curl` timed out after 15 seconds). This branch prunes both sources from the admitted starter/live source surface rather than weakening the threshold or classifying the issue as scarcity. The remaining admitted slate still has 25 keep sources with contributing and corroborating source evidence; a release claim still requires a fresh passing source-health packet on the final commit.
 
 Current PR #632 blocker audit, 2026-06-09: Branch
-`coord/mvp-public-news-feed-organic-composition-v1` has current runtime evidence
-on commit `61d1d366201e0c8ea8fc4b1898ad4e56ea88465f`; the branch remains not
-release-ready. Source-health evidence generated at `2026-06-09T00:46:32.746Z`
-is `ready`/`pass` with 25 admitted sources, 831 ingested items, 767 normalized
-items, 393 heuristic bundles, 339 singleton bundles, 54 corroborated bundles,
-25 contributing sources, and 23 corroborating sources, so the deployed public
-feed failures are not `setup_scarcity`. The public composition artifact at
+`coord/mvp-public-news-feed-organic-composition-v1` has current release-gate
+evidence on commit `04e8c2e20ee897b2e53137b690ad4c40bb6af606`; the branch
+remains not release-ready. Source-health evidence generated at
+`2026-06-09T02:12:40.887Z` is `ready`/`pass` with 25 admitted sources, 831
+ingested items, 767 normalized items, 391 heuristic bundles, 338 singleton
+bundles, 53 corroborated bundles, 25 contributing sources, and 23
+corroborating sources, so the deployed public feed failures are not
+`setup_scarcity`. The public composition artifact at
 `.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json`
 and lifecycle artifact at
 `.tmp/release-evidence/public-feed-lifecycle-accountability/latest/public-feed-lifecycle-accountability-summary.json`
-record peer-by-peer early-failure readback evidence: `https://venn.carboncaste.io`,
+record peer-by-peer early-failure readback evidence generated around
+`2026-06-09T02:25Z`: `https://venn.carboncaste.io`,
 `https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, and
 `https://gun-c.carboncaste.io` all returned Cloudflare `530` / Error `1033` for
 the public latest-index surface. Because latest-index is unreadable across the
@@ -44,11 +46,21 @@ readback, refresh, pagination, lifecycle, and stance gates cannot be claimed
 from current deployed evidence. The canonical mesh aggregate regenerated on the
 same runtime commit at
 `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
-has run id `mesh-production-readiness-20260609T000222Z-f04514c7`, status
-`review_required`, all implemented source reports passing, a full 30-minute
+has run id `mesh-production-readiness-20260609T012910Z-4aca67f6`, status
+`review_required`, all 12 implemented source reports passing, a full 30-minute
 soak pass, evidence scrub pass, and one remaining release blocker:
-`public-wss-deployment-proof`. The LUMA-gated mesh coverage packet
-`mesh-luma-gated-write-coverage-20260609T000209Z-aabee055` passed with
+`public-wss-deployment-proof`. A direct continuation run of
+`pnpm test:mesh:deployed-wss-peer-config:public` remained blocked before network
+validation because the required public proof inputs were not configured:
+`VH_MESH_PUBLIC_PEER_CONFIG_URL`, `VH_MESH_PUBLIC_PEER_CONFIG_PUBLIC_KEY`,
+`VH_MESH_PUBLIC_CONFIG_ID`, `VH_MESH_PUBLIC_APP_URL`,
+`VH_MESH_PUBLIC_WSS_PEERS`, `VH_MESH_PUBLIC_CSP_CONNECT_SRC`,
+`VH_MESH_PUBLIC_MINIMUM_PEER_COUNT`, and `VH_MESH_PUBLIC_QUORUM_REQUIRED`.
+Standalone public WSS proof artifacts are now isolated under
+`.tmp/mesh-production-readiness/latest-public-wss-proof/` so a blocked proof
+cannot overwrite the aggregate mesh readiness packet consumed by closeout and
+production-app canary readers. The LUMA-gated mesh coverage packet
+`mesh-luma-gated-write-coverage-20260609T012900Z-bd94915a` passed with
 `schema_epoch: post_luma_m0b` and `luma_profile: e2e`, and
 `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`
 is `pass` for the public-beta LUMA surface. Those LUMA/mesh results do not

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildChromiumHostResolverRules,
+  latestDirNameForDeployedWssReport,
   parsePublicProofConfig,
   publicProofBrowserHostnames,
   validatePublicPeerConfigEnvelope,
@@ -146,6 +147,20 @@ describe('public WSS proof input validation', () => {
     expect(parsed.failures).toContain(
       'public rollover proof requires VH_MESH_PUBLIC_ROLLOVER_PEER_CONFIG_URL, VH_MESH_PUBLIC_ROLLOVER_CONFIG_ID, and VH_MESH_PUBLIC_ROLLOVER_APP_URL together',
     );
+  });
+});
+
+describe('deployed WSS evidence latest namespaces', () => {
+  it('keeps standalone public proof output out of the aggregate mesh latest packet', () => {
+    expect(latestDirNameForDeployedWssReport({
+      run: { deployment_scope: 'public_wss_deployment_blocked' },
+    })).toBe('latest-public-wss-proof');
+    expect(latestDirNameForDeployedWssReport({
+      run: { deployment_scope: 'public_wss_deployment' },
+    })).toBe('latest-public-wss-proof');
+    expect(latestDirNameForDeployedWssReport({
+      run: { deployment_scope: 'local_tls_wss_profile' },
+    })).toBe('latest');
   });
 });
 
