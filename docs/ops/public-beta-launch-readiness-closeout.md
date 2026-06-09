@@ -2,7 +2,7 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-08
+> Last Reviewed: 2026-06-09
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
 Version: 0.9
@@ -24,38 +24,42 @@ Fresh propagation gate update, 2026-06-08: `pnpm check:public-feed:fresh-propaga
 
 Source slate correction, 2026-06-08: The current live source-health runs held release evidence because `democracydocket-alerts` sampled one durable article 404 and fell below the MVP `keepMinReadableSampleRate: 1` rule (`readableSampleRate: 0.75`, `watchSourceIds: ["democracydocket-alerts"]`), and then `scotusblog-main` became feed-unavailable through the FeedBurner URL (`feed_links_unavailable`, `feed_fetch_error`, zero contribution; direct `curl` timed out after 15 seconds). This branch prunes both sources from the admitted starter/live source surface rather than weakening the threshold or classifying the issue as scarcity. The remaining admitted slate still has 25 keep sources with contributing and corroborating source evidence; a release claim still requires a fresh passing source-health packet on the final commit.
 
-Current PR #632 blocker audit, 2026-06-08: Branch
-`coord/mvp-public-news-feed-organic-composition-v1` has green GitHub checks on
-the previously verified PR head `4d5096ae5654d8662c4f0cd0ba3ca42e11d51736`;
-commit-sensitive LUMA/mesh evidence matched that head and must be regenerated
-after later branch commits before any release claim. The branch is not
-release-ready. The
-public composition artifact at
-`.tmp/release-evidence/public-feed-composition-freshness/1780962519359/public-feed-composition-freshness-summary.json`
+Current PR #632 blocker audit, 2026-06-09: Branch
+`coord/mvp-public-news-feed-organic-composition-v1` has current runtime evidence
+on commit `61d1d366201e0c8ea8fc4b1898ad4e56ea88465f`; the branch remains not
+release-ready. Source-health evidence generated at `2026-06-09T00:46:32.746Z`
+is `ready`/`pass` with 25 admitted sources, 831 ingested items, 767 normalized
+items, 393 heuristic bundles, 339 singleton bundles, 54 corroborated bundles,
+25 contributing sources, and 23 corroborating sources, so the deployed public
+feed failures are not `setup_scarcity`. The public composition artifact at
+`.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json`
 and lifecycle artifact at
-`.tmp/release-evidence/public-feed-lifecycle-accountability/1780962519337/public-feed-lifecycle-accountability-summary.json`
-now record peer-by-peer early-failure readback evidence: `https://venn.carboncaste.io`,
+`.tmp/release-evidence/public-feed-lifecycle-accountability/latest/public-feed-lifecycle-accountability-summary.json`
+record peer-by-peer early-failure readback evidence: `https://venn.carboncaste.io`,
 `https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, and
 `https://gun-c.carboncaste.io` all returned Cloudflare `530` / Error `1033` for
 the public latest-index surface. Because latest-index is unreadable across the
 configured public HTTP relay origins, the public latest feed, story-body
 readback, refresh, pagination, lifecycle, and stance gates cannot be claimed
-from current deployed evidence. The explicit public WSS proof canary also
-remains blocked at
-`.tmp/mesh-production-readiness/mesh-public-wss-proof-1780935739356-06ca2bc4/mesh-production-readiness-report.json`:
-the signed peer config URL returned non-JSON Cloudflare error content, public
-app boot returned HTTP 530, and all `gun-a`/`gun-b`/`gun-c`
-health/ready/metrics probes returned HTTP 530. The canonical mesh aggregate
-with `VH_MESH_SOAK_DURATION_MS=1800000` passed the full 30-minute soak and
-reduced Mesh release blockers to `public-wss-deployment-proof` only; that does
-not clear public distribution readiness. Fresh propagation is also still
-blocked: after the ESM build patch, the publisher canary starts the daemon,
-ingests 15 RSS items, normalizes 13, and sends 13 items to StoryCluster, then
-fails closed in `document_classification` on OpenAI HTTP 401 `invalid_api_key`
-with the key redacted. This is neither `setup_scarcity` nor a pass; it is a
-live credential/deployment blocker and no release note may claim production
-feed freshness, public WSS release readiness, or deployed MVP distribution
-readiness from this packet.
+from current deployed evidence. The canonical mesh aggregate regenerated on the
+same runtime commit at
+`.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+has run id `mesh-production-readiness-20260609T000222Z-f04514c7`, status
+`review_required`, all implemented source reports passing, a full 30-minute
+soak pass, evidence scrub pass, and one remaining release blocker:
+`public-wss-deployment-proof`. The LUMA-gated mesh coverage packet
+`mesh-luma-gated-write-coverage-20260609T000209Z-aabee055` passed with
+`schema_epoch: post_luma_m0b` and `luma_profile: e2e`, and
+`.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`
+is `pass` for the public-beta LUMA surface. Those LUMA/mesh results do not
+clear public distribution readiness. Fresh propagation is also still blocked:
+the publisher canary starts the daemon, ingests 15 RSS items, normalizes 13,
+and sends 13 items to StoryCluster, then fails closed in
+`language_translation` on OpenAI HTTP 401 `invalid_api_key` with the key
+redacted. This is neither `setup_scarcity` nor a pass; it is a live
+credential/deployment blocker and no release note may claim production feed
+freshness, public WSS release readiness, or deployed MVP distribution readiness
+from this packet.
 
 Public release-gate env correction, 2026-06-08: `pnpm check:mvp-release-gates`
 now invokes all public-feed release gates against the deployed public app and
@@ -65,7 +69,7 @@ configured public peer set instead of inheriting local defaults:
 `wss://gun-a.carboncaste.io/gun`, `wss://gun-b.carboncaste.io/gun`,
 `wss://gun-c.carboncaste.io/gun`. The composition and lifecycle gates now
 write failure summaries with configured public peer-origin readback tables even
-when the first public latest-index readback fails. The 2026-06-08 local
+when the first public latest-index readback fails. The 2026-06-09 local
 umbrella rerun at
 `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` recorded
 `overallStatus: fail` with 15 passing gates and 6 failing gates. Public feed
@@ -74,9 +78,9 @@ analysis/frame reliability and stance/aggregate browser smoke both failed on
 Cloudflare 530 from the deployed latest-index route; fresh propagation failed
 after live RSS ingest/normalize when StoryCluster reached the redacted invalid
 OpenAI key; pagination reused the same public browser-smoke failure. The LUMA
-row passed on the clean verified head. These are launch blockers, not
+row passed on the clean runtime evidence head. These are launch blockers, not
 `setup_scarcity`, because source-health evidence still reports 25 admitted
-sources and corroborated bundle supply.
+sources and 54 corroborated bundles.
 
 The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
 
