@@ -1996,7 +1996,7 @@ describe('newsAdapters', () => {
 
     try {
       await expect(readNewsLatestIndexPageViaRelayRest(client, { limit: 2, before: 500 }))
-        .resolves.toEqual({
+        .resolves.toMatchObject({
           index: { 'story-embedded-page': 300 },
           nextCursor: 250,
           recordCount: 1,
@@ -2007,6 +2007,13 @@ describe('newsAdapters', () => {
           },
           stories: { 'story-embedded-page': embeddedStory },
           storyStates: { 'story-embedded-page': { synthesis_status: 'pending' } },
+          relayRestDiagnostics: {
+            endpointsAttempted: ['https://venn.carboncaste.io/vh/news/latest-index?limit=2&before=500'],
+            httpStatusCounts: { 200: 1 },
+            successCount: 1,
+            cloudflare1033Count: 0,
+            vhRelay502Count: 0,
+          },
         });
     } finally {
       vi.unstubAllGlobals();
@@ -2060,15 +2067,29 @@ describe('newsAdapters', () => {
         index: { 'story-relay-only': 444 },
         stories: { 'story-relay-only': relayedStory },
       });
-      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toEqual({
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
         index: {},
         nextCursor: null,
         recordCount: 0,
+        relayRestDiagnostics: {
+          networkFailures: [
+            expect.objectContaining({
+              endpoint: 'https://venn.carboncaste.io/vh/news/latest-index?limit=80',
+              classification: 'error',
+              error: 'latest relay down',
+            }),
+          ],
+          successCount: 0,
+        },
       });
-      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toEqual({
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
         index: {},
         nextCursor: null,
         recordCount: 0,
+        relayRestDiagnostics: {
+          endpointsAttempted: ['https://venn.carboncaste.io/vh/news/latest-index?limit=80'],
+          successCount: 1,
+        },
       });
     } finally {
       vi.unstubAllGlobals();
@@ -3117,10 +3138,14 @@ describe('newsAdapters', () => {
     try {
       await expect(readNewsStoryViaRelayRest(client, STORY.story_id)).resolves.toBeNull();
       await expect(readNewsSynthesisLifecycleStatusViaRelayRest(client, STORY.story_id)).resolves.toBeNull();
-      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toEqual({
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
         index: {},
         nextCursor: null,
         recordCount: 0,
+        relayRestDiagnostics: {
+          endpointsAttempted: [],
+          successCount: 0,
+        },
       });
       await expect(readNewsHotIndexViaRelayRest(client)).resolves.toEqual({});
     } finally {
@@ -3130,10 +3155,14 @@ describe('newsAdapters', () => {
     const invalidEndpointClient = createClient(mesh, guard, { peers: ['mailto:relay@example.test'] });
     await expect(readNewsSynthesisLifecycleStatusViaRelayRest(invalidEndpointClient, STORY.story_id))
       .resolves.toBeNull();
-    await expect(readNewsLatestIndexPageViaRelayRest(invalidEndpointClient)).resolves.toEqual({
+    await expect(readNewsLatestIndexPageViaRelayRest(invalidEndpointClient)).resolves.toMatchObject({
       index: {},
       nextCursor: null,
       recordCount: 0,
+      relayRestDiagnostics: {
+        endpointsAttempted: [],
+        successCount: 0,
+      },
     });
     await expect(readNewsHotIndexViaRelayRest(invalidEndpointClient)).resolves.toEqual({});
   });

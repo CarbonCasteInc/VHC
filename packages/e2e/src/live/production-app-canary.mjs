@@ -601,9 +601,14 @@ function publicWssRelayConfigSurface({ meshReport, options }) {
   const quorumRequired = meshReport?.topology?.quorum_required || 2;
   const deploymentScope =
     meshReport?.topology?.deployment_scope ||
+    meshReport?.public_wss_deployment_proof?.deployment_scope ||
     meshReport?.public_wss_proof?.deployment_scope ||
     null;
-  const proofStatus = meshReport?.public_wss_proof?.status || null;
+  const proofStatus =
+    meshReport?.public_wss_deployment_proof?.public_wss_proof_status ||
+    meshReport?.public_wss_deployment_proof?.status ||
+    meshReport?.public_wss_proof?.status ||
+    null;
   const meshPublicReady =
     meshReport?.status === 'release_ready' &&
     (deploymentScope === 'public_wss_deployment' || proofStatus === 'pass');

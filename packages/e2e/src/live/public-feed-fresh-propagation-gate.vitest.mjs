@@ -55,6 +55,34 @@ function publisherSummary() {
     storyCount: 2,
     latestIndexCount: 2,
     hotIndexCount: 2,
+    openAIProvenance: {
+      storycluster: {
+        providerId: 'openai-storycluster',
+        textModelId: 'gpt-4o-mini',
+        embeddingModelId: 'text-embedding-3-small',
+        baseUrl: null,
+        timeoutMs: 120000,
+      },
+    },
+    openAIPreflight: {
+      storycluster: {
+        status: 'pass',
+        code: null,
+        provider: {
+          providerId: 'openai-storycluster',
+          textModelId: 'gpt-4o-mini',
+          embeddingModelId: 'text-embedding-3-small',
+          baseUrl: null,
+          effectiveBaseUrl: 'https://api.openai.com/v1',
+          timeoutMs: 120000,
+        },
+        checks: {
+          apiKeyPresent: true,
+          textModelAuth: 'pass',
+          embeddingModelAuth: 'pass',
+        },
+      },
+    },
   };
 }
 
@@ -193,6 +221,18 @@ describe('public feed fresh propagation gate', () => {
       consumerSummary: consumerSummary(),
       env: {},
     })).toThrow('fresh-propagation-fixture-only');
+  });
+
+  it('rejects publisher evidence that lacks the StoryCluster OpenAI preflight', () => {
+    const summary = publisherSummary();
+    delete summary.openAIPreflight;
+    expect(() => validateFreshPropagationEvidence({
+      publisherSummary: summary,
+      publisherLogs: publisherLogs(),
+      publisherSnapshot: publisherSnapshot(Date.now()),
+      consumerSummary: consumerSummary(),
+      env: {},
+    })).toThrow('fresh-propagation-openai-preflight-not-passing:missing');
   });
 
   it('classifies empty or stale propagation by source-health supply evidence', () => {

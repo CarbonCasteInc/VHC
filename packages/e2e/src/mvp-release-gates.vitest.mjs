@@ -38,6 +38,7 @@ describe('mvp-release-gates runner helpers', () => {
     expect(classifyGateFailure('public-feed-load-more-not-from-mesh public-relay-feed-composition-missing-multi-source')).toBe('fail');
     expect(classifyGateFailure('public-feed-browser-csp-violations:3')).toBe('fail');
     expect(classifyGateFailure('expected story detail to render accepted synthesis')).toBe('fail');
+    expect(classifyGateFailure('[mvp-release-gate-command-timeout] command timed out after 720000ms')).toBe('fail');
   });
 
   it('includes production-feed blocking gates beyond analysis frame reliability', () => {

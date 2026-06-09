@@ -253,6 +253,12 @@ function requirePositiveStage(stageCounts, key, code) {
   }
 }
 
+function publisherOpenAIPreflight(publisherSummary) {
+  return publisherSummary?.openAIPreflight?.storycluster
+    ?? publisherSummary?.openAIProvenance?.storyclusterPreflight
+    ?? null;
+}
+
 function freshnessWindowMsFromEnv(env = process.env) {
   return positiveNumber(
     env.VH_PUBLIC_FEED_FRESH_PROPAGATION_FRESHNESS_WINDOW_MS
@@ -288,6 +294,12 @@ export function validateFreshPropagationEvidence({
   }
   if (publisherSummary.pass !== true) {
     throw new Error(`fresh-propagation-publisher-not-passing:${publisherSummary.outcome ?? 'unknown'}`);
+  }
+  const openAIPreflight = publisherOpenAIPreflight(publisherSummary);
+  if (!openAIPreflight || openAIPreflight.status !== 'pass') {
+    throw new Error(
+      `fresh-propagation-openai-preflight-not-passing:${openAIPreflight?.code ?? openAIPreflight?.status ?? 'missing'}`,
+    );
   }
   if (liveRssRequired) {
     const fixtureRequested = boolEnv(env.VH_DAEMON_FEED_USE_FIXTURE_FEED, false);
@@ -439,6 +451,7 @@ export function validateFreshPropagationEvidence({
     latestActivityAt,
     latestActivityAgeMs,
     freshnessWindowMs,
+    openAIPreflight,
     consumer: consumerSummary
       ? {
         validationMode: consumerSummary.validationMode,
@@ -654,6 +667,8 @@ export async function runPublicFeedFreshPropagationGate({
       hotIndexCount: publisherEvidence.summary?.hotIndexCount ?? null,
       corroboratedBundleCount: publisherEvidence.summary?.corroboratedBundleCount ?? null,
       sourceHealth: summarizePropagationSourceHealth(publisherEvidence.summary?.sourceHealth ?? {}),
+      openAIProvenance: publisherEvidence.summary?.openAIProvenance ?? null,
+      openAIPreflight: publisherEvidence.summary?.openAIPreflight ?? null,
     },
     consumer: {
       pass: consumerEvidence.summary?.pass ?? false,

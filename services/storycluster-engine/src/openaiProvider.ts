@@ -477,6 +477,24 @@ export interface OpenAIStoryClusterProviderProvenance {
   readonly timeoutMs: number | null;
 }
 
+export type OpenAIStoryClusterPreflightCode =
+  | 'storycluster-openai-auth-missing'
+  | 'storycluster-openai-auth-invalid'
+  | 'storycluster-openai-model-unauthorized'
+  | 'storycluster-openai-network-unreachable';
+
+export interface OpenAIStoryClusterPreflightResult {
+  readonly status: 'pass' | 'fail';
+  readonly code: OpenAIStoryClusterPreflightCode | null;
+  readonly provider: OpenAIStoryClusterProviderProvenance & { readonly effectiveBaseUrl: string };
+  readonly checks: {
+    readonly apiKeyPresent: boolean;
+    readonly textModelAuth: 'pass' | 'fail' | 'not_run';
+    readonly embeddingModelAuth: 'pass' | 'fail' | 'not_run';
+  };
+  readonly errorMessage?: string;
+}
+
 export function resolveOpenAIStoryClusterProviderProvenanceFromEnv(
   options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
 ): OpenAIStoryClusterProviderProvenance {
@@ -491,6 +509,134 @@ export function resolveOpenAIStoryClusterProviderProvenanceFromEnv(
     embeddingModelId,
     baseUrl,
     timeoutMs,
+  };
+}
+
+const OPENAI_PROVIDER_SECRET_PATTERNS = [
+  /sk-[A-Za-z0-9_*=\\-]{8,}/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+] as const;
+
+function redactOpenAIProviderMessage(value: unknown): string {
+  const compact = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const redacted = OPENAI_PROVIDER_SECRET_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, (match) =>
+      match.toLowerCase().startsWith('bearer ') ? 'Bearer [REDACTED]' : 'sk-[REDACTED]'),
+    compact,
+  );
+  return redacted.length > 320 ? `${redacted.slice(0, 319)}...` : redacted;
+}
+
+function classifyOpenAIProviderPreflightError(error: unknown): OpenAIStoryClusterPreflightCode {
+  const message = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (message.includes('http 401') || message.includes('invalid_api_key') || message.includes('incorrect api key')) {
+    return 'storycluster-openai-auth-invalid';
+  }
+  if (
+    message.includes('http 403') ||
+    message.includes('http 404') ||
+    message.includes('model_not_found') ||
+    message.includes('does not exist') ||
+    message.includes('not have access') ||
+    message.includes('not authorized')
+  ) {
+    return 'storycluster-openai-model-unauthorized';
+  }
+  return 'storycluster-openai-network-unreachable';
+}
+
+function preflightProvider(
+  provenance: OpenAIStoryClusterProviderProvenance,
+): OpenAIStoryClusterPreflightResult['provider'] {
+  return {
+    ...provenance,
+    effectiveBaseUrl: provenance.baseUrl ?? 'https://api.openai.com/v1',
+  };
+}
+
+export async function preflightOpenAIStoryClusterProviderFromEnv(
+  options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
+): Promise<OpenAIStoryClusterPreflightResult> {
+  const provenance = resolveOpenAIStoryClusterProviderProvenanceFromEnv(options);
+  const provider = preflightProvider(provenance);
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      status: 'fail',
+      code: 'storycluster-openai-auth-missing',
+      provider,
+      checks: {
+        apiKeyPresent: false,
+        textModelAuth: 'not_run',
+        embeddingModelAuth: 'not_run',
+      },
+      errorMessage: 'OPENAI_API_KEY is not configured for StoryCluster provider',
+    };
+  }
+
+  const client = new OpenAIClient({
+    apiKey,
+    baseUrl: provenance.baseUrl ?? undefined,
+    timeoutMs: provenance.timeoutMs ?? undefined,
+    fetchFn: options.fetchFn,
+  });
+  const checks: {
+    apiKeyPresent: boolean;
+    textModelAuth: 'pass' | 'fail' | 'not_run';
+    embeddingModelAuth: 'pass' | 'fail' | 'not_run';
+  } = {
+    apiKeyPresent: true,
+    textModelAuth: 'not_run',
+    embeddingModelAuth: 'not_run',
+  };
+
+  try {
+    await client.chatJson<{ ok?: boolean }>({
+      model: provenance.textModelId,
+      system: 'Return strict JSON only: {"ok":true}.',
+      user: '{"preflight":"storycluster-text-model"}',
+      temperature: 0,
+      maxTokens: 16,
+    });
+    checks.textModelAuth = 'pass';
+  } catch (error) {
+    return {
+      status: 'fail',
+      code: classifyOpenAIProviderPreflightError(error),
+      provider,
+      checks: {
+        ...checks,
+        textModelAuth: 'fail',
+      },
+      errorMessage: redactOpenAIProviderMessage(error instanceof Error ? error.message : error),
+    };
+  }
+
+  try {
+    await client.embed({
+      model: provenance.embeddingModelId,
+      texts: ['StoryCluster OpenAI embedding preflight'],
+      dimensions: 384,
+    });
+    checks.embeddingModelAuth = 'pass';
+  } catch (error) {
+    return {
+      status: 'fail',
+      code: classifyOpenAIProviderPreflightError(error),
+      provider,
+      checks: {
+        ...checks,
+        embeddingModelAuth: 'fail',
+      },
+      errorMessage: redactOpenAIProviderMessage(error instanceof Error ? error.message : error),
+    };
+  }
+
+  return {
+    status: 'pass',
+    code: null,
+    provider,
+    checks,
   };
 }
 

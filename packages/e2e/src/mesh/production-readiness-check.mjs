@@ -28,6 +28,12 @@ const EVIDENCE_SCRUB_MODE = 'mesh_evidence_scrub_promotion';
 const EVIDENCE_SCRUB_REPORT_NAME = 'evidence-scrub-source-report.json';
 const LUMA_COVERAGE_SUPPORT_DIR = 'supporting-evidence/luma-gated-write-coverage';
 const LUMA_COVERAGE_SUPPORT_REPORT_PATH = `${LUMA_COVERAGE_SUPPORT_DIR}/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`;
+const PUBLIC_WSS_PROOF_REPORT_ENV = 'VH_MESH_PUBLIC_WSS_PROOF_REPORT';
+const PUBLIC_WSS_PROOF_REPORT_NAME = 'mesh-production-readiness-report.json';
+const PUBLIC_WSS_PROOF_DEFAULT_DIR = path.join(repoRoot, '.tmp/mesh-production-readiness/latest-public-wss-proof');
+const PUBLIC_WSS_PROOF_SUPPORT_DIR = 'supporting-evidence/public-wss-deployment-proof';
+const PUBLIC_WSS_PROOF_SUPPORT_REPORT_PATH = `${PUBLIC_WSS_PROOF_SUPPORT_DIR}/${PUBLIC_WSS_PROOF_REPORT_NAME}`;
+const PUBLIC_WSS_PROOF_COMMAND = 'pnpm test:mesh:deployed-wss-peer-config:public';
 const CANONICAL_SOAK_DURATION_MS = 1_800_000;
 const REQUIRED_CONFLICT_FIXTURES = [
   'same-key-concurrent-deterministic-writes',
@@ -415,6 +421,120 @@ export function persistLumaCoverageEvidenceForPacket({ artifactDir, lumaCoverage
   };
 }
 
+export function validatePublicWssProofReport(report, { currentCommit, requireClean = true } = {}) {
+  const failures = [];
+  if (!report || typeof report !== 'object') {
+    return {
+      ok: false,
+      status: 'blocked',
+      failures: ['missing public WSS proof report'],
+    };
+  }
+  if (report.schema_version !== 'mesh-production-readiness-v1') {
+    failures.push(`unexpected schema_version ${report.schema_version || 'missing'}`);
+  }
+  if (report.run?.mode !== 'deployed_wss_topology') {
+    failures.push(`expected run.mode deployed_wss_topology, observed ${report.run?.mode || 'missing'}`);
+  }
+  if (report.run?.command !== PUBLIC_WSS_PROOF_COMMAND) {
+    failures.push(`expected run.command ${PUBLIC_WSS_PROOF_COMMAND}, observed ${report.run?.command || 'missing'}`);
+  }
+  if (report.run?.deployment_scope !== 'public_wss_deployment') {
+    failures.push(`expected run.deployment_scope public_wss_deployment, observed ${report.run?.deployment_scope || 'missing'}`);
+  }
+  if (report.public_wss_proof?.status !== 'pass') {
+    failures.push(`public_wss_proof.status is ${report.public_wss_proof?.status || 'missing'}`);
+  }
+  if (report.public_wss_proof?.deployment_scope !== 'public_wss_deployment') {
+    failures.push(`public_wss_proof.deployment_scope is ${report.public_wss_proof?.deployment_scope || 'missing'}`);
+  }
+  if (currentCommit && report.repo?.commit !== currentCommit) {
+    failures.push(`public WSS proof commit ${report.repo?.commit || 'missing'} does not match ${currentCommit}`);
+  }
+  if (requireClean && report.repo?.dirty) {
+    failures.push('public WSS proof repo.dirty is true');
+  }
+  if (report.status === 'blocked') {
+    failures.push('public WSS proof report status is blocked');
+  }
+  if (report.cleanup?.status === 'fail') {
+    failures.push('public WSS proof cleanup failed');
+  }
+  return {
+    ok: failures.length === 0,
+    status: failures.length === 0 ? 'pass' : 'blocked',
+    failures: unique(failures),
+  };
+}
+
+export function loadPublicWssProofEvidence({
+  currentCommit,
+  requireClean = true,
+  reportPath = process.env[PUBLIC_WSS_PROOF_REPORT_ENV] ||
+    path.join(PUBLIC_WSS_PROOF_DEFAULT_DIR, PUBLIC_WSS_PROOF_REPORT_NAME),
+} = {}) {
+  const resolvedReportPath = resolveMaybeRelative(reportPath);
+  if (!resolvedReportPath || !fs.existsSync(resolvedReportPath)) {
+    return {
+      provided: false,
+      status: 'pending',
+      report_path: resolvedReportPath,
+      original_report_path: resolvedReportPath,
+      report: null,
+      validation: {
+        ok: false,
+        status: 'blocked',
+        failures: [`no public WSS proof report found at ${resolvedReportPath || 'missing'}`],
+      },
+    };
+  }
+
+  let report = null;
+  let validation = null;
+  try {
+    report = readJson(resolvedReportPath);
+    validation = validatePublicWssProofReport(report, { currentCommit, requireClean });
+  } catch (error) {
+    validation = {
+      ok: false,
+      status: 'blocked',
+      failures: [`failed to read public WSS proof report: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
+
+  return {
+    provided: true,
+    status: validation.ok ? 'pass' : 'blocked',
+    report_path: resolvedReportPath,
+    original_report_path: resolvedReportPath,
+    report,
+    validation,
+  };
+}
+
+export function persistPublicWssProofEvidenceForPacket({ artifactDir, publicWssProofEvidence }) {
+  if (!publicWssProofEvidence?.provided || !publicWssProofEvidence.report_path) {
+    return publicWssProofEvidence;
+  }
+
+  const sourceDir = path.dirname(publicWssProofEvidence.report_path);
+  const durableDir = path.join(artifactDir, PUBLIC_WSS_PROOF_SUPPORT_DIR);
+  copyDir(sourceDir, durableDir);
+  const durableReportPath = path.join(durableDir, PUBLIC_WSS_PROOF_REPORT_NAME);
+
+  return {
+    ...publicWssProofEvidence,
+    original_report_path: publicWssProofEvidence.original_report_path || publicWssProofEvidence.report_path,
+    report_path: packetRelativePath(PUBLIC_WSS_PROOF_SUPPORT_REPORT_PATH),
+    supporting_evidence: {
+      report_path: packetRelativePath(PUBLIC_WSS_PROOF_SUPPORT_REPORT_PATH),
+      absolute_report_path: durableReportPath,
+      directory: packetRelativePath(PUBLIC_WSS_PROOF_SUPPORT_DIR),
+      absolute_directory: durableDir,
+    },
+  };
+}
+
 function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
   const startedAt = Date.now();
   const result = spawnSync(gate.command[0], gate.command.slice(1), {
@@ -546,11 +666,19 @@ function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
   };
 }
 
-export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null } = {}) {
+function publicWssProofEvidencePassed(publicWssProofEvidence) {
+  return Boolean(
+    publicWssProofEvidence?.provided &&
+      publicWssProofEvidence?.validation?.ok &&
+      publicWssProofEvidence?.report?.run?.deployment_scope === 'public_wss_deployment' &&
+      publicWssProofEvidence?.report?.public_wss_proof?.status === 'pass',
+  );
+}
+
+export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null, publicWssProofEvidence = null } = {}) {
   const blockers = [];
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const soak = sourceById.get('soak')?.report;
-  const deployed = sourceById.get('deployed_wss')?.report;
   const conflict = sourceById.get('conflict')?.report;
 
   if (!soak?.soak?.full_duration_satisfied) {
@@ -560,11 +688,13 @@ export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null } = 
       reason: 'latest soak evidence is bounded/shortened and does not satisfy the canonical 30-minute soak claim',
     });
   }
-  if (deployed?.run?.deployment_scope !== 'public_wss_deployment') {
+  if (!publicWssDeploymentSatisfied(sources, publicWssProofEvidence)) {
     blockers.push({
       id: 'public-wss-deployment-proof',
       command: 'pnpm test:mesh:deployed-wss-peer-config:public',
-      reason: 'current WSS evidence is the hermetic local TLS profile or a blocked public proof, not passing public WSS infrastructure evidence',
+      reason: publicWssProofEvidence?.provided
+        ? `isolated public WSS proof is not passing current clean public infrastructure evidence: ${(publicWssProofEvidence.validation?.failures || []).join('; ') || 'unknown validation failure'}`
+        : 'current WSS evidence is the hermetic local TLS profile or no isolated public proof has been persisted, not passing public WSS infrastructure evidence',
     });
   }
   if (!hasScript('test:mesh:clock-skew-drills')) {
@@ -640,7 +770,10 @@ function canonicalSoakSatisfied(sources) {
   );
 }
 
-function publicWssDeploymentSatisfied(sources) {
+function publicWssDeploymentSatisfied(sources, publicWssProofEvidence = null) {
+  if (publicWssProofEvidencePassed(publicWssProofEvidence)) {
+    return true;
+  }
   const deployed = sourceReport(sources, 'deployed_wss');
   return deployed?.run?.deployment_scope === 'public_wss_deployment' && deployed?.public_wss_proof?.status === 'pass';
 }
@@ -659,11 +792,11 @@ function durableLumaCoverageSatisfied(lumaCoverageEvidence) {
   );
 }
 
-function releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence }) {
+function releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence, publicWssProofEvidence = null }) {
   return {
     blockersEmpty: blockers.length === 0,
     canonicalSoak: canonicalSoakSatisfied(sources),
-    publicWssDeployment: publicWssDeploymentSatisfied(sources),
+    publicWssDeployment: publicWssDeploymentSatisfied(sources, publicWssProofEvidence),
     durableLumaCoverage: durableLumaCoverageSatisfied(lumaCoverageEvidence),
     evidenceScrub: evidenceScrubSatisfied(sources),
     requiredSampleFloors: requiredSampleFloorIssuesForSources(sources).length === 0,
@@ -674,10 +807,17 @@ function releaseReadyClaimAllowed(prerequisites) {
   return Object.values(prerequisites).every(Boolean);
 }
 
-export function buildReleaseClaims({ status, blockers, sources, lumaCoverageEvidence = null, downstreamCanary = null }) {
+export function buildReleaseClaims({
+  status,
+  blockers,
+  sources,
+  lumaCoverageEvidence = null,
+  publicWssProofEvidence = null,
+  downstreamCanary = null,
+}) {
   const clockSkewPassed = sourceReport(sources, 'clock_skew')?.clock_skew?.status === 'pass';
   const conflictPassed = sourceReport(sources, 'conflict')?.conflict?.status === 'pass';
-  const prerequisites = releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence });
+  const prerequisites = releaseReadyClaimPrerequisites({ blockers, sources, lumaCoverageEvidence, publicWssProofEvidence });
   const boundedReleaseReadyAllowed = status === 'release_ready' && releaseReadyClaimAllowed(prerequisites);
   const downstreamCanaryStatus = downstreamCanary?.status || 'skipped';
 
@@ -730,15 +870,16 @@ function sourceGatePassedForAggregate(source) {
   return source.status === 'pass' || source.status === 'review_required';
 }
 
-function pickTopology(sources) {
+function pickTopology(sources, publicWssProofEvidence = null) {
   const reports = sources.map((source) => source.report).filter(Boolean);
   const deployed = sources.find((source) => source.id === 'deployed_wss')?.report;
+  const publicWss = publicWssProofEvidence?.report || null;
   const rollback = sources.find((source) => source.id === 'peer_config_rollback')?.report;
   const topology = sources.find((source) => source.id === 'topology')?.report;
   const readRepair = sources.find((source) => source.id === 'read_repair')?.report;
   const soak = sources.find((source) => source.id === 'soak')?.report;
   const signed = sources.find((source) => source.id === 'signed_peer_config')?.report;
-  const topologies = reports.map((report) => report.topology).filter(Boolean);
+  const topologies = [publicWss?.topology, ...reports.map((report) => report.topology)].filter(Boolean);
   return {
     strategy: readRepair?.topology?.strategy || soak?.topology?.strategy || 'explicit_replication',
     selected_strategy: readRepair?.topology?.selected_strategy || soak?.topology?.selected_strategy || 'explicit_read_repair',
@@ -746,7 +887,13 @@ function pickTopology(sources) {
       readRepair?.topology?.selected_strategy_scope ||
       soak?.topology?.selected_strategy_scope ||
       'aggregate of existing synthetic mesh drill proof paths only',
-    deployment_scope: deployed?.run?.deployment_scope || rollback?.run?.deployment_scope || deployed?.topology?.deployment_scope || 'local_tls_wss_profile',
+    deployment_scope:
+      publicWss?.run?.deployment_scope ||
+      publicWss?.topology?.deployment_scope ||
+      deployed?.run?.deployment_scope ||
+      rollback?.run?.deployment_scope ||
+      deployed?.topology?.deployment_scope ||
+      'local_tls_wss_profile',
     configured_peer_count: maxFinite(topologies.map((entry) => entry.configured_peer_count), 3),
     quorum_required: maxFinite(topologies.map((entry) => entry.quorum_required), 2),
     signed_peer_config: topologies.some((entry) => entry.signed_peer_config === true),
@@ -763,25 +910,29 @@ function pickTopology(sources) {
       'skipped',
     peer_config_id:
       rollback?.topology?.peer_config_rollback?.rollback_config_id ||
+      publicWss?.topology?.peer_config_id ||
       deployed?.topology?.peer_config_id ||
       signed?.topology?.peer_config_id ||
       soak?.topology?.peer_config_id ||
       'aggregate',
     peer_config_issued_at:
       rollback?.topology?.peer_config_issued_at ||
+      publicWss?.topology?.peer_config_issued_at ||
       deployed?.topology?.peer_config_issued_at ||
       signed?.topology?.peer_config_issued_at ||
       soak?.topology?.peer_config_issued_at ||
       new Date().toISOString(),
     peer_config_expires_at:
       rollback?.topology?.peer_config_expires_at ||
+      publicWss?.topology?.peer_config_expires_at ||
       deployed?.topology?.peer_config_expires_at ||
       signed?.topology?.peer_config_expires_at ||
       soak?.topology?.peer_config_expires_at ||
       new Date().toISOString(),
-    app_peer_config: rollback?.topology?.app_peer_config || deployed?.topology?.app_peer_config || signed?.topology?.app_peer_config,
-    csp: rollback?.topology?.csp || deployed?.topology?.csp,
+    app_peer_config: publicWss?.topology?.app_peer_config || rollback?.topology?.app_peer_config || deployed?.topology?.app_peer_config || signed?.topology?.app_peer_config,
+    csp: publicWss?.topology?.csp || rollback?.topology?.csp || deployed?.topology?.csp,
     service_worker_peer_config_rollover:
+      publicWss?.topology?.service_worker_peer_config_rollover ||
       rollback?.topology?.service_worker_peer_config_rollover ||
       deployed?.topology?.service_worker_peer_config_rollover,
     peer_config_rollback: rollback?.topology?.peer_config_rollback,
@@ -877,6 +1028,7 @@ function buildManifest({ report, sources, blockers, reportPath }) {
 - LUMA profile: \`${report.luma_profile}\`
 - Report: \`${reportPath}\`
 - LUMA coverage report: \`${report.luma_gated_write_coverage.report_path || 'not provided'}\`
+- Public WSS proof report: \`${report.public_wss_deployment_proof?.report_path || 'not provided'}\`
 
 ## Source Reports
 
@@ -921,7 +1073,43 @@ function writeAggregatePacket({ report, manifest, artifactDir }) {
   return { reportPath, manifestPath, latestReportPath: path.join(latestDir, 'mesh-production-readiness-report.json') };
 }
 
-function buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed, lumaCoverageEvidence = null }) {
+function buildPublicWssDeploymentProofSummary(publicWssProofEvidence = null) {
+  const report = publicWssProofEvidence?.report || null;
+  const proof = report?.public_wss_proof || null;
+  return {
+    command: PUBLIC_WSS_PROOF_COMMAND,
+    report_env: PUBLIC_WSS_PROOF_REPORT_ENV,
+    report_path: publicWssProofEvidence?.report_path || null,
+    provided: Boolean(publicWssProofEvidence?.provided),
+    source_run_id: report?.run_id || null,
+    source_commit: report?.repo?.commit || null,
+    source_dirty: report?.repo?.dirty ?? null,
+    source_status: report?.status || null,
+    deployment_scope: report?.run?.deployment_scope || proof?.deployment_scope || null,
+    public_wss_proof_status: proof?.status || null,
+    expected_peer_count: proof?.expected_peer_count ?? null,
+    expected_config_id: proof?.expected_config_id || null,
+    validation: publicWssProofEvidence?.validation || {
+      ok: false,
+      status: 'blocked',
+      failures: ['public WSS proof evidence was not loaded'],
+    },
+    status: publicWssProofEvidencePassed(publicWssProofEvidence) ? 'pass' : publicWssProofEvidence?.provided ? 'blocked' : 'pending',
+    failures: publicWssProofEvidence?.validation?.failures || [],
+    supporting_evidence: publicWssProofEvidence?.supporting_evidence || null,
+  };
+}
+
+function buildReport({
+  runId,
+  startedAt,
+  completedAt,
+  sources,
+  blockers,
+  commandPassed,
+  lumaCoverageEvidence = null,
+  publicWssProofEvidence = null,
+}) {
   const currentCommit = runGit(['rev-parse', 'HEAD']);
   const dirty = runGit(['status', '--short']).length > 0;
   const sourceReports = sources.map((source) => source.report).filter(Boolean);
@@ -981,7 +1169,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       luma_profile_gates: 'n/a',
     },
     drill_writer_kind_by_class: mergeMaps(sourceReports.map((report) => report.drill_writer_kind_by_class)),
-    topology: pickTopology(sources),
+    topology: pickTopology(sources, publicWssProofEvidence),
     source_reports: sources.map((source) => ({
       id: source.id,
       name: source.name,
@@ -1001,6 +1189,8 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
     release_readiness_blockers: blockers,
     gates: buildGates(sources, blockers),
     soak: soakReport?.soak,
+    public_wss_deployment_proof: buildPublicWssDeploymentProofSummary(publicWssProofEvidence),
+    public_wss_proof: publicWssProofEvidence?.report?.public_wss_proof || sources.find((source) => source.id === 'deployed_wss')?.report?.public_wss_proof || null,
     write_class_slos: writeClassSlos,
     resource_slos: resourceSlos,
     per_relay_readback: perRelayReadback,
@@ -1045,6 +1235,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       blockers,
       sources,
       lumaCoverageEvidence,
+      publicWssProofEvidence,
       downstreamCanary,
     }),
     downstream_canary: downstreamCanary,
@@ -1064,11 +1255,16 @@ async function main() {
     artifactDir,
     lumaCoverageEvidence: loadedLumaCoverageEvidence,
   });
+  const loadedPublicWssProofEvidence = loadPublicWssProofEvidence({ currentCommit, requireClean });
+  const publicWssProofEvidence = persistPublicWssProofEvidenceForPacket({
+    artifactDir,
+    publicWssProofEvidence: loadedPublicWssProofEvidence,
+  });
   const sources = [];
   for (const gate of SOURCE_GATES) {
     sources.push(runSourceGate({ gate, artifactDir, currentCommit, requireClean }));
   }
-  const initialBlockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
+  const initialBlockers = buildReleaseBlockers(sources, { lumaCoverageEvidence, publicWssProofEvidence });
   const lumaCoverageCommandPassed = !lumaCoverageEvidence.provided || lumaCoverageEvidence.validation.ok;
   const initialCommandPassed = sources.every(sourceGatePassedForAggregate) && lumaCoverageCommandPassed;
   const candidateCompletedAt = Date.now();
@@ -1080,6 +1276,7 @@ async function main() {
     blockers: initialBlockers,
     commandPassed: initialCommandPassed,
     lumaCoverageEvidence,
+    publicWssProofEvidence,
   });
   const provisionalReportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
   const candidateManifest = buildManifest({
@@ -1094,10 +1291,19 @@ async function main() {
     sources.push(runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }));
   }
 
-  const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
+  const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence, publicWssProofEvidence });
   const commandPassed = sources.every(sourceGatePassedForAggregate) && lumaCoverageCommandPassed;
   const completedAt = Date.now();
-  const report = buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed, lumaCoverageEvidence });
+  const report = buildReport({
+    runId,
+    startedAt,
+    completedAt,
+    sources,
+    blockers,
+    commandPassed,
+    lumaCoverageEvidence,
+    publicWssProofEvidence,
+  });
   const manifest = buildManifest({ report, sources, blockers, reportPath: provisionalReportPath });
   const paths = writeAggregatePacket({ report, manifest, artifactDir });
 

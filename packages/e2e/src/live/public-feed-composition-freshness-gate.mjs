@@ -96,7 +96,7 @@ function publicRelayPeerOriginsFromEnv(env) {
     .sort();
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json') {
+async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json', restDiagnostics = null) {
   const controller = new AbortController();
   let timeout;
   const timeoutError = new Error(`${label}-timeout:${timeoutMs}`);
@@ -107,6 +107,7 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json')
     }, timeoutMs);
   });
   try {
+    restDiagnostics?.attempt?.(url, label);
     const response = await Promise.race([
       fetch(url, {
         headers: { accept: 'application/json' },
@@ -118,14 +119,28 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json')
       response.text(),
       timeoutPromise,
     ]);
+    restDiagnostics?.response?.({
+      url,
+      label,
+      ok: Boolean(response.ok),
+      status: response.status,
+      contentType: response.headers?.get?.('content-type') ?? null,
+      body: text,
+    });
     if (!response.ok) {
-      throw new Error(`${label}-http-${response.status}:${text.slice(0, 240)}`);
+      const classification = publicFeedBrowserSmokeInternal.classifyPublicHttpFailure(response.status, text);
+      throw new Error(`${label}-http-${response.status}:${classification}:${publicFeedBrowserSmokeInternal.redactDiagnosticExcerpt(text, 240)}`);
     }
     try {
       return JSON.parse(text);
     } catch (error) {
-      throw new Error(`${label}-json-parse:${error instanceof Error ? error.message : String(error)}:${text.slice(0, 240)}`);
+      throw new Error(`${label}-json-parse:${error instanceof Error ? error.message : String(error)}:${publicFeedBrowserSmokeInternal.redactDiagnosticExcerpt(text, 240)}`);
     }
+  } catch (error) {
+    if (!String(error instanceof Error ? error.message : error).includes('-http-')) {
+      restDiagnostics?.networkFailure?.({ url, label, error });
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -135,7 +150,7 @@ function uniqueValues(values = []) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
 }
 
-async function readStoryBodyViaRelayOrigin({ origin, storyId, timeoutMs }) {
+async function readStoryBodyViaRelayOrigin({ origin, storyId, timeoutMs, restDiagnostics = null }) {
   const storyUrl = new URL('/vh/news/story', origin);
   storyUrl.searchParams.set('story_id', storyId);
   try {
@@ -143,6 +158,7 @@ async function readStoryBodyViaRelayOrigin({ origin, storyId, timeoutMs }) {
       storyUrl.href,
       timeoutMs,
       'public-relay-peer-news-story',
+      restDiagnostics,
     );
     const story = payload?.story;
     const matchedStoryId = String(story?.story_id ?? story?.storyId ?? '').trim();
@@ -182,6 +198,7 @@ async function readPublicRelayPeerOriginReadback({
   storySampleLimit,
   timeoutMs,
   requireRelayStateSurface,
+  restDiagnostics = null,
 }) {
   let latestPage;
   const failures = [];
@@ -191,6 +208,7 @@ async function readPublicRelayPeerOriginReadback({
       limit: indexLimit,
       scanLimit,
       timeoutMs,
+      restDiagnostics,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -229,7 +247,7 @@ async function readPublicRelayPeerOriginReadback({
   ]).slice(0, storySampleLimit);
   const storyBodyReadbacks = [];
   for (const storyId of bodySampleStoryIds) {
-    storyBodyReadbacks.push(await readStoryBodyViaRelayOrigin({ origin, storyId, timeoutMs }));
+    storyBodyReadbacks.push(await readStoryBodyViaRelayOrigin({ origin, storyId, timeoutMs, restDiagnostics }));
   }
   const failedBodyReadbacks = storyBodyReadbacks.filter((readback) => readback.status !== 'pass');
   if (failedBodyReadbacks.length > 0) {
@@ -256,6 +274,7 @@ async function readPublicRelayPeerReadbacks({
   indexLimit,
   scanLimit,
   timeoutMs,
+  restDiagnostics = null,
 }) {
   const origins = publicRelayPeerOriginsFromEnv(env);
   const storySampleLimit = parsePositiveInt(
@@ -275,6 +294,7 @@ async function readPublicRelayPeerReadbacks({
       storySampleLimit,
       timeoutMs,
       requireRelayStateSurface,
+      restDiagnostics,
     }));
   }
   const failedOrigins = readbacks.filter((readback) => readback.status !== 'pass');
@@ -443,6 +463,7 @@ async function runPublicFeedCompositionFreshnessGate({
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const summaryPath = path.join(artifactDir, 'public-feed-composition-freshness-summary.json');
   await mkdir(artifactDir, { recursive: true });
+  const restDiagnostics = publicFeedBrowserSmokeInternal.createRestDiagnosticsRecorder();
   const sourceHealthEvidence = await readSourceHealthEvidence(env, repoRoot);
   const requirePublicPeerReadback = boolEnv(
     env.VH_PUBLIC_FEED_REQUIRE_PUBLIC_PEER_READBACK,
@@ -477,6 +498,7 @@ async function runPublicFeedCompositionFreshnessGate({
     topStories: [],
     pagination: null,
     publicPeerReadback: null,
+    restDiagnostics: null,
     sourceHealthEvidence,
   };
 
@@ -486,11 +508,13 @@ async function runPublicFeedCompositionFreshnessGate({
       indexLimit,
       scanLimit: indexLimit,
       timeoutMs,
+      restDiagnostics,
     });
     const paginationReadback = await publicFeedBrowserSmokeInternal.readPublicRelayPaginationReadback({
       baseUrl,
       pageLimit: paginationPageLimit,
       timeoutMs,
+      restDiagnostics,
     }).catch((error) => ({
       status: 'fail',
       failure: error instanceof Error ? error.message : String(error),
@@ -503,6 +527,7 @@ async function runPublicFeedCompositionFreshnessGate({
       indexLimit,
       scanLimit: indexLimit,
       timeoutMs,
+      restDiagnostics,
     });
     Object.assign(summary, {
       counts: {
@@ -532,6 +557,7 @@ async function runPublicFeedCompositionFreshnessGate({
       terminalUnavailableReasonCounts: readback.terminalUnavailableReasonCounts,
       missingAcceptedSynthesisStories: readback.missingAcceptedSynthesisStories,
       pointIdPresence: readback.pointIdPresence,
+      restDiagnostics: restDiagnostics.summary(),
     });
     publicFeedBrowserSmokeInternal.assertPublicRelayAnalysisFrameCoverage(readback, env);
     publicFeedBrowserSmokeInternal.assertPublicRelayPaginationReadback(paginationReadback, env, sourceHealthEvidence);
@@ -550,6 +576,7 @@ async function runPublicFeedCompositionFreshnessGate({
         indexLimit,
         scanLimit: indexLimit,
         timeoutMs,
+        restDiagnostics,
       }).catch((peerReadbackError) => ({
         status: 'fail',
         required: requirePublicPeerReadback,
@@ -564,6 +591,7 @@ async function runPublicFeedCompositionFreshnessGate({
     summary.generatedAt = new Date().toISOString();
     summary.status = classifyPublicFeedCompositionFailure(message, sourceHealthEvidence);
     summary.failure = message;
+    summary.restDiagnostics = restDiagnostics.summary();
     await writeJson(summaryPath, summary);
     await updateLatestSymlink(artifactDir, repoRoot);
     throw new Error(`${summary.status}:${message}`);

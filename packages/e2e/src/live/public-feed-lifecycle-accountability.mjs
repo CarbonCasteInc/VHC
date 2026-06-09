@@ -161,13 +161,34 @@ async function updateLatestSymlink(artifactDir, repoRoot) {
   }
 }
 
-async function fetchJson(url, timeoutMs) {
+async function fetchJson(url, timeoutMs, label = 'public-relay-json', restDiagnostics = null) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`http-${response.status}:${url}`);
-    return await response.json();
+    restDiagnostics?.attempt?.(url, label);
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { accept: 'application/json' },
+    });
+    const text = await response.text();
+    restDiagnostics?.response?.({
+      url,
+      label,
+      ok: Boolean(response.ok),
+      status: response.status,
+      contentType: response.headers?.get?.('content-type') ?? null,
+      body: text,
+    });
+    if (!response.ok) {
+      const classification = publicFeedBrowserSmokeInternal.classifyPublicHttpFailure(response.status, text);
+      throw new Error(`http-${response.status}:${classification}:${url}:${publicFeedBrowserSmokeInternal.redactDiagnosticExcerpt(text, 240)}`);
+    }
+    return JSON.parse(text);
+  } catch (error) {
+    if (!String(error instanceof Error ? error.message : error).startsWith('http-')) {
+      restDiagnostics?.networkFailure?.({ url, label, error });
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -178,10 +199,10 @@ function latestRecordStoryId(key, record) {
   return candidates.map((candidate) => String(candidate ?? '').trim()).find(Boolean) ?? '';
 }
 
-async function readRelayLatest(baseUrl, limit, timeoutMs) {
+async function readRelayLatest(baseUrl, limit, timeoutMs, restDiagnostics = null) {
   const url = new URL('/vh/news/latest-index', normalizeUrl(baseUrl));
   url.searchParams.set('limit', String(limit));
-  const payload = await fetchJson(url.href, timeoutMs);
+  const payload = await fetchJson(url.href, timeoutMs, 'public-feed-lifecycle-latest-index', restDiagnostics);
   const rawRecords = payload?.records && typeof payload.records === 'object'
     ? payload.records
     : payload?.index && typeof payload.index === 'object'
@@ -200,10 +221,10 @@ async function readRelayLatest(baseUrl, limit, timeoutMs) {
   };
 }
 
-async function readRelayHot(baseUrl, limit, timeoutMs) {
+async function readRelayHot(baseUrl, limit, timeoutMs, restDiagnostics = null) {
   const url = new URL('/vh/news/hot-index', normalizeUrl(baseUrl));
   url.searchParams.set('limit', String(limit));
-  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  const payload = await fetchJson(url.href, timeoutMs, 'public-feed-lifecycle-hot-index', restDiagnostics).catch(() => null);
   const rawRecords = payload?.records && typeof payload.records === 'object'
     ? payload.records
     : payload?.index && typeof payload.index === 'object'
@@ -220,10 +241,10 @@ async function readRelayHot(baseUrl, limit, timeoutMs) {
   };
 }
 
-async function readRelayLifecycle(baseUrl, storyId, timeoutMs) {
+async function readRelayLifecycle(baseUrl, storyId, timeoutMs, restDiagnostics = null) {
   const url = new URL('/vh/news/synthesis-lifecycle', normalizeUrl(baseUrl));
   url.searchParams.set('story_id', storyId);
-  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  const payload = await fetchJson(url.href, timeoutMs, 'public-feed-lifecycle-synthesis-lifecycle', restDiagnostics).catch(() => null);
   if (payload?.lifecycle && typeof payload.lifecycle === 'object') {
     return payload.lifecycle;
   }
@@ -233,10 +254,10 @@ async function readRelayLifecycle(baseUrl, storyId, timeoutMs) {
   return null;
 }
 
-async function readRelayTopicSynthesis(baseUrl, topicId, timeoutMs) {
+async function readRelayTopicSynthesis(baseUrl, topicId, timeoutMs, restDiagnostics = null) {
   const url = new URL('/vh/topics/synthesis', normalizeUrl(baseUrl));
   url.searchParams.set('topic_id', topicId);
-  const payload = await fetchJson(url.href, timeoutMs).catch(() => null);
+  const payload = await fetchJson(url.href, timeoutMs, 'public-feed-lifecycle-topic-synthesis', restDiagnostics).catch(() => null);
   if (payload?.synthesis && typeof payload.synthesis === 'object') {
     return payload.synthesis;
   }
@@ -636,6 +657,7 @@ async function runPublicFeedLifecycleAccountability({
   const artifactDir = resolveArtifactDir(env, repoRoot);
   const summaryPath = path.join(artifactDir, 'public-feed-lifecycle-accountability-summary.json');
   await mkdir(artifactDir, { recursive: true });
+  const restDiagnostics = publicFeedBrowserSmokeInternal.createRestDiagnosticsRecorder();
   const sourceHealthEvidence = await readSourceHealthEvidence(env, repoRoot);
 
   let summary = {
@@ -662,6 +684,7 @@ async function runPublicFeedLifecycleAccountability({
     stories: [],
     failures: [],
     publicPeerReadback: null,
+    restDiagnostics: null,
   };
 
   const systemWriterPin = await publicFeedBrowserSmokeInternal.resolveSystemWriterPin({
@@ -682,8 +705,8 @@ async function runPublicFeedLifecycleAccountability({
   try {
     const [rawStoryIds, relayLatest, relayHot] = await Promise.all([
       readRawStoryIds(client, sampleLimit, Math.min(timeoutMs, 5_000)).catch(() => []),
-      readRelayLatest(baseUrl, sampleLimit, timeoutMs),
-      readRelayHot(baseUrl, hotLimit, timeoutMs),
+      readRelayLatest(baseUrl, sampleLimit, timeoutMs, restDiagnostics),
+      readRelayHot(baseUrl, hotLimit, timeoutMs, restDiagnostics),
     ]);
     const latestIndex = latestIndexFromRelayRecords(relayLatest.records);
     const hotIndex = hotIndexFromRelayRecords(relayHot.records);
@@ -705,12 +728,12 @@ async function runPublicFeedLifecycleAccountability({
       const story = relayStory ?? await readNewsStory(client, storyId).catch(() => null);
       const relayState = relayLatest.storyStates?.[storyId] ?? null;
       const lifecycle = lifecycleFromRelayState(story, relayState)
-        ?? (story ? await readRelayLifecycle(baseUrl, storyId, rowTimeoutMs) : null);
+        ?? (story ? await readRelayLifecycle(baseUrl, storyId, rowTimeoutMs, restDiagnostics) : null);
       const synthesis = story?.topic_id && (
         lifecycle?.status === 'accepted_available'
           || relayState?.synthesis_state === 'accepted_synthesis_available'
       )
-        ? await readRelayTopicSynthesis(baseUrl, story.topic_id, rowTimeoutMs)
+        ? await readRelayTopicSynthesis(baseUrl, story.topic_id, rowTimeoutMs, restDiagnostics)
         : null;
       const inLatest = Object.prototype.hasOwnProperty.call(latestIndex, storyId);
       const inHot = Object.prototype.hasOwnProperty.call(hotIndex, storyId)
@@ -939,6 +962,7 @@ async function runPublicFeedLifecycleAccountability({
       },
       stories,
       failures,
+      restDiagnostics: restDiagnostics.summary(),
     };
     await writeJson(summaryPath, summary);
     await updateLatestSymlink(artifactDir, repoRoot);
@@ -957,6 +981,7 @@ async function runPublicFeedLifecycleAccountability({
         indexLimit: sampleLimit,
         scanLimit: sampleLimit,
         timeoutMs,
+        restDiagnostics,
       }).catch((peerReadbackError) => ({
         status: 'fail',
         required: true,
@@ -976,6 +1001,7 @@ async function runPublicFeedLifecycleAccountability({
       generatedAt: new Date().toISOString(),
       status: classifyLifecycleAccountabilityStatus(failures),
       failures,
+      restDiagnostics: restDiagnostics.summary(),
     };
     await writeJson(summaryPath, summary);
     await updateLatestSymlink(artifactDir, repoRoot);

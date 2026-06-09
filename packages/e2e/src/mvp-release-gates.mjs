@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const REPORT_SCHEMA_VERSION = 'mvp-release-gates-report-v1';
 export const VALID_STATUSES = ['pass', 'fail', 'setup_scarcity', 'skipped_not_in_scope'];
+export const DEFAULT_GATE_TIMEOUT_MS = 12 * 60 * 1000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,26 @@ export const PUBLIC_FEED_RELEASE_ENV = [
 function withPublicFeedReleaseEnv(command, extraEnv = []) {
   const [bin, args] = command;
   return ['env', [...PUBLIC_FEED_RELEASE_ENV, ...extraEnv, bin, ...args]];
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function killProcessTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  if (process.platform === 'win32') {
+    child.kill('SIGTERM');
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGTERM');
+  } catch {
+    child.kill('SIGTERM');
+  }
 }
 
 export const GATES = [
@@ -303,6 +324,9 @@ function commandToString(command) {
 
 export function classifyGateFailure(output) {
   const text = String(output ?? '').toLowerCase();
+  if (text.includes('mvp-release-gate-command-timeout')) {
+    return 'fail';
+  }
   if (
     text.includes('eligible_raw_story_hidden_without_allowed_reason') ||
     text.includes('multi_source_raw_story_hidden_by_synthesis_state') ||
@@ -359,15 +383,28 @@ export function classifyGateFailure(output) {
 
 function runCommand(command, options = {}) {
   const echo = options.echo ?? true;
+  const timeoutMs = options.timeoutMs ?? parsePositiveInteger(process.env.VH_MVP_RELEASE_GATE_TIMEOUT_MS, DEFAULT_GATE_TIMEOUT_MS);
   const [bin, args] = command;
   return new Promise((resolve) => {
     const child = spawn(bin, args, {
       cwd: repoRoot,
       env: { ...process.env, CI: process.env.CI ?? 'true' },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     });
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      const message = `[mvp-release-gate-command-timeout] command timed out after ${timeoutMs}ms\n`;
+      stderr += message;
+      if (echo) {
+        process.stderr.write(message);
+      }
+      killProcessTree(child);
+    }, timeoutMs);
+    timer.unref?.();
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
       stdout += text;
@@ -383,10 +420,12 @@ function runCommand(command, options = {}) {
       }
     });
     child.on('error', (error) => {
-      resolve({ exitCode: 127, stdout, stderr: `${stderr}${error.stack ?? error.message}` });
+      clearTimeout(timer);
+      resolve({ exitCode: 127, stdout, stderr: `${stderr}${error.stack ?? error.message}`, timedOut });
     });
     child.on('close', (exitCode) => {
-      resolve({ exitCode: exitCode ?? 1, stdout, stderr });
+      clearTimeout(timer);
+      resolve({ exitCode: timedOut ? 124 : (exitCode ?? 1), stdout, stderr, timedOut });
     });
   });
 }

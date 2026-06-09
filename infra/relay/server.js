@@ -183,6 +183,14 @@ eventLoopDelay.enable();
 
 const httpBuckets = new Map();
 const seenUserNonces = new Map();
+const PUBLIC_HTTP_RELAY_ROUTES = [
+  '/vh/news/latest-index',
+  '/vh/news/hot-index',
+  '/vh/news/story',
+  '/vh/news/synthesis-lifecycle',
+  '/vh/topics/synthesis',
+  '/vh/aggregates/point',
+];
 
 function incMap(map, key, by = 1) {
   map.set(key, (map.get(key) || 0) + by);
@@ -4227,6 +4235,8 @@ const server = http.createServer((req, res) => {
       relay_peers_configured: relayPeers.length > 0,
       relay_peer_auth_mode: relayPeerAuthMode,
       active_connections: metrics.activeConnections,
+      route_surface: 'vh-relay-http-v1',
+      public_http_routes: PUBLIC_HTTP_RELAY_ROUTES,
     });
     return;
   }
@@ -4245,6 +4255,8 @@ const server = http.createServer((req, res) => {
       relay_peers_configured: relayPeers.length > 0,
       relay_peer_auth_mode: relayPeerAuthMode,
       relay_peer_auth_configured: relayPeerAuthMode !== 'none',
+      route_surface: 'vh-relay-http-v1',
+      public_http_routes: PUBLIC_HTTP_RELAY_ROUTES,
     });
     return;
   }
@@ -4301,6 +4313,7 @@ const server = http.createServer((req, res) => {
       .catch((error) => {
         sendJson(res, 502, {
           ok: false,
+          error_class: 'vh-relay-502',
           error: error instanceof Error ? error.message : String(error),
           topic_id: topicId,
         });
@@ -4332,6 +4345,7 @@ const server = http.createServer((req, res) => {
       .catch((error) => {
         sendJson(res, 502, {
           ok: false,
+          error_class: 'vh-relay-502',
           error: error instanceof Error ? error.message : String(error),
           story_id: storyId,
         });
@@ -4382,6 +4396,7 @@ const server = http.createServer((req, res) => {
       .catch((error) => {
         sendJson(res, 502, {
           ok: false,
+          error_class: 'vh-relay-502',
           error: error instanceof Error ? error.message : String(error),
         });
       });
@@ -4410,6 +4425,7 @@ const server = http.createServer((req, res) => {
       .catch((error) => {
         sendJson(res, 502, {
           ok: false,
+          error_class: 'vh-relay-502',
           error: error instanceof Error ? error.message : String(error),
         });
       });
@@ -4449,6 +4465,7 @@ const server = http.createServer((req, res) => {
       .catch((error) => {
         sendJson(res, 502, {
           ok: false,
+          error_class: 'vh-relay-502',
           error: error instanceof Error ? error.message : String(error),
           story_id: storyId,
         });
@@ -4480,6 +4497,7 @@ const server = http.createServer((req, res) => {
         const status = message.includes('required') ? 400 : 502;
         sendJson(res, status, {
           ok: false,
+          ...(status === 502 ? { error_class: 'vh-relay-502' } : {}),
           error: message,
           topic_id: topicId ?? null,
           synthesis_id: synthesisId ?? null,

@@ -712,6 +712,18 @@ export function validateEmbeddedMeshLumaCoverage(meshReport, {
 }
 
 export function meshPublicWssProofStatus(meshReport, { deployedWssSourceReport = null } = {}) {
+  if (
+    meshReport?.public_wss_deployment_proof?.status === 'pass' &&
+    meshReport?.public_wss_deployment_proof?.deployment_scope === 'public_wss_deployment' &&
+    meshReport?.public_wss_deployment_proof?.public_wss_proof_status === 'pass'
+  ) {
+    return {
+      ok: true,
+      status: 'pass',
+      source: 'aggregate_public_wss_deployment_proof',
+      run_id: meshReport.public_wss_deployment_proof.source_run_id || meshReport.run_id || null,
+    };
+  }
   if (meshReport?.public_wss_proof?.status === 'pass') {
     return {
       ok: true,
@@ -733,9 +745,18 @@ export function meshPublicWssProofStatus(meshReport, { deployedWssSourceReport =
   }
   return {
     ok: false,
-    status: meshReport?.public_wss_proof?.status || deployedWssSourceReport?.public_wss_proof?.status || 'missing',
-    source: deployedWssSourceReport ? 'deployed_wss_source_report' : 'missing',
-    run_id: deployedWssSourceReport?.run_id || null,
+    status:
+      meshReport?.public_wss_deployment_proof?.status ||
+      meshReport?.public_wss_proof?.status ||
+      deployedWssSourceReport?.public_wss_proof?.status ||
+      'missing',
+    source:
+      meshReport?.public_wss_deployment_proof
+        ? 'aggregate_public_wss_deployment_proof'
+        : deployedWssSourceReport
+          ? 'deployed_wss_source_report'
+          : 'missing',
+    run_id: meshReport?.public_wss_deployment_proof?.source_run_id || deployedWssSourceReport?.run_id || null,
   };
 }
 

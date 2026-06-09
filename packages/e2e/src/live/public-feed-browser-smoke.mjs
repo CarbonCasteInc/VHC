@@ -31,6 +31,12 @@ const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;
 const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
 const DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+const REST_DIAGNOSTIC_EXCERPT_MAX = 320;
+const SECRET_TEXT_PATTERNS = [
+  /sk-[A-Za-z0-9_*=\\-]{8,}/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /"?(?:api[_-]?key|token|authorization|secret)"?\s*[:=]\s*"[^"]+"/gi,
+];
 
 function normalizeUrl(value) {
   const trimmed = String(value ?? '').trim();
@@ -174,6 +180,42 @@ function publicSmokeBrowserHostnames({ baseUrl, gunPeerUrl, env = process.env })
     .map(normalizePublicHostname)
     .filter((host) => host && !LOCAL_HOSTNAMES.has(host));
   return [...new Set(hosts)].sort();
+}
+
+function normalizeRelayOrigin(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    if (url.protocol === 'wss:') url.protocol = 'https:';
+    if (url.protocol === 'ws:') url.protocol = 'http:';
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    return normalizeUrl(url.origin);
+  } catch {
+    return null;
+  }
+}
+
+function activePublicPeerList({ baseUrl, gunPeerUrl, env = process.env } = {}) {
+  const relayOrigins = [
+    baseUrl,
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS),
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_PUBLIC_RELAY_PEERS),
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_RELAY_ORIGINS),
+    ...parseDelimitedHosts(env.VH_MESH_PUBLIC_RELAY_ORIGINS),
+    gunPeerUrl,
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_PUBLIC_WSS_PEERS),
+    ...parseDelimitedHosts(env.VH_MESH_PUBLIC_WSS_PEERS),
+  ].map(normalizeRelayOrigin).filter(Boolean);
+  const wssPeers = [
+    gunPeerUrl,
+    ...parseDelimitedHosts(env.VH_PUBLIC_FEED_PUBLIC_WSS_PEERS),
+    ...parseDelimitedHosts(env.VH_MESH_PUBLIC_WSS_PEERS),
+  ].map(normalizeGunPeer).filter(Boolean);
+  return {
+    relayOrigins: [...new Set(relayOrigins)].sort(),
+    wssPeers: [...new Set(wssPeers)].sort(),
+  };
 }
 
 async function buildChromiumHostResolverRules(hostnames, lookupImpl = dnsLookup) {
@@ -393,17 +435,47 @@ async function fetchDeployedSystemWriterPin(baseUrl, fetchImpl = fetch) {
 }
 
 async function resolveSystemWriterPin({ repoRoot = DEFAULT_REPO_ROOT, env = process.env, baseUrl, progress = () => {} } = {}) {
+  return (await resolveSystemWriterPinEvidence({ repoRoot, env, baseUrl, progress })).pin;
+}
+
+function summarizeSystemWriterPin(pin, source) {
+  const writers = Array.isArray(pin?.writers) ? pin.writers : [];
+  return {
+    source,
+    pinVersion: pin?.pinVersion ?? null,
+    schemaEpoch: pin?.schemaEpoch ?? null,
+    maxProtocolVersion: pin?.maxProtocolVersion ?? null,
+    signatureSuite: pin?.signatureSuite ?? null,
+    writerCount: writers.length,
+    activeWriterIds: writers
+      .filter((writer) => writer?.status === 'active')
+      .map((writer) => writer.id)
+      .filter(Boolean),
+    retiredWriterIds: writers
+      .filter((writer) => writer?.status === 'retired')
+      .map((writer) => writer.id)
+      .filter(Boolean),
+  };
+}
+
+async function resolveSystemWriterPinEvidence({ repoRoot = DEFAULT_REPO_ROOT, env = process.env, baseUrl, progress = () => {} } = {}) {
   const explicit = loadExplicitSystemWriterPin(env);
   if (explicit) {
     progress('system-writer-pin-source', { source: 'env' });
-    return explicit;
+    return {
+      pin: explicit,
+      evidence: summarizeSystemWriterPin(explicit, 'env'),
+    };
   }
   if (baseUrl) {
     try {
       const deployed = await fetchDeployedSystemWriterPin(baseUrl);
       if (deployed) {
         progress('system-writer-pin-source', { source: 'deployed-app' });
-        return deployed;
+        return {
+          pin: deployed,
+          evidence: summarizeSystemWriterPin(deployed, 'deployed-app'),
+        };
       }
     } catch (error) {
       progress('system-writer-pin-deployed-app-unavailable', {
@@ -414,15 +486,104 @@ async function resolveSystemWriterPin({ repoRoot = DEFAULT_REPO_ROOT, env = proc
   const repoPin = loadRepoSystemWriterPin(repoRoot);
   if (repoPin) {
     progress('system-writer-pin-source', { source: 'repo-public-pin' });
-    return repoPin;
+    return {
+      pin: repoPin,
+      evidence: summarizeSystemWriterPin(repoPin, 'repo-public-pin'),
+    };
   }
   progress('system-writer-pin-source', { source: 'e2e-fixture' });
-  return loadFixtureSystemWriterPin(repoRoot);
+  const fixturePin = loadFixtureSystemWriterPin(repoRoot);
+  return {
+    pin: fixturePin,
+    evidence: summarizeSystemWriterPin(fixturePin, 'e2e-fixture'),
+  };
 }
 
 function trimText(value, max = 240) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+}
+
+function redactDiagnosticExcerpt(value, max = REST_DIAGNOSTIC_EXCERPT_MAX) {
+  const compact = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const redacted = SECRET_TEXT_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, (match) => {
+      if (match.toLowerCase().startsWith('bearer ')) return 'Bearer [REDACTED]';
+      const [name] = match.split(/[:=]/);
+      return `${name ?? 'secret'}:"[REDACTED]"`;
+    }),
+    compact,
+  );
+  return redacted.length > max ? `${redacted.slice(0, Math.max(0, max - 1))}...` : redacted;
+}
+
+function classifyPublicHttpFailure(status, body) {
+  const lower = String(body ?? '').toLowerCase();
+  if (
+    Number(status) === 530 &&
+    (lower.includes('error 1033') || lower.includes('cloudflare tunnel') || lower.includes('cloudflare'))
+  ) {
+    return 'cloudflare-1033';
+  }
+  if (Number(status) === 502) return 'vh-relay-502';
+  return `http-${status}`;
+}
+
+function classifyNetworkFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/abort|timeout/i.test(message)) return 'timeout';
+  if (/fetch failed|getaddrinfo|econnrefused|enotfound|network/i.test(message)) return 'network';
+  return 'error';
+}
+
+function createRestDiagnosticsRecorder() {
+  const attempted = [];
+  const httpStatusCounts = {};
+  const nonOkResponses = [];
+  const networkFailures = [];
+  return {
+    attempt(url, label) {
+      attempted.push({ url, label });
+    },
+    response({ url, label, ok, status, contentType, body }) {
+      if (Number.isFinite(Number(status))) {
+        const key = String(status);
+        httpStatusCounts[key] = (httpStatusCounts[key] ?? 0) + 1;
+      }
+      if (!ok) {
+        nonOkResponses.push({
+          url,
+          label,
+          ok: false,
+          status: Number.isFinite(Number(status)) ? Number(status) : null,
+          classification: classifyPublicHttpFailure(status, body),
+          contentType: contentType ?? null,
+          bodyExcerpt: redactDiagnosticExcerpt(body),
+        });
+      }
+    },
+    networkFailure({ url, label, error }) {
+      networkFailures.push({
+        url,
+        label,
+        ok: false,
+        status: null,
+        classification: classifyNetworkFailure(error),
+        error: redactDiagnosticExcerpt(error instanceof Error ? error.message : String(error)),
+      });
+    },
+    summary() {
+      return {
+        endpointsAttempted: [...new Set(attempted.map((entry) => entry.url))],
+        attempts: attempted,
+        httpStatusCounts,
+        nonOkResponses,
+        networkFailures,
+        cloudflare1033Count: nonOkResponses.filter((entry) => entry.classification === 'cloudflare-1033').length,
+        vhRelay502Count: nonOkResponses.filter((entry) => entry.classification === 'vh-relay-502').length,
+      };
+    },
+  };
 }
 
 function formatError(error) {
@@ -489,6 +650,29 @@ async function withTimeout(label, promise, timeoutMs) {
   }
 }
 
+function createSystemWriterValidationFailureCapture() {
+  const counts = {};
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    try {
+      if (args[0] === '[vh:news] system-writer-validation-failed') {
+        const detail = args.find((arg) => arg && typeof arg === 'object' && arg.event === 'system-writer-validation-failed')
+          ?? args.find((arg) => arg && typeof arg === 'object' && arg.reason);
+        const reason = String(detail?.reason || 'unknown');
+        counts[reason] = (counts[reason] ?? 0) + 1;
+      }
+    } finally {
+      originalWarn(...args);
+    }
+  };
+  return {
+    counts: () => ({ ...counts }),
+    restore: () => {
+      console.warn = originalWarn;
+    },
+  };
+}
+
 async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemWriterPin }) {
   const client = createClient({
     peers: [gunPeerUrl],
@@ -498,6 +682,16 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
     systemWriterPin,
   });
   client.markSessionReady();
+  const validationFailures = createSystemWriterValidationFailureCapture();
+  let lastDiagnostics = {
+    latestIndexCount: 0,
+    directGunLatestIndexCount: null,
+    directGunStoryBodyReadbackCount: 0,
+    embeddedRelayStoryBodyReadbackCount: 0,
+    storyReadbackCount: 0,
+    relayRestDiagnostics: null,
+    systemWriterValidationFailureCounts: {},
+  };
   try {
     const indexReadTimeoutMs = Math.min(60_000, Math.max(10_000, Math.floor(timeoutMs * 0.75)));
     const storyReadTimeoutMs = Math.min(20_000, Math.max(3_000, Math.floor(timeoutMs / 6)));
@@ -513,12 +707,25 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
       const entries = Object.entries(latestIndex)
         .filter(([, timestamp]) => Number.isFinite(timestamp))
         .sort((left, right) => right[1] - left[1]);
+      lastDiagnostics = {
+        ...lastDiagnostics,
+        latestIndexCount: entries.length,
+        directGunLatestIndexCount: Number.isFinite(latestPage.directGunLatestIndexCount)
+          ? latestPage.directGunLatestIndexCount
+          : null,
+        relayRestDiagnostics: latestPage.relayRestDiagnostics ?? null,
+        systemWriterValidationFailureCounts: validationFailures.counts(),
+      };
       if (entries.length < minHeadlines) return null;
       const stories = [];
+      let directGunStoryBodyReadbackCount = 0;
+      let embeddedRelayStoryBodyReadbackCount = 0;
       for (const [storyId, updatedAt] of entries.slice(0, Math.max(minHeadlines, DEFAULT_GUN_READBACK_STORY_LIMIT))) {
         const embeddedStory = latestPage.stories?.[storyId] ?? null;
         const story = embeddedStory ?? await withTimeout('gun-story-read', readNewsStory(client, storyId), storyReadTimeoutMs);
         if (story) {
+          if (embeddedStory) embeddedRelayStoryBodyReadbackCount += 1;
+          else directGunStoryBodyReadbackCount += 1;
           const synthesis = story.topic_id
             ? await withTimeout(
               'gun-topic-synthesis-read',
@@ -551,14 +758,35 @@ async function readGunLatestProof({ gunPeerUrl, minHeadlines, timeoutMs, systemW
           });
         }
       }
+      lastDiagnostics = {
+        ...lastDiagnostics,
+        storyReadbackCount: stories.length,
+        directGunStoryBodyReadbackCount,
+        embeddedRelayStoryBodyReadbackCount,
+        systemWriterValidationFailureCounts: validationFailures.counts(),
+      };
       if (stories.length < minHeadlines) return null;
       return {
         latestIndexCount: entries.length,
+        directGunLatestIndexCount: lastDiagnostics.directGunLatestIndexCount,
         storyReadbackCount: stories.length,
+        directGunStoryBodyReadbackCount,
+        embeddedRelayStoryBodyReadbackCount,
+        relayRestDiagnostics: latestPage.relayRestDiagnostics ?? null,
+        systemWriterValidationFailureCounts: validationFailures.counts(),
         topStories: stories,
       };
     }, { timeoutMs, intervalMs: 2_000 });
+  } catch (error) {
+    if (error && typeof error === 'object') {
+      error.gunReadbackDiagnostics = {
+        ...lastDiagnostics,
+        systemWriterValidationFailureCounts: validationFailures.counts(),
+      };
+    }
+    throw error;
   } finally {
+    validationFailures.restore();
     await Promise.race([
       client.shutdown(),
       new Promise((resolve) => setTimeout(resolve, 1_000)),
@@ -603,7 +831,7 @@ function storySourceLabels(story) {
   return sources.map(sourceLabel).filter(Boolean);
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json') {
+async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json', restDiagnostics = null) {
   const controller = new AbortController();
   let timeout;
   const timeoutError = new Error(`${label}-timeout:${timeoutMs}`);
@@ -614,6 +842,7 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json')
     }, timeoutMs);
   });
   try {
+    restDiagnostics?.attempt?.(url, label);
     const response = await Promise.race([
       fetch(url, {
         headers: { accept: 'application/json' },
@@ -625,14 +854,44 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json')
       response.text(),
       timeoutPromise,
     ]);
+    restDiagnostics?.response?.({
+      url,
+      label,
+      ok: Boolean(response.ok),
+      status: response.status,
+      contentType: response.headers?.get?.('content-type') ?? null,
+      body: text,
+    });
     if (!response.ok) {
-      throw new Error(`${label}-http-${response.status}:${text.slice(0, 240)}`);
+      const classification = classifyPublicHttpFailure(response.status, text);
+      const error = new Error(`${label}-http-${response.status}:${classification}:${redactDiagnosticExcerpt(text, 240)}`);
+      error.diagnostic = {
+        url,
+        label,
+        status: response.status,
+        classification,
+        bodyExcerpt: redactDiagnosticExcerpt(text),
+      };
+      throw error;
     }
     try {
       return JSON.parse(text);
     } catch (error) {
-      throw new Error(`${label}-json-parse:${error instanceof Error ? error.message : String(error)}:${text.slice(0, 240)}`);
+      const parseError = new Error(`${label}-json-parse:${error instanceof Error ? error.message : String(error)}:${redactDiagnosticExcerpt(text, 240)}`);
+      parseError.diagnostic = {
+        url,
+        label,
+        status: response.status,
+        classification: 'json-parse',
+        bodyExcerpt: redactDiagnosticExcerpt(text),
+      };
+      throw parseError;
     }
+  } catch (error) {
+    if (!error?.diagnostic) {
+      restDiagnostics?.networkFailure?.({ url, label, error });
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -665,6 +924,7 @@ async function readPublicPointAggregateViaOrigin({
   epoch,
   pointId,
   timeoutMs = 15_000,
+  restDiagnostics = null,
 }) {
   if (!baseUrl) return null;
   const url = new URL('/vh/aggregates/point', normalizeUrl(baseUrl));
@@ -672,7 +932,7 @@ async function readPublicPointAggregateViaOrigin({
   url.searchParams.set('synthesis_id', synthesisId);
   url.searchParams.set('epoch', String(epoch));
   url.searchParams.set('point_id', pointId);
-  const payload = await fetchJsonWithTimeout(url.href, timeoutMs, 'public-origin-point-aggregate');
+  const payload = await fetchJsonWithTimeout(url.href, timeoutMs, 'public-origin-point-aggregate', restDiagnostics);
   if (payload?.ok !== true) return null;
   return parsePublicPointAggregatePayload(payload, pointId);
 }
@@ -772,6 +1032,7 @@ async function readPublicRelayLatestIndexPage({
   before,
   scanLimit,
   timeoutMs = 15_000,
+  restDiagnostics = null,
 } = {}) {
   const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
   const indexUrl = new URL('/vh/news/latest-index', root);
@@ -782,7 +1043,12 @@ async function readPublicRelayLatestIndexPage({
   if (Number.isFinite(scanLimit) && scanLimit > 0) {
     indexUrl.searchParams.set('scan_limit', String(Math.floor(scanLimit)));
   }
-  const payload = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index-page');
+  const payload = await fetchJsonWithTimeout(
+    indexUrl.href,
+    timeoutMs,
+    'public-relay-latest-index-page',
+    restDiagnostics,
+  );
   const entries = latestIndexRecordsFromPayload(payload);
   const compositionBackfillRecords = compositionBackfillRecordsFromPayload(payload);
   const backfillStoryIds = backfillStoryIdsFromPayload(payload);
@@ -811,6 +1077,7 @@ async function readPublicRelayPaginationReadback({
   baseUrl,
   pageLimit = 6,
   timeoutMs = 15_000,
+  restDiagnostics = null,
 } = {}) {
   const normalizedPageLimit = parsePositiveInt(pageLimit, 6);
   const scanLimit = Math.max(normalizedPageLimit * 4, normalizedPageLimit);
@@ -819,6 +1086,7 @@ async function readPublicRelayPaginationReadback({
     limit: normalizedPageLimit,
     scanLimit,
     timeoutMs,
+    restDiagnostics,
   });
   if (firstPage.recordCount === 0) {
     return {
@@ -848,6 +1116,7 @@ async function readPublicRelayPaginationReadback({
     before: firstPage.nextCursor,
     scanLimit,
     timeoutMs,
+    restDiagnostics,
   });
   const firstStoryIds = new Set(firstPage.storyIds);
   const overlapStoryIds = secondPage.storyIds.filter((storyId) => firstStoryIds.has(storyId));
@@ -1003,13 +1272,18 @@ function classifySourceFilterStatus(source) {
   return 'unknown';
 }
 
-async function readArticleTextSampleStatus({ root, story, timeoutMs }) {
+async function readArticleTextSampleStatus({ root, story, timeoutMs, restDiagnostics = null }) {
   const firstUrl = storySources(story).map(sourceUrl).find(Boolean);
   if (!firstUrl) return 'no_source_url';
   const articleUrl = new URL('/article-text', root);
   articleUrl.searchParams.set('url', firstUrl);
   try {
-    const payload = await fetchJsonWithTimeout(articleUrl.href, timeoutMs, 'public-relay-article-text');
+    const payload = await fetchJsonWithTimeout(
+      articleUrl.href,
+      timeoutMs,
+      'public-relay-article-text',
+      restDiagnostics,
+    );
     const text = String(payload?.text || payload?.article_text || '').trim();
     return text ? '200_text' : '200_empty';
   } catch (error) {
@@ -1037,11 +1311,12 @@ async function readPublicRelaySynthesisCandidates({
   indexLimit = DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT,
   scanLimit = indexLimit,
   timeoutMs = 15_000,
+  restDiagnostics = null,
 } = {}) {
   const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
   const indexUrl = new URL('/vh/news/latest-index', root);
   indexUrl.searchParams.set('limit', String(indexLimit));
-  const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index');
+  const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index', restDiagnostics);
   const storyStates = index?.story_states && typeof index.story_states === 'object'
     ? index.story_states
     : {};
@@ -1129,7 +1404,12 @@ async function readPublicRelaySynthesisCandidates({
       storyUrl.searchParams.set('story_id', storyId);
       let storyPayload = null;
       try {
-        storyPayload = await fetchJsonWithTimeout(storyUrl.href, timeoutMs, 'public-relay-news-story');
+        storyPayload = await fetchJsonWithTimeout(
+          storyUrl.href,
+          timeoutMs,
+          'public-relay-news-story',
+          restDiagnostics,
+        );
         result.storyBodyStatus = '200';
         result.storyReadback = true;
       } catch (error) {
@@ -1167,6 +1447,7 @@ async function readPublicRelaySynthesisCandidates({
           synthesisUrl.href,
           timeoutMs,
           'public-relay-topic-synthesis',
+          restDiagnostics,
         );
         result.synthesisStatus = '200';
       } catch (error) {
@@ -1196,7 +1477,7 @@ async function readPublicRelaySynthesisCandidates({
         ].includes(relaySynthesisState);
         result.articleTextStatus = honestNonAcceptedState
           ? `not_checked_${relaySynthesisState}`
-          : await readArticleTextSampleStatus({ root, story, timeoutMs });
+          : await readArticleTextSampleStatus({ root, story, timeoutMs, restDiagnostics });
         const terminalReason = durableTerminalUnavailableReason(relayStoryState, storyPayload, record, story, synthesisPayload);
         result.terminalReason = terminalReason;
         if (
@@ -1320,6 +1601,7 @@ async function readPublicRelaySynthesisCandidates({
     storyReadbackCount,
     acceptedSynthesisStoryCount: topStories.length,
     topStories,
+    restDiagnostics: restDiagnostics?.summary?.() ?? null,
   };
 }
 
@@ -2691,6 +2973,8 @@ async function runPublicFeedBrowserSmoke({
   };
   const summaryPath = path.join(artifactDir, 'public-feed-browser-smoke-summary.json');
   const logsPath = path.join(artifactDir, 'public-feed-browser-smoke-browser-logs.json');
+  const activePublicPeers = activePublicPeerList({ baseUrl, gunPeerUrl, env });
+  const publicRelayRestDiagnostics = createRestDiagnosticsRecorder();
   const screenshots = {
     initialFeed: path.join(artifactDir, '01-feed-initial.png'),
     afterRefresh: path.join(artifactDir, '02-feed-after-refresh.png'),
@@ -2721,26 +3005,36 @@ async function runPublicFeedBrowserSmoke({
       requireSecondBrowserVote,
       requireAcceptedSynthesis,
       secondBrowserVoteVisibilityTimeoutMs,
+      activePublicPeers,
     },
     status: 'fail',
     checks: {},
   };
+  let systemWriterPinEvidence = null;
 
   try {
+    const systemWriterPinResolution = await resolveSystemWriterPinEvidence({ repoRoot, env, baseUrl, progress });
+    systemWriterPinEvidence = systemWriterPinResolution.evidence;
     const gunReadback = await readGunLatestProof({
       gunPeerUrl,
       minHeadlines,
       timeoutMs: readyTimeoutMs,
-      systemWriterPin: await resolveSystemWriterPin({ repoRoot, env, baseUrl, progress }),
+      systemWriterPin: systemWriterPinResolution.pin,
     });
     const publicRelaySynthesisReadback = await readPublicRelaySynthesisCandidates({
       baseUrl,
       timeoutMs: publicRelayReadbackTimeoutMs,
+      restDiagnostics: publicRelayRestDiagnostics,
     }).catch((error) => {
       progress('public-relay-synthesis-readback-unavailable', {
         error: error instanceof Error ? error.message : String(error),
       });
-      return { latestIndexCount: 0, storyReadbackCount: 0, topStories: [] };
+      return {
+        latestIndexCount: 0,
+        storyReadbackCount: 0,
+        topStories: [],
+        restDiagnostics: publicRelayRestDiagnostics.summary(),
+      };
     });
     progress('public-relay-synthesis-readback', {
       latestIndexCount: publicRelaySynthesisReadback.latestIndexCount,
@@ -2771,6 +3065,7 @@ async function runPublicFeedBrowserSmoke({
       baseUrl,
       pageLimit: parsePositiveInt(env.VH_PUBLIC_FEED_PAGINATION_PAGE_LIMIT, 6),
       timeoutMs: publicRelayReadbackTimeoutMs,
+      restDiagnostics: publicRelayRestDiagnostics,
     }).catch((error) => ({
       status: 'fail',
       failure: error instanceof Error ? error.message : String(error),
@@ -2784,6 +3079,8 @@ async function runPublicFeedBrowserSmoke({
         publicRelaySynthesisReadback,
         publicRelayAnalysisFrameCoverage,
         publicRelayPaginationReadback,
+        publicRelayRestDiagnostics: publicRelayRestDiagnostics.summary(),
+        deployedSystemWriterPin: systemWriterPinResolution.evidence,
       },
     };
     browser = await launchBrowserFn();
@@ -3044,6 +3341,8 @@ async function runPublicFeedBrowserSmoke({
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
+        publicRelayRestDiagnostics: publicRelayRestDiagnostics.summary(),
+        deployedSystemWriterPin: systemWriterPinResolution.evidence,
         identityCreation: identity,
         currentPublicHeadlinesVisible: {
           count: initialCards.length,
@@ -3091,6 +3390,14 @@ async function runPublicFeedBrowserSmoke({
       browserLogDiagnostics: summarizeBrowserLogDiagnostics(logs),
       errorMessage: error instanceof Error ? error.message : String(error),
       errorStack: formatError(error),
+      checks: {
+        ...summary.checks,
+        ...(error?.gunReadbackDiagnostics
+          ? { daemonGunLatestIndexReadback: error.gunReadbackDiagnostics }
+          : {}),
+        publicRelayRestDiagnostics: publicRelayRestDiagnostics.summary(),
+        ...(systemWriterPinEvidence ? { deployedSystemWriterPin: systemWriterPinEvidence } : {}),
+      },
     };
   } finally {
     await context?.close().catch(() => {});
@@ -3132,6 +3439,7 @@ export const publicFeedBrowserSmokeInternal = {
   minimumPublicAgreeAfterVote,
   publicAgreeVoterRowsAfterVote,
   publicSmokeBrowserHostnames,
+  activePublicPeerList,
   firstVisibleLocator,
   parseSynthesisIdFromPointId,
   parsePositiveInt,
@@ -3153,6 +3461,7 @@ export const publicFeedBrowserSmokeInternal = {
   gotoFeedInitialOpen,
   resolveArtifactDir,
   resolveSystemWriterPin,
+  resolveSystemWriterPinEvidence,
   isAcceptedSynthesisText,
   acceptedSynthesisCurrentForStory,
   readVisibleNonAcceptedSynthesisState,
@@ -3165,6 +3474,9 @@ export const publicFeedBrowserSmokeInternal = {
   readPublicRelayPaginationReadback,
   assertPublicRelayPaginationReadback,
   readPublicRelaySynthesisCandidates,
+  createRestDiagnosticsRecorder,
+  classifyPublicHttpFailure,
+  redactDiagnosticExcerpt,
   assertPublicRelayAnalysisFrameCoverage,
   capturePublicRelayAnalysisFrameCoverage,
   storyThreadVisibilityTimeoutMs,

@@ -268,7 +268,7 @@ describe('public feed lifecycle accountability helpers', () => {
       expect(summary.config.baseUrl).toBe('https://venn.carboncaste.io/');
       expect(summary.failures).toEqual([expect.objectContaining({
         code: 'public_feed_lifecycle_readback_failed',
-        error: expect.stringContaining('http-530:https://venn.carboncaste.io/vh/news/latest-index?limit=120'),
+        error: expect.stringContaining('http-530:cloudflare-1033:https://venn.carboncaste.io/vh/news/latest-index?limit=120'),
       })]);
       expect(summary.publicPeerReadback).toMatchObject({
         status: 'fail',

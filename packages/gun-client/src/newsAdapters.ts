@@ -29,10 +29,30 @@ export interface NewsLatestIndexPage {
   readonly composition?: unknown;
   readonly stories?: Record<string, StoryBundle>;
   readonly storyStates?: Record<string, Record<string, unknown>>;
+  readonly relayRestDiagnostics?: RelayRestReadDiagnostics;
+  readonly directGunLatestIndexCount?: number;
 }
 export interface NewsLatestIndexReadOptions {
   readonly limit?: number;
   readonly before?: number;
+}
+export interface RelayRestEndpointDiagnostic {
+  readonly endpoint: string;
+  readonly ok: boolean;
+  readonly status: number | null;
+  readonly classification: string;
+  readonly contentType?: string | null;
+  readonly bodyExcerpt?: string;
+  readonly error?: string;
+}
+export interface RelayRestReadDiagnostics {
+  readonly endpointsAttempted: string[];
+  readonly httpStatusCounts: Record<string, number>;
+  readonly successCount: number;
+  readonly nonOkResponses: RelayRestEndpointDiagnostic[];
+  readonly networkFailures: RelayRestEndpointDiagnostic[];
+  readonly cloudflare1033Count: number;
+  readonly vhRelay502Count: number;
 }
 export interface NewsHotIndexReadOptions {
   readonly limit?: number;
@@ -143,6 +163,12 @@ const RELAY_REST_INDEX_LIMIT = readGunTimeoutMs(
   4,
 );
 const ROOT_INDEX_SETTLE_MS = 150;
+const REST_DIAGNOSTIC_EXCERPT_MAX = 320;
+const SECRET_TEXT_PATTERNS = [
+  /sk-[A-Za-z0-9_*=\\-]{8,}/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
+  /"?(?:api[_-]?key|token|authorization|secret)"?\s*[:=]\s*"[^"]+"/gi,
+] as const;
 
 function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_INDEX_LIMIT): number {
   const parsed = Number(limit);
@@ -168,6 +194,113 @@ function filterLatestIndexWindow(
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, limit);
   return Object.fromEntries(entries);
+}
+
+function redactRelayRestExcerpt(value: string): string {
+  const compact = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const redacted = SECRET_TEXT_PATTERNS.reduce(
+    (text, pattern) => text.replace(pattern, (match) => {
+      if (match.toLowerCase().startsWith('bearer ')) {
+        return 'Bearer [REDACTED]';
+      }
+      const [name] = match.split(/[:=]/);
+      return `${name ?? 'secret'}:"[REDACTED]"`;
+    }),
+    compact,
+  );
+  return redacted.length > REST_DIAGNOSTIC_EXCERPT_MAX
+    ? `${redacted.slice(0, REST_DIAGNOSTIC_EXCERPT_MAX - 1)}...`
+    : redacted;
+}
+
+function classifyRelayRestHttpFailure(status: number, body: string): string {
+  const lower = String(body ?? '').toLowerCase();
+  if (
+    status === 530 &&
+    (lower.includes('error 1033') || lower.includes('cloudflare tunnel') || lower.includes('cloudflare'))
+  ) {
+    return 'cloudflare-1033';
+  }
+  if (status === 502) {
+    return 'vh-relay-502';
+  }
+  return `http-${status}`;
+}
+
+function relayRestNetworkClassification(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/abort|timeout/i.test(message)) return 'timeout';
+  if (/fetch failed|getaddrinfo|econnrefused|enotfound|network/i.test(message)) return 'network';
+  return 'error';
+}
+
+function createRelayRestReadDiagnostics(endpoints: readonly string[]): RelayRestReadDiagnostics {
+  return {
+    endpointsAttempted: [...endpoints],
+    httpStatusCounts: {},
+    successCount: 0,
+    nonOkResponses: [],
+    networkFailures: [],
+    cloudflare1033Count: 0,
+    vhRelay502Count: 0,
+  };
+}
+
+function incrementRelayRestStatus(diagnostics: RelayRestReadDiagnostics, status: number): void {
+  const key = String(status);
+  diagnostics.httpStatusCounts[key] = (diagnostics.httpStatusCounts[key] ?? 0) + 1;
+}
+
+function recordRelayRestSuccess(diagnostics: RelayRestReadDiagnostics, status: number): void {
+  incrementRelayRestStatus(diagnostics, status);
+  (diagnostics as { successCount: number }).successCount += 1;
+}
+
+function recordRelayRestNonOk(
+  diagnostics: RelayRestReadDiagnostics,
+  {
+    endpoint,
+    status,
+    contentType,
+    body,
+  }: {
+    readonly endpoint: string;
+    readonly status: number;
+    readonly contentType: string | null;
+    readonly body: string;
+  },
+): void {
+  incrementRelayRestStatus(diagnostics, status);
+  const classification = classifyRelayRestHttpFailure(status, body);
+  if (classification === 'cloudflare-1033') {
+    (diagnostics as { cloudflare1033Count: number }).cloudflare1033Count += 1;
+  }
+  if (classification === 'vh-relay-502') {
+    (diagnostics as { vhRelay502Count: number }).vhRelay502Count += 1;
+  }
+  diagnostics.nonOkResponses.push({
+    endpoint,
+    ok: false,
+    status,
+    classification,
+    contentType,
+    bodyExcerpt: redactRelayRestExcerpt(body),
+  });
+}
+
+function recordRelayRestNetworkFailure(
+  diagnostics: RelayRestReadDiagnostics,
+  endpoint: string,
+  error: unknown,
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  diagnostics.networkFailures.push({
+    endpoint,
+    ok: false,
+    status: null,
+    classification: relayRestNetworkClassification(error),
+    error: redactRelayRestExcerpt(message),
+  });
 }
 
 function latestIndexWindowNextCursor(index: NewsLatestIndex): number | null {
@@ -2275,7 +2408,12 @@ export async function readNewsLatestIndexPageViaRelayRest(
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndexPage> {
   if (typeof fetch !== 'function') {
-    return { index: {}, nextCursor: null, recordCount: 0 };
+    return {
+      index: {},
+      nextCursor: null,
+      recordCount: 0,
+      relayRestDiagnostics: createRelayRestReadDiagnostics([]),
+    };
   }
   const limit = normalizeLatestIndexReadLimit(options.limit);
   const before = normalizeLatestIndexBeforeCursor(options.before);
@@ -2287,8 +2425,9 @@ export async function readNewsLatestIndexPageViaRelayRest(
     client,
     `/vh/news/latest-index?${query.toString()}`,
   );
+  const relayRestDiagnostics = createRelayRestReadDiagnostics(endpoints);
   if (endpoints.length === 0) {
-    return { index: {}, nextCursor: null, recordCount: 0 };
+    return { index: {}, nextCursor: null, recordCount: 0, relayRestDiagnostics };
   }
 
   const index: NewsLatestIndex = {};
@@ -2307,8 +2446,16 @@ export async function readNewsLatestIndexPageViaRelayRest(
         signal: controller.signal,
       });
       if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        recordRelayRestNonOk(relayRestDiagnostics, {
+          endpoint,
+          status: response.status,
+          contentType: response.headers?.get?.('content-type') ?? null,
+          body,
+        });
         return null;
       }
+      recordRelayRestSuccess(relayRestDiagnostics, response.status);
       return await response.json() as {
         records?: unknown;
         index?: unknown;
@@ -2319,7 +2466,8 @@ export async function readNewsLatestIndexPageViaRelayRest(
         stories?: unknown;
         story_states?: unknown;
       };
-    } catch {
+    } catch (error) {
+      recordRelayRestNetworkFailure(relayRestDiagnostics, endpoint, error);
       return null;
     /* v8 ignore next -- cleanup-only finally branch is outcome-neutral and covered through success/failure calls. */
     } finally {
@@ -2403,6 +2551,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
     index,
     nextCursor: nextCursor ?? latestIndexWindowNextCursor(index),
     recordCount: Object.keys(index).length,
+    relayRestDiagnostics,
     ...(sourceKeyCount === undefined ? {} : { sourceKeyCount }),
     ...(composition === undefined ? {} : { composition }),
     ...(Object.keys(stories).length === 0 ? {} : { stories }),
@@ -2439,6 +2588,8 @@ export async function readNewsLatestIndexPageWithRelayRestFallback(
     index,
     nextCursor: latestIndexWindowNextCursor(index),
     recordCount: Object.keys(index).length,
+    directGunLatestIndexCount: Object.keys(index).length,
+    ...(relayed?.relayRestDiagnostics ? { relayRestDiagnostics: relayed.relayRestDiagnostics } : {}),
   };
 }
 
