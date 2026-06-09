@@ -42,6 +42,7 @@ import {
   readNewsIngestionLease,
   readNewsLatestIndex,
   readNewsLatestIndexPageViaRelayRest,
+  readNewsLatestIndexPageWithRelayRestFallback,
   readNewsLatestIndexProductRecord,
   readNewsLatestIndexViaRelayRest,
   readNewsLatestIndexWithRelayRestFallback,
@@ -2092,6 +2093,146 @@ describe('newsAdapters', () => {
         },
       });
     } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndexPageWithRelayRestFallback records public REST failure diagnostics before direct fallback', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/latest', {
+      'story-direct': 777,
+      'story-too-new': 999,
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: [
+        'wss://gun-a.carboncaste.io/gun',
+        'wss://gun-b.carboncaste.io/gun',
+        'wss://gun-c.carboncaste.io/gun',
+        'wss://gun-d.carboncaste.io/gun',
+        'wss://gun-e.carboncaste.io/gun',
+        'wss://gun-f.carboncaste.io/gun',
+        'wss://gun-g.carboncaste.io/gun',
+        'wss://gun-h.carboncaste.io/gun',
+      ],
+    });
+    const longCloudflareBody = [
+      'Cloudflare Tunnel origin unreachable',
+      'Bearer abcdefghijklmnop',
+      '"api_key":"sk-testsecret1234567890"',
+      'x'.repeat(420),
+    ].join(' ');
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://gun-a.carboncaste.io/')) {
+        return new Response('<html>error 1033 origin DNS failure</html>', {
+          status: 530,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      if (url.startsWith('https://gun-b.carboncaste.io/')) {
+        return new Response(longCloudflareBody, {
+          status: 530,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      if (url.startsWith('https://gun-c.carboncaste.io/')) {
+        return new Response(JSON.stringify({ error_class: 'vh-relay-502' }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.startsWith('https://gun-d.carboncaste.io/')) {
+        return new Response('plain upstream unavailable', { status: 530 });
+      }
+      if (url.startsWith('https://gun-e.carboncaste.io/')) {
+        throw new Error('AbortError: request timed out with Bearer timeoutsecret');
+      }
+      if (url.startsWith('https://gun-f.carboncaste.io/')) {
+        throw 'getaddrinfo ENOTFOUND gun-f.carboncaste.io token="secret-network"';
+      }
+      if (url.startsWith('https://gun-g.carboncaste.io/')) {
+        throw 'unexpected relay failure secret="secret-generic"';
+      }
+      return {
+        ok: false,
+        status: 503,
+        text: async () => 'relay unavailable without headers',
+      } as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const page = await readNewsLatestIndexPageWithRelayRestFallback(client, { limit: 2, before: 900 });
+
+      expect(page).toMatchObject({
+        index: { 'story-direct': 777 },
+        nextCursor: 777,
+        recordCount: 1,
+        directGunLatestIndexCount: 1,
+        relayRestDiagnostics: {
+          httpStatusCounts: { 502: 1, 503: 1, 530: 3 },
+          successCount: 0,
+          cloudflare1033Count: 2,
+          vhRelay502Count: 1,
+        },
+      });
+      expect(page.relayRestDiagnostics?.endpointsAttempted).toHaveLength(8);
+      expect(page.relayRestDiagnostics?.nonOkResponses.map((entry) => entry.classification).sort()).toEqual([
+        'cloudflare-1033',
+        'cloudflare-1033',
+        'http-503',
+        'http-530',
+        'vh-relay-502',
+      ]);
+      expect(page.relayRestDiagnostics?.networkFailures.map((entry) => entry.classification)).toEqual([
+        'timeout',
+        'network',
+        'error',
+      ]);
+      const redactedCloudflareExcerpt = page.relayRestDiagnostics?.nonOkResponses.find((entry) => (
+        entry.classification === 'cloudflare-1033' &&
+        typeof entry.bodyExcerpt === 'string' &&
+        entry.bodyExcerpt.includes('Bearer')
+      ))?.bodyExcerpt ?? '';
+      expect(redactedCloudflareExcerpt).toContain('Bearer [REDACTED]');
+      expect(redactedCloudflareExcerpt).toContain('"api_key":"[REDACTED]"');
+      expect(redactedCloudflareExcerpt).not.toContain('sk-testsecret1234567890');
+      expect(redactedCloudflareExcerpt).toHaveLength(320);
+      expect(redactedCloudflareExcerpt.endsWith('...')).toBe(true);
+      expect(page.relayRestDiagnostics?.networkFailures[0]?.error).toBe(
+        'AbortError: request timed out with Bearer [REDACTED]',
+      );
+      expect(page.relayRestDiagnostics?.networkFailures[1]?.error).toContain('token:"[REDACTED]"');
+      expect(page.relayRestDiagnostics?.networkFailures[2]?.error).toContain('secret:"[REDACTED]"');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndexPageWithRelayRestFallback reports direct fallback when relay read times out before diagnostics', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/latest', { 'story-direct-only': 456 });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-timeout.carboncaste.io/gun'],
+    });
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+
+    try {
+      const pending = readNewsLatestIndexPageWithRelayRestFallback(client);
+      await vi.advanceTimersByTimeAsync(11_001);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(pending).resolves.toMatchObject({
+        index: { 'story-direct-only': 456 },
+        nextCursor: 456,
+        recordCount: 1,
+        directGunLatestIndexCount: 1,
+      });
+      const page = await pending;
+      expect(page.relayRestDiagnostics).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });

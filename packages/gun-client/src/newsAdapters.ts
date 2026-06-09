@@ -197,7 +197,7 @@ function filterLatestIndexWindow(
 }
 
 function redactRelayRestExcerpt(value: string): string {
-  const compact = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const compact = value.replace(/\s+/g, ' ').trim();
   const redacted = SECRET_TEXT_PATTERNS.reduce(
     (text, pattern) => text.replace(pattern, (match) => {
       if (match.toLowerCase().startsWith('bearer ')) {
@@ -209,12 +209,12 @@ function redactRelayRestExcerpt(value: string): string {
     compact,
   );
   return redacted.length > REST_DIAGNOSTIC_EXCERPT_MAX
-    ? `${redacted.slice(0, REST_DIAGNOSTIC_EXCERPT_MAX - 1)}...`
+    ? `${redacted.slice(0, REST_DIAGNOSTIC_EXCERPT_MAX - 3)}...`
     : redacted;
 }
 
 function classifyRelayRestHttpFailure(status: number, body: string): string {
-  const lower = String(body ?? '').toLowerCase();
+  const lower = body.toLowerCase();
   if (
     status === 530 &&
     (lower.includes('error 1033') || lower.includes('cloudflare tunnel') || lower.includes('cloudflare'))
