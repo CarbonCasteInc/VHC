@@ -12,6 +12,19 @@ export const BUNDLE_SYNTHESIS_EPOCH = 0;
 const PROVIDER_ID = 'openai';
 const LATEST_OWNER_PREFIX = 'news-bundle:';
 
+export type AcceptedSynthesisWriteFailureStage = 'epoch_write_failed' | 'latest_write_failed';
+
+export class AcceptedSynthesisWriteError extends Error {
+  constructor(
+    public readonly stage: AcceptedSynthesisWriteFailureStage,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = 'AcceptedSynthesisWriteError';
+    this.cause = cause;
+  }
+}
+
 export function normalizeIdToken(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'story';
 }
@@ -109,9 +122,19 @@ export async function writeAcceptedSynthesis(input: {
     now: input.createdAt,
   });
 
-  await input.writeSynthesis(input.client, synthesis);
-  const latestResult = await input.writeLatest(input.client, synthesis, {
-    canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
-  });
+  try {
+    await input.writeSynthesis(input.client, synthesis);
+  } catch (error) {
+    throw new AcceptedSynthesisWriteError('epoch_write_failed', error);
+  }
+  let latestResult: Awaited<ReturnType<typeof writeTopicLatestSynthesisIfNotDowngrade>>;
+  try {
+    latestResult = await input.writeLatest(input.client, synthesis, {
+      canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
+      allowOverwriteBlockedLatest: true,
+    });
+  } catch (error) {
+    throw new AcceptedSynthesisWriteError('latest_write_failed', error);
+  }
   return { latestStatus: latestResult.status, synthesis };
 }

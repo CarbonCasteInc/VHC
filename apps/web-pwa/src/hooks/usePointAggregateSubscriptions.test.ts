@@ -51,7 +51,7 @@ describe('subscribePointAggregateSignals', () => {
     getAggregateVotersChainMock.mockReset();
   });
 
-  it('subscribes to point, voter root, and voter map signals and coalesces refreshes', async () => {
+  it('subscribes to point, voter root, voter map, and voter point-leaf signals and coalesces refreshes', async () => {
     const pointChain = createSignalChain();
     const voterChain = createSignalChain();
     getAggregatePointsChainMock.mockReturnValue(pointChain);
@@ -68,7 +68,7 @@ describe('subscribePointAggregateSignals', () => {
     });
 
     expect(pointChain.handlerCount()).toBe(1);
-    expect(voterChain.handlerCount()).toBe(2);
+    expect(voterChain.handlerCount()).toBe(3);
 
     pointChain.emit();
     voterChain.emit();

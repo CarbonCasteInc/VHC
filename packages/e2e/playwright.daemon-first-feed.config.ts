@@ -261,15 +261,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'fedsmith',
     enabled: true,
   },
-  'democracydocket-alerts': {
-    id: 'democracydocket-alerts',
-    name: 'Democracy Docket Democracy Alerts',
-    displayName: 'Democracy Docket',
-    rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
-    perspectiveTag: 'election-law',
-    iconKey: 'democracydocket',
-    enabled: true,
-  },
   'bigbendsentinel-border-wall': {
     id: 'bigbendsentinel-border-wall',
     name: 'Big Bend Sentinel Border Wall Updates',
@@ -288,15 +279,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'kff',
     enabled: true,
   },
-  'scotusblog-main': {
-    id: 'scotusblog-main',
-    name: 'SCOTUSblog',
-    displayName: 'SCOTUSblog',
-    rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
-    perspectiveTag: 'courts-legal',
-    iconKey: 'scotusblog',
-    enabled: true,
-  },
   'canarymedia-main': {
     id: 'canarymedia-main',
     name: 'Canary Media',
@@ -304,15 +286,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     rssUrl: 'https://www.canarymedia.com/rss.rss',
     perspectiveTag: 'climate-policy',
     iconKey: 'canarymedia',
-    enabled: true,
-  },
-  'sky-world': {
-    id: 'sky-world',
-    name: 'Sky News World',
-    displayName: 'Sky News',
-    rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'sky',
     enabled: true,
   },
   'aljazeera-all': {
@@ -331,15 +304,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     rssUrl: 'https://globalnews.ca/politics/feed/',
     perspectiveTag: 'broadcast-news',
     iconKey: 'globalnews',
-    enabled: true,
-  },
-  'channelnewsasia-latest': {
-    id: 'channelnewsasia-latest',
-    name: 'Channel NewsAsia Latest',
-    displayName: 'Channel NewsAsia',
-    rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'cna',
     enabled: true,
   },
   'dw-top': {

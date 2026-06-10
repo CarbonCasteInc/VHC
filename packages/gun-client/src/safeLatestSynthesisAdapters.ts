@@ -8,6 +8,7 @@ import {
 
 export interface SafeLatestSynthesisWriteOptions {
   canOverwriteExisting?: (existing: TopicSynthesisV2, next: TopicSynthesisV2) => boolean;
+  allowOverwriteBlockedLatest?: boolean;
 }
 
 export type SafeLatestSynthesisWriteResult =
@@ -30,7 +31,11 @@ export async function writeTopicLatestSynthesisIfNotDowngrade(
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
   const existingResult = await readTopicLatestSynthesisStatus(client, sanitized.topic_id);
   if (existingResult.state === 'blocked') {
-    throw new Error('Latest topic synthesis is an invalid system-writer record');
+    if (!options.allowOverwriteBlockedLatest) {
+      throw new Error('Latest topic synthesis is an invalid system-writer record');
+    }
+    await writeTopicLatestSynthesis(client, sanitized);
+    return { status: 'written', synthesis: sanitized, previous: null };
   }
   const existing = existingResult.state === 'valid' ? existingResult.synthesis : null;
 

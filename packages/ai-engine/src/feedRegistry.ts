@@ -27,12 +27,12 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'nypost-politics',
-    name: 'New York Post Politics',
-    displayName: 'New York Post',
-    rssUrl: 'https://nypost.com/politics/feed/',
+    id: 'washingtonexaminer-politics',
+    name: 'Washington Examiner Politics',
+    displayName: 'Washington Examiner',
+    rssUrl: 'https://www.washingtonexaminer.com/tag/politics.rss',
     perspectiveTag: 'conservative',
-    iconKey: 'nypost',
+    iconKey: 'washingtonexaminer',
     enabled: true,
   }),
   // Progressive (3)
@@ -167,7 +167,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nevadaindependent',
     enabled: true,
   }),
-  // Regional / specialist policy / legal / climate (8)
+  // Regional / specialist policy / legal / climate (6)
   FeedSourceSchema.parse({
     id: 'latimes-california',
     name: 'Los Angeles Times California',
@@ -196,15 +196,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'democracydocket-alerts',
-    name: 'Democracy Docket Democracy Alerts',
-    displayName: 'Democracy Docket',
-    rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
-    perspectiveTag: 'election-law',
-    iconKey: 'democracydocket',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'bigbendsentinel-border-wall',
     name: 'Big Bend Sentinel Border Wall Updates',
     displayName: 'Big Bend Sentinel',
@@ -223,15 +214,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'scotusblog-main',
-    name: 'SCOTUSblog',
-    displayName: 'SCOTUSblog',
-    rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
-    perspectiveTag: 'courts-legal',
-    iconKey: 'scotusblog',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'canarymedia-main',
     name: 'Canary Media',
     displayName: 'Canary Media',
@@ -240,7 +222,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'canarymedia',
     enabled: true,
   }),
-  // International breadth (4)
+  // International breadth (3)
   FeedSourceSchema.parse({
     id: 'aljazeera-all',
     name: 'Al Jazeera',
@@ -257,15 +239,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://globalnews.ca/politics/feed/',
     perspectiveTag: 'broadcast-news',
     iconKey: 'globalnews',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'channelnewsasia-latest',
-    name: 'Channel NewsAsia Latest',
-    displayName: 'Channel NewsAsia',
-    rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'cna',
     enabled: true,
   }),
   FeedSourceSchema.parse({

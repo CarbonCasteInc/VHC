@@ -49,6 +49,31 @@ describe('stageHelpers', () => {
     expect(normalized.documents[0]?.language_hint).toBe('en');
   });
 
+  it('bounds large document text before expensive clustering stages', () => {
+    const title = `${'titleword '.repeat(80)}tail`;
+    const body = `${'bodyword '.repeat(2_000)}tail`;
+    const summary = `${'summaryword '.repeat(500)}tail`;
+    const normalized = normalizeRequest({
+      topic_id: 'topic-x',
+      documents: [{
+        doc_id: 'doc-1',
+        source_id: 'wire-a',
+        title,
+        published_at: 1,
+        url: 'https://example.com',
+        body,
+        summary,
+      }],
+    } as any, 10);
+
+    expect(normalized.documents[0]?.title.length).toBeLessThanOrEqual(512);
+    expect(normalized.documents[0]?.body?.length).toBeLessThanOrEqual(12_000);
+    expect(normalized.documents[0]?.summary?.length).toBeLessThanOrEqual(3_000);
+    expect(normalized.documents[0]?.title).not.toContain('tail');
+    expect(normalized.documents[0]?.body).not.toContain('tail');
+    expect(normalized.documents[0]?.summary).not.toContain('tail');
+  });
+
   it('covers telemetry helpers and readiness wrappers', () => {
     const state = {
       documents: [],

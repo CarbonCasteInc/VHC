@@ -30,6 +30,9 @@ const AGGREGATE_REPORT = 'mesh-production-readiness-report.json';
 const AGGREGATE_MANIFEST = 'mesh-production-readiness-evidence.md';
 const SOURCE_REPORT_NAME = 'mesh-production-readiness-report.json';
 const LUMA_COVERAGE_SUPPORT_PREFIX = 'supporting-evidence/luma-gated-write-coverage/';
+const PUBLIC_WSS_PROOF_SUPPORT_PREFIX = 'supporting-evidence/public-wss-deployment-proof/';
+const PUBLIC_WSS_PROOF_REPORT_NAME = 'mesh-production-readiness-report.json';
+const PUBLIC_WSS_PROOF_COMMAND = 'pnpm test:mesh:deployed-wss-peer-config:public';
 const CANONICAL_SOAK_DURATION_MS = 1_800_000;
 const STALE_PLACEHOLDER_FIXTURES = new Set(['full-conflict-resolution-fixtures']);
 const ALLOWED_WRITER_KINDS = new Set(['mesh-drill']);
@@ -396,6 +399,96 @@ function lumaCoverageEvidenceFailures({ aggregate, sourceDir }) {
   return unique(failures);
 }
 
+function aggregatePublicWssProofPassed(aggregate) {
+  return Boolean(
+    aggregate.public_wss_deployment_proof?.status === 'pass' &&
+      aggregate.public_wss_deployment_proof?.deployment_scope === 'public_wss_deployment' &&
+      aggregate.public_wss_deployment_proof?.public_wss_proof_status === 'pass' &&
+      aggregate.public_wss_proof?.status === 'pass',
+  );
+}
+
+function publicWssDeploymentProofFailures({ aggregate, sourceDir }) {
+  const failures = [];
+  const summary = aggregate.public_wss_deployment_proof || {};
+
+  if (summary.status !== 'pass') {
+    return failures;
+  }
+
+  if (!summary.report_path || typeof summary.report_path !== 'string') {
+    failures.push('passing public WSS proof is missing a durable report_path');
+    return failures;
+  }
+  if (path.isAbsolute(summary.report_path)) {
+    failures.push('passing public WSS proof report_path must be packet-relative');
+    return failures;
+  }
+
+  const resolved = resolveInPacketPath(sourceDir, summary.report_path);
+  if (!resolved) {
+    failures.push('passing public WSS proof report_path escapes the evidence packet');
+    return failures;
+  }
+  if (!resolved.normalized.startsWith(PUBLIC_WSS_PROOF_SUPPORT_PREFIX)) {
+    failures.push('passing public WSS proof report_path must point inside supporting-evidence/public-wss-deployment-proof');
+  }
+  if (path.basename(resolved.normalized) !== PUBLIC_WSS_PROOF_REPORT_NAME) {
+    failures.push(`passing public WSS proof report_path must end with ${PUBLIC_WSS_PROOF_REPORT_NAME}`);
+  }
+  if (!fs.existsSync(resolved.resolved)) {
+    failures.push(`missing durable public WSS proof report at ${summary.report_path}`);
+    return unique(failures);
+  }
+
+  let report = null;
+  try {
+    report = readJson(resolved.resolved);
+  } catch (error) {
+    failures.push(`failed to parse durable public WSS proof report: ${error instanceof Error ? error.message : String(error)}`);
+    return unique(failures);
+  }
+
+  if (report.schema_version !== 'mesh-production-readiness-v1') {
+    failures.push(`public WSS proof schema_version is ${report.schema_version || 'missing'}`);
+  }
+  if (report.run?.mode !== 'deployed_wss_topology') {
+    failures.push(`public WSS proof run.mode is ${report.run?.mode || 'missing'}`);
+  }
+  if (report.run?.command !== PUBLIC_WSS_PROOF_COMMAND) {
+    failures.push(`public WSS proof run.command is ${report.run?.command || 'missing'}`);
+  }
+  if (report.run?.deployment_scope !== 'public_wss_deployment') {
+    failures.push(`public WSS proof run.deployment_scope is ${report.run?.deployment_scope || 'missing'}`);
+  }
+  if (report.public_wss_proof?.status !== 'pass') {
+    failures.push(`durable public_wss_proof.status is ${report.public_wss_proof?.status || 'missing'}`);
+  }
+  if (report.public_wss_proof?.deployment_scope !== 'public_wss_deployment') {
+    failures.push(`durable public_wss_proof.deployment_scope is ${report.public_wss_proof?.deployment_scope || 'missing'}`);
+  }
+  if (report.repo?.commit !== aggregate.repo?.commit) {
+    failures.push(`public WSS proof commit ${report.repo?.commit || 'missing'} does not match aggregate commit`);
+  }
+  if (report.repo?.dirty || summary.source_dirty !== false) {
+    failures.push('public WSS proof source_dirty or durable report repo.dirty is not false');
+  }
+  if (summary.source_run_id !== report.run_id) {
+    failures.push(`public WSS proof source_run_id ${summary.source_run_id || 'missing'} does not match durable report ${report.run_id || 'missing'}`);
+  }
+  if (summary.source_commit !== report.repo?.commit) {
+    failures.push(`public WSS proof source_commit ${summary.source_commit || 'missing'} does not match durable report ${report.repo?.commit || 'missing'}`);
+  }
+  if (summary.deployment_scope !== report.run?.deployment_scope) {
+    failures.push(`public WSS proof deployment_scope ${summary.deployment_scope || 'missing'} does not match durable report`);
+  }
+  if (summary.public_wss_proof_status !== report.public_wss_proof?.status) {
+    failures.push(`public WSS proof status ${summary.public_wss_proof_status || 'missing'} does not match durable report`);
+  }
+
+  return unique(failures);
+}
+
 function claimText(claims) {
   return (Array.isArray(claims) ? claims : []).filter((claim) => typeof claim === 'string').join('\n');
 }
@@ -429,11 +522,15 @@ function impliesPublicWssBehaviorOverclaim(value) {
   );
 }
 
-function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }) {
+function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures, publicWssFailures }) {
   const failures = [];
   const soak = aggregate.soak || {};
   const deployedWss = readSourceReportById({ aggregate, sourceDir, id: 'deployed_wss' });
   const evidenceScrub = readSourceReportById({ aggregate, sourceDir, id: EVIDENCE_SCRUB_SOURCE_ID });
+  const sourcePublicWssPassed =
+    deployedWss?.run?.deployment_scope === 'public_wss_deployment' &&
+    deployedWss?.public_wss_proof?.status === 'pass';
+  const aggregatePublicWssPassed = aggregatePublicWssProofPassed(aggregate) && publicWssFailures.length === 0;
 
   if (
     soak.full_duration_satisfied !== true ||
@@ -444,7 +541,7 @@ function releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures
   ) {
     failures.push('release_ready claims require canonical 1800000ms full-duration soak evidence');
   }
-  if (deployedWss?.run?.deployment_scope !== 'public_wss_deployment' || deployedWss?.public_wss_proof?.status !== 'pass') {
+  if (!sourcePublicWssPassed && !aggregatePublicWssPassed) {
     failures.push('release_ready claims require passing public_wss_deployment source evidence');
   }
   if (aggregate.luma_gated_write_coverage?.status !== 'pass' || lumaFailures.length > 0) {
@@ -521,7 +618,7 @@ function requiredForbiddenClaimFailures({ status, forbiddenText }) {
   return failures;
 }
 
-function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }) {
+function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailures, publicWssFailures }) {
   const failures = [];
   const allowedText = claimText(aggregate.release_claims?.allowed);
   const forbiddenText = claimText(aggregate.release_claims?.forbidden);
@@ -541,7 +638,7 @@ function releaseClaimFailures({ aggregate, sourceDir, sourceFailures, lumaFailur
   if ((aggregate.release_readiness_blockers || []).length > 0) {
     failures.push('release_ready release_claims require release_readiness_blockers to be empty');
   }
-  failures.push(...releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures }));
+  failures.push(...releaseReadyPrerequisiteFailures({ aggregate, sourceDir, sourceFailures, lumaFailures, publicWssFailures }));
   failures.push(...requiredForbiddenClaimFailures({ status: aggregate.status, forbiddenText }));
 
   if (impliesMeshReleaseReady(forbiddenText)) {
@@ -627,11 +724,19 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir, expected
   }
   const sourceFailures = sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir });
   const lumaFailures = lumaCoverageEvidenceFailures({ aggregate: report, sourceDir: resolvedSourceDir });
+  const publicWssFailures = publicWssDeploymentProofFailures({ aggregate: report, sourceDir: resolvedSourceDir });
   const sourceReports = readSourceReports({ aggregate: report, sourceDir: resolvedSourceDir });
-  failures.push(...releaseClaimFailures({ aggregate: report, sourceDir: resolvedSourceDir, sourceFailures, lumaFailures }));
+  failures.push(...releaseClaimFailures({
+    aggregate: report,
+    sourceDir: resolvedSourceDir,
+    sourceFailures,
+    lumaFailures,
+    publicWssFailures,
+  }));
   failures.push(...releaseReadyRequiredSloFailures({ aggregate: report, sourceReports }));
   failures.push(...sourceFailures);
   failures.push(...lumaFailures);
+  failures.push(...publicWssFailures);
 
   return {
     ok: failures.length === 0,

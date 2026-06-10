@@ -18,6 +18,7 @@ export interface VennClientConfig {
   systemWriterSign?: SystemWriterSignHook;
   systemWriterId?: string;
   systemWriterNow?: () => number;
+  requireNewsWriteReadback?: boolean;
   newsIngestionLeaseScope?: string;
 }
 

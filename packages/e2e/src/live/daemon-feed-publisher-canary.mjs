@@ -259,6 +259,8 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     startStoryClusterServer: storyclusterServer.startStoryClusterServer,
     resolveOpenAIStoryClusterProviderProvenanceFromEnv:
       storyclusterOpenAI.resolveOpenAIStoryClusterProviderProvenanceFromEnv,
+    preflightOpenAIStoryClusterProviderFromEnv:
+      storyclusterOpenAI.preflightOpenAIStoryClusterProviderFromEnv,
     runStoryClusterRemoteContract: storyclusterRemoteContract.runStoryClusterRemoteContract,
     MemoryVectorBackend: vectorBackend.MemoryVectorBackend,
     FileClusterStore: clusterStore.FileClusterStore,
@@ -361,6 +363,22 @@ function sortStorylines(storylines) {
     (left?.topic_id ?? '').localeCompare(right?.topic_id ?? '')
     || (left?.storyline_id ?? '').localeCompare(right?.storyline_id ?? ''),
   );
+}
+
+function initialOpenAIPreflightSummary(provenance) {
+  return {
+    status: 'not_run',
+    code: null,
+    provider: {
+      ...provenance,
+      effectiveBaseUrl: provenance.baseUrl || 'https://api.openai.com/v1',
+    },
+    checks: {
+      apiKeyPresent: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      textModelAuth: 'not_run',
+      embeddingModelAuth: 'not_run',
+    },
+  };
 }
 
 function buildPublishedStoreCapture() {
@@ -504,6 +522,7 @@ export async function runDaemonFeedPublisherCanary({
     baseUrl: process.env.VH_STORYCLUSTER_OPENAI_BASE_URL?.trim() || null,
     timeoutMs: storyClusterOpenAITimeoutMs,
   };
+  let storyclusterOpenAIPreflight = initialOpenAIPreflightSummary(storyclusterOpenAIProvenance);
 
   try {
     process.env.VH_DAEMON_FEED_RUN_ID = runId;
@@ -518,6 +537,23 @@ export async function runDaemonFeedPublisherCanary({
     storyclusterOpenAIProvenance = modules.resolveOpenAIStoryClusterProviderProvenanceFromEnv({
       timeoutMs: storyClusterOpenAITimeoutMs,
     });
+    storyclusterOpenAIPreflight = initialOpenAIPreflightSummary(storyclusterOpenAIProvenance);
+    if (typeof modules.preflightOpenAIStoryClusterProviderFromEnv !== 'function') {
+      throw new Error('storycluster-openai-network-unreachable:preflight-helper-unavailable');
+    }
+    storyclusterOpenAIPreflight = await modules.preflightOpenAIStoryClusterProviderFromEnv({
+      timeoutMs: storyClusterOpenAITimeoutMs,
+      fetchFn: fetchImpl,
+    });
+    console.info('[vh:publisher-canary] storycluster_openai_preflight_completed', {
+      status: storyclusterOpenAIPreflight.status,
+      code: storyclusterOpenAIPreflight.code,
+      provider: storyclusterOpenAIPreflight.provider,
+      checks: storyclusterOpenAIPreflight.checks,
+    });
+    if (storyclusterOpenAIPreflight.status !== 'pass') {
+      throw new Error(storyclusterOpenAIPreflight.code || 'storycluster-openai-network-unreachable');
+    }
     const feedSourceResolution = modules.resolveStarterFeedSources({
       cwd: repoRoot,
       env,
@@ -586,6 +622,9 @@ export async function runDaemonFeedPublisherCanary({
           : null,
         openAIProvenance: {
           storycluster: storyclusterOpenAIProvenance,
+        },
+        openAIPreflight: {
+          storycluster: storyclusterOpenAIPreflight,
         },
         pass: false,
         outcome: 'feed_stage_outage',
@@ -746,6 +785,9 @@ export async function runDaemonFeedPublisherCanary({
       openAIProvenance: {
         storycluster: storyclusterOpenAIProvenance,
       },
+      openAIPreflight: {
+        storycluster: storyclusterOpenAIPreflight,
+      },
       pass: false,
       outcome: classifyPublisherCanaryOutcome({
         observed,
@@ -778,6 +820,9 @@ export async function runDaemonFeedPublisherCanary({
         observed,
         openAIProvenance: {
           storycluster: storyclusterOpenAIProvenance,
+        },
+        openAIPreflight: {
+          storycluster: storyclusterOpenAIPreflight,
         },
         artifactPaths: {
           artifactDir,
@@ -840,6 +885,7 @@ export const publisherCanaryInternal = {
   resolvePublisherCanaryInProcessStoryCluster,
   resolvePublisherCanaryRequireSharedStack,
   resolvePublisherCanaryRemoteConfig,
+  initialOpenAIPreflightSummary,
 };
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

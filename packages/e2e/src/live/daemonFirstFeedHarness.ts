@@ -250,6 +250,7 @@ function resolveStoryclusterRemoteConfig() {
 }
 
 export const daemonFirstFeedHarnessInternal = {
+  shouldRunBroadStaleProcessCleanup,
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
@@ -263,6 +264,12 @@ export const daemonFirstFeedHarnessInternal = {
   resolveStoryClusterStateDir,
   resolveStoryclusterRemoteConfig,
 };
+
+function shouldRunBroadStaleProcessCleanup(
+  storyclusterRemote = resolveStoryclusterRemoteConfig(),
+): boolean {
+  return !storyclusterRemote.usesSharedStorycluster;
+}
 
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
@@ -322,7 +329,9 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   const root = repoRootDir();
   const env = commonEnv();
   const storyclusterRemote = resolveStoryclusterRemoteConfig();
-  killStaleDaemonFirstProcesses();
+  if (shouldRunBroadStaleProcessCleanup(storyclusterRemote)) {
+    killStaleDaemonFirstProcesses();
+  }
   let storycluster: LoggedProcess | null = null;
   if (storyclusterRemote.usesSharedStorycluster) {
     await waitForHealth(storyclusterRemote.healthUrl, 60_000, {

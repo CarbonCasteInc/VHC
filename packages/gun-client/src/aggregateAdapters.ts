@@ -359,6 +359,20 @@ const RELAY_REST_AGGREGATE_FAST_PATH_TIMEOUT_MS = readGunTimeoutMs(
   ],
   Math.min(5_000, RELAY_REST_AGGREGATE_READ_TIMEOUT_MS),
 );
+const RELAY_REST_AGGREGATE_DIRECT_COMPARE_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_AGGREGATE_DIRECT_COMPARE_TIMEOUT_MS',
+    'VH_AGGREGATE_DIRECT_COMPARE_TIMEOUT_MS',
+  ],
+  Math.min(4_000, RELAY_REST_AGGREGATE_READ_TIMEOUT_MS),
+);
+const RELAY_REST_AGGREGATE_DIRECT_FALLBACK_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_AGGREGATE_DIRECT_FALLBACK_TIMEOUT_MS',
+    'VH_AGGREGATE_DIRECT_FALLBACK_TIMEOUT_MS',
+  ],
+  RELAY_REST_AGGREGATE_READ_TIMEOUT_MS + 1_000,
+);
 const RELAY_REST_AGGREGATE_WRITE_FIRST_ENV = [
   'VITE_VH_AGGREGATE_RELAY_REST_WRITE_FIRST',
   'VH_AGGREGATE_RELAY_REST_WRITE_FIRST',
@@ -1676,11 +1690,15 @@ export async function readAggregatesWithRelayRestFallback(
     RELAY_REST_AGGREGATE_FAST_PATH_TIMEOUT_MS,
   );
   if (fastRelayed && !isZeroPointAggregate(fastRelayed)) {
-    return fastRelayed;
+    const direct = await timeoutAsNull(
+      directPromise,
+      RELAY_REST_AGGREGATE_DIRECT_COMPARE_TIMEOUT_MS,
+    );
+    return preferMoreCompleteAggregate(direct, fastRelayed)!;
   }
 
   const [direct, relayed] = await Promise.all([
-    directPromise,
+    timeoutAsNull(directPromise, RELAY_REST_AGGREGATE_DIRECT_FALLBACK_TIMEOUT_MS),
     fastRelayed
       ? Promise.resolve(fastRelayed)
       : timeoutAsNull(relayedPromise, RELAY_REST_AGGREGATE_READ_TIMEOUT_MS + 1_000),

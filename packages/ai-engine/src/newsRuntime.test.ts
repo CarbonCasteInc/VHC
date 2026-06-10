@@ -305,6 +305,31 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('orders unlimited bundle publication by corroboration and recency', () => {
+    const staleSingleton = storyBundle('stale-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 100,
+    });
+    const recentSingleton = storyBundle('recent-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: 300,
+    });
+    const corroborated = storyBundle('corroborated', {
+      sourceCount: 2,
+      clusterWindowEnd: 200,
+    });
+
+    expect(__internal.selectBundlesForPublication([
+      staleSingleton,
+      recentSingleton,
+      corroborated,
+    ], null).map((bundle) => bundle.story_id)).toEqual([
+      'corroborated',
+      'recent-singleton',
+      'stale-singleton',
+    ]);
+  });
+
   it('filters weak two-source canonical bundles before publication', () => {
     const weakTopicOnly = storyBundle('weak-topic-only', {
       sourceCount: 2,
@@ -328,6 +353,50 @@ describe('newsRuntime', () => {
     expect(__internal.selectBundlesForPublication([weakTopicOnly, strongTwoSource], null)).toEqual([
       strongTwoSource,
     ]);
+  });
+
+  it('trusts production remote StoryCluster output instead of applying local title filters', async () => {
+    const weakByLocalTitleHeuristic = storyBundle('production-two-source', {
+      sourceCount: 2,
+      confidenceScore: 0.57,
+      titles: [
+        'Newsom outlines his final budget proposal with no deficit, new major spending',
+        'Gavin Newsom free diapers program gets quiet contracting carve-out',
+      ],
+    });
+
+    expect(__internal.isPublicationEligibleBundle(weakByLocalTitleHeuristic)).toBe(false);
+    expect(__internal.selectBundlesForPublication(
+      [weakByLocalTitleHeuristic],
+      null,
+      { trustClusterOutput: true },
+    )).toEqual([weakByLocalTitleHeuristic]);
+    expect(__internal.trustsClusterOutputForPublication({
+      ...BASE_CONFIG,
+      orchestratorOptions: {
+        productionMode: true,
+        allowHeuristicFallback: false,
+      },
+    })).toBe(true);
+
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([weakByLocalTitleHeuristic]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+      orchestratorOptions: {
+        productionMode: true,
+        allowHeuristicFallback: false,
+      },
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, weakByLocalTitleHeuristic);
+
+    handle.stop();
   });
 
   it('keeps two-source bundles with explicit same-action title support below the strong-confidence line', () => {
@@ -723,6 +792,73 @@ describe('newsRuntime', () => {
     expect(onError).toHaveBeenCalledWith(runtimeError);
     expect(handle.lastRun()).toBeNull();
     handle.stop();
+    handle.stop();
+  });
+
+  it('continues publishing later bundles when one story write fails', async () => {
+    const first = storyBundle('write-fails', { sourceCount: 2, clusterWindowEnd: 200 });
+    const second = storyBundle('write-succeeds', { sourceCount: 1, clusterWindowEnd: 100 });
+    const writeError = new Error('latest index readback failed');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([first, second]));
+
+    const writeStoryBundle = vi.fn()
+      .mockRejectedValueOnce(writeError)
+      .mockResolvedValueOnce(undefined);
+    const onError = vi.fn();
+    const onSynthesisCandidate = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onSynthesisCandidate,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'write-fails',
+      'write-succeeds',
+    ]);
+    expect(onError).toHaveBeenCalledWith(writeError);
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+    expect(onSynthesisCandidate).toHaveBeenCalledTimes(1);
+    expect(onSynthesisCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({ story_id: 'write-succeeds' }),
+    );
+
+    handle.stop();
+  });
+
+  it('records non-Error bundle write failures without dropping later publishable bundles', async () => {
+    const first = storyBundle('write-string-fails', { sourceCount: 2, clusterWindowEnd: 200 });
+    const second = storyBundle('write-string-succeeds', { sourceCount: 1, clusterWindowEnd: 100 });
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([first, second]));
+
+    const writeStoryBundle = vi.fn()
+      .mockRejectedValueOnce('latest index readback failed')
+      .mockResolvedValueOnce(undefined);
+    const onError = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'write-string-fails',
+      'write-string-succeeds',
+    ]);
+    expect(onError).toHaveBeenCalledWith('latest index readback failed');
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+
     handle.stop();
   });
 

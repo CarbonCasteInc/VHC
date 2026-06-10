@@ -354,12 +354,32 @@ function shouldBootstrapFeedBridges(): boolean {
       ? process.env
       : undefined;
 
-  const newsEnabled =
-    (nodeEnv?.VITE_NEWS_BRIDGE_ENABLED ?? viteEnv?.VITE_NEWS_BRIDGE_ENABLED) === 'true';
-  const synthesisEnabled =
-    (nodeEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED ?? viteEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED) === 'true';
-  const socialEnabled =
-    (nodeEnv?.VITE_LINKED_SOCIAL_ENABLED ?? viteEnv?.VITE_LINKED_SOCIAL_ENABLED) === 'true';
+  const readFeatureFlag = (
+    nodeValue: string | undefined,
+    viteValue: string | undefined,
+    defaultValue: boolean,
+  ): boolean => {
+    const rawValue = nodeValue ?? viteValue;
+    if (rawValue === 'true') return true;
+    if (rawValue === 'false') return false;
+    return defaultValue;
+  };
+
+  const newsEnabled = readFeatureFlag(
+    nodeEnv?.VITE_NEWS_BRIDGE_ENABLED,
+    viteEnv?.VITE_NEWS_BRIDGE_ENABLED,
+    true,
+  );
+  const synthesisEnabled = readFeatureFlag(
+    nodeEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED,
+    viteEnv?.VITE_SYNTHESIS_BRIDGE_ENABLED,
+    false,
+  );
+  const socialEnabled = readFeatureFlag(
+    nodeEnv?.VITE_LINKED_SOCIAL_ENABLED,
+    viteEnv?.VITE_LINKED_SOCIAL_ENABLED,
+    false,
+  );
 
   return newsEnabled || synthesisEnabled || socialEnabled;
 }
@@ -389,7 +409,7 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
     console.warn(`[vh:web-pwa] snapshot bootstrap failed (${context}):`, snapshotError);
   }
 
-  if (!bootstrappedSnapshot && shouldBootstrapFeedBridges()) {
+  if (shouldBootstrapFeedBridges()) {
     try {
       const { bootstrapFeedBridges } = await import('./feedBridge');
       await bootstrapFeedBridges();
@@ -570,6 +590,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           strict: peerTopology.strict,
           quorumRequired: peerTopology.quorumRequired,
         });
+        const profile = loadProfile();
+        set({
+          client,
+          profile,
+          identityStatus: profile ? 'ready' : 'idle',
+          sessionReady: Boolean(profile),
+        });
+
+        const runtimeBootstrapPromise = bootstrapRuntimeFeatures(client, 'default');
         await Promise.race([
           client.hydrationBarrier.prepare(),
           new Promise<void>((_, reject) =>
@@ -579,7 +608,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
           client.hydrationBarrier.markReady();
         });
-        const profile = loadProfile();
         // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
         await migrateLegacyLocalStorage();
         const loadedIdentity = await loadIdentityRecord();
@@ -602,7 +630,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sessionReady: Boolean(profile)
         });
 
-        await bootstrapRuntimeFeatures(client, 'default');
+        await runtimeBootstrapPromise;
       } catch (err) {
         exposePeerTopologyProof({
           status: 'failed',

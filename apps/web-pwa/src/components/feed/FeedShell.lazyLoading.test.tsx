@@ -9,6 +9,7 @@ import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
 import { useDiscoveryFeed } from '../../hooks/useDiscoveryFeed';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useDiscoveryStore } from '../../store/discovery';
+import { useAppStore } from '../../store';
 import { useNewsStore } from '../../store/news';
 import {
   bootstrapNewsSnapshotIfConfigured,
@@ -55,6 +56,7 @@ vi.mock('./newsCardAnalysis', () => ({
 
 const NOW = 1_700_000_000_000;
 const HOUR_MS = 3_600_000;
+const TOP_SCROLL_THRESHOLD_FOR_TEST = 24;
 
 function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -141,6 +143,13 @@ describe('FeedShell lazy loading', () => {
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
     stopNewsSnapshotRefresh();
+    useAppStore.setState({
+      client: null,
+      profile: null,
+      initializing: false,
+      identityStatus: 'idle',
+      error: undefined,
+    });
 
     vi.stubGlobal(
       'IntersectionObserver',
@@ -194,6 +203,13 @@ describe('FeedShell lazy loading', () => {
     stopNewsSnapshotRefresh();
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
+    useAppStore.setState({
+      client: null,
+      profile: null,
+      initializing: false,
+      identityStatus: 'idle',
+      error: undefined,
+    });
     intersectionCallback = null;
     mockNavigate.mockReset();
     mockSearch = {};
@@ -246,6 +262,305 @@ describe('FeedShell lazy loading', () => {
 
     expect(screen.getAllByTestId(/feed-item-fit-/)).toHaveLength(FEED_PAGE_SIZE);
     expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
+  });
+
+  it('requests an older public latest-index cursor window when visible news fits one page', async () => {
+    vi.useFakeTimers();
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({
+      stories: [makeSnapshotStory(1) as any],
+      latestIndex: { 'story-existing': NOW },
+      latestIndexCursor: NOW - 10,
+      refreshLatest,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          topic_id: 'story-existing',
+          story_id: 'story-existing',
+          title: 'Visible singleton story',
+        }),
+      ])} />);
+
+      expect(screen.getByTestId('feed-load-sentinel')).toBeInTheDocument();
+
+      act(() => {
+        intersectionCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW - 10 });
+      expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('renders mesh-loaded stories while the user is scrolled away from the top', async () => {
+    vi.useFakeTimers();
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const initialItem = makeFeedItem({
+      topic_id: 'story-existing',
+      story_id: 'story-existing',
+      title: 'Visible singleton story',
+    });
+    const olderItem = makeFeedItem({
+      topic_id: 'story-older',
+      story_id: 'story-older',
+      title: 'Older mesh story',
+      created_at: NOW - 10,
+      latest_activity_at: NOW - 10,
+    });
+    let setHarnessItems: React.Dispatch<React.SetStateAction<FeedItem[]>> | null = null;
+    const refreshLatest = vi.fn(() => new Promise<void>((resolve) => {
+      useNewsStore.setState({ loading: true });
+      setHarnessItems?.([initialItem, olderItem]);
+      window.setTimeout(() => {
+        useNewsStore.setState({
+          stories: [makeSnapshotStory(1) as any, makeSnapshotStory(2, { story_id: 'story-older' }) as any],
+          latestIndex: { 'story-existing': NOW, 'story-older': NOW - 10 },
+          latestIndexCursor: NOW - 10,
+          loading: false,
+        });
+        resolve();
+      }, 20);
+    }));
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      value: TOP_SCROLL_THRESHOLD_FOR_TEST + 1,
+    });
+    useNewsStore.setState({
+      stories: [makeSnapshotStory(1) as any],
+      latestIndex: { 'story-existing': NOW },
+      latestIndexCursor: NOW - 10,
+      refreshLatest,
+    });
+
+    function Harness(): React.JSX.Element {
+      const [items, setItems] = React.useState<FeedItem[]>([initialItem]);
+      setHarnessItems = setItems;
+      return <FeedShell feedResult={makeFeedResult(items)} />;
+    }
+
+    try {
+      render(<Harness />);
+      window.dispatchEvent(new Event('scroll'));
+
+      expect(screen.getByTestId('feed-item-story-existing')).toBeInTheDocument();
+      expect(screen.getByTestId('feed-load-sentinel')).toBeInTheDocument();
+
+      await act(async () => {
+        intersectionCallback?.(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver,
+        );
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(refreshLatest).toHaveBeenCalledWith({ limit: FEED_PAGE_SIZE, before: NOW - 10 });
+      expect(screen.getByTestId('feed-item-story-older')).toBeInTheDocument();
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('renders an underfilled refreshed first page while the user is scrolled away from the top', async () => {
+    const initialItems = Array.from({ length: 6 }, (_, index) =>
+      makeFeedItem({
+        topic_id: `story-initial-${index}`,
+        story_id: `story-initial-${index}`,
+        title: `Initial story ${index}`,
+      }),
+    );
+    const refreshedItems = Array.from({ length: FEED_PAGE_SIZE }, (_, index) =>
+      makeFeedItem({
+        topic_id: `story-refreshed-${index}`,
+        story_id: `story-refreshed-${index}`,
+        title: `Refreshed story ${index}`,
+      }),
+    );
+    let setHarnessItems: React.Dispatch<React.SetStateAction<FeedItem[]>> | null = null;
+
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      value: TOP_SCROLL_THRESHOLD_FOR_TEST + 1,
+    });
+
+    function Harness(): React.JSX.Element {
+      const [items, setItems] = React.useState<FeedItem[]>(initialItems);
+      setHarnessItems = setItems;
+      return <FeedShell feedResult={makeFeedResult(items)} />;
+    }
+
+    try {
+      render(<Harness />);
+      window.dispatchEvent(new Event('scroll'));
+
+      expect(screen.getAllByTestId(/feed-item-story-initial-/)).toHaveLength(6);
+
+      await act(async () => {
+        setHarnessItems?.(refreshedItems);
+      });
+
+      expect(screen.getAllByTestId(/feed-item-story-refreshed-/)).toHaveLength(FEED_PAGE_SIZE);
+      expect(screen.queryByTestId(/feed-item-story-initial-/)).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+    }
+  });
+
+  it('auto-refreshes public news once when the app client is ready and the feed is empty', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('auto-refreshes public news through the public relay before the app client is ready', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: null,
+      initializing: true,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('clears the initial refresh indicator when news loading changes during refresh', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    let resolveRefresh: (() => void) | null = null;
+    const refreshLatest = vi.fn(() => {
+      useNewsStore.setState({ loading: true });
+      return new Promise<void>((resolve) => {
+        resolveRefresh = () => {
+          useNewsStore.setState({ loading: false });
+          resolve();
+        };
+      });
+    });
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+      expect(screen.getByTestId('feed-refresh-button')).toHaveTextContent('Refreshing');
+
+      await act(async () => {
+        resolveRefresh?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('feed-refresh-button')).toHaveTextContent('Refresh');
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('auto-refreshes public news when launch content contains no news stories', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          kind: 'USER_TOPIC',
+          topic_id: 'launch-topic',
+          title: 'Launch topic without public news',
+        }),
+      ])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
+  });
+
+  it('auto-refreshes public news when launch content contains stale news but no public mesh stories', async () => {
+    const originalRefreshLatest = useNewsStore.getState().refreshLatest;
+    const refreshLatest = vi.fn(async () => undefined);
+    useNewsStore.setState({ refreshLatest, stories: [], latestIndex: {} });
+    useAppStore.setState({
+      client: { config: { peers: ['wss://gun-a.carboncaste.io/gun'] } } as any,
+      initializing: false,
+    });
+
+    try {
+      render(<FeedShell feedResult={makeFeedResult([
+        makeFeedItem({
+          kind: 'NEWS_STORY',
+          topic_id: 'launch-news-topic',
+          story_id: 'launch-news-story',
+          title: 'Stale launch news should not suppress public refresh',
+        }),
+      ])} />);
+
+      await waitFor(() => {
+        expect(refreshLatest).toHaveBeenCalledWith(FEED_PAGE_SIZE);
+      });
+    } finally {
+      useNewsStore.setState({ refreshLatest: originalRefreshLatest });
+    }
   });
 
   it('falls back to timed load when IntersectionObserver is unavailable', () => {

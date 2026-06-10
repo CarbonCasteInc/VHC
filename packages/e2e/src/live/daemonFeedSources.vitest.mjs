@@ -30,7 +30,7 @@ describe('resolveDaemonFeedSourcesJson', () => {
 
     expect(sources.map((source) => source.id)).toEqual([
       'fox-latest',
-      'nypost-politics',
+      'washingtonexaminer-politics',
       'guardian-us',
       'huffpost-us',
       'cbs-politics',
@@ -49,32 +49,28 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
       'kffhealthnews-original',
-      'scotusblog-main',
       'canarymedia-main',
-      'sky-world',
       'aljazeera-all',
       'globalnews-politics',
-      'channelnewsasia-latest',
       'dw-top',
     ]);
   });
 
   it('resolves newly admitted statehouse and international sources in live mode', () => {
-    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'texastribune-main,sky-world,channelnewsasia-latest';
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'texastribune-main,aljazeera-all,dw-top';
 
     const sources = JSON.parse(resolveDaemonFeedSourcesJson());
 
     expect(sources.map((source) => source.id)).toEqual([
       'texastribune-main',
-      'sky-world',
-      'channelnewsasia-latest',
+      'aljazeera-all',
+      'dw-top',
     ]);
     expect(sources[0].rssUrl).toBe('https://feeds.texastribune.org/feeds/main/');
-    expect(sources[1].rssUrl).toBe('https://feeds.skynews.com/feeds/rss/world.xml');
-    expect(sources[2].rssUrl).toBe('https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml');
+    expect(sources[1].rssUrl).toBe('https://www.aljazeera.com/xml/rss/all.xml');
+    expect(sources[2].rssUrl).toBe('https://rss.dw.com/rdf/rss-en-top');
   });
 
   it('resolves all current production-admitted source ids used by source-health ranking', () => {
@@ -83,7 +79,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ].join(',');
 
@@ -94,7 +89,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'latimes-california',
       'militarytimes-news',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
     expect(sources.map((source) => source.rssUrl)).toEqual([
@@ -102,7 +96,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'https://www.latimes.com/california.rss',
       'https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml',
       'https://www.fedsmith.com/feed/',
-      'https://www.democracydocket.com/article-type/democracy-alert/feed/',
       'https://bigbendsentinel.com/feed/',
     ]);
   });

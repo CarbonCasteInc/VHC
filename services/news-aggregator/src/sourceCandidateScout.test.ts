@@ -42,11 +42,11 @@ describe('sourceCandidateScout', () => {
     expect(candidates.map((source) => source.id)).toEqual(['beta']);
   });
 
-  it('keeps demoted starter sources available for scout-first readmission', () => {
+  it('keeps non-starter backlog sources available for scout-first promotion', () => {
     const candidates = sourceCandidateScoutInternal.resolveCandidateFeedSources();
 
-    expect(STARTER_FEED_SOURCES.map((source) => source.id)).not.toContain('washingtonexaminer-politics');
-    expect(candidates.map((source) => source.id)).toContain('washingtonexaminer-politics');
+    expect(STARTER_FEED_SOURCES.map((source) => source.id)).not.toContain('thehill-news');
+    expect(candidates.map((source) => source.id)).toContain('thehill-news');
   });
 
   it('ranks promotable corroborating candidates ahead of blocked candidates', () => {

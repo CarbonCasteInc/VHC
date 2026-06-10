@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { publicFeedBrowserSmokeInternal as internal } from './public-feed-browser-smoke.mjs';
 
@@ -119,6 +121,132 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.publicAgreeVoterRowsAfterVote(beforeRows, beforeRows)).toBeNull();
   });
 
+  it('records feed load-more refresh calls so pagination cannot pass from a preloaded window', async () => {
+    const refreshLatest = vi.fn(async () => undefined);
+    const store = {
+      state: {
+        refreshLatest,
+        latestIndex: { 'story-a': 20 },
+        stories: [{ story_id: 'story-a' }],
+        loading: false,
+        error: null,
+      },
+      getState() {
+        return this.state;
+      },
+      setState(next) {
+        this.state = { ...this.state, ...next };
+      },
+    };
+    const fakeWindow = { __VH_NEWS_STORE__: store };
+    const page = {
+      evaluate: vi.fn(async (fn) => {
+        const previousWindow = globalThis.window;
+        globalThis.window = fakeWindow;
+        try {
+          return await fn();
+        } finally {
+          globalThis.window = previousWindow;
+        }
+      }),
+    };
+
+    await expect(internal.installRefreshLatestRecorder(page)).resolves.toMatchObject({
+      installed: true,
+    });
+    const previousWindow = globalThis.window;
+    globalThis.window = fakeWindow;
+    try {
+      await store.getState().refreshLatest({ limit: 15, before: 20 });
+    } finally {
+      globalThis.window = previousWindow;
+    }
+    await expect(internal.readRefreshLatestRecorder(page)).resolves.toEqual([{
+      args: [{ limit: 15, before: 20 }],
+      at: expect.any(Number),
+    }]);
+    await expect(internal.readPublicNewsStoreSnapshot(page)).resolves.toMatchObject({
+      latestIndexCount: 1,
+      storyCount: 1,
+      loading: false,
+    });
+    expect(refreshLatest).toHaveBeenCalledWith({ limit: 15, before: 20 });
+  });
+
+  it('verifies relay latest-index pagination with an exclusive older cursor window', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const href = String(url);
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&scan_limit=8') {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 2,
+          source_key_count: 3,
+          window_source_key_count: 3,
+          scanned_key_count: 3,
+          next_cursor: 200,
+          records: {
+            'story-new': { story_id: 'story-new', latest_activity_at: 300 },
+            'story-mid': { story_id: 'story-mid', latest_activity_at: 200 },
+          },
+        }), { status: 200 });
+      }
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&before=200&scan_limit=8') {
+        return new Response(JSON.stringify({
+          ok: true,
+          record_count: 1,
+          source_key_count: 3,
+          window_source_key_count: 1,
+          scanned_key_count: 1,
+          before: 200,
+          next_cursor: 100,
+          records: {
+            'story-old': { story_id: 'story-old', latest_activity_at: 100 },
+          },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false, error: 'unexpected-url', href }), { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(internal.readPublicRelayPaginationReadback({
+        baseUrl: 'https://venn.example/',
+        pageLimit: 2,
+        timeoutMs: 1_000,
+      })).resolves.toMatchObject({
+        status: 'pass',
+        pageLimit: 2,
+        olderStoryIds: ['story-old'],
+        overlapStoryIds: [],
+        firstPage: {
+          storyIds: ['story-new', 'story-mid'],
+          nextCursor: 200,
+          sourceKeyCount: 3,
+        },
+        secondPage: {
+          before: 200,
+          storyIds: ['story-old'],
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails relay pagination evidence when older mesh stories are expected but no cursor window is available', () => {
+    expect(() => internal.assertPublicRelayPaginationReadback({
+      status: 'unproven',
+      failure: 'first-page-next-cursor-missing',
+      pageLimit: 2,
+      firstPage: {
+        recordCount: 2,
+        sourceKeyCount: 8,
+        windowSourceKeyCount: 8,
+      },
+    })).toThrow(
+      'public-relay-latest-index-pagination-unavailable:first-page-next-cursor-missing',
+    );
+  });
+
   it('reads public aggregate proof through the deployed app origin fanout shape', async () => {
     const fetchMock = vi.fn(async (url) => {
       expect(String(url)).toBe(
@@ -201,6 +329,83 @@ describe('public feed browser smoke helpers', () => {
     expect(internal.isAcceptedSynthesisText('Accepted summary without controls.', 0)).toBe(false);
   });
 
+  it('requires at least one current accepted synthesis for release smoke coverage by default', () => {
+    const pendingOnlyCoverage = {
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+      },
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      storyBodyStatusCounts: { 200: 2 },
+      acceptedSynthesisStoryCount: 0,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    };
+
+    expect(internal.capturePublicRelayAnalysisFrameCoverage(pendingOnlyCoverage)).toMatchObject({
+      status: 'fail',
+      errorMessage: 'public-relay-current-accepted-synthesis-missing',
+    });
+    expect(internal.capturePublicRelayAnalysisFrameCoverage(pendingOnlyCoverage, {
+      VH_PUBLIC_FEED_SMOKE_REQUIRE_ACCEPTED_SYNTHESIS: 'false',
+    })).toEqual({ status: 'pass' });
+  });
+
+  it('counts direct Gun accepted synthesis only when lifecycle matches the current story revision', () => {
+    const story = {
+      story_id: 'story-1',
+      provenance_hash: 'prov-current',
+    };
+    const synthesis = {
+      synthesis_id: 'synth-current',
+      epoch: 0,
+      facts_summary: 'Current accepted facts summary.',
+      frames: [{ frame: 'Frame', reframe: 'Reframe' }],
+      inputs: { story_bundle_ids: ['story-1'] },
+    };
+
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, {
+      status: 'accepted_available',
+      story_id: 'story-1',
+      source_set_revision: 'prov-current',
+      synthesis_id: 'synth-current',
+      epoch: 0,
+    })).toBe(true);
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, {
+      status: 'accepted_available',
+      story_id: 'story-1',
+      source_set_revision: 'prov-old',
+      synthesis_id: 'synth-current',
+      epoch: 0,
+    })).toBe(false);
+    expect(internal.acceptedSynthesisCurrentForStory(story, synthesis, null)).toBe(false);
+  });
+
+  it('classifies public peer CSP connect-src violations as critical browser diagnostics', () => {
+    expect(internal.summarizeBrowserLogDiagnostics([
+      {
+        type: 'error',
+        text: 'Refused to connect to https://gun-a.carboncaste.io/healthz because it violates the Content Security Policy directive: connect-src self',
+      },
+      {
+        type: 'error',
+        text: 'A non-critical console error',
+      },
+    ])).toMatchObject({
+      browserErrorCount: 2,
+      cspViolationCount: 1,
+      criticalCspViolationCount: 1,
+      criticalCspViolations: [
+        expect.stringContaining('https://gun-a.carboncaste.io/healthz'),
+      ],
+    });
+  });
+
   it('keeps reload and second-browser synthesis waits on the page-scoped signature', async () => {
     const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
 
@@ -213,6 +418,7 @@ describe('public feed browser smoke helpers', () => {
 
     expect(source).toContain('const DEFAULT_GUN_READBACK_STORY_LIMIT = 16;');
     expect(source).toContain('const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;');
+    expect(source).toContain('scanLimit = indexLimit');
     expect(source).toContain('readPublicRelaySynthesisCandidates({');
     expect(source).toContain('topStories: stories,');
     expect(source).not.toContain('topStories: stories.slice(0, 8)');
@@ -228,8 +434,44 @@ describe('public feed browser smoke helpers', () => {
           ok: true,
           text: async () => JSON.stringify({
             records: {
-              'story-singleton': { story_id: 'story-singleton', latest_activity_at: 20 },
-              'story-bundled': { story_id: 'story-bundled', latest_activity_at: 10 },
+              'story-singleton': {
+                story_id: 'story-singleton',
+                latest_activity_at: 20,
+                product_state_schema_version: 'vh-news-product-feed-index-v1',
+                topic_id: 'topic-singleton',
+                source_set_revision: 'prov-singleton',
+                source_count: 1,
+                canonical_source_count: 1,
+                story_created_at: 5,
+                cluster_window_start: 4,
+              },
+              'story-bundled': {
+                story_id: 'story-bundled',
+                latest_activity_at: 10,
+                product_state_schema_version: 'vh-news-product-feed-index-v1',
+                topic_id: 'topic-bundled',
+                source_set_revision: 'prov-bundled',
+                source_count: 2,
+                canonical_source_count: 2,
+                story_created_at: 7,
+                cluster_window_start: 6,
+              },
+            },
+            composition: {
+              total_visible: 2,
+              singleton_visible: 1,
+              multi_source_visible: 1,
+              freshness_age_ms: 1_000,
+            },
+            story_states: {
+              'story-singleton': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
+              'story-bundled': {
+                synthesis_state: 'accepted_synthesis_available',
+                frame_table_state: 'frame_table_ready',
+              },
             },
           }),
         };
@@ -242,6 +484,9 @@ describe('public feed browser smoke helpers', () => {
               story_id: 'story-singleton',
               topic_id: 'topic-singleton',
               headline: 'One valid singleton story',
+              provenance_hash: 'prov-singleton',
+              created_at: 5,
+              cluster_window_start: 4,
               sources: [{ publisher: 'one-source' }],
             },
           }),
@@ -255,6 +500,9 @@ describe('public feed browser smoke helpers', () => {
               story_id: 'story-bundled',
               topic_id: 'topic-bundled',
               headline: 'Bundled story with accepted synthesis',
+              provenance_hash: 'prov-bundled',
+              created_at: 7,
+              cluster_window_start: 6,
               sources: [{ publisher: 'source-a' }, { publisher: 'source-b' }],
             },
           }),
@@ -267,7 +515,12 @@ describe('public feed browser smoke helpers', () => {
             synthesis: {
               synthesis_id: 'news-bundle:story-bundled:abc',
               facts_summary: 'Accepted synthesis with enough context.',
-              frames: [{ point_id: 'frame-1' }],
+              frames: [{
+                frame_point_id: 'frame-1',
+                frame: 'Frame',
+                reframe_point_id: 'reframe-1',
+                reframe: 'Reframe',
+              }],
             },
           }),
         };
@@ -285,7 +538,26 @@ describe('public feed browser smoke helpers', () => {
         timeoutMs: 100,
       })).resolves.toMatchObject({
         latestIndexCount: 2,
-        storyReadbackCount: 1,
+        storyReadbackCount: 2,
+        acceptedSynthesisStoryCount: 1,
+        storyBodyStatusCounts: { 200: 2 },
+        synthesisStatusCounts: { 200: 2 },
+        relayCapability: {
+          composition_present: true,
+          story_states_present: true,
+          story_state_count: 2,
+        },
+        singletonReadableCount: 1,
+        multiSourceReadableCount: 1,
+        mediaClassCounts: { text: 2 },
+        sourceFilterStatusCounts: { unknown: 3 },
+        latestIndexProductMetadataStatusCounts: { complete: 2 },
+        missingLatestIndexProductMetadataStoryCount: 0,
+        pointIdPresence: {
+          frameRows: 1,
+          framePointIdsPresent: 1,
+          reframePointIdsPresent: 1,
+        },
         topStories: [{
           storyId: 'story-bundled',
           topicId: 'topic-bundled',
@@ -297,6 +569,443 @@ describe('public feed browser smoke helpers', () => {
       });
       expect(calls.some((href) => href === 'https://venn.example/vh/news/story?story_id=story-bundled')).toBe(true);
       expect(calls.some((href) => href === 'https://venn.example/vh/topics/synthesis?topic_id=topic-bundled')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('samples key-only latest-index rows so public story-body 404s are counted', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-missing-body': { _: { '#': 'vh/news/index/latest/story-missing-body' } },
+              'story-readable': { latest_activity_at: 20 },
+            },
+            composition: {
+              total_visible: 2,
+              singleton_visible: 2,
+              multi_source_visible: 0,
+              freshness_age_ms: 1_000,
+            },
+            story_states: {
+              'story-missing-body': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
+              'story-readable': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+              },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-missing-body')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'news-story-not-found' }),
+        };
+      }
+      if (href.includes('/vh/news/story') && href.includes('story-readable')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-readable',
+              topic_id: 'topic-readable',
+              headline: 'Readable text story',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 2,
+        sampledStoryIds: ['story-readable', 'story-missing-body'],
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        storyBodyStatusCounts: { 200: 1, 404: 1 },
+        synthesisStatusCounts: { 404: 1 },
+        articleTextSampleStatusCounts: { not_checked_synthesis_pending: 1 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails coverage when readable text latest-index stories lack accepted synthesis or a terminal reason', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 5,
+      },
+      storyBodyStatusCounts: { 200: 5 },
+      missingAcceptedSynthesisStoryCount: 2,
+      missingAcceptedSynthesisStories: [
+        { storyId: 'story-readable-a' },
+        { storyId: 'story-readable-b' },
+      ],
+      pointIdPresence: {
+        frameRows: 3,
+        framePointIdsPresent: 3,
+        reframePointIdsPresent: 3,
+      },
+    }, { VH_PUBLIC_FEED_REQUIRE_MIXED_COMPOSITION: 'false' })).toThrow(
+      'public-relay-readable-text-synthesis-missing:2:story-readable-a,story-readable-b',
+    );
+  });
+
+  it('fails coverage when the public relay feed is singleton-only', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 3,
+      },
+      storyBodyStatusCounts: { 200: 3 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 3,
+      multiSourceReadableCount: 0,
+      relayComposition: {
+        total_visible: 3,
+        singleton_visible: 3,
+        multi_source_visible: 0,
+        freshness_age_ms: 1_000,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-feed-composition-missing-multi-source');
+  });
+
+  it('fails coverage when mixed composition exists only because relay backfill appended an older bundle', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 3,
+      },
+      storyBodyStatusCounts: { 200: 3 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      relayComposition: {
+        total_visible: 3,
+        singleton_visible: 2,
+        multi_source_visible: 1,
+        organic_selected_count: 2,
+        organic_singleton_visible: 2,
+        organic_multi_source_visible: 0,
+        scan_window_selected_count: 3,
+        scan_window_singleton_visible: 2,
+        scan_window_multi_source_visible: 1,
+        backfill_used: true,
+        backfill_story_ids: ['story-old-bundle'],
+        freshness_age_ms: 1_000,
+      },
+      compositionBackfill: {
+        used: true,
+        storyIds: ['story-old-bundle'],
+        records: [{ story_id: 'story-old-bundle' }],
+      },
+      organicComposition: {
+        selectedCount: 2,
+        singletonVisible: 2,
+        multiSourceVisible: 0,
+      },
+      scanWindowComposition: {
+        selectedCount: 3,
+        singletonVisible: 2,
+        multiSourceVisible: 1,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-feed-composition-backfill-only-multi-source');
+  });
+
+  it('uses a 24 hour MVP freshness window by default', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 2,
+      },
+      storyBodyStatusCounts: { 200: 2 },
+      missingAcceptedSynthesisStoryCount: 0,
+      missingLatestIndexProductMetadataStoryCount: 0,
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      relayComposition: {
+        total_visible: 2,
+        singleton_visible: 1,
+        multi_source_visible: 1,
+        organic_selected_count: 2,
+        organic_singleton_visible: 1,
+        organic_multi_source_visible: 1,
+        freshness_age_ms: 25 * 60 * 60 * 1000,
+      },
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow(`public-relay-feed-stale:${25 * 60 * 60 * 1000}/${24 * 60 * 60 * 1000}`);
+  });
+
+  it('fails coverage when the public relay latest-index omits composition or story states', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: false,
+        story_states_present: true,
+        story_state_count: 3,
+      },
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-latest-index-missing-composition');
+
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: false,
+        story_state_count: 0,
+      },
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 1,
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow('public-relay-latest-index-missing-story-states');
+  });
+
+  it('fails coverage when readable latest-index rows lack durable product metadata', () => {
+    expect(() => internal.assertPublicRelayAnalysisFrameCoverage({
+      relayCapability: {
+        composition_present: true,
+        story_states_present: true,
+        story_state_count: 2,
+      },
+      singletonReadableCount: 1,
+      multiSourceReadableCount: 1,
+      missingLatestIndexProductMetadataStoryCount: 1,
+      missingLatestIndexProductMetadataStories: [
+        { storyId: 'story-with-timestamp-only-row', status: 'missing' },
+      ],
+      missingAcceptedSynthesisStoryCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    })).toThrow(
+      'public-relay-latest-index-product-metadata-missing:1:story-with-timestamp-only-row',
+    );
+  });
+
+  it('captures relay coverage failures without throwing before browser boot evidence is collected', async () => {
+    const coverage = internal.capturePublicRelayAnalysisFrameCoverage({
+      storyBodyStatusCounts: { 200: 2 },
+      missingAcceptedSynthesisStoryCount: 0,
+      singletonReadableCount: 2,
+      multiSourceReadableCount: 0,
+      pointIdPresence: {
+        frameRows: 0,
+        framePointIdsPresent: 0,
+        reframePointIdsPresent: 0,
+      },
+    });
+
+    expect(coverage).toMatchObject({
+      status: 'fail',
+      errorMessage: 'public-relay-latest-index-missing-composition',
+    });
+
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+    expect(source.indexOf('capturePublicRelayAnalysisFrameCoverage')).toBeLessThan(
+      source.indexOf("progress('identity-start'"),
+    );
+    expect(source.indexOf("progress('initial-feed-wait-start'")).toBeGreaterThan(
+      source.indexOf('capturePublicRelayAnalysisFrameCoverage'),
+    );
+    expect(source.indexOf('throw new Error(publicRelayAnalysisFrameCoverage.errorMessage')).toBeGreaterThan(
+      source.indexOf('secondBrowserVisibility: secondBrowser'),
+    );
+  });
+
+  it('does not count terminal unavailable synthesis outcomes as ambiguous missing synthesis', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-terminal': {
+                latest_activity_at: 20,
+                terminal_unavailable_reason: 'source_text_unavailable',
+              },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-terminal',
+              topic_id: 'topic-terminal',
+              headline: 'Readable text story with terminal synthesis status',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+              terminal_unavailable_reason: 'source_text_unavailable',
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 1,
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        missingAcceptedSynthesisStoryCount: 0,
+        terminalUnavailableReasonCounts: { source_text_unavailable: 1 },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not count honest pending synthesis lifecycle state as ambiguous missing synthesis', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes('/vh/news/latest-index')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            records: {
+              'story-pending': { story_id: 'story-pending', latest_activity_at: 20 },
+            },
+            story_states: {
+              'story-pending': {
+                synthesis_state: 'synthesis_pending',
+                frame_table_state: 'frame_table_pending',
+                lifecycle_status: 'pending',
+              },
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/news/story')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({
+            story: {
+              story_id: 'story-pending',
+              topic_id: 'topic-pending',
+              headline: 'Readable text story with pending synthesis status',
+              sources: [{ publisher: 'source-a', url: 'https://source.example/story' }],
+            },
+          }),
+        };
+      }
+      if (href.includes('/vh/topics/synthesis')) {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => JSON.stringify({ ok: false, error: 'topic-synthesis-not-found' }),
+        };
+      }
+      if (href.includes('/article-text')) {
+        return {
+          ok: true,
+          text: async () => JSON.stringify({ text: 'Readable article body.' }),
+        };
+      }
+      return {
+        ok: true,
+        text: async () => JSON.stringify({}),
+      };
+    }));
+    try {
+      await expect(internal.readPublicRelaySynthesisCandidates({
+        baseUrl: 'https://venn.example/',
+        indexLimit: 80,
+        scanLimit: 80,
+        timeoutMs: 100,
+      })).resolves.toMatchObject({
+        latestIndexCount: 1,
+        storyReadbackCount: 1,
+        acceptedSynthesisStoryCount: 0,
+        missingAcceptedSynthesisStoryCount: 0,
+        publicStateCounts: { synthesis_pending: 1 },
+        articleTextSampleStatusCounts: { not_checked_synthesis_pending: 1 },
+      });
     } finally {
       vi.unstubAllGlobals();
     }
@@ -567,6 +1276,19 @@ describe('public feed browser smoke helpers', () => {
     expect(source).toContain('summarizeFeedState(page)');
   });
 
+  it('keeps initial app-open feed proof separate from manual refresh recovery', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+    const initialWaitStart = source.indexOf('async function waitForInitialOpenHeadlines');
+    const initialWaitEnd = source.indexOf('function findVisibleStoryRow', initialWaitStart);
+    const initialWaitSource = source.slice(initialWaitStart, initialWaitEnd);
+
+    expect(source).toContain('manualRefreshAllowed: false');
+    expect(source).toContain('const initialCards = await gotoFeedInitialOpen(');
+    expect(initialWaitSource).toContain("waitFor('public-feed-initial-open-headlines'");
+    expect(initialWaitSource).toContain("progress('initial-open-wait-diagnostics'");
+    expect(initialWaitSource).not.toContain('clickFeedRefresh');
+  });
+
   it('bounds direct Gun reads used by release proof collection', async () => {
     await expect(internal.withTimeout('gun-read', new Promise(() => {}), 5))
       .rejects
@@ -662,5 +1384,103 @@ describe('public feed browser smoke helpers', () => {
         writers: [{ ...pin.writers[0], id: 'vh-e2e-news-daemon-system-writer-v1' }],
       }),
     })).toEqual(pin);
+  });
+
+  it('uses the repo public system writer pin before the E2E fixture fallback', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'vh-smoke-pin-'));
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'repo-public-material',
+        },
+      }],
+    };
+    try {
+      const pinPath = path.join(repoRoot, 'apps', 'web-pwa', 'src', 'luma');
+      await mkdir(pinPath, { recursive: true });
+      await writeFile(path.join(pinPath, 'system-writer-pin.json'), JSON.stringify(pin));
+
+      expect(internal.loadRepoSystemWriterPin(repoRoot)).toEqual(pin);
+      expect(internal.loadSystemWriterPin(repoRoot, {})).toEqual(pin);
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('extracts the deployed public system writer pin from a Vite bundle', () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'public-material' },
+      }],
+    };
+    const source = `const env={BASE_URL:"/",VITE_NEWS_SYSTEM_WRITER_PIN_JSON:'${JSON.stringify(pin)}',MODE:"production"};`;
+
+    expect(JSON.parse(internal.extractViteEnvString(source, 'VITE_NEWS_SYSTEM_WRITER_PIN_JSON'))).toEqual(pin);
+  });
+
+  it('uses the deployed app pin before falling back to the E2E fixture', async () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'public-material' },
+      }],
+    };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === 'https://venn.example/') {
+        return new Response('<script type="module" crossorigin src="/assets/index-public.js"></script>');
+      }
+      if (url === 'https://venn.example/assets/index-public.js') {
+        return new Response(`const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};`);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(internal.fetchDeployedSystemWriterPin('https://venn.example/', fetchImpl)).resolves.toEqual(pin);
+  });
+
+  it('extracts the deployed public system writer pin from lazy Vite chunks', async () => {
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'chunk-public-material' },
+      }],
+    };
+    const fetchImpl = vi.fn(async (url) => {
+      if (url === 'https://venn.example/') {
+        return new Response('<script type="module" crossorigin src="/assets/index-public.js"></script>');
+      }
+      if (url === 'https://venn.example/assets/index-public.js') {
+        return new Response('const load=()=>import("./feedBridge-public.js");');
+      }
+      if (url === 'https://venn.example/assets/feedBridge-public.js') {
+        return new Response(`const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};`);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    await expect(internal.fetchDeployedSystemWriterPin('https://venn.example/', fetchImpl)).resolves.toEqual(pin);
   });
 });

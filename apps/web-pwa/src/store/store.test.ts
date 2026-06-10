@@ -16,6 +16,8 @@ const mockWrite = vi.fn();
 const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), markReady: vi.fn(), ready: true };
 const mockPublishDirectory = vi.fn();
 const mockBootstrapFeedBridges = vi.fn();
+const mockBootstrapNewsSnapshotIfConfigured = vi.fn();
+const mockStartNewsSnapshotRefreshIfConfigured = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
 
@@ -67,6 +69,13 @@ vi.mock('./feedBridge', () => ({
   bootstrapFeedBridges: (...args: unknown[]) => mockBootstrapFeedBridges(...args),
 }));
 
+vi.mock('./newsSnapshotBootstrap', () => ({
+  bootstrapNewsSnapshotIfConfigured: (...args: unknown[]) =>
+    mockBootstrapNewsSnapshotIfConfigured(...args),
+  startNewsSnapshotRefreshIfConfigured: (...args: unknown[]) =>
+    mockStartNewsSnapshotRefreshIfConfigured(...args),
+}));
+
 class MemoryStorage {
   #store = new Map<string, string>();
   getItem(key: string) {
@@ -97,6 +106,10 @@ beforeEach(() => {
   mockHydration.ready = true;
   mockPublishDirectory.mockReset();
   mockBootstrapFeedBridges.mockReset();
+  mockBootstrapNewsSnapshotIfConfigured.mockReset();
+  mockBootstrapNewsSnapshotIfConfigured.mockResolvedValue(false);
+  mockStartNewsSnapshotRefreshIfConfigured.mockReset();
+  mockStartNewsSnapshotRefreshIfConfigured.mockReturnValue(false);
   mockGunAuth.mockClear();
   mockGunUser.is = null;
   (createClient as unknown as Mock).mockClear();
@@ -156,7 +169,28 @@ describe('useAppStore', () => {
     });
   });
 
-  it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
+  it('uses the public-beta news system writer as the baked distribution pin', () => {
+    expect(resolveClientSystemWriterPin().writers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'retired',
+      }),
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v2',
+        status: 'retired',
+      }),
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v3',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'MCowBQYDK2VwAyEAv8YZ8WoDOfearavnNDQt98ndEzk5pqyeEz1KX6lDE1s',
+        },
+      }),
+    ]));
+  });
+
+  it('requires async signed peer config resolution in strict mode and ignores runtime global peers', () => {
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     (globalThis as any).__VH_GUN_PEERS__ = [
       'https://runtime-a.example/gun',
@@ -164,7 +198,7 @@ describe('useAppStore', () => {
       'https://runtime-c.example/gun',
     ];
 
-    expect(() => resolveGunPeers('app.example')).toThrow('strict peer config requires explicit Gun peers');
+    expect(() => resolveGunPeers('app.example')).toThrow('remote Gun peer config requires async');
   });
 
   it('requires three secure peers by default in strict mode', () => {
@@ -224,7 +258,35 @@ describe('useAppStore', () => {
     expect((createClient as unknown as Mock).mock.calls[0]?.[0]?.gunLocalStorage).toBe(false);
   });
 
-  it('init sets client after hydration', async () => {
+  it('exposes the public client before storage hydration resolves', async () => {
+    vi.useFakeTimers();
+    let pending: Promise<void> | null = null;
+    try {
+      mockHydration.ready = false;
+      mockHydration.prepare.mockReturnValueOnce(new Promise(() => {}));
+
+      pending = useAppStore.getState().init();
+      await Promise.resolve();
+
+      expect(useAppStore.getState().client).toBeTruthy();
+      expect(useAppStore.getState().initializing).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await pending;
+
+      expect(mockHydration.markReady).toHaveBeenCalled();
+      expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().initializing).toBe(false);
+    } finally {
+      if (pending) {
+        await vi.advanceTimersByTimeAsync(15_000);
+        await pending.catch(() => undefined);
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('init completes identity state after storage hydration', async () => {
     await useAppStore.getState().init();
     const state = useAppStore.getState();
     expect(state.client).toBeTruthy();
@@ -241,12 +303,31 @@ describe('useAppStore', () => {
     expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
   });
 
-  it('init still starts browser feed bridges when enabled outside daemon-first isolation', async () => {
-    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
-
+  it('init starts browser news feed bridges by default outside daemon-first isolation', async () => {
     await useAppStore.getState().init();
 
     expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps live news feed bridges running after a configured snapshot warm start', async () => {
+    mockBootstrapNewsSnapshotIfConfigured.mockResolvedValueOnce(true);
+    mockStartNewsSnapshotRefreshIfConfigured.mockReturnValueOnce(true);
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapNewsSnapshotIfConfigured).toHaveBeenCalledTimes(1);
+    expect(mockStartNewsSnapshotRefreshIfConfigured).toHaveBeenCalledTimes(1);
+    expect(mockBootstrapFeedBridges).toHaveBeenCalledTimes(1);
+  });
+
+  it('init does not start browser feed bridges when all bridge flags are explicitly disabled', async () => {
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
+
+    await useAppStore.getState().init();
+
+    expect(mockBootstrapFeedBridges).not.toHaveBeenCalled();
   });
 
   it('marks the hydration barrier ready when init continues after timeout', async () => {

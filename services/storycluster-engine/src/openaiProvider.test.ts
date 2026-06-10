@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   OpenAIStoryClusterProvider,
   createOpenAIStoryClusterProviderFromEnv,
+  preflightOpenAIStoryClusterProviderFromEnv,
   resolveOpenAIStoryClusterProviderProvenanceFromEnv,
 } from './openaiProvider';
 
@@ -693,6 +694,128 @@ describe('OpenAIStoryClusterProvider', () => {
       embeddingModelId: 'override-embed-model',
       baseUrl: 'https://override.example/v1/',
       timeoutMs: 120000,
+    });
+  });
+
+  it('preflights text and embedding model auth with provider provenance', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test-preflight');
+    vi.stubEnv('VH_STORYCLUSTER_TEXT_MODEL', 'env-text-model');
+    vi.stubEnv('VH_STORYCLUSTER_EMBEDDING_MODEL', 'env-embed-model');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_BASE_URL', 'https://proxy.example/v1/');
+    const seenRequests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      seenRequests.push({ url, body });
+      if (url.endsWith('/chat/completions')) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: '{"ok":true}',
+            },
+          }],
+        });
+      }
+      return jsonResponse({
+        data: [{
+          embedding: [0.1, 0.2, 0.3],
+        }],
+      });
+    });
+
+    await expect(preflightOpenAIStoryClusterProviderFromEnv({
+      timeoutMs: 12345,
+      fetchFn,
+    })).resolves.toMatchObject({
+      status: 'pass',
+      code: null,
+      provider: {
+        textModelId: 'env-text-model',
+        embeddingModelId: 'env-embed-model',
+        baseUrl: 'https://proxy.example/v1/',
+        effectiveBaseUrl: 'https://proxy.example/v1/',
+        timeoutMs: 12345,
+      },
+      checks: {
+        apiKeyPresent: true,
+        textModelAuth: 'pass',
+        embeddingModelAuth: 'pass',
+      },
+    });
+    expect(seenRequests.map((request) => request.url)).toEqual([
+      'https://proxy.example/v1/chat/completions',
+      'https://proxy.example/v1/embeddings',
+    ]);
+    expect(seenRequests[0]?.body.model).toBe('env-text-model');
+    expect(seenRequests[1]?.body.model).toBe('env-embed-model');
+  });
+
+  it('preflights missing OpenAI credentials with a public-safe code', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+
+    await expect(preflightOpenAIStoryClusterProviderFromEnv({
+      fetchFn: vi.fn(),
+    })).resolves.toMatchObject({
+      status: 'fail',
+      code: 'storycluster-openai-auth-missing',
+      checks: {
+        apiKeyPresent: false,
+        textModelAuth: 'not_run',
+        embeddingModelAuth: 'not_run',
+      },
+    });
+  });
+
+  it('preflights invalid OpenAI credentials without leaking the key', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-secret-that-must-not-leak');
+
+    const result = await preflightOpenAIStoryClusterProviderFromEnv({
+      fetchFn: vi.fn(async () => new Response('{"error":{"code":"invalid_api_key","message":"Incorrect API key sk-secret-that-must-not-leak"}}', {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })),
+    });
+
+    expect(result).toMatchObject({
+      status: 'fail',
+      code: 'storycluster-openai-auth-invalid',
+      checks: {
+        apiKeyPresent: true,
+        textModelAuth: 'fail',
+        embeddingModelAuth: 'not_run',
+      },
+    });
+    expect(result.errorMessage).toContain('sk-[REDACTED]');
+    expect(result.errorMessage).not.toContain('sk-secret-that-must-not-leak');
+  });
+
+  it('preflights unauthorized embedding models separately from invalid credentials', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'sk-test-preflight');
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url.endsWith('/chat/completions')) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: '{"ok":true}',
+            },
+          }],
+        });
+      }
+      return new Response('{"error":{"code":"model_not_found","message":"model does not exist"}}', {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    await expect(preflightOpenAIStoryClusterProviderFromEnv({
+      fetchFn,
+    })).resolves.toMatchObject({
+      status: 'fail',
+      code: 'storycluster-openai-model-unauthorized',
+      checks: {
+        apiKeyPresent: true,
+        textModelAuth: 'pass',
+        embeddingModelAuth: 'fail',
+      },
     });
   });
 });

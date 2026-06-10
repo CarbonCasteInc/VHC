@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolvePublicSemanticSoakBundleSynthesisEnv,
   resolvePublicSemanticSoakMaxItemsTotal,
   resolvePublicSemanticSoakSourceIds,
   resolvePublicSemanticSoakSpawnEnv,
@@ -234,6 +235,40 @@ describe('runDaemonFeedSemanticSoak', () => {
     }, sourceIds)).toBe('112');
   });
 
+  it('enables product-ready bundle synthesis for public smoke runs when a backend is available', () => {
+    const env = resolvePublicSemanticSoakBundleSynthesisEnv({
+      OPENAI_API_KEY: 'openai-key',
+    }, TEST_PORT_PLAN);
+
+    expect(env).toMatchObject({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+      VH_BUNDLE_SYNTHESIS_TIMEOUT_MS: '60000',
+      VH_BUNDLE_SYNTHESIS_RATE_PER_MIN: '120',
+      VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH: '64',
+    });
+    expect(env.VH_BUNDLE_SYNTHESIS_UPSTREAM_URL).toBeUndefined();
+    expect(env.VH_BUNDLE_SYNTHESIS_API_KEY).toBeUndefined();
+  });
+
+  it('keeps bundle synthesis disabled for public smoke runs without a synthesis backend', () => {
+    expect(resolvePublicSemanticSoakBundleSynthesisEnv({}, TEST_PORT_PLAN)).toEqual({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'false',
+    });
+  });
+
+  it('routes fixture smoke bundle synthesis through the local analysis stub', () => {
+    const env = resolvePublicSemanticSoakBundleSynthesisEnv({
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+    }, TEST_PORT_PLAN);
+
+    expect(env).toMatchObject({
+      VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+      VH_BUNDLE_SYNTHESIS_UPSTREAM_URL: 'http://127.0.0.1:9100/v1/chat/completions',
+      VH_BUNDLE_SYNTHESIS_API_KEY: 'fixture-analysis-stub-key',
+      VH_BUNDLE_SYNTHESIS_MODEL: 'fixture-analysis-stub',
+    });
+  });
+
   it('shares managed StoryCluster state across runs in the same soak artifact by default', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-persistent-state', 4, 180000, {
       repoRoot: '/repo',
@@ -435,7 +470,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       readFile: () => JSON.stringify({
         keepSourceIds: [
           'fox-latest',
-          'nypost-politics',
+          'washingtonexaminer-politics',
           'guardian-us',
           'huffpost-us',
           'cbs-politics',
@@ -453,7 +488,7 @@ describe('runDaemonFeedSemanticSoak', () => {
             { sourceId: 'huffpost-us', corroboratedBundleCount: 7, bundleAppearanceCount: 30, ingestedItemCount: 48 },
             { sourceId: 'cbs-politics', corroboratedBundleCount: 6, bundleAppearanceCount: 13, ingestedItemCount: 30 },
             { sourceId: 'guardian-us', corroboratedBundleCount: 6, bundleAppearanceCount: 10, ingestedItemCount: 33 },
-            { sourceId: 'nypost-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 7, ingestedItemCount: 19 },
+            { sourceId: 'washingtonexaminer-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 7, ingestedItemCount: 19 },
             { sourceId: 'abc-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 5, ingestedItemCount: 25 },
             { sourceId: 'bbc-general', corroboratedBundleCount: 4, bundleAppearanceCount: 15, ingestedItemCount: 37 },
             { sourceId: 'pbs-politics', corroboratedBundleCount: 4, bundleAppearanceCount: 6, ingestedItemCount: 20 },
@@ -470,7 +505,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       'huffpost-us',
       'cbs-politics',
       'guardian-us',
-      'nypost-politics',
+      'washingtonexaminer-politics',
       'abc-politics',
       'bbc-general',
       'pbs-politics',
@@ -543,10 +578,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       'cbs-politics',
       'texastribune-main',
       'kffhealthnews-original',
-      'sky-world',
       'aljazeera-all',
-      'scotusblog-main',
-      'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
       'nevadaindependent-main',
@@ -557,13 +589,12 @@ describe('runDaemonFeedSemanticSoak', () => {
       'npr-politics',
       'pbs-politics',
       'fox-latest',
-      'nypost-politics',
+      'washingtonexaminer-politics',
       'ap-topnews',
       'ap-politics',
       'latimes-california',
       'bbc-general',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
   });
@@ -593,10 +624,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       'cbs-politics',
       'texastribune-main',
       'kffhealthnews-original',
-      'sky-world',
       'aljazeera-all',
-      'scotusblog-main',
-      'channelnewsasia-latest',
       'dw-top',
       'globalnews-politics',
       'nevadaindependent-main',
@@ -607,13 +635,12 @@ describe('runDaemonFeedSemanticSoak', () => {
       'npr-politics',
       'pbs-politics',
       'fox-latest',
-      'nypost-politics',
+      'washingtonexaminer-politics',
       'ap-topnews',
       'ap-politics',
       'latimes-california',
       'bbc-general',
       'fedsmith-news',
-      'democracydocket-alerts',
       'bigbendsentinel-border-wall',
     ]);
   });

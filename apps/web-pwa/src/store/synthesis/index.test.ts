@@ -89,6 +89,7 @@ function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSyn
 
 describe('synthesis store', () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     hydrateSynthesisStoreMock.mockReset();
     releaseSynthesisHydrationMock.mockReset();
@@ -336,6 +337,56 @@ describe('synthesis store', () => {
     expect(state.epoch).toBe(8);
     expect(state.synthesis?.synthesis_id).toBe('synth-8');
     expect(state.effectiveStatus).toBe('accepted_available');
+  });
+
+  it('refreshTopic uses same-origin relay reads in public browser routes while preserving mesh hydration', async () => {
+    hydrateSynthesisStoreMock.mockReturnValue(true);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/?detail=news:story-1',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+    const meshClient = { id: 'mesh-client' };
+    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => meshClient as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    expect(hydrateSynthesisStoreMock).toHaveBeenCalled();
+    const readClient = readTopicLatestSynthesisMock.mock.calls[0]?.[0] as {
+      config?: { peers?: string[] };
+    };
+    const correctionClient = readTopicLatestSynthesisCorrectionMock.mock.calls[0]?.[0] as {
+      config?: { peers?: string[] };
+    };
+    expect(readClient).not.toBe(meshClient);
+    expect(readClient.config?.peers).toEqual(['https://venn.carboncaste.io/gun']);
+    expect(correctionClient.config?.peers).toEqual(['https://venn.carboncaste.io/gun']);
+    const relayMesh = (readClient as {
+      mesh?: {
+        once: (callback?: (data: unknown) => void) => void;
+        on: (callback?: (data: unknown) => void) => void;
+        put: (value: Record<string, unknown>, callback?: (ack?: { err?: string }) => void) => void;
+        map: () => { on: (callback?: (data: unknown) => void) => void };
+        get: () => unknown;
+      };
+    }).mesh;
+    const once = vi.fn();
+    const on = vi.fn();
+    const mapOn = vi.fn();
+    const putAck = vi.fn();
+    relayMesh?.once(once);
+    relayMesh?.on(on);
+    relayMesh?.map().on(mapOn);
+    relayMesh?.put({ synthesis_id: 'synth-1' }, putAck);
+    expect(relayMesh?.get()).toBe(relayMesh);
+    expect(once).toHaveBeenCalledWith(undefined);
+    expect(on).toHaveBeenCalledWith(undefined);
+    expect(mapOn).toHaveBeenCalledWith(undefined);
+    expect(putAck).toHaveBeenCalledWith({ err: 'relay-only public synthesis client is read-only' });
+    expect(store.getState().getTopicState('topic-1').effectiveStatus).toBe('accepted_available');
   });
 
   it('refreshTopic hydrates correction state and exposes effective unavailable/suppressed state', async () => {

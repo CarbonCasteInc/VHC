@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(28);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(25);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -42,7 +42,7 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(6);
+      expect(wire.length).toBeGreaterThanOrEqual(5);
     });
 
     it('includes the highest-confidence statehouse and specialist additions', () => {
@@ -62,15 +62,6 @@ describe('feedRegistry', () => {
         rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss',
         perspectiveTag: 'health-policy',
         iconKey: 'kff',
-        enabled: true,
-      });
-      expect(
-        STARTER_FEED_SOURCES.find((source) => source.id === 'scotusblog-main'),
-      ).toMatchObject({
-        name: 'SCOTUSblog',
-        rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
-        perspectiveTag: 'courts-legal',
-        iconKey: 'scotusblog',
         enabled: true,
       });
       expect(
@@ -98,15 +89,6 @@ describe('feedRegistry', () => {
         rssUrl: 'https://www.fedsmith.com/feed/',
         perspectiveTag: 'federal-workforce',
         iconKey: 'fedsmith',
-        enabled: true,
-      });
-      expect(
-        STARTER_FEED_SOURCES.find((source) => source.id === 'democracydocket-alerts'),
-      ).toMatchObject({
-        name: 'Democracy Docket Democracy Alerts',
-        rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
-        perspectiveTag: 'election-law',
-        iconKey: 'democracydocket',
         enabled: true,
       });
       expect(
@@ -317,15 +299,15 @@ describe('feedRegistry', () => {
     });
 
     it('returns metadata for newly admitted specialist and international sources', () => {
+      expect(getSourceMetadata('washingtonexaminer-politics')).toEqual({
+        displayName: 'Washington Examiner',
+        perspectiveTag: 'conservative',
+        iconKey: 'washingtonexaminer',
+      });
       expect(getSourceMetadata('texastribune-main')).toEqual({
         displayName: 'Texas Tribune',
         perspectiveTag: 'statehouse',
         iconKey: 'texastribune',
-      });
-      expect(getSourceMetadata('channelnewsasia-latest')).toEqual({
-        displayName: 'Channel NewsAsia',
-        perspectiveTag: 'international-wire',
-        iconKey: 'cna',
       });
       expect(getSourceMetadata('ap-topnews')).toEqual({
         displayName: 'AP',
@@ -347,16 +329,14 @@ describe('feedRegistry', () => {
         perspectiveTag: 'federal-workforce',
         iconKey: 'fedsmith',
       });
-      expect(getSourceMetadata('democracydocket-alerts')).toEqual({
-        displayName: 'Democracy Docket',
-        perspectiveTag: 'election-law',
-        iconKey: 'democracydocket',
-      });
     });
 
     it('returns undefined for sources pruned from the starter surface', () => {
+      expect(getSourceMetadata('channelnewsasia-latest')).toBeUndefined();
       expect(getSourceMetadata('sky-world')).toBeUndefined();
-      expect(getSourceMetadata('washingtonexaminer-politics')).toBeUndefined();
+      expect(getSourceMetadata('nypost-politics')).toBeUndefined();
+      expect(getSourceMetadata('democracydocket-alerts')).toBeUndefined();
+      expect(getSourceMetadata('scotusblog-main')).toBeUndefined();
     });
 
     it('falls back to name when displayName is absent', () => {

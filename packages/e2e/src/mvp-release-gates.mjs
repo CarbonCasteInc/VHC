@@ -5,14 +5,46 @@ import { fileURLToPath } from 'node:url';
 
 export const REPORT_SCHEMA_VERSION = 'mvp-release-gates-report-v1';
 export const VALID_STATUSES = ['pass', 'fail', 'setup_scarcity', 'skipped_not_in_scope'];
+export const DEFAULT_GATE_TIMEOUT_MS = 12 * 60 * 1000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../..');
 const latestDir = path.join(repoRoot, '.tmp/mvp-release-gates/latest');
 const latestReportPath = path.join(latestDir, 'mvp-release-gates-report.json');
+export const PUBLIC_FEED_RELEASE_ENV = [
+  'VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io',
+  'VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun',
+  'VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS=["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]',
+  'VH_PUBLIC_FEED_PUBLIC_WSS_PEERS=["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]',
+];
 
-const GATES = [
+function withPublicFeedReleaseEnv(command, extraEnv = []) {
+  const [bin, args] = command;
+  return ['env', [...PUBLIC_FEED_RELEASE_ENV, ...extraEnv, bin, ...args]];
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function killProcessTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  if (process.platform === 'win32') {
+    child.kill('SIGTERM');
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGTERM');
+  } catch {
+    child.kill('SIGTERM');
+  }
+}
+
+export const GATES = [
   {
     id: 'source_health',
     label: 'Source health',
@@ -45,6 +77,94 @@ const GATES = [
       ['exec', 'vitest', 'run', 'apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx', '-t', 'mvp gate: story detail'],
     ],
     artifactRefs: ['apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx'],
+  },
+  {
+    id: 'public_feed_analysis_frame_reliability',
+    label: 'Public feed latest-index, accepted synthesis, and frame-table reliability',
+    command: withPublicFeedReleaseEnv(['pnpm', ['test:public-feed:browser-smoke']]),
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-browser-smoke.mjs',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      '.tmp/analysis-frame-pipeline',
+    ],
+  },
+  {
+    id: 'public_feed_composition_freshness',
+    label: 'Public feed composition and freshness',
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:composition-freshness']]),
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-composition-freshness-gate.mjs',
+      '.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json',
+    ],
+  },
+  {
+    id: 'public_feed_lifecycle_accountability',
+    label: 'Raw story, product feed, and synthesis lifecycle accountability',
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:lifecycle-accountability']]),
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-lifecycle-accountability.mjs',
+      '.tmp/release-evidence/public-feed-lifecycle-accountability/latest/public-feed-lifecycle-accountability-summary.json',
+    ],
+  },
+  {
+    id: 'public_feed_fresh_propagation',
+    label: 'Fresh RSS item propagation through daemon, StoryCluster, product feed, relay, and PWA refresh',
+    command: withPublicFeedReleaseEnv(
+      ['pnpm', ['check:public-feed:fresh-propagation']],
+      ['VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE=true'],
+    ),
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-fresh-propagation-gate.mjs',
+      '.tmp/release-evidence/public-feed-fresh-propagation/latest/public-feed-fresh-propagation-summary.json',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      '.tmp/daemon-feed-publisher-canary',
+      '.tmp/daemon-feed-consumer-smoke',
+    ],
+  },
+  {
+    id: 'story_identity_growth',
+    label: 'Story identity remains stable when singleton stories gain corroborating sources',
+    command: [
+      'pnpm',
+      [
+        '--filter',
+        '@vh/storycluster-engine',
+        'exec',
+        'vitest',
+        'run',
+        'src/remoteContract.test.ts',
+        'src/storyclusterBatchReplayIdentityDrift.test.ts',
+        '--config',
+        './vitest.config.ts',
+      ],
+    ],
+    artifactRefs: [
+      'services/storycluster-engine/src/remoteContract.test.ts',
+      'services/storycluster-engine/src/storyclusterBatchReplayIdentityDrift.test.ts',
+    ],
+  },
+  {
+    id: 'public_feed_pagination_refresh',
+    label: 'Public feed refresh and load-more pagination from mesh',
+    command: withPublicFeedReleaseEnv(['pnpm', ['test:public-feed:browser-smoke']]),
+    reusePreviousCommandResult: true,
+    artifactRefs: [
+      'packages/e2e/src/live/public-feed-browser-smoke.mjs',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+      'apps/web-pwa/src/components/feed/FeedShell.lazyLoading.test.tsx',
+    ],
+  },
+  {
+    id: 'stance_aggregate_decay_public_mesh',
+    label: 'Stance persistence, public aggregate snapshots, and capped decay math',
+    command: withPublicFeedReleaseEnv(['pnpm', ['check:public-feed:stance-aggregate-decay']]),
+    artifactRefs: [
+      'apps/web-pwa/src/components/feed/voteSemantics.ts',
+      'apps/web-pwa/src/hooks/useSentimentState.ts',
+      'packages/gun-client/src/aggregateAdapters.ts',
+      'packages/gun-client/src/topicEngagementAdapters.ts',
+      '.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json',
+    ],
   },
   {
     id: 'synthesis_correction',
@@ -204,11 +324,56 @@ function commandToString(command) {
 
 export function classifyGateFailure(output) {
   const text = String(output ?? '').toLowerCase();
+  if (text.includes('mvp-release-gate-command-timeout')) {
+    return 'fail';
+  }
+  if (
+    text.includes('eligible_raw_story_hidden_without_allowed_reason') ||
+    text.includes('multi_source_raw_story_hidden_by_synthesis_state') ||
+    text.includes('product_feed_hot_index_missing_for_visible_story') ||
+    text.includes('hot_index_product_metadata_missing') ||
+    text.includes('product_visible_synthesis_lifecycle_pending_stale') ||
+    text.includes('public-feed-initial-open-headlines-timeout') ||
+    text.includes('public-feed-load-more-not-from-mesh') ||
+    text.includes('public-feed-browser-csp-violations') ||
+    text.includes('scroll-feed-lost-headlines') ||
+    text.includes('public-relay-latest-index-missing-composition') ||
+    text.includes('public-relay-latest-index-missing-story-states') ||
+    text.includes('public-relay-latest-index-product-metadata-missing') ||
+    text.includes('public-relay-current-accepted-synthesis-missing') ||
+    text.includes('public-relay-peer-readback-not-configured') ||
+    text.includes('public-relay-peer-readback-failed') ||
+    text.includes('public-relay-feed-composition-backfill-only-multi-source') ||
+    text.includes('public-relay-feed-stale') ||
+    text.includes('fresh-propagation-fixture-only') ||
+    text.includes('fresh-propagation-public-browser-smoke-missing') ||
+    text.includes('fresh-propagation-public-browser-smoke-not-passing') ||
+    text.includes('fresh-propagation-public-relay-latest-empty') ||
+    text.includes('fresh-propagation-public-relay-story-body-empty') ||
+    text.includes('fresh-propagation-public-browser-initial-empty') ||
+    text.includes('fresh-propagation-public-browser-refresh-empty') ||
+    text.includes('fresh-propagation-public-relay-pagination-failed') ||
+    text.includes('fresh-propagation-consumer-not-browser') ||
+    text.includes('fresh-propagation-consumer-fixture-mismatch') ||
+    text.includes('fresh-propagation-consumer-summary-mismatch') ||
+    text.includes('fresh-propagation-latest-activity-stale') ||
+    text.includes('fail:public-relay-feed-composition-missing-multi-source') ||
+    text.includes('fail:fresh-propagation') ||
+    text.includes('source-labels-missing') ||
+    text.includes('timestamps-missing')
+  ) {
+    return 'fail';
+  }
   if (
     text.includes('blocked_setup_scarcity') ||
     text.includes('setup_scarcity') ||
+    text.includes('fresh-propagation-feed-stage-outage') ||
+    text.includes('publisher-not-passing:feed_stage_outage') ||
     text.includes('vote-capable-preflight-failed') ||
     text.includes('feed_stage_outage') ||
+    text.includes('public-relay-feed-composition-missing-multi-source') ||
+    text.includes('public_feed_composition_missing_multi_source') ||
+    text.includes('missing_multi_source') ||
     text.includes('source health') && text.includes('insufficient')
   ) {
     return 'setup_scarcity';
@@ -218,15 +383,28 @@ export function classifyGateFailure(output) {
 
 function runCommand(command, options = {}) {
   const echo = options.echo ?? true;
+  const timeoutMs = options.timeoutMs ?? parsePositiveInteger(process.env.VH_MVP_RELEASE_GATE_TIMEOUT_MS, DEFAULT_GATE_TIMEOUT_MS);
   const [bin, args] = command;
   return new Promise((resolve) => {
     const child = spawn(bin, args, {
       cwd: repoRoot,
       env: { ...process.env, CI: process.env.CI ?? 'true' },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     });
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      const message = `[mvp-release-gate-command-timeout] command timed out after ${timeoutMs}ms\n`;
+      stderr += message;
+      if (echo) {
+        process.stderr.write(message);
+      }
+      killProcessTree(child);
+    }, timeoutMs);
+    timer.unref?.();
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
       stdout += text;
@@ -242,10 +420,12 @@ function runCommand(command, options = {}) {
       }
     });
     child.on('error', (error) => {
-      resolve({ exitCode: 127, stdout, stderr: `${stderr}${error.stack ?? error.message}` });
+      clearTimeout(timer);
+      resolve({ exitCode: 127, stdout, stderr: `${stderr}${error.stack ?? error.message}`, timedOut });
     });
     child.on('close', (exitCode) => {
-      resolve({ exitCode: exitCode ?? 1, stdout, stderr });
+      clearTimeout(timer);
+      resolve({ exitCode: timedOut ? 124 : (exitCode ?? 1), stdout, stderr, timedOut });
     });
   });
 }
@@ -284,6 +464,35 @@ async function runGate(gate) {
   };
 }
 
+export function findReusableGateResult(gate, completedGates) {
+  if (!gate.reusePreviousCommandResult) {
+    return null;
+  }
+  const commandText = commandToString(gate.command);
+  return completedGates.find((completedGate) => completedGate.command === commandText) ?? null;
+}
+
+export function buildReusedGateResult(gate, previousResult) {
+  const timestamp = nowIso();
+  return {
+    id: gate.id,
+    label: gate.label,
+    status: previousResult.status,
+    command: commandToString(gate.command),
+    startedAt: timestamp,
+    endedAt: timestamp,
+    durationMs: 0,
+    exitCode: previousResult.exitCode,
+    artifactRefs: gate.artifactRefs,
+    failureClassification: previousResult.failureClassification,
+    reusedFromGateId: previousResult.id,
+    summary:
+      previousResult.status === 'pass'
+        ? `${gate.label} passed using the ${previousResult.id} browser-smoke evidence packet.`
+        : `${gate.label} failed using the ${previousResult.id} browser-smoke evidence packet: ${previousResult.summary}`,
+  };
+}
+
 async function writeReport(report) {
   await rm(latestDir, { recursive: true, force: true });
   await mkdir(latestDir, { recursive: true });
@@ -296,7 +505,11 @@ export async function runMvpReleaseGates() {
   const commit = await gitValue(['rev-parse', 'HEAD']);
   const gates = [];
   for (const gate of GATES) {
-    const result = await runGate(gate);
+    const reusableResult = findReusableGateResult(gate, gates);
+    const result = reusableResult ? buildReusedGateResult(gate, reusableResult) : await runGate(gate);
+    if (reusableResult) {
+      console.info(`[mvp-release-gates] ${gate.id}: reused ${reusableResult.id} result`);
+    }
     gates.push(result);
   }
 

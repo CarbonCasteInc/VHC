@@ -182,6 +182,15 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     });
   });
 
+  it('preserves shared StoryCluster processes during daemon-first stack startup', () => {
+    expect(daemonFirstFeedHarnessInternal.shouldRunBroadStaleProcessCleanup({
+      usesSharedStorycluster: true,
+    })).toBe(false);
+    expect(daemonFirstFeedHarnessInternal.shouldRunBroadStaleProcessCleanup({
+      usesSharedStorycluster: false,
+    })).toBe(true);
+  });
+
   it('allows semantic soaks to reuse a persistent managed StoryCluster state directory', () => {
     vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_STATE_DIR', '/tmp/vh-storycluster-state');
     vi.stubEnv('VH_STORYCLUSTER_STATE_DIR', '/tmp/ignored-direct-state');

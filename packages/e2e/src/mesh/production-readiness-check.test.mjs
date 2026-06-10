@@ -22,7 +22,10 @@ import {
   buildReleaseClaims,
   conflictRowsForAggregate,
   downstreamCanaryMetadata,
+  loadPublicWssProofEvidence,
   persistLumaCoverageEvidenceForPacket,
+  persistPublicWssProofEvidenceForPacket,
+  validatePublicWssProofReport,
   validationFailuresForSource,
 } from './production-readiness-check.mjs';
 
@@ -55,6 +58,38 @@ function sourceReport(overrides = {}) {
     resource_slos: [],
     ...overrides,
   };
+}
+
+function publicWssProofReport(overrides = {}) {
+  return sourceReport({
+    status: 'review_required',
+    run_id: 'public-wss-proof-test',
+    repo: {
+      commit: currentCommit,
+      dirty: false,
+    },
+    run: {
+      mode: 'deployed_wss_topology',
+      deployment_scope: 'public_wss_deployment',
+      started_at: '2026-05-07T00:00:01.000Z',
+      completed_at: '2026-05-07T00:00:10.000Z',
+      command: 'pnpm test:mesh:deployed-wss-peer-config:public',
+    },
+    public_wss_proof: {
+      status: 'pass',
+      deployment_scope: 'public_wss_deployment',
+      expected_peer_count: 3,
+      expected_config_id: 'public-config-v1',
+      failures: [],
+    },
+    topology: {
+      deployment_scope: 'public_wss_deployment',
+      configured_peer_count: 3,
+      quorum_required: 2,
+      peer_config_id: 'public-config-v1',
+    },
+    ...overrides,
+  });
 }
 
 function passingLumaCoverageReport(overrides = {}) {
@@ -95,6 +130,16 @@ function lumaCoverageEvidence(report = passingLumaCoverageReport()) {
     report_path: '/tmp/mesh-luma-gated-write-coverage-report.json',
     report,
     validation: validateLumaCoverageReport(report, { currentCommit }),
+  };
+}
+
+function publicWssProofEvidence(report = publicWssProofReport()) {
+  return {
+    provided: true,
+    status: 'pass',
+    report_path: '/tmp/mesh-public-wss-proof-report.json',
+    report,
+    validation: validatePublicWssProofReport(report, { currentCommit }),
   };
 }
 
@@ -533,7 +578,7 @@ describe('production-readiness source evidence validation', () => {
     }));
   });
 
-  it('removes only the public WSS blocker when deployed evidence is public scoped', () => {
+  it('keeps the public WSS blocker when evidence is public scoped but lacks a passing proof', () => {
     const blockers = buildReleaseBlockers([
       {
         id: 'deployed_wss',
@@ -545,8 +590,112 @@ describe('production-readiness source evidence validation', () => {
       },
     ]);
 
+    expect(blockers.map((blocker) => blocker.id)).toContain('public-wss-deployment-proof');
+  });
+
+  it('removes only the public WSS blocker when isolated public proof passes', () => {
+    const blockers = buildReleaseBlockers(
+      [
+        {
+          id: 'deployed_wss',
+          report: {
+            run: { deployment_scope: 'local_tls_wss_profile' },
+            write_class_slos: [],
+            resource_slos: [],
+          },
+        },
+      ],
+      { publicWssProofEvidence: publicWssProofEvidence() },
+    );
+
     expect(blockers.map((blocker) => blocker.id)).not.toContain('public-wss-deployment-proof');
     expect(blockers.map((blocker) => blocker.id)).toContain('luma-gated-write-coverage');
+  });
+
+  it('copies isolated public WSS proof evidence into durable packet supporting evidence', () => {
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mesh-public-wss-support-'));
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mesh-public-wss-source-'));
+    const sourceReportPath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+    const report = publicWssProofReport();
+    writeJson(sourceReportPath, report);
+    writeJson(path.join(sourceDir, 'deployed-wss-peer-config-manifest.json'), { peer_count: 3 });
+
+    try {
+      const persisted = persistPublicWssProofEvidenceForPacket({
+        artifactDir,
+        publicWssProofEvidence: {
+          ...publicWssProofEvidence(report),
+          report_path: sourceReportPath,
+          original_report_path: sourceReportPath,
+        },
+      });
+
+      const durablePath = path.join(
+        artifactDir,
+        'supporting-evidence/public-wss-deployment-proof',
+        'mesh-production-readiness-report.json',
+      );
+      expect(persisted.report_path).toBe('./supporting-evidence/public-wss-deployment-proof/mesh-production-readiness-report.json');
+      expect(persisted.supporting_evidence.report_path).toBe(persisted.report_path);
+      expect(JSON.parse(fs.readFileSync(durablePath, 'utf8'))).toEqual(report);
+      expect(fs.existsSync(path.join(
+        artifactDir,
+        'supporting-evidence/public-wss-deployment-proof/deployed-wss-peer-config-manifest.json',
+      ))).toBe(true);
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects blocked or stale isolated public WSS proof reports', () => {
+    expect(validatePublicWssProofReport(publicWssProofReport({
+      repo: {
+        commit: 'old-commit',
+        dirty: false,
+      },
+      status: 'blocked',
+      run: {
+        mode: 'deployed_wss_topology',
+        deployment_scope: 'public_wss_deployment_blocked',
+        command: 'pnpm test:mesh:deployed-wss-peer-config:public',
+      },
+      public_wss_proof: {
+        status: 'blocked',
+        deployment_scope: 'public_wss_deployment_blocked',
+      },
+    }), { currentCommit })).toMatchObject({
+      ok: false,
+      failures: expect.arrayContaining([
+        'expected run.deployment_scope public_wss_deployment, observed public_wss_deployment_blocked',
+        'public_wss_proof.status is blocked',
+        `public WSS proof commit old-commit does not match ${currentCommit}`,
+        'public WSS proof report status is blocked',
+      ]),
+    });
+  });
+
+  it('loads isolated public WSS proof evidence from an explicit report path', () => {
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mesh-public-wss-load-'));
+    const reportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
+    const report = publicWssProofReport();
+    writeJson(reportPath, report);
+
+    try {
+      expect(loadPublicWssProofEvidence({
+        currentCommit,
+        reportPath,
+      })).toMatchObject({
+        provided: true,
+        status: 'pass',
+        report_path: reportPath,
+        validation: {
+          ok: true,
+        },
+      });
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+    }
   });
 
   it('does not run the default-blocked LUMA coverage command as a source gate', () => {

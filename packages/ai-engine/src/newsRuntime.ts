@@ -293,22 +293,27 @@ function refineBundleForPublication(bundle: StoryBundle): StoryBundle {
 function selectBundlesForPublication(
   bundles: readonly StoryBundle[],
   maxPublishedBundles: number | null,
+  options: { readonly trustClusterOutput?: boolean } = {},
 ): StoryBundle[] {
-  const eligibleBundles = bundles
-    .map(refineBundleForPublication)
-    .filter(isPublicationEligibleBundle);
-  if (!maxPublishedBundles || eligibleBundles.length <= maxPublishedBundles) {
-    return [...eligibleBundles];
+  const eligibleBundles = options.trustClusterOutput
+    ? [...bundles]
+    : bundles
+        .map(refineBundleForPublication)
+        .filter(isPublicationEligibleBundle);
+  const orderedBundles = [...eligibleBundles].sort(compareBundlesForPublication);
+
+  if (!maxPublishedBundles || orderedBundles.length <= maxPublishedBundles) {
+    return orderedBundles;
   }
 
-  return [...eligibleBundles]
-    .sort((left, right) => (
-      canonicalSourceCount(right) - canonicalSourceCount(left)
-      || right.cluster_window_end - left.cluster_window_end
-      || right.created_at - left.created_at
-      || left.story_id.localeCompare(right.story_id)
-    ))
-    .slice(0, maxPublishedBundles);
+  return orderedBundles.slice(0, maxPublishedBundles);
+}
+
+function compareBundlesForPublication(left: StoryBundle, right: StoryBundle): number {
+  return canonicalSourceCount(right) - canonicalSourceCount(left)
+    || right.cluster_window_end - left.cluster_window_end
+    || right.created_at - left.created_at
+    || left.story_id.localeCompare(right.story_id);
 }
 
 function defaultPrompt(bundle: StoryBundle): string {
@@ -325,6 +330,11 @@ function runtimeTrace(event: string, detail: Record<string, unknown>): void {
     return;
   }
   console.info(`[vh:news-runtime] ${event}`, detail);
+}
+
+function trustsClusterOutputForPublication(config: NewsRuntimeConfig): boolean {
+  return config.orchestratorOptions?.productionMode === true
+    && config.orchestratorOptions.allowHeuristicFallback === false;
 }
 
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
@@ -365,15 +375,26 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         config.orchestratorOptions,
       );
       const { bundles, storylines } = result;
-      const bundlesToPublish = selectBundlesForPublication(bundles, maxPublishedBundles);
-      const publicationEligibleBundleCount = bundles.filter(isPublicationEligibleBundle).length;
+      const trustClusterOutput = trustsClusterOutputForPublication(config);
+      const bundlesToPublish = selectBundlesForPublication(bundles, maxPublishedBundles, {
+        trustClusterOutput,
+      });
+      const publicationEligibleBundleCount = trustClusterOutput
+        ? bundles.length
+        : bundles.filter(isPublicationEligibleBundle).length;
       runtimeTrace('tick_clustered', {
         bundle_count: bundles.length,
         storyline_count: storylines.length,
         published_bundle_limit: maxPublishedBundles,
         prune_stale_bundles: pruneStaleBundles,
+        trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
         selected_bundle_count: bundlesToPublish.length,
+        selected_singleton_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) === 1).length,
+        selected_multi_source_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) > 1).length,
+        first_selected_story_ids: bundlesToPublish.slice(0, 10).map((bundle) => bundle.story_id),
       });
 
       const writeStoryBundle = config.writeStoryBundle;
@@ -390,12 +411,24 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       const nextPublishedStoryIds = new Set<string>();
       const nextPublishedStorylineIds = new Set<string>();
+      let failedStoryPublishCount = 0;
 
       for (const bundle of bundlesToPublish) {
         const request = buildRemoteRequest(createPrompt(bundle));
         const workItems = buildEnrichmentWorkItems(bundle);
 
-        await writeStoryBundle(config.gunClient, bundle);
+        try {
+          await writeStoryBundle(config.gunClient, bundle);
+        } catch (error) {
+          failedStoryPublishCount += 1;
+          runtimeTrace('bundle_write_failed', {
+            story_id: bundle.story_id,
+            source_count: canonicalSourceCount(bundle),
+            error: error instanceof Error ? error.message : String(error),
+          });
+          config.onError?.(error);
+          continue;
+        }
         nextPublishedStoryIds.add(bundle.story_id);
         publishedStoryIds.add(bundle.story_id);
 
@@ -423,6 +456,12 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             config.onError?.(error);
           });
         }
+      }
+
+      if (bundlesToPublish.length > 0 && nextPublishedStoryIds.size === 0 && failedStoryPublishCount > 0) {
+        throw new Error(
+          `news runtime failed to publish any selected bundles (${failedStoryPublishCount}/${bundlesToPublish.length} failed)`,
+        );
       }
 
       if (writeStorylineGroup) {
@@ -466,7 +505,9 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       lastRunAt = new Date();
       runtimeTrace('tick_completed', {
         duration_ms: Math.max(0, Date.now() - startedAt),
+        selected_story_count: bundlesToPublish.length,
         published_story_count: nextPublishedStoryIds.size,
+        failed_story_count: failedStoryPublishCount,
         published_storyline_count: nextPublishedStorylineIds.size,
       });
     } catch (error) {
@@ -537,8 +578,10 @@ export const __internal = {
   isPublicationEligibleBundle,
   refineBundleForPublication,
   resolvePruneStaleBundles,
+  compareBundlesForPublication,
   selectBundlesForPublication,
   readEnvVar,
   readOptionalPositiveIntEnv,
+  trustsClusterOutputForPublication,
   titlesHaveMatchingAction,
 };

@@ -154,6 +154,7 @@ describe('public beta origin server', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        host: 'venn.carboncaste.io',
         'x-vh-relay-device-pub': 'device-pub',
       },
       body: JSON.stringify({ comment: { id: 'comment-1', threadId: 'thread-1' } }),
@@ -168,6 +169,7 @@ describe('public beta origin server', () => {
       body: JSON.stringify({ comment: { id: 'comment-1', threadId: 'thread-1' } }),
     });
     expect(relayRequests[0].headers['x-vh-relay-device-pub']).toBe('device-pub');
+    expect(relayRequests[0].headers.host).not.toBe('venn.carboncaste.io');
 
     const synthesis = await fetch(`${origin}/vh/topics/synthesis?topic_id=topic-1`);
     expect(synthesis.status).toBe(200);
@@ -205,6 +207,20 @@ describe('public beta origin server', () => {
       url: '/vh/news/latest-index',
     });
 
+    const hotIndexRead = await fetch(`${origin}/vh/news/hot-index`);
+    expect(hotIndexRead.status).toBe(200);
+    expect(relayRequests.at(-1)).toMatchObject({
+      method: 'GET',
+      url: '/vh/news/hot-index',
+    });
+
+    const lifecycleRead = await fetch(`${origin}/vh/news/synthesis-lifecycle?story_id=story-1`);
+    expect(lifecycleRead.status).toBe(200);
+    expect(relayRequests.at(-1)).toMatchObject({
+      method: 'GET',
+      url: '/vh/news/synthesis-lifecycle?story_id=story-1',
+    });
+
     const aggregateRead = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
     expect(aggregateRead.status).toBe(200);
     expect(relayRequests.at(-1)).toMatchObject({
@@ -220,6 +236,10 @@ describe('public beta origin server', () => {
     expect(forbiddenStoryPost.status).toBe(405);
     const forbiddenLatestIndexPost = await fetch(`${origin}/vh/news/latest-index`, { method: 'POST' });
     expect(forbiddenLatestIndexPost.status).toBe(405);
+    const forbiddenHotIndexPost = await fetch(`${origin}/vh/news/hot-index`, { method: 'POST' });
+    expect(forbiddenHotIndexPost.status).toBe(405);
+    const forbiddenLifecyclePost = await fetch(`${origin}/vh/news/synthesis-lifecycle`, { method: 'POST' });
+    expect(forbiddenLifecyclePost.status).toBe(405);
     const forbiddenAggregatePost = await fetch(`${origin}/vh/aggregates/point`, { method: 'POST' });
     expect(forbiddenAggregatePost.status).toBe(405);
 
@@ -318,7 +338,7 @@ describe('public beta origin server', () => {
     expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
   });
 
-  it('fans public news and synthesis read fallbacks across configured relay targets', async () => {
+  it('serves public news and synthesis read fallbacks from the first usable completed relay target', async () => {
     const staticDir = await makeStaticRoot();
     const relayRequests = [];
     const relayUrls = [];
@@ -340,11 +360,21 @@ describe('public beta origin server', () => {
           res.end(JSON.stringify({ ok: true, relay_index: index, records }));
           return;
         }
+        if (req.url?.startsWith('/vh/news/hot-index')) {
+          const records = index === 1
+            ? { 'story-hot-a': { hotness: 0.91 } }
+            : {
+                'story-hot-a': { hotness: 0.91 },
+                'story-hot-b': { hotness: 0.62 },
+              };
+          res.end(JSON.stringify({ ok: true, relay_index: index, records }));
+          return;
+        }
         if (req.url?.startsWith('/vh/news/story')) {
           res.end(JSON.stringify({
             ok: true,
             relay_index: index,
-            record: { story_id: `story-from-relay-${index}` },
+            story: { story_id: `story-from-relay-${index}` },
           }));
           return;
         }
@@ -373,34 +403,251 @@ describe('public beta origin server', () => {
 
     const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=80`);
     expect(latestIndex.status).toBe(200);
-    expect(await latestIndex.json()).toMatchObject({
-      ok: true,
-      relay_index: 2,
-      records: {
-        'story-a': { timestamp: 1 },
-        'story-b': { timestamp: 2 },
-      },
+    const latestIndexPayload = await latestIndex.json();
+    expect(latestIndexPayload.ok).toBe(true);
+    expect([1, 2]).toContain(latestIndexPayload.relay_index);
+    expect(latestIndexPayload.records).toMatchObject({
+      'story-a': { timestamp: 1 },
+    });
+
+    const hotIndex = await fetch(`${origin}/vh/news/hot-index?limit=80`);
+    expect(hotIndex.status).toBe(200);
+    const hotIndexPayload = await hotIndex.json();
+    expect(hotIndexPayload.ok).toBe(true);
+    expect([1, 2]).toContain(hotIndexPayload.relay_index);
+    expect(hotIndexPayload.records).toMatchObject({
+      'story-hot-a': { hotness: 0.91 },
     });
 
     const story = await fetch(`${origin}/vh/news/story?story_id=story-a`);
     expect(story.status).toBe(200);
-    expect(await story.json()).toMatchObject({
-      ok: true,
-      relay_index: 1,
-      record: { story_id: 'story-from-relay-1' },
-    });
+    const storyPayload = await story.json();
+    expect(storyPayload.ok).toBe(true);
+    expect([1, 2]).toContain(storyPayload.relay_index);
+    expect(storyPayload.story).toEqual({ story_id: `story-from-relay-${storyPayload.relay_index}` });
 
     const synthesis = await fetch(`${origin}/vh/topics/synthesis?topic_id=topic-a`);
     expect(synthesis.status).toBe(200);
-    expect(await synthesis.json()).toMatchObject({
-      ok: true,
-      relay_index: 1,
-      record: { topic_id: 'topic-from-relay-1' },
+    const synthesisPayload = await synthesis.json();
+    expect(synthesisPayload.ok).toBe(true);
+    expect([1, 2]).toContain(synthesisPayload.relay_index);
+    expect(synthesisPayload.record).toEqual({ topic_id: `topic-from-relay-${synthesisPayload.relay_index}` });
+
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index')).length).toBeGreaterThanOrEqual(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/hot-index')).length).toBeGreaterThanOrEqual(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story')).length).toBeGreaterThanOrEqual(2);
+    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis')).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('caps public news fanout read latency separately from slower full relay fanout', async () => {
+    const staticDir = await makeStaticRoot();
+    const fastRelay = createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url?.startsWith('/vh/news/latest-index')) {
+        res.end(JSON.stringify({
+          ok: true,
+          relay_index: 0,
+          records: {
+            'story-fast': { timestamp: 100 },
+          },
+          composition: {
+            total_visible: 1,
+            singleton_visible: 0,
+            multi_source_visible: 1,
+            max_source_count: 2,
+            freshness_age_ms: 0,
+          },
+        }));
+        return;
+      }
+      res.end(JSON.stringify({ ok: true }));
+    });
+    const slowRelay = createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          relay_index: 1,
+          records: {
+            'story-slow': { timestamp: 200 },
+          },
+        }));
+      }, 250);
+    });
+    const relayTargets = [
+      await listen(fastRelay),
+      await listen(slowRelay),
+    ];
+    cleanup.push(() => new Promise((resolve) => fastRelay.close(resolve)));
+    cleanup.push(() => new Promise((resolve) => slowRelay.close(resolve)));
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets,
+      relayFanoutTimeoutMs: 1_000,
+      relayNewsFanoutTimeoutMs: 25,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
     });
 
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/latest-index'))).toHaveLength(3);
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/news/story'))).toHaveLength(3);
-    expect(relayRequests.filter((request) => request.url?.startsWith('/vh/topics/synthesis'))).toHaveLength(3);
+    const startedAt = Date.now();
+    const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=1`);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(latestIndex.status).toBe(200);
+    expect(elapsedMs).toBeLessThan(500);
+    expect(await latestIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 0,
+      records: {
+        'story-fast': { timestamp: 100 },
+      },
+    });
+  });
+
+  it('prefers mixed public news feed responses over singleton-only relay windows', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayRequests = [];
+    const relayUrls = [];
+    const relayPayloads = [
+      {
+        ok: true,
+        relay_index: 0,
+        records: Object.fromEntries(Array.from({ length: 12 }, (_value, index) => [
+          `story-singleton-${index}`,
+          { story_id: `story-singleton-${index}`, source_count: 1, latest_activity_at: 1000 - index },
+        ])),
+        composition: {
+          total_visible: 12,
+          singleton_visible: 12,
+          multi_source_visible: 0,
+          max_source_count: 1,
+          freshness_age_ms: 1_000,
+        },
+      },
+      {
+        ok: true,
+        relay_index: 1,
+        records: {
+          'story-singleton-fresh': { story_id: 'story-singleton-fresh', source_count: 1, latest_activity_at: 1001 },
+          'story-corroborated': { story_id: 'story-corroborated', source_count: 3, latest_activity_at: 990 },
+        },
+        composition: {
+          total_visible: 2,
+          singleton_visible: 1,
+          multi_source_visible: 1,
+          max_source_count: 3,
+          freshness_age_ms: 1_500,
+        },
+      },
+      {
+        ok: true,
+        relay_index: 2,
+        records: {},
+        composition: {
+          total_visible: 0,
+          singleton_visible: 0,
+          multi_source_visible: 0,
+          max_source_count: 0,
+          freshness_age_ms: null,
+        },
+      },
+    ];
+    for (let index = 0; index < relayPayloads.length; index += 1) {
+      const relay = createServer((_req, res) => {
+        relayRequests.push(index);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(relayPayloads[index]));
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=12`);
+    expect(latestIndex.status).toBe(200);
+    expect(await latestIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 1,
+      records: {
+        'story-corroborated': {
+          story_id: 'story-corroborated',
+          source_count: 3,
+        },
+      },
+      composition: {
+        total_visible: 2,
+        multi_source_visible: 1,
+      },
+    });
+    expect(relayRequests.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not let slow earlier public news relay targets block a faster usable relay', async () => {
+    const staticDir = await makeStaticRoot();
+    const slowRelay = createServer((_req, _res) => {
+      // Hold open until the origin's per-relay news timeout would abort it.
+    });
+    const slowerRelay = createServer((_req, res) => {
+      setTimeout(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, relay_index: 1, records: {} }));
+      }, 250);
+    });
+    const fastRelay = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        relay_index: 2,
+        records: {
+          'story-fast': { story_id: 'story-fast', source_count: 2, latest_activity_at: 1000 },
+        },
+        composition: {
+          total_visible: 1,
+          singleton_visible: 0,
+          multi_source_visible: 1,
+          max_source_count: 2,
+          freshness_age_ms: 0,
+        },
+      }));
+    });
+    const relayTargets = [
+      await listen(slowRelay),
+      await listen(slowerRelay),
+      await listen(fastRelay),
+    ];
+    cleanup.push(() => new Promise((resolve) => slowRelay.close(resolve)));
+    cleanup.push(() => new Promise((resolve) => slowerRelay.close(resolve)));
+    cleanup.push(() => new Promise((resolve) => fastRelay.close(resolve)));
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets,
+      relayFanoutTimeoutMs: 2_000,
+      relayNewsFanoutTimeoutMs: 1_000,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const startedAt = Date.now();
+    const latestIndex = await fetch(`${origin}/vh/news/latest-index?limit=1`);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(latestIndex.status).toBe(200);
+    expect(elapsedMs).toBeLessThan(500);
+    expect(await latestIndex.json()).toMatchObject({
+      ok: true,
+      relay_index: 2,
+      records: {
+        'story-fast': { story_id: 'story-fast' },
+      },
+    });
   });
 
   it('fans forum comment reads and writes across configured public relay targets', async () => {

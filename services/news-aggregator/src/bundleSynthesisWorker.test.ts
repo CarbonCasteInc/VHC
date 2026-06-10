@@ -209,6 +209,13 @@ function legacyCandidateWithoutAudit(): CandidateSynthesis {
   };
 }
 
+function makeLifecycleWriter(records: unknown[] = []) {
+  return vi.fn(async (_client: VennClient, record: unknown) => {
+    records.push(record);
+    return record as Awaited<ReturnType<NonNullable<BundleSynthesisWorkerConfig['writeLifecycle']>>>;
+  });
+}
+
 describe('bundleSynthesisWorker', () => {
   it('writes publish-time candidate, epoch synthesis, and guarded latest from accepted StoryBundle', async () => {
     const writtenCandidates: CandidateSynthesis[] = [];
@@ -228,10 +235,12 @@ describe('bundleSynthesisWorker', () => {
       expect(options?.canOverwriteExisting?.({ ...synthesis, synthesis_id: 'news-bundle:old' }, synthesis)).toBe(true);
       return { status: 'written' as const, synthesis, previous: null };
     });
+    const lifecycleRecords: unknown[] = [];
     const runWriteMock = vi.fn(
       async <T,>(_writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<T>) => task(),
     );
     const runWrite: NonNullable<BundleSynthesisWorkerConfig['runWrite']> = runWriteMock;
+    const publishReadyStory = vi.fn(async () => undefined);
 
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
@@ -247,6 +256,8 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest,
+      writeLifecycle: makeLifecycleWriter(lifecycleRecords),
+      publishReadyStory,
       runWrite,
       analysisEvalArtifactWriter: {
         write: vi.fn(async (artifact) => {
@@ -298,10 +309,32 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]?.frames[0]?.frame_point_id).toMatch(/^synth-point:/);
     expect(writtenSyntheses[0]?.synthesis_id).toMatch(/^news-bundle:story-1:/);
     expect(writeLatest).toHaveBeenCalledTimes(1);
+    expect(publishReadyStory).toHaveBeenCalledWith({} as VennClient, BUNDLE, writtenSyntheses[0]);
+    expect(writeLatest.mock.invocationCallOrder[0]).toBeLessThan(
+      publishReadyStory.mock.invocationCallOrder[0],
+    );
     expect(runWriteMock.mock.calls.map((call) => call[0])).toEqual([
+      'news_synthesis_lifecycle',
       'synthesis_candidate',
       'synthesis_epoch',
       'synthesis_latest',
+      'news_synthesis_lifecycle',
+    ]);
+    expect(lifecycleRecords).toEqual([
+      expect.objectContaining({
+        story_id: 'story-1',
+        source_set_revision: 'prov-1',
+        status: 'in_progress',
+        frame_table_state: 'frame_table_pending',
+      }),
+      expect.objectContaining({
+        story_id: 'story-1',
+        source_set_revision: 'prov-1',
+        status: 'accepted_available',
+        frame_table_state: 'frame_table_ready',
+        synthesis_id: expect.stringMatching(/^news-bundle:story-1:/),
+        epoch: 0,
+      }),
     ]);
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({
@@ -375,6 +408,7 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
       relay,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -390,6 +424,53 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]).toMatchObject({
       facts_summary: 'Existing summary',
       provenance: { candidate_ids: [expect.stringMatching(/^news-bundle:/)] },
+    });
+  });
+
+  it('keeps accepted synthesis available when post-synthesis index refresh fails', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
+    const publishReadyStory = vi.fn(async () => {
+      throw new Error('latest index unavailable');
+    });
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      now: () => 1700000003000,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay: vi.fn(async ({ prompt }: { prompt: string }) => ({
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(
+          prompt.includes('--- ARTICLE START ---')
+            ? articleAnalysisPayload()
+            : bundleSynthesisPayload(),
+        ),
+      })),
+      writeCandidate: vi.fn(async (_client, candidate) => candidate),
+      writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
+      publishReadyStory,
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toMatchObject({
+      status: 'written',
+      storyId: 'story-1',
+      latestStatus: 'written',
+    });
+
+    expect(publishReadyStory).toHaveBeenCalledTimes(1);
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'accepted',
+      story: {
+        story_id: 'story-1',
+      },
     });
   });
 
@@ -411,6 +492,7 @@ describe('bundleSynthesisWorker', () => {
       articleTextService: makeArticleTextService(),
       writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
       relay: vi.fn(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })(CANDIDATE);
@@ -422,6 +504,7 @@ describe('bundleSynthesisWorker', () => {
       articleTextService: makeArticleTextService(),
       writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
       relay: vi.fn(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })(CANDIDATE);
@@ -453,6 +536,7 @@ describe('bundleSynthesisWorker', () => {
       }),
       writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
       relay,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -469,6 +553,7 @@ describe('bundleSynthesisWorker', () => {
 
   it('persists rejected eval artifacts when no source text is readable', async () => {
     const artifacts: AnalysisEvalArtifact[] = [];
+    const lifecycleRecords: unknown[] = [];
     const articleTextService = {
       extract: vi.fn(async () => {
         throw new Error('fetch failed');
@@ -483,6 +568,7 @@ describe('bundleSynthesisWorker', () => {
       readCandidate: vi.fn(async () => null),
       articleTextService,
       relay,
+      writeLifecycle: makeLifecycleWriter(lifecycleRecords),
       analysisEvalArtifactWriter: {
         write: vi.fn(async (artifact) => {
           artifacts.push(artifact);
@@ -517,6 +603,20 @@ describe('bundleSynthesisWorker', () => {
         code: 'source_text_unavailable',
       }),
     );
+    expect(lifecycleRecords).toEqual([
+      expect.objectContaining({
+        story_id: 'story-1',
+        status: 'in_progress',
+        frame_table_state: 'frame_table_pending',
+      }),
+      expect.objectContaining({
+        story_id: 'story-1',
+        status: 'terminal_unavailable',
+        frame_table_state: 'frame_table_unavailable',
+        reason: 'source_text_unavailable',
+        retryable: false,
+      }),
+    ]);
   });
 
   it('rejects generated output that widens analysis source count', async () => {
@@ -534,6 +634,7 @@ describe('bundleSynthesisWorker', () => {
             : bundleSynthesisPayload(2),
         ),
       })),
+      writeLifecycle: makeLifecycleWriter(),
       analysisEvalArtifactWriter: {
         write: vi.fn(async (artifact) => {
           artifacts.push(artifact);
@@ -565,5 +666,99 @@ describe('bundleSynthesisWorker', () => {
     });
     expect(artifacts[0]?.bundle_synthesis.response?.content).toContain('"source_count":2');
     expect(artifacts[0]?.source_articles[0]?.extraction.raw_extracted_article_text).toContain('Council approved');
+  });
+
+  it('retries one strict bundle synthesis schema failure before rejecting', async () => {
+    const writtenSyntheses: TopicSynthesisV2[] = [];
+    let bundleAttempt = 0;
+    const relay = vi.fn(async ({ prompt }: { prompt: string }) => {
+      if (prompt.includes('--- ARTICLE START ---')) {
+        return { model: 'gpt-4o-mini', content: JSON.stringify(articleAnalysisPayload()) };
+      }
+      bundleAttempt += 1;
+      return {
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(bundleAttempt === 1
+          ? { ...bundleSynthesisPayload(), source_count: 2 }
+          : bundleSynthesisPayload()),
+      };
+    });
+
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay,
+      writeCandidate: vi.fn(async (_client, candidate) => candidate),
+      writeSynthesis: vi.fn(async (_client, synthesis) => {
+        writtenSyntheses.push(synthesis);
+        return synthesis;
+      }),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      writeLifecycle: makeLifecycleWriter(),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toMatchObject({
+      status: 'written',
+      storyId: 'story-1',
+    });
+    expect(relay).toHaveBeenCalledTimes(3);
+    expect(relay.mock.calls[2]?.[0].prompt).toContain('Schema retry');
+    expect(writtenSyntheses).toHaveLength(1);
+  });
+
+  it('returns candidate write failures as counted lifecycle outcomes', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
+    const lifecycleRecords: unknown[] = [];
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService: makeArticleTextService(),
+      relay: vi.fn(async ({ prompt }: { prompt: string }) => ({
+        model: 'gpt-4o-mini',
+        content: JSON.stringify(
+          prompt.includes('--- ARTICLE START ---')
+            ? articleAnalysisPayload()
+            : bundleSynthesisPayload(),
+        ),
+      })),
+      writeCandidate: vi.fn(async () => {
+        throw new Error('candidate write unavailable');
+      }),
+      writeLifecycle: makeLifecycleWriter(lifecycleRecords),
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toEqual({
+      status: 'rejected',
+      storyId: 'story-1',
+      reason: 'candidate_write_failed',
+    });
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'rejected',
+      rejection_reason: 'candidate_write_failed',
+    });
+    expect(lifecycleRecords).toEqual([
+      expect.objectContaining({
+        story_id: 'story-1',
+        status: 'in_progress',
+        frame_table_state: 'frame_table_pending',
+      }),
+      expect.objectContaining({
+        story_id: 'story-1',
+        status: 'retryable_failure',
+        frame_table_state: 'frame_table_unavailable',
+        reason: 'candidate_write_failed',
+        retryable: true,
+      }),
+    ]);
   });
 });

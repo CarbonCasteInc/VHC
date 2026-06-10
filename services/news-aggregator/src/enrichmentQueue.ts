@@ -10,7 +10,7 @@ import path from 'node:path';
 import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 
 export type LoggerLike = Pick<Console, 'info' | 'warn' | 'error'>;
-export type EnrichmentWorker = (candidate: NewsRuntimeSynthesisCandidate) => Promise<void> | void;
+export type EnrichmentWorker = (candidate: NewsRuntimeSynthesisCandidate) => Promise<unknown> | unknown;
 export type EnrichmentDeadLetterReason = 'queue_full' | 'worker_failed';
 
 export interface EnrichmentQueueDeadLetterRecord {
@@ -39,6 +39,14 @@ export interface AsyncEnrichmentQueueOptions {
   onDrop?: (
     candidate: NewsRuntimeSynthesisCandidate,
     detail: { reason: 'queue_full'; maxDepth: number },
+  ) => void;
+  onWorkerResult?: (
+    candidate: NewsRuntimeSynthesisCandidate,
+    result: unknown,
+  ) => void;
+  onWorkerFailure?: (
+    candidate: NewsRuntimeSynthesisCandidate,
+    error: unknown,
   ) => void;
 }
 
@@ -281,9 +289,11 @@ export function createAsyncEnrichmentQueue(
         persistDurableState();
 
         try {
-          await worker(next);
+          const result = await worker(next);
+          options.onWorkerResult?.(next, result);
         } catch (error) {
           logger.warn('[vh:news-daemon] enrichment worker failed', error);
+          options.onWorkerFailure?.(next, error);
           appendDeadLetter(next, 'worker_failed', { error });
         } finally {
           const inFlightIndex = inFlight.indexOf(next);

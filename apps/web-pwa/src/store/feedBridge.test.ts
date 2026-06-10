@@ -290,7 +290,37 @@ describe('startNewsBridge', () => {
     await startNewsBridge();
 
     expect(startHydrationSpy).toHaveBeenCalledTimes(1);
-    expect(refreshLatestSpy).toHaveBeenCalledTimes(1);
+    expect(refreshLatestSpy).toHaveBeenCalledWith(15);
+  });
+
+  it('observes an in-flight visible feed refresh instead of starting a competing bootstrap refresh', async () => {
+    const visibleRefreshStory = makeStoryBundle({
+      story_id: 'story-visible-refresh',
+      topic_id: SECOND_CANONICAL_TOPIC_ID,
+      headline: 'Visible refresh story',
+    });
+    const newsState = useNewsStore.getState();
+    const refreshLatestSpy = vi.spyOn(newsState, 'refreshLatest').mockResolvedValue(undefined);
+    newsState.setLoading(true);
+
+    await startNewsBridge();
+
+    expect(refreshLatestSpy).not.toHaveBeenCalled();
+    expect(useDiscoveryStore.getState().items).toEqual([]);
+
+    useNewsStore.setState({
+      stories: [visibleRefreshStory],
+      latestIndex: { [visibleRefreshStory.story_id]: visibleRefreshStory.cluster_window_end },
+      loading: false,
+    });
+
+    expect(useDiscoveryStore.getState().items).toMatchObject([
+      {
+        story_id: 'story-visible-refresh',
+        topic_id: SECOND_CANONICAL_TOPIC_ID,
+        kind: 'NEWS_STORY',
+      },
+    ]);
   });
 
   it('logs refresh failures during bootstrap and continues', async () => {
@@ -616,10 +646,9 @@ describe('stopBridges', () => {
 });
 
 describe('bootstrapFeedBridges', () => {
-  it("reads env flags, only starts bridges when flag is 'true'", async () => {
+  it("reads env flags, starting news by default and optional bridges when flag is 'true'", async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 
-    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
     vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
     vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
@@ -673,7 +702,7 @@ describe('bootstrapFeedBridges', () => {
     expect(infoSpy).toHaveBeenCalledWith('[vh:feed-bridge] Social bridge started');
   });
 
-  it('does not start bridges when flags are absent/false', async () => {
+  it('does not start bridges when all flags are explicitly false', async () => {
     vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
     vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
     vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
@@ -698,27 +727,28 @@ describe('bootstrapFeedBridges', () => {
     ingestNotification(createMockNotification({ topic_id: 'topic-social-false' }));
 
     expect(useDiscoveryStore.getState().items).toEqual([]);
+  });
 
-    stopBridges();
-    resetStores();
-    vi.unstubAllEnvs();
-
+  it('starts the news bridge when flags are absent', async () => {
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
 
-    useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'absent-story', topic_id: SIXTH_CANONICAL_TOPIC_ID }),
-    ]);
-    useSynthesisStore.getState().setTopicSynthesis(
-      'absent-topic',
-      makeSynthesis({ topic_id: 'absent-topic' }),
-    );
-    ingestNotification(createMockNotification({ topic_id: 'topic-social-absent' }));
+    try {
+      useNewsStore.getState().setStories([
+        makeStoryBundle({ story_id: 'absent-story', topic_id: SIXTH_CANONICAL_TOPIC_ID }),
+      ]);
+      useSynthesisStore.getState().setTopicSynthesis(
+        'absent-topic',
+        makeSynthesis({ topic_id: 'absent-topic' }),
+      );
+      ingestNotification(createMockNotification({ topic_id: 'topic-social-absent' }));
 
-    await bootstrapFeedBridges();
+      await bootstrapFeedBridges();
 
-    expect(useDiscoveryStore.getState().items).toEqual([]);
-
-    vi.stubGlobal('process', originalProcess);
+      expect(useDiscoveryStore.getState().items).toHaveLength(1);
+      expect(useDiscoveryStore.getState().items[0]?.kind).toBe('NEWS_STORY');
+    } finally {
+      vi.stubGlobal('process', originalProcess);
+    }
   });
 });

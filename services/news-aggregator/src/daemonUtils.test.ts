@@ -298,6 +298,26 @@ describe('daemonUtils', () => {
     }
   });
 
+  it('captures returned enrichment worker outcomes instead of only thrown failures', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const onWorkerResult = vi.fn();
+    const queue = createAsyncEnrichmentQueue(
+      vi.fn(async () => ({ status: 'rejected', storyId: 'story-1', reason: 'relay_failed' })),
+      logger,
+      { onWorkerResult },
+    );
+
+    queue.enqueue(CANDIDATE);
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(onWorkerResult).toHaveBeenCalledWith(
+      expect.objectContaining({ story_id: 'story-1' }),
+      { status: 'rejected', storyId: 'story-1', reason: 'relay_failed' },
+    );
+    expect(queue.deadLetterCount()).toBe(0);
+  });
+
   it('derives StoryCluster health URLs across pathname shapes', () => {
     expect(deriveStoryClusterHealthUrl('https://storycluster.example.com')).toBe(
       'https://storycluster.example.com/health',
@@ -413,6 +433,8 @@ describe('daemonUtils', () => {
     expect(parseFeedSources(undefined).length).toBeGreaterThan(0);
     expect(parseFeedSources('oops').length).toBeGreaterThan(0);
     expect(parseFeedSources('{}').length).toBeGreaterThan(0);
+    expect(parseFeedSources('[]').length).toBeGreaterThan(0);
+    expect(parseFeedSources(JSON.stringify([{ id: '', rssUrl: 'not-a-url', enabled: true }])).length).toBeGreaterThan(0);
 
     const parsedFeeds = parseFeedSources(
       JSON.stringify([

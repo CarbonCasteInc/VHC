@@ -5,12 +5,14 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
+import type { NewsSynthesisLifecycleRecord } from '@vh/gun-client';
 import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
 import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useSentimentState } from '../../hooks/useSentimentState';
+import { setClientResolver } from '../../store/clientResolver';
 import { composeFeed } from '../../store/discovery';
 import { getStoryDiscussionThreadId } from '../../utils/feedDiscussionThreads';
 import { FeedShell } from './FeedShell';
@@ -34,6 +36,16 @@ const analysisPipelineState = vi.hoisted(() => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn().mockReturnValue(null),
 }));
+
+const readNewsSynthesisLifecycleStatusMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    readNewsSynthesisLifecycleStatusWithRelayRestFallback: readNewsSynthesisLifecycleStatusMock,
+  };
+});
 
 vi.mock('../../store/hermesForum', () => ({
   useForumStore: Object.assign(
@@ -117,6 +129,7 @@ vi.mock('../hermes/forum/SlideToPost', () => ({
 }));
 
 const NOW = 1_700_000_000_000;
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 
 function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -163,7 +176,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-news-1',
-    topic_id: 'news-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'City council votes on transit plan',
     summary_hint: 'Transit vote split council members along budget priorities.',
     cluster_window_start: NOW - 7_200_000,
@@ -231,6 +244,26 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
   };
 }
 
+function makeAcceptedLifecycle(
+  overrides: Partial<NewsSynthesisLifecycleRecord> = {},
+): NewsSynthesisLifecycleRecord {
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: 'story-news-1',
+    topic_id: CANONICAL_TOPIC_ID,
+    source_set_revision: 'prov-1',
+    source_count: 1,
+    canonical_source_count: 1,
+    status: 'accepted_available',
+    retryable: false,
+    synthesis_id: 'syn-accepted-mvp',
+    epoch: 2,
+    frame_table_state: 'frame_table_ready',
+    updated_at: NOW,
+    ...overrides,
+  };
+}
+
 function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSynthesisCorrection {
   return {
     schemaVersion: 'topic-synthesis-correction-v1',
@@ -248,6 +281,28 @@ function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): Topi
       notes: 'MVP release gate correction fixture.',
     },
     ...overrides,
+  };
+}
+
+function makeReadableMockClient() {
+  const chain = {
+    get: vi.fn(() => chain),
+    once: vi.fn((callback: (value: unknown) => void) => {
+      callback(null);
+      return chain;
+    }),
+    on: vi.fn(() => chain),
+    off: vi.fn(() => undefined),
+    map: vi.fn(() => chain),
+    put: vi.fn((_value: unknown, callback?: (ack?: { err?: string }) => void) => {
+      callback?.({});
+      return chain;
+    }),
+  };
+  return {
+    mesh: chain,
+    hydrationBarrier: { prepare: vi.fn().mockResolvedValue(undefined) },
+    topologyGuard: { validateWrite: vi.fn() },
   };
 }
 
@@ -341,10 +396,14 @@ describe('MVP Web PWA news loop release gates', () => {
     forumState.createComment.mockReset();
     analysisPipelineState.synthesizeStoryFromAnalysisPipeline.mockReset();
     analysisPipelineState.getCachedSynthesisForStory.mockReset().mockReturnValue(null);
+    setClientResolver(() => makeReadableMockClient() as never);
+    readNewsSynthesisLifecycleStatusMock.mockReset();
+    readNewsSynthesisLifecycleStatusMock.mockResolvedValue(makeAcceptedLifecycle());
   });
 
   afterEach(() => {
     cleanup();
+    setClientResolver(() => null);
   });
 
   it('mvp gate: feed render uses fixtures and proves preferences change ranking and filtering', () => {
@@ -386,7 +445,9 @@ describe('MVP Web PWA news loop release gates', () => {
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
     expect(await screen.findByTestId('news-card-detail-news-1')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Topic synthesis v2');
+    await waitFor(() => {
+      expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Topic synthesis v2');
+    });
     expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent('accepted synthesis');
     expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent('syn-accepted-mvp');
     expect(screen.getByTestId('bias-table')).toHaveTextContent('Public investment is overdue');
@@ -403,7 +464,9 @@ describe('MVP Web PWA news loop release gates', () => {
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
     expect(await screen.findByTestId('news-card-detail-news-1')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Operator correction');
+    await waitFor(() => {
+      expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Operator correction');
+    });
     expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent('suppressed by an operator');
     expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('correction-mvp-1');
     expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('release-ops');

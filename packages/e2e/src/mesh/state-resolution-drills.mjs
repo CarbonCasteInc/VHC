@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { parseLastJsonObjectFromOutput } from './noisy-json-output.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -393,15 +394,7 @@ function runClientCommand(command, args, timeoutMs = 30000) {
   });
   const stdout = result.stdout.trim();
   const stderr = result.stderr.trim();
-  let parsed = null;
-  if (stdout) {
-    const lines = stdout.split('\n').filter(Boolean);
-    try {
-      parsed = JSON.parse(lines[lines.length - 1]);
-    } catch {
-      parsed = null;
-    }
-  }
+  const parsed = parseLastJsonObjectFromOutput(stdout, stderr);
   if (result.status !== 0 || !parsed) {
     return {
       ok: false,

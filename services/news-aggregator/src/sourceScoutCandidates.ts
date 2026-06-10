@@ -69,15 +69,6 @@ export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'washingtonexaminer-politics',
-    name: 'Washington Examiner Politics',
-    displayName: 'Washington Examiner',
-    rssUrl: 'https://www.washingtonexaminer.com/tag/politics.rss',
-    perspectiveTag: 'conservative',
-    iconKey: 'washingtonexaminer',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'sky-world',
     name: 'Sky News World',
     displayName: 'Sky News',

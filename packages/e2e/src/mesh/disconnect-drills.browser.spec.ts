@@ -148,12 +148,16 @@ async function waitForResolvedTopology(page: import('@playwright/test').Page): P
   const handle = await page.waitForFunction(
     () => {
       const proof = (window as DrillWindow).__VH_PEER_TOPOLOGY_PROOF__;
-      return proof?.status === 'resolved' ? proof : false;
+      return proof?.status ? proof : false;
     },
     undefined,
-    { timeout: 20_000 },
+    { timeout: 45_000 },
   );
-  return await handle.jsonValue() as PeerTopologyProof;
+  const proof = await handle.jsonValue() as PeerTopologyProof;
+  if (proof.status !== 'resolved') {
+    throw new Error(`peer topology proof failed: ${proof.error}`);
+  }
+  return proof;
 }
 
 async function waitForDrillHook(page: import('@playwright/test').Page): Promise<void> {

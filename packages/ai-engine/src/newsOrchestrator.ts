@@ -11,12 +11,14 @@ import {
 } from './clusterEngine';
 import {
   NewsPipelineConfigSchema,
+  DEFAULT_CLUSTER_BUCKET_MS,
   type NewsPipelineConfig,
   type NormalizedItem,
   type StoryBundle,
   type StoryClusterBatchResult,
   type StorylineGroup,
 } from './newsTypes';
+import { shouldMerge } from './sameEventMerge';
 
 export type StoryClusterEngine = StoryClusterBatchCapableEngine;
 
@@ -110,6 +112,117 @@ function chunkItems<T>(items: readonly T[], size: number): T[][] {
   return chunks;
 }
 
+interface RemoteClusterItemComponent {
+  readonly firstIndex: number;
+  readonly items: NormalizedItem[];
+  readonly titles: string[];
+  readonly entityKeys: string[];
+  readonly minPublishedAt: number | null;
+  readonly maxPublishedAt: number | null;
+}
+
+const REMOTE_CLUSTER_AFFINITY_WINDOW_MS = 6 * DEFAULT_CLUSTER_BUCKET_MS;
+
+function normalizeEntityKeys(keys: readonly string[]): string[] {
+  return [...new Set(keys.map((key) => key.trim().toLowerCase()).filter(Boolean))].sort();
+}
+
+function mergeEntityKeys(left: readonly string[], right: readonly string[]): string[] {
+  return normalizeEntityKeys([...left, ...right]);
+}
+
+function normalizedPublishedAt(item: NormalizedItem): number | null {
+  return typeof item.publishedAt === 'number' && Number.isFinite(item.publishedAt) && item.publishedAt >= 0
+    ? Math.floor(item.publishedAt)
+    : null;
+}
+
+function componentWithItem(component: RemoteClusterItemComponent, item: NormalizedItem): RemoteClusterItemComponent {
+  const publishedAt = normalizedPublishedAt(item);
+  const timestamps = [
+    component.minPublishedAt,
+    component.maxPublishedAt,
+    publishedAt,
+  ].filter((value): value is number => value !== null);
+  return {
+    ...component,
+    items: [...component.items, item],
+    titles: [...component.titles, item.title],
+    entityKeys: mergeEntityKeys(component.entityKeys, item.entity_keys),
+    minPublishedAt: timestamps.length > 0 ? Math.min(...timestamps) : null,
+    maxPublishedAt: timestamps.length > 0 ? Math.max(...timestamps) : null,
+  };
+}
+
+function itemFitsComponentTimeWindow(component: RemoteClusterItemComponent, item: NormalizedItem): boolean {
+  const publishedAt = normalizedPublishedAt(item);
+  if (publishedAt === null || component.minPublishedAt === null || component.maxPublishedAt === null) {
+    return true;
+  }
+  return (
+    Math.abs(publishedAt - component.minPublishedAt) <= REMOTE_CLUSTER_AFFINITY_WINDOW_MS
+    || Math.abs(publishedAt - component.maxPublishedAt) <= REMOTE_CLUSTER_AFFINITY_WINDOW_MS
+  );
+}
+
+function createRemoteClusterItemComponent(item: NormalizedItem, firstIndex: number): RemoteClusterItemComponent {
+  const publishedAt = normalizedPublishedAt(item);
+  return {
+    firstIndex,
+    items: [item],
+    titles: [item.title],
+    entityKeys: normalizeEntityKeys(item.entity_keys),
+    minPublishedAt: publishedAt,
+    maxPublishedAt: publishedAt,
+  };
+}
+
+function buildRemoteClusterItemComponents(items: readonly NormalizedItem[]): RemoteClusterItemComponent[] {
+  const components: RemoteClusterItemComponent[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]!;
+    const componentIndex = components.findIndex((component) =>
+      itemFitsComponentTimeWindow(component, item)
+      && shouldMerge(component.entityKeys, component.titles, item.entity_keys, item.title),
+    );
+    if (componentIndex === -1) {
+      components.push(createRemoteClusterItemComponent(item, index));
+      continue;
+    }
+    components[componentIndex] = componentWithItem(components[componentIndex]!, item);
+  }
+  return components.sort((left, right) => left.firstIndex - right.firstIndex);
+}
+
+function chunkRemoteClusterItemsByAffinity(
+  items: readonly NormalizedItem[],
+  size: number,
+): NormalizedItem[][] {
+  const chunks: NormalizedItem[][] = [];
+  let current: NormalizedItem[] = [];
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = [];
+    }
+  };
+
+  for (const component of buildRemoteClusterItemComponents(items)) {
+    if (component.items.length > size) {
+      flush();
+      chunks.push(...chunkItems(component.items, size));
+      continue;
+    }
+
+    if (current.length + component.items.length > size) {
+      flush();
+    }
+    current.push(...component.items);
+  }
+  flush();
+  return chunks;
+}
+
 function mergeChunkResults(
   aggregate: StoryClusterBatchResult,
   next: StoryClusterBatchResult,
@@ -153,7 +266,7 @@ async function clusterTopicItems(
     });
   }
 
-  const chunks = chunkItems(topicItems, maxItemsPerRequest);
+  const chunks = chunkRemoteClusterItemsByAffinity(topicItems, maxItemsPerRequest);
   let mergedResult: StoryClusterBatchResult = { bundles: [], storylines: [] };
 
   for (let index = 0; index < chunks.length; index += 1) {
