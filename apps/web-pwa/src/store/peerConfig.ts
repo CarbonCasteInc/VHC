@@ -37,7 +37,7 @@ const GUN_PEER_QUORUM_REQUIRED_ENV = 'VITE_GUN_PEER_QUORUM_REQUIRED';
 const ALLOW_UNSIGNED_PEER_CONFIG_ENV = 'VITE_VH_ALLOW_UNSIGNED_PEER_CONFIG';
 const DEFAULT_PUBLIC_BETA_PEER_CONFIG_URL = '/mesh-peer-config.json';
 const DEFAULT_PUBLIC_BETA_PEER_CONFIG_PUBLIC_KEY =
-  'YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w';
+  'fhJHNkQYrCLJXV60Znl8ZA5UVoObYTnw5UNYFd4CchU.Gwh0IXZSvU4loMkaC5Uv-UbCeWI1ezNSf5RYFpLyQbA';
 
 /* c8 ignore start -- Vite import.meta env typing differs between browser bundles, vitest, and Node scripts. */
 function envValue(name: string): string | undefined {

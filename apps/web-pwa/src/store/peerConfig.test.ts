@@ -182,7 +182,7 @@ describe('peerConfig', () => {
     const expiresAt = issuedAt + 86_400_000;
     const payload = {
       schemaVersion: 'mesh-peer-config-v1',
-      configId: 'public-beta-fallback-wss-v1',
+      configId: 'public-beta-fallback-wss-v2',
       issuedAt,
       expiresAt,
       minimumPeerCount: 3,
@@ -193,7 +193,7 @@ describe('peerConfig', () => {
       ],
       quorumRequired: 2,
     };
-    const signerPub = 'YJiBPKmsoq9_IZkBWOG8rMZJdFKTtUKiAkphraZsRnc.MQ19LAvrVK3a3Cv-9bEQs0SuoThSpWiGvmYM4haP62w';
+    const signerPub = 'fhJHNkQYrCLJXV60Znl8ZA5UVoObYTnw5UNYFd4CchU.Gwh0IXZSvU4loMkaC5Uv-UbCeWI1ezNSf5RYFpLyQbA';
     verifyMock.mockResolvedValue(canonicalize(payload));
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     const fetchMock = vi.fn(async () => ({
@@ -212,7 +212,7 @@ describe('peerConfig', () => {
       source: 'remote-config',
       strict: true,
       signed: true,
-      configId: 'public-beta-fallback-wss-v1',
+      configId: 'public-beta-fallback-wss-v2',
       quorumRequired: 2,
     });
     expect(verifyMock).toHaveBeenCalledWith('signed-peer-config', signerPub);

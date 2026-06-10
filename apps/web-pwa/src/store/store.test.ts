@@ -177,10 +177,14 @@ describe('useAppStore', () => {
       }),
       expect.objectContaining({
         id: 'vh-public-beta-news-system-writer-v2',
+        status: 'retired',
+      }),
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v3',
         status: 'active',
         publicKey: {
           encoding: 'spki-base64url',
-          material: 'MCowBQYDK2VwAyEAm1-w-xW6TSxF1tHwrfWA5oay-59qZaq2L_fsqZPfghM',
+          material: 'MCowBQYDK2VwAyEAv8YZ8WoDOfearavnNDQt98ndEzk5pqyeEz1KX6lDE1s',
         },
       }),
     ]));
