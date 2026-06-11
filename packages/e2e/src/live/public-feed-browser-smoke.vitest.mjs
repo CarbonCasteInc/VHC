@@ -289,6 +289,86 @@ describe('public feed browser smoke helpers', () => {
     }
   });
 
+  it('records public relay health route-surface diagnostics without requiring app-origin metadata', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const href = String(url);
+      if (href === 'https://gun-a.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-relay',
+          relay_id: 'vh-public-beta-relay-a',
+          route_surface: 'vh-relay-http-v1',
+          public_http_routes: [
+            '/vh/news/latest-index',
+            '/vh/news/hot-index',
+            '/vh/news/story',
+            '/vh/news/synthesis-lifecycle',
+            '/vh/topics/synthesis',
+            '/vh/aggregates/point',
+          ],
+          relay_peer_count: 2,
+        }), { status: 200 });
+      }
+      if (href === 'https://gun-c.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-relay',
+          relay_id: 'vh-public-beta-relay-c',
+          relay_peer_count: 2,
+        }), { status: 200 });
+      }
+      if (href === 'https://venn.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-public-beta-origin',
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false, href }), { status: 500 });
+    });
+    const restDiagnostics = internal.createRestDiagnosticsRecorder();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const readback = await internal.readPublicRelayHealthReadbacks({
+        origins: [
+          'https://gun-a.example',
+          'https://gun-c.example',
+          'https://venn.example',
+        ],
+        timeoutMs: 1_000,
+        restDiagnostics,
+      });
+
+      expect(readback).toMatchObject({
+        status: 'fail',
+        originCount: 3,
+        requiredRouteSurface: 'vh-relay-http-v1',
+        failedOrigins: [{
+          origin: 'https://gun-c.example/',
+          failures: expect.arrayContaining([
+            'route_surface_missing_or_unexpected:missing',
+            expect.stringContaining('public_http_routes_missing:/vh/news/latest-index'),
+          ]),
+        }],
+      });
+      expect(readback.readbacks.find((entry) => entry.origin === 'https://gun-a.example/')).toMatchObject({
+        status: 'pass',
+        relayRouteSurfaceRequired: true,
+        routeSurface: 'vh-relay-http-v1',
+        publicHttpRoutes: expect.arrayContaining(['/vh/news/story']),
+        relayPeerCount: 2,
+      });
+      expect(readback.readbacks.find((entry) => entry.origin === 'https://venn.example/')).toMatchObject({
+        status: 'pass',
+        relayRouteSurfaceRequired: false,
+        service: 'vh-public-beta-origin',
+      });
+      expect(restDiagnostics.summary()).toMatchObject({
+        httpStatusCounts: { 200: 3 },
+        cloudflare1033Count: 0,
+        vhRelay502Count: 0,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('treats a changed existing public voter row as a new agree readback', () => {
     const beforeRows = [
       { voter_id: 'voter-a', node: { agreement: -1 } },

@@ -32,6 +32,14 @@ const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
 const DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 const REST_DIAGNOSTIC_EXCERPT_MAX = 320;
+const REQUIRED_PUBLIC_RELAY_HTTP_ROUTES = Object.freeze([
+  '/vh/news/latest-index',
+  '/vh/news/hot-index',
+  '/vh/news/story',
+  '/vh/news/synthesis-lifecycle',
+  '/vh/topics/synthesis',
+  '/vh/aggregates/point',
+]);
 const SECRET_TEXT_PATTERNS = [
   /sk-[A-Za-z0-9_*=\\-]{8,}/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
@@ -895,6 +903,101 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json',
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function publicRelayHealthRequiresRouteSurface(origin, payload) {
+  const service = String(payload?.service ?? '').trim();
+  if (service === 'vh-relay') return true;
+  if (service === 'vh-public-beta-origin') return false;
+  try {
+    return new URL(origin).hostname.toLowerCase().startsWith('gun-');
+  } catch {
+    return false;
+  }
+}
+
+function normalizePublicHttpRoutes(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((route) => String(route ?? '').trim())
+    .filter(Boolean);
+}
+
+async function readPublicRelayHealthReadbacks({
+  origins = [],
+  timeoutMs = 10_000,
+  restDiagnostics = null,
+} = {}) {
+  const normalizedOrigins = [...new Set(origins.map(normalizeUrl).filter(Boolean))];
+  const readbacks = [];
+  for (const origin of normalizedOrigins) {
+    const url = new URL('/healthz', origin);
+    try {
+      const payload = await fetchJsonWithTimeout(
+        url.href,
+        Math.max(1, Math.min(timeoutMs, 10_000)),
+        'public-relay-healthz',
+        restDiagnostics,
+      );
+      const publicHttpRoutes = normalizePublicHttpRoutes(payload?.public_http_routes);
+      const required = publicRelayHealthRequiresRouteSurface(origin, payload);
+      const failures = [];
+      if (required && payload?.route_surface !== 'vh-relay-http-v1') {
+        failures.push(`route_surface_missing_or_unexpected:${String(payload?.route_surface ?? 'missing')}`);
+      }
+      if (required) {
+        const missingRoutes = REQUIRED_PUBLIC_RELAY_HTTP_ROUTES.filter((route) => !publicHttpRoutes.includes(route));
+        if (missingRoutes.length > 0) {
+          failures.push(`public_http_routes_missing:${missingRoutes.join(',')}`);
+        }
+      }
+      const relayPeerCount = Number(payload?.relay_peer_count);
+      readbacks.push({
+        origin,
+        status: failures.length === 0 ? 'pass' : 'fail',
+        relayRouteSurfaceRequired: required,
+        service: payload?.service ?? null,
+        relayId: payload?.relay_id ?? null,
+        routeSurface: payload?.route_surface ?? null,
+        publicHttpRoutes,
+        relayPeerCount: Number.isFinite(relayPeerCount) ? relayPeerCount : null,
+        failures,
+      });
+    } catch (error) {
+      readbacks.push({
+        origin,
+        status: 'fail',
+        relayRouteSurfaceRequired: publicRelayHealthRequiresRouteSurface(origin, null),
+        service: null,
+        relayId: null,
+        routeSurface: null,
+        publicHttpRoutes: [],
+        relayPeerCount: null,
+        failures: [
+          `healthz_fetch_failed:${redactDiagnosticExcerpt(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        ],
+      });
+    }
+  }
+  const failedOrigins = readbacks.filter((readback) => readback.status !== 'pass');
+  return {
+    status: normalizedOrigins.length === 0
+      ? 'not_configured'
+      : failedOrigins.length === 0
+        ? 'pass'
+        : 'fail',
+    origins: normalizedOrigins,
+    originCount: normalizedOrigins.length,
+    requiredRouteSurface: 'vh-relay-http-v1',
+    requiredPublicHttpRoutes: [...REQUIRED_PUBLIC_RELAY_HTTP_ROUTES],
+    failedOrigins: failedOrigins.map((readback) => ({
+      origin: readback.origin,
+      failures: readback.failures,
+    })),
+    readbacks,
+  };
 }
 
 function parsePublicPointAggregatePayload(payload, pointId) {
@@ -3471,6 +3574,7 @@ export const publicFeedBrowserSmokeInternal = {
   loadRepoSystemWriterPin,
   latestIndexRecordsFromPayload,
   readPublicRelayLatestIndexPage,
+  readPublicRelayHealthReadbacks,
   readPublicRelayPaginationReadback,
   assertPublicRelayPaginationReadback,
   readPublicRelaySynthesisCandidates,

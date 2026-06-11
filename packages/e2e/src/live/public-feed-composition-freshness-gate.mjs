@@ -497,12 +497,18 @@ async function runPublicFeedCompositionFreshnessGate({
     sampledStoryIds: [],
     topStories: [],
     pagination: null,
+    publicRelayHealthReadback: null,
     publicPeerReadback: null,
     restDiagnostics: null,
     sourceHealthEvidence,
   };
 
   try {
+    summary.publicRelayHealthReadback = await publicFeedBrowserSmokeInternal.readPublicRelayHealthReadbacks({
+      origins: publicRelayPeerOriginsFromEnv(env),
+      timeoutMs: Math.min(timeoutMs, 10_000),
+      restDiagnostics,
+    });
     const readback = await publicFeedBrowserSmokeInternal.readPublicRelaySynthesisCandidates({
       baseUrl,
       indexLimit,
@@ -568,6 +574,22 @@ async function runPublicFeedCompositionFreshnessGate({
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (!summary.publicRelayHealthReadback) {
+      summary.publicRelayHealthReadback = await publicFeedBrowserSmokeInternal.readPublicRelayHealthReadbacks({
+        origins: publicRelayPeerOriginsFromEnv(env),
+        timeoutMs: Math.min(timeoutMs, 10_000),
+        restDiagnostics,
+      }).catch((healthReadbackError) => ({
+        status: 'fail',
+        origins: publicRelayPeerOriginsFromEnv(env),
+        originCount: publicRelayPeerOriginsFromEnv(env).length,
+        requiredRouteSurface: 'vh-relay-http-v1',
+        requiredPublicHttpRoutes: [],
+        failedOrigins: [],
+        readbacks: [],
+        failure: healthReadbackError instanceof Error ? healthReadbackError.message : String(healthReadbackError),
+      }));
+    }
     if (!summary.publicPeerReadback) {
       summary.publicPeerReadback = await readPublicRelayPeerReadbacks({
         env,
