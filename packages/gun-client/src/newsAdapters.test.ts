@@ -2228,9 +2228,23 @@ describe('newsAdapters', () => {
         nextCursor: 456,
         recordCount: 1,
         directGunLatestIndexCount: 1,
+        relayRestDiagnostics: {
+          endpointsAttempted: ['https://gun-timeout.carboncaste.io/vh/news/latest-index?limit=80'],
+          httpStatusCounts: {},
+          successCount: 0,
+          cloudflare1033Count: 0,
+          vhRelay502Count: 0,
+          networkFailures: [
+            expect.objectContaining({
+              endpoint: 'https://gun-timeout.carboncaste.io/vh/news/latest-index?limit=80',
+              classification: 'timeout',
+              error: 'news-latest-index-relay-rest-read-timeout:11000',
+            }),
+          ],
+        },
       });
       const page = await pending;
-      expect(page.relayRestDiagnostics).toBeUndefined();
+      expect(page.relayRestDiagnostics?.nonOkResponses).toEqual([]);
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();
