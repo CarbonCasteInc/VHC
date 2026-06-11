@@ -1306,6 +1306,95 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('preserves an explicit terminal relay latest-index cursor', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-terminal', 321);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-terminal', 321);
+    const relayedStory = { ...STORY, story_id: 'story-terminal', cluster_window_end: 321 };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      truncated: false,
+      next_cursor: null,
+      records: { 'story-terminal': record },
+      stories: { 'story-terminal': relayedStory },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { 'story-terminal': 321 },
+        nextCursor: null,
+        recordCount: 1,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('treats invalid explicit relay latest-index cursors as terminal', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(createFakeMesh(), guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const embeddedStory = {
+      ...STORY,
+      story_id: 'story-invalid-next-cursor',
+      topic_id: 'd'.repeat(64),
+      cluster_window_end: 222,
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      records: {
+        'story-invalid-next-cursor': {
+          story_id: 'story-invalid-next-cursor',
+          latest_activity_at: 222,
+        },
+      },
+      stories: {
+        'story-invalid-next-cursor': embeddedStory,
+      },
+      next_cursor: 'not-a-valid-cursor',
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { 'story-invalid-next-cursor': 222 },
+        nextCursor: null,
+        recordCount: 1,
+        stories: { 'story-invalid-next-cursor': embeddedStory },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps relay-embedded latest-index stories when legacy index signatures cannot be revalidated in the browser', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -1922,6 +2011,42 @@ describe('newsAdapters', () => {
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'https://venn.carboncaste.io/vh/news/latest-index?limit=2&before=250',
+        expect.objectContaining({ method: 'GET' }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('readNewsLatestIndexWithRelayRestFallback ignores invalid older cursor windows', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+    });
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      records: {
+        'story-new': 300,
+        'story-mid': 200,
+      },
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(
+        readNewsLatestIndexWithRelayRestFallback(client, { limit: 2, before: Number.NaN }),
+      ).resolves.toEqual({
+        'story-new': 300,
+        'story-mid': 200,
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://venn.carboncaste.io/vh/news/latest-index?limit=2',
         expect.objectContaining({ method: 'GET' }),
       );
     } finally {

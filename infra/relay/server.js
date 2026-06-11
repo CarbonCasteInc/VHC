@@ -1891,6 +1891,14 @@ function exclusionReasonCounts(records) {
   }, {});
 }
 
+function latestIndexPageNextCursor(pageEntries, hasMoreVisibleEntries) {
+  if (!hasMoreVisibleEntries) return null;
+  return pageEntries
+    .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+    .sort((a, b) => a - b)[0] ?? null;
+}
+
 function createFeedCompositionAccumulator(now = Date.now()) {
   return {
     total_visible: 0,
@@ -2395,6 +2403,7 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
     }
   }
+  const truncated = scanSourceKeys.length > keys.length || visibleEntries.length > chronologicalPageEntries.length;
   return {
     root: options.includeRoot ? stripGunMetadata(rawRoot) || {} : undefined,
     sourceKeyCount: sourceKeys.length,
@@ -2404,12 +2413,9 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
         ? visibleEntries.length + excludedRecords.length
         : sourceKeys.length,
     scannedKeyCount: keys.length,
-    truncated: scanSourceKeys.length > keys.length || visibleEntries.length > chronologicalPageEntries.length,
+    truncated,
     before: hasBeforeCursor ? Math.floor(beforeCursor) : null,
-    nextCursor: chronologicalPageEntries
-      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
-      .filter((value) => Number.isFinite(value) && value >= 0)
-      .sort((a, b) => a - b)[0] ?? null,
+    nextCursor: latestIndexPageNextCursor(chronologicalPageEntries, truncated),
     consistency: {
       enabled: consistencyFilter,
       mode: consistencyFilter ? 'relay_visible_filter' : 'disabled',
@@ -3015,17 +3021,15 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       accumulateFeedComposition(composition, entry.story, entry.entry[1], entry.storyState);
     }
   }
+  const truncated = visibleEntries.length > chronologicalPageEntries.length;
   return {
     root: null,
     sourceKeyCount: snapshot.sourceKeyCount ?? visibleEntries.length,
     windowSourceKeyCount: visibleEntries.length,
     scannedKeyCount: snapshot.scannedKeyCount ?? visibleEntries.length,
-    truncated: visibleEntries.length > chronologicalPageEntries.length,
+    truncated,
     before: beforeCursor,
-    nextCursor: chronologicalPageEntries
-      .map((entry) => latestIndexRecordTimestamp(entry.entry?.[1]))
-      .filter((value) => Number.isFinite(value) && value >= 0)
-      .sort((a, b) => a - b)[0] ?? null,
+    nextCursor: latestIndexPageNextCursor(chronologicalPageEntries, truncated),
     consistency: {
       ...(snapshot.consistency ?? {}),
       empty_read_cache: cacheInfo,

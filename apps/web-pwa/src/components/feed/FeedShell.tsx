@@ -298,12 +298,15 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     refreshLatest,
   ]);
 
+  const hasPublicNewsCursor =
+    typeof publicNewsLatestIndexCursor === 'number' && Number.isFinite(publicNewsLatestIndexCursor);
   const canRequestMorePublicNews =
     !hasMore &&
     !loading &&
     !error &&
     newsCount > 0 &&
     loadedPublicNewsStoryCount > 0 &&
+    hasPublicNewsCursor &&
     !meshPaginationExhausted &&
     newsRefreshLimit < PUBLIC_NEWS_REFRESH_MAX_LIMIT;
 
@@ -328,17 +331,17 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     const beforeCursor = typeof publicNewsLatestIndexCursor === 'number' && Number.isFinite(publicNewsLatestIndexCursor)
       ? publicNewsLatestIndexCursor
       : fallbackBeforeCursor;
+    if (beforeCursor === null) {
+      setMeshPaginationExhausted(true);
+      return;
+    }
     const nextLimit = Math.min(
       PUBLIC_NEWS_REFRESH_MAX_LIMIT,
       newsRefreshLimit + PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP,
     );
 
     setMeshLoadingMore(true);
-    void refreshLatest(
-      beforeCursor === null
-        ? nextLimit
-        : { limit: PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP, before: beforeCursor },
-    )
+    void refreshLatest({ limit: PUBLIC_NEWS_REFRESH_LOAD_MORE_STEP, before: beforeCursor })
       .then(() => {
         const nextStories = useNewsStore.getState().stories;
         const discoveredAdditionalStory = nextStories.some(

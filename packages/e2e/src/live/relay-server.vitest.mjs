@@ -1619,7 +1619,7 @@ describe('infra relay server', () => {
         before: 250,
         record_count: 2,
         window_source_key_count: 2,
-        next_cursor: 100,
+        next_cursor: null,
         records: {
           'story-mid': 200,
           'story-old': 100,
@@ -1781,7 +1781,7 @@ describe('infra relay server', () => {
         record_count: 1,
         source_key_count: 3,
         window_source_key_count: 1,
-        next_cursor: 100,
+        next_cursor: null,
         records: {
           'story-old': expect.objectContaining({
             story_id: 'story-old',

@@ -179,6 +179,9 @@ function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_IND
 }
 
 function normalizeLatestIndexBeforeCursor(before: unknown): number | null {
+  if (before === null || before === undefined || String(before).trim() === '') {
+    return null;
+  }
   const parsed = Number(before);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
@@ -323,6 +326,9 @@ function latestIndexWindowNextCursor(index: NewsLatestIndex): number | null {
 }
 
 function normalizeRelayLatestIndexNextCursor(value: unknown): number | null {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return null;
+  }
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
 }
@@ -2461,6 +2467,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
   const stories: Record<string, StoryBundle> = {};
   const storyStates: Record<string, Record<string, unknown>> = {};
   let nextCursor: number | null = null;
+  let hasExplicitRelayNextCursor = false;
   let sourceKeyCount: number | undefined;
   let composition: unknown;
   const endpointPayloads = await Promise.all(endpoints.map(async (endpoint) => {
@@ -2559,9 +2566,12 @@ export async function readNewsLatestIndexPageViaRelayRest(
           }
         }
       }
-      const payloadNextCursor = normalizeRelayLatestIndexNextCursor(payload.next_cursor);
-      if (payloadNextCursor !== null) {
-        nextCursor = Math.max(nextCursor ?? payloadNextCursor, payloadNextCursor);
+      if (Object.prototype.hasOwnProperty.call(payload, 'next_cursor')) {
+        hasExplicitRelayNextCursor = true;
+        const payloadNextCursor = normalizeRelayLatestIndexNextCursor(payload.next_cursor);
+        if (payloadNextCursor !== null) {
+          nextCursor = Math.max(nextCursor ?? payloadNextCursor, payloadNextCursor);
+        }
       }
       const payloadSourceKeyCount = Number(payload.source_key_count);
       if (Number.isFinite(payloadSourceKeyCount) && payloadSourceKeyCount >= 0) {
@@ -2576,7 +2586,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
   }
   return {
     index,
-    nextCursor: nextCursor ?? latestIndexWindowNextCursor(index),
+    nextCursor: hasExplicitRelayNextCursor ? nextCursor : latestIndexWindowNextCursor(index),
     recordCount: Object.keys(index).length,
     relayRestDiagnostics,
     ...(sourceKeyCount === undefined ? {} : { sourceKeyCount }),
