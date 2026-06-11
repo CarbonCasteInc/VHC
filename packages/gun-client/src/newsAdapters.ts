@@ -2599,18 +2599,18 @@ export async function readNewsLatestIndexPageWithRelayRestFallback(
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndexPage> {
   const relayTimeoutMs = RELAY_REST_READ_TIMEOUT_MS + 1_000;
-  const relayTimeoutFallback = typeof fetch === 'function'
-    ? {
-      index: {},
-      nextCursor: null,
-      recordCount: 0,
-      relayRestDiagnostics: createRelayRestTimeoutDiagnostics(
+  const relayTimeoutFallback = {
+    index: {},
+    nextCursor: null,
+    recordCount: 0,
+    relayRestDiagnostics: typeof fetch === 'function'
+      ? createRelayRestTimeoutDiagnostics(
         resolveLatestIndexRelayRestRead(client, options).endpoints,
         'news-latest-index-relay-rest-read',
         relayTimeoutMs,
-      ),
-    }
-    : null;
+      )
+      : createRelayRestReadDiagnostics([]),
+  };
   const relayed = await timeoutAsNull(
     readNewsLatestIndexPageViaRelayRest(client, options),
     relayTimeoutMs,
@@ -2629,7 +2629,7 @@ export async function readNewsLatestIndexPageWithRelayRestFallback(
     nextCursor: latestIndexWindowNextCursor(index),
     recordCount: Object.keys(index).length,
     directGunLatestIndexCount: Object.keys(index).length,
-    ...(relayed?.relayRestDiagnostics ? { relayRestDiagnostics: relayed.relayRestDiagnostics } : {}),
+    relayRestDiagnostics: relayed.relayRestDiagnostics,
   };
 }
 

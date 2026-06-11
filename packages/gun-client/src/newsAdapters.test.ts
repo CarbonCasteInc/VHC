@@ -1949,6 +1949,21 @@ describe('newsAdapters', () => {
         'story-a': 200,
         'story-b': 200,
       });
+      await expect(
+        readNewsLatestIndexPageWithRelayRestFallback(client, { limit: 2, before: 250 }),
+      ).resolves.toMatchObject({
+        index: {
+          'story-a': 200,
+          'story-b': 200,
+        },
+        directGunLatestIndexCount: 2,
+        relayRestDiagnostics: {
+          endpointsAttempted: [],
+          successCount: 0,
+          nonOkResponses: [],
+          networkFailures: [],
+        },
+      });
     } finally {
       vi.stubGlobal('fetch', originalFetch);
     }
