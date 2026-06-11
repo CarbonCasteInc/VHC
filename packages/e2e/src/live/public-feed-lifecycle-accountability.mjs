@@ -683,6 +683,7 @@ async function runPublicFeedLifecycleAccountability({
     sourceHealthEvidence,
     stories: [],
     failures: [],
+    publicRelayHealthReadback: null,
     publicPeerReadback: null,
     restDiagnostics: null,
   };
@@ -703,6 +704,11 @@ async function runPublicFeedLifecycleAccountability({
   client.markSessionReady();
 
   try {
+    summary.publicRelayHealthReadback = await publicFeedBrowserSmokeInternal.readPublicRelayHealthReadbacks({
+      origins: publicRelayPeerOriginsFromEnv(env),
+      timeoutMs: Math.min(rowTimeoutMs, 10_000),
+      restDiagnostics,
+    });
     const [rawStoryIds, relayLatest, relayHot] = await Promise.all([
       readRawStoryIds(client, sampleLimit, Math.min(timeoutMs, 5_000)).catch(() => []),
       readRelayLatest(baseUrl, sampleLimit, timeoutMs, restDiagnostics),
@@ -973,6 +979,22 @@ async function runPublicFeedLifecycleAccountability({
     return summary;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (!summary.publicRelayHealthReadback) {
+      summary.publicRelayHealthReadback = await publicFeedBrowserSmokeInternal.readPublicRelayHealthReadbacks({
+        origins: publicRelayPeerOriginsFromEnv(env),
+        timeoutMs: Math.min(rowTimeoutMs, 10_000),
+        restDiagnostics,
+      }).catch((healthReadbackError) => ({
+        status: 'fail',
+        origins: publicRelayPeerOriginsFromEnv(env),
+        originCount: publicRelayPeerOriginsFromEnv(env).length,
+        requiredRouteSurface: 'vh-relay-http-v1',
+        requiredPublicHttpRoutes: [],
+        failedOrigins: [],
+        readbacks: [],
+        failure: healthReadbackError instanceof Error ? healthReadbackError.message : String(healthReadbackError),
+      }));
+    }
     if (!summary.publicPeerReadback) {
       summary.publicPeerReadback = await readPublicRelayPeerReadbacks({
         env,

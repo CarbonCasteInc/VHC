@@ -173,6 +173,48 @@ describe('public feed browser smoke helpers', () => {
     expect(refreshLatest).toHaveBeenCalledWith({ limit: 15, before: 20 });
   });
 
+  it('allows scroll growth from cards already present in the public news store', () => {
+    expect(internal.publicNewsStoreHasPreloadedMeshWindow({
+      latestIndexCount: 15,
+      storyCount: 15,
+      loading: false,
+      error: null,
+    }, 15)).toBe(true);
+    expect(internal.shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount: 15,
+      initialVisibleCount: 7,
+      newVisibleStoryCount: 8,
+      loadMoreRefreshCallCount: 0,
+      beforeScrollNewsStore: {
+        latestIndexCount: 15,
+        storyCount: 15,
+        loading: false,
+        error: null,
+      },
+    })).toBe(false);
+  });
+
+  it('still rejects scroll growth without mesh refresh when the store lacks the mesh window', () => {
+    expect(internal.publicNewsStoreHasPreloadedMeshWindow({
+      latestIndexCount: 15,
+      storyCount: 7,
+      loading: false,
+      error: null,
+    }, 15)).toBe(false);
+    expect(internal.shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount: 15,
+      initialVisibleCount: 7,
+      newVisibleStoryCount: 8,
+      loadMoreRefreshCallCount: 0,
+      beforeScrollNewsStore: {
+        latestIndexCount: 15,
+        storyCount: 7,
+        loading: false,
+        error: null,
+      },
+    })).toBe(true);
+  });
+
   it('verifies relay latest-index pagination with an exclusive older cursor window', async () => {
     const fetchMock = vi.fn(async (url) => {
       const href = String(url);
@@ -283,6 +325,86 @@ describe('public feed browser smoke helpers', () => {
         participants: 6,
         weight: 6,
         row_count: 6,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('records public relay health route-surface diagnostics without requiring app-origin metadata', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      const href = String(url);
+      if (href === 'https://gun-a.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-relay',
+          relay_id: 'vh-public-beta-relay-a',
+          route_surface: 'vh-relay-http-v1',
+          public_http_routes: [
+            '/vh/news/latest-index',
+            '/vh/news/hot-index',
+            '/vh/news/story',
+            '/vh/news/synthesis-lifecycle',
+            '/vh/topics/synthesis',
+            '/vh/aggregates/point',
+          ],
+          relay_peer_count: 2,
+        }), { status: 200 });
+      }
+      if (href === 'https://gun-c.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-relay',
+          relay_id: 'vh-public-beta-relay-c',
+          relay_peer_count: 2,
+        }), { status: 200 });
+      }
+      if (href === 'https://venn.example/healthz') {
+        return new Response(JSON.stringify({
+          service: 'vh-public-beta-origin',
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: false, href }), { status: 500 });
+    });
+    const restDiagnostics = internal.createRestDiagnosticsRecorder();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const readback = await internal.readPublicRelayHealthReadbacks({
+        origins: [
+          'https://gun-a.example',
+          'https://gun-c.example',
+          'https://venn.example',
+        ],
+        timeoutMs: 1_000,
+        restDiagnostics,
+      });
+
+      expect(readback).toMatchObject({
+        status: 'fail',
+        originCount: 3,
+        requiredRouteSurface: 'vh-relay-http-v1',
+        failedOrigins: [{
+          origin: 'https://gun-c.example/',
+          failures: expect.arrayContaining([
+            'route_surface_missing_or_unexpected:missing',
+            expect.stringContaining('public_http_routes_missing:/vh/news/latest-index'),
+          ]),
+        }],
+      });
+      expect(readback.readbacks.find((entry) => entry.origin === 'https://gun-a.example/')).toMatchObject({
+        status: 'pass',
+        relayRouteSurfaceRequired: true,
+        routeSurface: 'vh-relay-http-v1',
+        publicHttpRoutes: expect.arrayContaining(['/vh/news/story']),
+        relayPeerCount: 2,
+      });
+      expect(readback.readbacks.find((entry) => entry.origin === 'https://venn.example/')).toMatchObject({
+        status: 'pass',
+        relayRouteSurfaceRequired: false,
+        service: 'vh-public-beta-origin',
+      });
+      expect(restDiagnostics.summary()).toMatchObject({
+        httpStatusCounts: { 200: 3 },
+        cloudflare1033Count: 0,
+        vhRelay502Count: 0,
       });
     } finally {
       vi.unstubAllGlobals();
@@ -422,6 +544,13 @@ describe('public feed browser smoke helpers', () => {
     expect(source).toContain('readPublicRelaySynthesisCandidates({');
     expect(source).toContain('topStories: stories,');
     expect(source).not.toContain('topStories: stories.slice(0, 8)');
+  });
+
+  it('keeps public relay pagination evidence in the final pass summary', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain('publicRelayPaginationReadback,');
+    expect(source).toContain('publicRelayAnalysisFrameCoverage,');
   });
 
   it('discovers accepted public synthesis candidates through the deployed relay REST shape', async () => {

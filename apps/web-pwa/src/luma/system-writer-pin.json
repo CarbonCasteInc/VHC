@@ -22,10 +22,18 @@
     },
     {
       "id": "vh-public-beta-news-system-writer-v3",
-      "status": "active",
+      "status": "retired",
       "publicKey": {
         "encoding": "spki-base64url",
         "material": "MCowBQYDK2VwAyEAv8YZ8WoDOfearavnNDQt98ndEzk5pqyeEz1KX6lDE1s"
+      }
+    },
+    {
+      "id": "vh-public-beta-news-system-writer-v4",
+      "status": "active",
+      "publicKey": {
+        "encoding": "spki-base64url",
+        "material": "MCowBQYDK2VwAyEAzcTUyVZKnSbCb8DhAyXWJYWH9drlLrmdGj0HZkjwjQU"
       }
     }
   ]

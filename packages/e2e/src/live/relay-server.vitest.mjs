@@ -296,6 +296,35 @@ async function writeRelayHotIndexRecord(port, storyId, hotness, metadata = {}) {
   });
 }
 
+async function writeRelaySynthesisLifecycle(port, story, {
+  status = 'pending',
+  frameTableState = 'frame_table_pending',
+  updatedAt = Date.now(),
+  synthesisId = null,
+} = {}) {
+  expect(await requestJson(`http://127.0.0.1:${port}/vh/news/synthesis-lifecycle`, {
+    method: 'POST',
+    body: {
+      record: {
+        schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+        story_id: story.story_id,
+        topic_id: story.topic_id,
+        source_set_revision: story.provenance_hash,
+        source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+        canonical_source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+        status,
+        frame_table_state: frameTableState,
+        retryable: status === 'retryable_failure',
+        ...(synthesisId ? { synthesis_id: synthesisId, epoch: 0 } : {}),
+        updated_at: updatedAt,
+      },
+    },
+  })).toMatchObject({
+    statusCode: 200,
+    body: expect.objectContaining({ ok: true, story_id: story.story_id, status }),
+  });
+}
+
 describe('infra relay server', () => {
   const children = new Set();
   const tempDirs = new Set();
@@ -1609,6 +1638,7 @@ describe('infra relay server', () => {
       VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
       VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
+      VH_RELAY_NEWS_INDEX_COMPOSITION_BACKFILL_MIN_LIMIT: '2',
     });
     const stories = [
       makeRelayNewsStory('story-new', 300, [
@@ -1777,6 +1807,86 @@ describe('infra relay server', () => {
     expect(secondPage.body.records).not.toHaveProperty('story-mid');
   }, 60_000);
 
+  it('excludes stale incomplete lifecycle rows from public latest-index when enabled', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_HIDE_STALE_INCOMPLETE_LIFECYCLE: 'true',
+      VH_RELAY_NEWS_INDEX_INCOMPLETE_LIFECYCLE_STALE_MS: '1000',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '4',
+      VH_RELAY_NEWS_INDEX_REST_CONCURRENCY: '2',
+    });
+    const now = Date.now();
+    const freshPending = makeRelayNewsStory('story-fresh-pending', now, [
+      {
+        source_id: 'source-fresh-pending',
+        publisher: 'Source Fresh',
+        url: 'https://example.com/fresh-pending',
+        url_hash: 'hash-fresh-pending',
+        published_at: now,
+        title: 'Fresh pending',
+      },
+    ]);
+    const stalePending = makeRelayNewsStory('story-stale-pending', now - 1, [
+      {
+        source_id: 'source-stale-pending',
+        publisher: 'Source Stale',
+        url: 'https://example.com/stale-pending',
+        url_hash: 'hash-stale-pending',
+        published_at: now - 1,
+        title: 'Stale pending',
+      },
+    ]);
+
+    for (const story of [freshPending, stalePending]) {
+      await writeRelayNewsStory(port, story);
+      await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    }
+    await writeRelaySynthesisLifecycle(port, freshPending, {
+      status: 'pending',
+      updatedAt: now,
+    });
+    await writeRelaySynthesisLifecycle(port, stalePending, {
+      status: 'pending',
+      updatedAt: now - 10_000,
+    });
+
+    const latest = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=4&scan_limit=4&include_excluded=true`,
+    );
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        records: expect.objectContaining({
+          [freshPending.story_id]: expect.objectContaining({
+            story_id: freshPending.story_id,
+          }),
+        }),
+        consistency: expect.objectContaining({
+          excluded_reason_counts: expect.objectContaining({
+            synthesis_lifecycle_incomplete_stale: 1,
+          }),
+          stale_incomplete_lifecycle_filter: expect.objectContaining({
+            enabled: true,
+            stale_window_ms: 1000,
+          }),
+        }),
+        excluded_records: expect.arrayContaining([
+          expect.objectContaining({
+            story_id: stalePending.story_id,
+            reason: 'synthesis_lifecycle_incomplete_stale',
+            lifecycle_status: 'pending',
+          }),
+        ]),
+      }),
+    });
+    expect(latest.body.records).not.toHaveProperty(stalePending.story_id);
+    expect(latest.body.composition).toMatchObject({
+      total_visible: 1,
+      singleton_visible: 1,
+      pending_synthesis: 1,
+    });
+  }, 60_000);
+
   it('backfills a corroborated story into the initial latest-index window without moving the pagination cursor', async () => {
     const { port } = await startRelay(children, tempDirs, {
       VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '4',
@@ -1785,6 +1895,7 @@ describe('infra relay server', () => {
       VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
       VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
       VH_RELAY_NEWS_INDEX_REST_MAP_FALLBACK: 'true',
+      VH_RELAY_NEWS_INDEX_COMPOSITION_BACKFILL_MIN_LIMIT: '2',
     });
     const stories = [
       makeRelayNewsStory('story-new-singleton', 400, [
@@ -2469,6 +2580,69 @@ describe('infra relay server', () => {
           },
         }),
       });
+  }, 30_000);
+
+  it('filters stale incomplete lifecycle rows when serving a preferred latest-index snapshot', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-stale-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const snapshotEnv = {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'false',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'false',
+      VH_RELAY_NEWS_INDEX_HIDE_STALE_INCOMPLETE_LIFECYCLE: 'true',
+      VH_RELAY_NEWS_INDEX_INCOMPLETE_LIFECYCLE_STALE_MS: '1000',
+    };
+    const { port: writerPort } = await startRelay(children, tempDirs, snapshotEnv);
+    const now = Date.now();
+    const story = makeRelayNewsStory('story-stale-snapshot-pending', now, [
+      {
+        source_id: 'source-stale-snapshot-pending',
+        publisher: 'Stale Snapshot Source',
+        url: 'https://example.com/stale-snapshot-pending',
+        url_hash: 'hash-stale-snapshot-pending',
+        published_at: now,
+        title: 'Stale snapshot pending',
+      },
+    ]);
+    await writeRelayNewsStory(writerPort, story);
+    await writeRelayLatestIndexRecord(writerPort, story.story_id, story.cluster_window_end);
+    await writeRelaySynthesisLifecycle(writerPort, story, {
+      status: 'pending',
+      updatedAt: now - 10_000,
+    });
+
+    const { port: snapshotPort } = await startRelay(children, tempDirs, {
+      ...snapshotEnv,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+    });
+    const latest = await requestJson(
+      `http://127.0.0.1:${snapshotPort}/vh/news/latest-index?limit=3&scan_limit=3&include_excluded=true`,
+    );
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 0,
+        records: {},
+        consistency: expect.objectContaining({
+          empty_read_cache: expect.objectContaining({
+            served_from: 'preferred_latest_index_snapshot',
+          }),
+          excluded_reason_counts: expect.objectContaining({
+            synthesis_lifecycle_incomplete_stale: 1,
+          }),
+        }),
+        excluded_records: expect.arrayContaining([
+          expect.objectContaining({
+            story_id: story.story_id,
+            reason: 'synthesis_lifecycle_incomplete_stale',
+          }),
+        ]),
+      }),
+    });
   }, 30_000);
 
   it('serves persisted latest-index snapshot stories when the local story body path is sparse', async () => {

@@ -1822,6 +1822,75 @@ function derivePublicFeedStoryState(story, synthesis, lifecycle) {
   };
 }
 
+const INCOMPLETE_PUBLIC_SYNTHESIS_LIFECYCLE_STATUSES = new Set([
+  'pending',
+  'in_progress',
+  'retryable_failure',
+]);
+
+function latestIndexStaleIncompleteLifecycleFilter() {
+  return {
+    enabled: boolEnv(
+      'VH_RELAY_NEWS_INDEX_HIDE_STALE_INCOMPLETE_LIFECYCLE',
+      process.env.NODE_ENV === 'production',
+    ),
+    staleWindowMs: numberEnv(
+      'VH_RELAY_NEWS_INDEX_INCOMPLETE_LIFECYCLE_STALE_MS',
+      numberEnv('VH_PUBLIC_FEED_SYNTHESIS_PENDING_STALE_MS', 7 * 24 * 60 * 60 * 1000),
+    ),
+    now: Date.now(),
+  };
+}
+
+function staleIncompleteLifecycleExclusion(entry, filter) {
+  if (!filter?.enabled) return null;
+  const story = entry?.story;
+  const storyState = entry?.storyState;
+  const storyId = String(entry?.entry?.[0] ?? story?.story_id ?? '').trim();
+  if (!storyId || !story || !storyState || typeof storyState !== 'object') return null;
+  const lifecycleStatus = String(storyState.lifecycle_status ?? '').trim();
+  if (!INCOMPLETE_PUBLIC_SYNTHESIS_LIFECYCLE_STATUSES.has(lifecycleStatus)) return null;
+  const lifecycleUpdatedAt = Number(storyState.lifecycle_updated_at);
+  const latestActivityAt = latestIndexRecordTimestamp(entry.entry?.[1])
+    ?? resolveLatestActivityFromStory(story)
+    ?? null;
+  const base = {
+    story_id: storyId,
+    latest_activity_at: latestActivityAt,
+    lifecycle_status: lifecycleStatus,
+    lifecycle_updated_at: Number.isFinite(lifecycleUpdatedAt) ? lifecycleUpdatedAt : null,
+    stale_window_ms: filter.staleWindowMs,
+  };
+  if (!Number.isFinite(lifecycleUpdatedAt) || lifecycleUpdatedAt <= 0) {
+    return {
+      ...base,
+      reason: 'synthesis_lifecycle_incomplete_missing_updated_at',
+    };
+  }
+  const ageMs = Math.max(0, Math.floor(filter.now - lifecycleUpdatedAt));
+  if (ageMs > filter.staleWindowMs) {
+    return {
+      ...base,
+      reason: 'synthesis_lifecycle_incomplete_stale',
+      lifecycle_age_ms: ageMs,
+    };
+  }
+  return null;
+}
+
+function hideStaleIncompleteLifecycleEntry(entry, filter) {
+  const exclusion = staleIncompleteLifecycleExclusion(entry, filter);
+  return exclusion ? { excluded: exclusion } : entry;
+}
+
+function exclusionReasonCounts(records) {
+  return records.reduce((acc, record) => {
+    const reason = String(record?.reason ?? 'unknown');
+    acc[reason] = (acc[reason] || 0) + 1;
+    return acc;
+  }, {});
+}
+
 function createFeedCompositionAccumulator(now = Date.now()) {
   return {
     total_visible: 0,
@@ -2167,6 +2236,8 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const repairedRecords = [];
   const compositionNow = Date.now();
   const composition = createFeedCompositionAccumulator(compositionNow);
+  const staleIncompleteFilter = latestIndexStaleIncompleteLifecycleFilter();
+  staleIncompleteFilter.now = compositionNow;
   const entries = await mapWithConcurrency(keys, concurrency, async (storyId) => {
     const direct = readableRoot && typeof readableRoot === 'object' && storyId in readableRoot
       ? stripGunMetadata(readableRoot[storyId])
@@ -2213,7 +2284,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
     if (record !== null && record !== undefined && latestIndexRecordHasTimestamp(record)) {
       const metadataStatus = latestIndexProductMetadataStatus(record, storyResult.story);
       if (metadataStatus === 'complete') {
-        return { entry: [storyId, record], story: storyResult.story, storyState };
+        return hideStaleIncompleteLifecycleEntry(
+          { entry: [storyId, record], story: storyResult.story, storyState },
+          staleIncompleteFilter,
+        );
       }
       const synthesized = synthesizeLatestIndexRecordFromStory(
         storyId,
@@ -2221,9 +2295,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
         fallbackLatestActivityAt,
       );
       return {
-        entry: [storyId, synthesized],
-        story: storyResult.story,
-        storyState,
+        ...hideStaleIncompleteLifecycleEntry(
+          { entry: [storyId, synthesized], story: storyResult.story, storyState },
+          staleIncompleteFilter,
+        ),
         repaired: {
           story_id: storyId,
           reason: `latest_index_product_metadata_${metadataStatus}_from_story_body`,
@@ -2238,9 +2313,10 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       fallbackLatestActivityAt,
     );
     return {
-      entry: [storyId, synthesized],
-      story: storyResult.story,
-      storyState,
+      ...hideStaleIncompleteLifecycleEntry(
+        { entry: [storyId, synthesized], story: storyResult.story, storyState },
+        staleIncompleteFilter,
+      ),
       repaired: {
         story_id: storyId,
         reason: record === null || record === undefined
@@ -2284,9 +2360,14 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
   const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
   const selectedEntries = [...chronologicalPageEntries];
   const compositionBackfillRecords = [];
+  const compositionBackfillMinLimit = positiveInteger(
+    options.compositionBackfillMinLimit,
+    numberEnv('VH_RELAY_NEWS_INDEX_COMPOSITION_BACKFILL_MIN_LIMIT', 12),
+  );
   const shouldBackfillCorroboratedStory =
     consistencyFilter
     && !hasBeforeCursor
+    && maxRecords >= compositionBackfillMinLimit
     && selectedEntries.length > 0
     && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
   if (shouldBackfillCorroboratedStory) {
@@ -2334,11 +2415,17 @@ async function readNewsLatestIndexRecords(gun, options = {}) {
       mode: consistencyFilter ? 'relay_visible_filter' : 'disabled',
       scan_limit: keys.length,
       excluded_count: excludedRecords.length,
+      excluded_reason_counts: exclusionReasonCounts(excludedRecords),
       repaired_count: repairedRecords.length,
       story_body_timeout_ms: consistencyFilter ? storyTimeoutMs : null,
       latest_index_source_key_count: latestSourceKeys.length,
       story_fallback_enabled: Boolean(consistencyFilter && storyFallbackEnabled),
       story_fallback_key_count: storyFallbackKeys.length,
+      stale_incomplete_lifecycle_filter: {
+        enabled: Boolean(staleIncompleteFilter.enabled),
+        stale_window_ms: staleIncompleteFilter.staleWindowMs,
+      },
+      composition_backfill_min_limit: compositionBackfillMinLimit,
     },
     composition: addFeedCompositionWindowFields(finalizeFeedComposition(composition), {
       organicEntries: chronologicalPageEntries,
@@ -2370,6 +2457,7 @@ function latestIndexRestCacheKey(options = {}) {
     includeExcluded: Boolean(options.includeExcluded),
     consistencyFilter: options.consistencyFilter === false ? false : true,
     scanLimit: options.scanLimit ?? null,
+    compositionBackfillMinLimit: options.compositionBackfillMinLimit ?? null,
     before: latestIndexParsedBefore(options),
   });
 }
@@ -2862,7 +2950,7 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
   );
   const beforeCursor = latestIndexParsedBefore(options);
   const hasBeforeCursor = beforeCursor !== null;
-  const visibleEntries = (Array.isArray(snapshot.entries) ? snapshot.entries : [])
+  const orderedSnapshotEntries = (Array.isArray(snapshot.entries) ? snapshot.entries : [])
     .filter((entry) => {
       const timestamp = latestIndexRecordTimestamp(entry.entry?.[1]);
       return !hasBeforeCursor || (Number.isFinite(timestamp) && timestamp < beforeCursor);
@@ -2872,11 +2960,24 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       const rightTimestamp = latestIndexRecordTimestamp(right.entry?.[1]) ?? 0;
       return rightTimestamp - leftTimestamp || String(left.entry?.[0] ?? '').localeCompare(String(right.entry?.[0] ?? ''));
     });
+  const staleIncompleteFilter = latestIndexStaleIncompleteLifecycleFilter();
+  const excludedRecords = [];
+  const visibleEntries = [];
+  for (const entry of orderedSnapshotEntries) {
+    const exclusion = staleIncompleteLifecycleExclusion(entry, staleIncompleteFilter);
+    if (exclusion) excludedRecords.push(exclusion);
+    else visibleEntries.push(entry);
+  }
   const chronologicalPageEntries = visibleEntries.slice(0, maxRecords);
   let selectedEntries = [...chronologicalPageEntries];
   const compositionBackfillRecords = [];
+  const compositionBackfillMinLimit = positiveInteger(
+    options.compositionBackfillMinLimit,
+    numberEnv('VH_RELAY_NEWS_INDEX_COMPOSITION_BACKFILL_MIN_LIMIT', 12),
+  );
   const shouldBackfillCorroboratedStory =
     !hasBeforeCursor
+    && maxRecords >= compositionBackfillMinLimit
     && selectedEntries.length > 0
     && selectedEntries.every((entry) => storySourceCount(entry.story) <= 1);
   if (shouldBackfillCorroboratedStory) {
@@ -2930,6 +3031,13 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       empty_read_cache: cacheInfo,
       snapshot_story_body_readback: bodyReadbackResult.info,
       snapshot_story_state_refresh: refreshResult.info,
+      excluded_count: excludedRecords.length,
+      excluded_reason_counts: exclusionReasonCounts(excludedRecords),
+      stale_incomplete_lifecycle_filter: {
+        enabled: Boolean(staleIncompleteFilter.enabled),
+        stale_window_ms: staleIncompleteFilter.staleWindowMs,
+      },
+      composition_backfill_min_limit: compositionBackfillMinLimit,
     },
     composition: addFeedCompositionWindowFields(finalizeFeedComposition(composition), {
       organicEntries: chronologicalPageEntries,
@@ -2938,7 +3046,7 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       now: compositionNow,
     }),
     storyStates,
-    excludedRecords: [],
+    excludedRecords,
     repairedRecords: snapshot.repairedRecords ?? [],
     compositionBackfillRecords,
     records,
@@ -2951,16 +3059,26 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
   const retryAttempts = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_ATTEMPTS', 1));
   const retryDelayMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_DELAY_MS', 250));
   const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_REST_EMPTY_CACHE_TTL_MS', 5 * 60_000));
+  const snapshotMaxAgeMs = Math.max(
+    0,
+    numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_MAX_AGE_MS', 24 * 60 * 60 * 1000),
+  );
   const cacheKey = latestIndexRestCacheKey(options);
   const snapshotCacheKey = latestIndexSnapshotCacheKey(options);
-  if (boolEnv('VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT', false)) {
+  if (boolEnv('VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT', process.env.NODE_ENV === 'production')) {
     const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
-      ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
-    if (snapshot && Array.isArray(snapshot.entries) && snapshot.entries.length > 0) {
+      ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, snapshotMaxAgeMs);
+    if (
+      snapshot
+      && Array.isArray(snapshot.entries)
+      && snapshot.entries.length > 0
+      && (snapshotMaxAgeMs <= 0 || Date.now() - snapshot.cached_at <= snapshotMaxAgeMs)
+    ) {
       return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
         served_from: 'preferred_latest_index_snapshot',
         cached_at: snapshot.cached_at,
         age_ms: Date.now() - snapshot.cached_at,
+        snapshot_max_age_ms: snapshotMaxAgeMs,
       });
     }
   }
@@ -3004,12 +3122,13 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
           };
         }
         const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
-          ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, cacheTtlMs);
-        if (snapshot && Date.now() - snapshot.cached_at <= cacheTtlMs) {
+          ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, snapshotMaxAgeMs);
+        if (snapshot && (snapshotMaxAgeMs <= 0 || Date.now() - snapshot.cached_at <= snapshotMaxAgeMs)) {
           return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
             served_from: 'last_non_empty_latest_index_snapshot',
             cached_at: snapshot.cached_at,
             age_ms: Date.now() - snapshot.cached_at,
+            snapshot_max_age_ms: snapshotMaxAgeMs,
           });
         }
       }
@@ -3087,6 +3206,7 @@ async function readNewsHotIndexRecords(gun, options = {}) {
   const mergedEntries = [...visibleEntries];
   const seenStoryIds = new Set(mergedEntries.map((entry) => String(entry[0])));
   let latestFallbackInfo = null;
+  let latestFallbackVisibleStoryIds = null;
   if (maxRecords > 0) {
     const latestFallback = await readNewsLatestIndexRecordsWithEmptyRetry(gun, {
       limit: maxRecords,
@@ -3100,6 +3220,7 @@ async function readNewsHotIndexRecords(gun, options = {}) {
       return null;
     });
     if (latestFallback) {
+      latestFallbackVisibleStoryIds = new Set(Object.keys(latestFallback.records ?? {}));
       let added = 0;
       for (const [storyId, story] of Object.entries(latestFallback.stories ?? {})) {
         const hotRecord = synthesizeHotIndexRecordFromStory(storyId, story);
@@ -3125,7 +3246,21 @@ async function readNewsHotIndexRecords(gun, options = {}) {
       };
     }
   }
-  const sortedEntries = mergedEntries
+  const visibleLatestOnly = boolEnv(
+    'VH_RELAY_NEWS_HOT_INDEX_REST_VISIBLE_LATEST_ONLY',
+    process.env.NODE_ENV === 'production',
+  );
+  const responseEntries = visibleLatestOnly && latestFallbackVisibleStoryIds && latestFallbackVisibleStoryIds.size > 0
+    ? mergedEntries.filter((entry) => latestFallbackVisibleStoryIds.has(String(entry[0])))
+    : mergedEntries;
+  if (latestFallbackInfo && visibleLatestOnly && latestFallbackVisibleStoryIds) {
+    latestFallbackInfo = {
+      ...latestFallbackInfo,
+      visible_latest_only: true,
+      visible_latest_story_count: latestFallbackVisibleStoryIds.size,
+    };
+  }
+  const sortedEntries = responseEntries
     .sort((left, right) =>
       (hotIndexRecordHotness(right[1]) ?? 0) - (hotIndexRecordHotness(left[1]) ?? 0)
       || String(left[0]).localeCompare(String(right[0])),
@@ -4364,7 +4499,11 @@ const server = http.createServer((req, res) => {
       : undefined;
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
     const before = parsedUrl.searchParams.get('before');
-    void readNewsLatestIndexRecordsWithEmptyRetry(gun, { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before })
+    const compositionBackfillMinLimit = parsedUrl.searchParams.get('composition_backfill_min_limit');
+    void readNewsLatestIndexRecordsWithEmptyRetry(
+      gun,
+      { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before, compositionBackfillMinLimit },
+    )
       .then((result) => {
         const payload = {
           ok: true,

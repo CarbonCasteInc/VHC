@@ -303,6 +303,18 @@ function recordRelayRestNetworkFailure(
   });
 }
 
+function createRelayRestTimeoutDiagnostics(
+  endpoints: readonly string[],
+  label: string,
+  timeoutMs: number,
+): RelayRestReadDiagnostics {
+  const diagnostics = createRelayRestReadDiagnostics(endpoints);
+  for (const endpoint of endpoints) {
+    recordRelayRestNetworkFailure(diagnostics, endpoint, new Error(`${label}-timeout:${timeoutMs}`));
+  }
+  return diagnostics;
+}
+
 function latestIndexWindowNextCursor(index: NewsLatestIndex): number | null {
   const timestamps = Object.values(index)
     .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= 0)
@@ -2057,6 +2069,30 @@ function resolveRelayRestEndpointsFromPeers(client: VennClient, path: string): s
   return endpoints;
 }
 
+function resolveLatestIndexRelayRestRead(
+  client: VennClient,
+  options: NewsLatestIndexReadOptions = {},
+): {
+  readonly limit: number;
+  readonly before: number | null;
+  readonly endpoints: string[];
+} {
+  const limit = normalizeLatestIndexReadLimit(options.limit);
+  const before = normalizeLatestIndexBeforeCursor(options.before);
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (before !== null) {
+    query.set('before', String(before));
+  }
+  return {
+    limit,
+    before,
+    endpoints: resolveRelayRestEndpointsFromPeers(
+      client,
+      `/vh/news/latest-index?${query.toString()}`,
+    ),
+  };
+}
+
 /**
  * Read a StoryBundle through the relay's same-origin REST fallback.
  *
@@ -2415,16 +2451,7 @@ export async function readNewsLatestIndexPageViaRelayRest(
       relayRestDiagnostics: createRelayRestReadDiagnostics([]),
     };
   }
-  const limit = normalizeLatestIndexReadLimit(options.limit);
-  const before = normalizeLatestIndexBeforeCursor(options.before);
-  const query = new URLSearchParams({ limit: String(limit) });
-  if (before !== null) {
-    query.set('before', String(before));
-  }
-  const endpoints = resolveRelayRestEndpointsFromPeers(
-    client,
-    `/vh/news/latest-index?${query.toString()}`,
-  );
+  const { before, endpoints } = resolveLatestIndexRelayRestRead(client, options);
   const relayRestDiagnostics = createRelayRestReadDiagnostics(endpoints);
   if (endpoints.length === 0) {
     return { index: {}, nextCursor: null, recordCount: 0, relayRestDiagnostics };
@@ -2571,10 +2598,23 @@ export async function readNewsLatestIndexPageWithRelayRestFallback(
   client: VennClient,
   options: NewsLatestIndexReadOptions = {},
 ): Promise<NewsLatestIndexPage> {
+  const relayTimeoutMs = RELAY_REST_READ_TIMEOUT_MS + 1_000;
+  const relayTimeoutFallback = {
+    index: {},
+    nextCursor: null,
+    recordCount: 0,
+    relayRestDiagnostics: typeof fetch === 'function'
+      ? createRelayRestTimeoutDiagnostics(
+        resolveLatestIndexRelayRestRead(client, options).endpoints,
+        'news-latest-index-relay-rest-read',
+        relayTimeoutMs,
+      )
+      : createRelayRestReadDiagnostics([]),
+  };
   const relayed = await timeoutAsNull(
     readNewsLatestIndexPageViaRelayRest(client, options),
-    RELAY_REST_READ_TIMEOUT_MS + 1_000,
-  );
+    relayTimeoutMs,
+  ) ?? relayTimeoutFallback;
   if (relayed && Object.keys(relayed.index).length > 0) {
     return relayed;
   }
@@ -2589,7 +2629,7 @@ export async function readNewsLatestIndexPageWithRelayRestFallback(
     nextCursor: latestIndexWindowNextCursor(index),
     recordCount: Object.keys(index).length,
     directGunLatestIndexCount: Object.keys(index).length,
-    ...(relayed?.relayRestDiagnostics ? { relayRestDiagnostics: relayed.relayRestDiagnostics } : {}),
+    relayRestDiagnostics: relayed.relayRestDiagnostics,
   };
 }
 

@@ -404,6 +404,21 @@ function peerOrigins(peers) {
   return peers.map((peer) => safeOriginOf(peer)).filter(Boolean);
 }
 
+function publicRelayOriginsFromPeers(peers) {
+  return peers.map((peer) => {
+    try {
+      const url = new URL(peer);
+      url.protocol = 'https:';
+      url.pathname = '';
+      url.search = '';
+      url.hash = '';
+      return url.origin;
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+}
+
 function publicInputContainsPrivateMaterial(value, label) {
   const normalized = String(value || '');
   if (/BEGIN [A-Z ]*PRIVATE KEY/.test(normalized) || /\b(privateKey|priv|secretKey)\b/i.test(normalized)) {
@@ -550,8 +565,8 @@ export function parsePublicProofConfig(env = process.env) {
 
   const peerConfigOrigin = safeOriginOf(peerConfigUrl);
   const requiredCspTokens = peerConfigOrigin
-    ? uniqueStrings(["'self'", peerConfigOrigin, ...peerOrigins(peers)])
-    : uniqueStrings(["'self'", ...peerOrigins(peers)]);
+    ? uniqueStrings(["'self'", peerConfigOrigin, ...publicRelayOriginsFromPeers(peers), ...peerOrigins(peers)])
+    : uniqueStrings(["'self'", ...publicRelayOriginsFromPeers(peers), ...peerOrigins(peers)]);
   if (cspConnectSrc.length > 0) {
     failures.push(...cspConnectSrcFailures(cspConnectSrc, requiredCspTokens));
   }

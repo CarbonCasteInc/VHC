@@ -32,6 +32,14 @@ const DEFAULT_PUBLIC_RELAY_SYNTHESIS_INDEX_LIMIT = 80;
 const DEFAULT_PUBLIC_FEED_MVP_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 const REST_DIAGNOSTIC_EXCERPT_MAX = 320;
+const REQUIRED_PUBLIC_RELAY_HTTP_ROUTES = Object.freeze([
+  '/vh/news/latest-index',
+  '/vh/news/hot-index',
+  '/vh/news/story',
+  '/vh/news/synthesis-lifecycle',
+  '/vh/topics/synthesis',
+  '/vh/aggregates/point',
+]);
 const SECRET_TEXT_PATTERNS = [
   /sk-[A-Za-z0-9_*=\\-]{8,}/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
@@ -895,6 +903,101 @@ async function fetchJsonWithTimeout(url, timeoutMs, label = 'public-relay-json',
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function publicRelayHealthRequiresRouteSurface(origin, payload) {
+  const service = String(payload?.service ?? '').trim();
+  if (service === 'vh-relay') return true;
+  if (service === 'vh-public-beta-origin') return false;
+  try {
+    return new URL(origin).hostname.toLowerCase().startsWith('gun-');
+  } catch {
+    return false;
+  }
+}
+
+function normalizePublicHttpRoutes(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((route) => String(route ?? '').trim())
+    .filter(Boolean);
+}
+
+async function readPublicRelayHealthReadbacks({
+  origins = [],
+  timeoutMs = 10_000,
+  restDiagnostics = null,
+} = {}) {
+  const normalizedOrigins = [...new Set(origins.map(normalizeUrl).filter(Boolean))];
+  const readbacks = [];
+  for (const origin of normalizedOrigins) {
+    const url = new URL('/healthz', origin);
+    try {
+      const payload = await fetchJsonWithTimeout(
+        url.href,
+        Math.max(1, Math.min(timeoutMs, 10_000)),
+        'public-relay-healthz',
+        restDiagnostics,
+      );
+      const publicHttpRoutes = normalizePublicHttpRoutes(payload?.public_http_routes);
+      const required = publicRelayHealthRequiresRouteSurface(origin, payload);
+      const failures = [];
+      if (required && payload?.route_surface !== 'vh-relay-http-v1') {
+        failures.push(`route_surface_missing_or_unexpected:${String(payload?.route_surface ?? 'missing')}`);
+      }
+      if (required) {
+        const missingRoutes = REQUIRED_PUBLIC_RELAY_HTTP_ROUTES.filter((route) => !publicHttpRoutes.includes(route));
+        if (missingRoutes.length > 0) {
+          failures.push(`public_http_routes_missing:${missingRoutes.join(',')}`);
+        }
+      }
+      const relayPeerCount = Number(payload?.relay_peer_count);
+      readbacks.push({
+        origin,
+        status: failures.length === 0 ? 'pass' : 'fail',
+        relayRouteSurfaceRequired: required,
+        service: payload?.service ?? null,
+        relayId: payload?.relay_id ?? null,
+        routeSurface: payload?.route_surface ?? null,
+        publicHttpRoutes,
+        relayPeerCount: Number.isFinite(relayPeerCount) ? relayPeerCount : null,
+        failures,
+      });
+    } catch (error) {
+      readbacks.push({
+        origin,
+        status: 'fail',
+        relayRouteSurfaceRequired: publicRelayHealthRequiresRouteSurface(origin, null),
+        service: null,
+        relayId: null,
+        routeSurface: null,
+        publicHttpRoutes: [],
+        relayPeerCount: null,
+        failures: [
+          `healthz_fetch_failed:${redactDiagnosticExcerpt(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        ],
+      });
+    }
+  }
+  const failedOrigins = readbacks.filter((readback) => readback.status !== 'pass');
+  return {
+    status: normalizedOrigins.length === 0
+      ? 'not_configured'
+      : failedOrigins.length === 0
+        ? 'pass'
+        : 'fail',
+    origins: normalizedOrigins,
+    originCount: normalizedOrigins.length,
+    requiredRouteSurface: 'vh-relay-http-v1',
+    requiredPublicHttpRoutes: [...REQUIRED_PUBLIC_RELAY_HTTP_ROUTES],
+    failedOrigins: failedOrigins.map((readback) => ({
+      origin: readback.origin,
+      failures: readback.failures,
+    })),
+    readbacks,
+  };
 }
 
 function parsePublicPointAggregatePayload(payload, pointId) {
@@ -1878,6 +1981,30 @@ async function readPublicNewsStoreSnapshot(page) {
       error: store.error ? String(store.error).slice(0, 240) : null,
     };
   }).catch(() => null);
+}
+
+function publicNewsStoreHasPreloadedMeshWindow(snapshot, meshIndexCount) {
+  const expectedCount = Math.max(0, Math.floor(Number(meshIndexCount) || 0));
+  if (expectedCount <= 0 || !snapshot || typeof snapshot !== 'object') return false;
+  const latestIndexCount = Number(snapshot.latestIndexCount);
+  const storyCount = Number(snapshot.storyCount);
+  return Number.isFinite(latestIndexCount)
+    && Number.isFinite(storyCount)
+    && latestIndexCount >= expectedCount
+    && storyCount >= expectedCount;
+}
+
+function shouldRejectScrollGrowthWithoutMeshRefresh({
+  meshIndexCount,
+  initialVisibleCount,
+  newVisibleStoryCount,
+  loadMoreRefreshCallCount,
+  beforeScrollNewsStore,
+}) {
+  return meshIndexCount > initialVisibleCount
+    && newVisibleStoryCount > 0
+    && loadMoreRefreshCallCount === 0
+    && !publicNewsStoreHasPreloadedMeshWindow(beforeScrollNewsStore, meshIndexCount);
 }
 
 async function waitForPublicNewsStoreIdle(page, timeoutMs, progress, label) {
@@ -3135,6 +3262,7 @@ async function runPublicFeedBrowserSmoke({
     const afterScrollNewStoryIds = afterScrollCards
       .map((card) => card.storyId)
       .filter((storyId) => storyId && !initialStoryIds.has(storyId));
+    const preloadedMeshWindow = publicNewsStoreHasPreloadedMeshWindow(beforeScrollNewsStore, meshIndexCount);
     progress('scroll-screenshot', {
       count: afterScrollCards.length,
       newStoryIds: afterScrollNewStoryIds.slice(0, 12),
@@ -3142,11 +3270,18 @@ async function runPublicFeedBrowserSmoke({
       initialCount: initialCards.length,
       beforeScrollNewsStore,
       afterScrollNewsStore,
+      preloadedMeshWindow,
       refreshRecorder,
       loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 12),
     });
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
-    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length > 0 && loadMoreRefreshCalls.length === 0) {
+    if (shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount,
+      initialVisibleCount: initialCards.length,
+      newVisibleStoryCount: afterScrollNewStoryIds.length,
+      loadMoreRefreshCallCount: loadMoreRefreshCalls.length,
+      beforeScrollNewsStore,
+    })) {
       throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}:preloaded-window`);
     }
     if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length === 0) {
@@ -3341,6 +3476,8 @@ async function runPublicFeedBrowserSmoke({
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
+        publicRelayAnalysisFrameCoverage,
+        publicRelayPaginationReadback,
         publicRelayRestDiagnostics: publicRelayRestDiagnostics.summary(),
         deployedSystemWriterPin: systemWriterPinResolution.evidence,
         identityCreation: identity,
@@ -3455,6 +3592,8 @@ export const publicFeedBrowserSmokeInternal = {
   installRefreshLatestRecorder,
   readRefreshLatestRecorder,
   readPublicNewsStoreSnapshot,
+  publicNewsStoreHasPreloadedMeshWindow,
+  shouldRejectScrollGrowthWithoutMeshRefresh,
   findVisibleStoryRow,
   summarizeBrowserLogDiagnostics,
   waitForInitialOpenHeadlines,
@@ -3471,6 +3610,7 @@ export const publicFeedBrowserSmokeInternal = {
   loadRepoSystemWriterPin,
   latestIndexRecordsFromPayload,
   readPublicRelayLatestIndexPage,
+  readPublicRelayHealthReadbacks,
   readPublicRelayPaginationReadback,
   assertPublicRelayPaginationReadback,
   readPublicRelaySynthesisCandidates,
