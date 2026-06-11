@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdirSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -42,6 +42,7 @@ const DEFAULT_APP_URL = 'https://venn.carboncaste.io';
 const DEFAULT_LIMIT = 120;
 const DEFAULT_REPAIR_MODE = 'gun';
 const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
+const DEFAULT_SOURCE = 'public-latest-index';
 const DEFAULT_ARTIFACT_DIR = path.join(
   process.cwd(),
   '.tmp',
@@ -159,6 +160,70 @@ function parseBooleanEnv(name, fallback = false) {
   if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   throw new Error(`${name} must be a boolean value`);
+}
+
+function storyTimestampFromSnapshot(story, latestIndex) {
+  const indexed = Number(latestIndex?.[story?.story_id]);
+  if (Number.isFinite(indexed)) return Math.max(0, Math.floor(indexed));
+  const clusterWindowEnd = Number(story?.cluster_window_end);
+  if (Number.isFinite(clusterWindowEnd)) return Math.max(0, Math.floor(clusterWindowEnd));
+  const createdAt = Number(story?.created_at);
+  return Number.isFinite(createdAt) ? Math.max(0, Math.floor(createdAt)) : 0;
+}
+
+function storySourceCount(story) {
+  return Array.isArray(story?.primary_sources) && story.primary_sources.length > 0
+    ? story.primary_sources.length
+    : Array.isArray(story?.sources)
+      ? story.sources.length
+      : 0;
+}
+
+function readSnapshotStoryRows(snapshot) {
+  const latestIndex = snapshot?.latestIndex && typeof snapshot.latestIndex === 'object'
+    ? snapshot.latestIndex
+    : {};
+  const hotIndex = snapshot?.hotIndex && typeof snapshot.hotIndex === 'object'
+    ? snapshot.hotIndex
+    : {};
+  const stories = Array.isArray(snapshot?.stories) ? snapshot.stories : [];
+  return stories
+    .filter((story) => story?.story_id && story?.topic_id && Array.isArray(story.sources))
+    .map((story) => ({
+      story,
+      latestActivityAt: storyTimestampFromSnapshot(story, latestIndex),
+      hotness: Number.isFinite(Number(hotIndex[story.story_id])) ? Number(hotIndex[story.story_id]) : null,
+      sourceCount: storySourceCount(story),
+    }))
+    .sort((left, right) =>
+      right.latestActivityAt - left.latestActivityAt
+      || right.sourceCount - left.sourceCount
+      || String(left.story.story_id).localeCompare(String(right.story.story_id)),
+    );
+}
+
+async function readSnapshotStories(snapshotPath, limit, offset) {
+  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'));
+  const rows = readSnapshotStoryRows(snapshot);
+  const selected = rows.slice(offset, offset + limit);
+  const stories = {};
+  for (const row of selected) {
+    stories[row.story.story_id] = row.story;
+  }
+  return {
+    source: 'publisher-snapshot',
+    sourceSnapshotPath: snapshotPath,
+    latest: {
+      schemaVersion: snapshot?.schemaVersion ?? null,
+      runId: snapshot?.runId ?? null,
+      generatedAt: snapshot?.generatedAt ?? null,
+      record_count: rows.length,
+      source_key_count: rows.length,
+      records: Object.fromEntries(rows.map((row) => [row.story.story_id, row.latestActivityAt])),
+    },
+    storyIds: selected.map((row) => row.story.story_id),
+    stories,
+  };
 }
 
 function sleep(ms) {
@@ -560,7 +625,7 @@ async function readLatestStories(appUrl, limit, offset, timeoutMs) {
       stories[storyId] = storyPayload.story;
     }
   }
-  return { latest, storyIds, stories };
+  return { source: DEFAULT_SOURCE, sourceSnapshotPath: null, latest, storyIds, stories };
 }
 
 async function repairStoryViaGun({ client, story, lifecycleRecord }) {
@@ -663,6 +728,7 @@ async function main() {
     optionalEnv('VH_PUBLIC_NEWS_REPAIR_HTTP_TIMEOUT_MS'),
     DEFAULT_HTTP_TIMEOUT_MS,
   );
+  const sourceSnapshotPath = optionalEnv('VH_PUBLIC_NEWS_REPAIR_SOURCE_SNAPSHOT_PATH');
   const repairMode = parseRepairMode(optionalEnv('VH_PUBLIC_NEWS_REPAIR_MODE', DEFAULT_REPAIR_MODE));
   const relayOrigins = parseRelayOrigins(optionalEnv('VH_PUBLIC_NEWS_REPAIR_RELAY_ORIGINS'));
   const relayToken = repairMode === 'relay-rest' ? requireEnv('VH_RELAY_DAEMON_TOKEN') : '';
@@ -673,6 +739,7 @@ async function main() {
   repairStepAttempts = parsePositiveInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_STEP_ATTEMPTS'), 1);
   repairStepRetryMs = parseNonNegativeInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_STEP_RETRY_MS'), 500);
   repairRemoteSettleMs = parseNonNegativeInt(optionalEnv('VH_PUBLIC_NEWS_REPAIR_REMOTE_SETTLE_MS'), 0);
+  const allowEmptySource = parseBooleanEnv('VH_PUBLIC_NEWS_REPAIR_ALLOW_EMPTY', false);
   const sign = await createSignHook(privateKey);
   const gunPeers = repairMode === 'gun'
     ? parseOptionalJsonEnv(
@@ -696,10 +763,20 @@ async function main() {
       client: createRepairClient({ peers: [peer], pin, writerId, sign }),
     }))
     : [];
-  const { storyIds, stories } = await readLatestStories(appUrl, limit, offset, httpTimeoutMs);
+  const source = sourceSnapshotPath
+    ? await readSnapshotStories(sourceSnapshotPath, limit, offset)
+    : await readLatestStories(appUrl, limit, offset, httpTimeoutMs);
+  const { storyIds, stories } = source;
 
   const repaired = [];
   const failures = [];
+  if (storyIds.length === 0 && !allowEmptySource) {
+    failures.push({
+      story_id: null,
+      repair_step: 'source_selection',
+      reason: 'source-story-selection-empty',
+    });
+  }
   try {
     for (const storyId of storyIds) {
       const story = stories[storyId];
@@ -769,12 +846,15 @@ async function main() {
     require_each_gun_peer: requireEachGunPeer,
     gun_client_isolation: repairMode === 'gun' ? 'unique-local-gun-file-per-repair-client' : null,
     writer_id: writerId,
+    source: source.source,
+    source_snapshot_path: source.sourceSnapshotPath,
     offset,
     limit,
     http_timeout_ms: httpTimeoutMs,
     repair_step_attempts: repairStepAttempts,
     repair_step_retry_ms: repairStepRetryMs,
     repair_remote_settle_ms: repairRemoteSettleMs,
+    source_record_count: Number(source.latest?.record_count ?? Object.keys(source.latest?.records ?? {}).length),
     sampled: storyIds.length,
     repaired_count: repaired.length,
     failure_count: failures.length,
