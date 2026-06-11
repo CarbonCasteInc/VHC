@@ -1983,6 +1983,30 @@ async function readPublicNewsStoreSnapshot(page) {
   }).catch(() => null);
 }
 
+function publicNewsStoreHasPreloadedMeshWindow(snapshot, meshIndexCount) {
+  const expectedCount = Math.max(0, Math.floor(Number(meshIndexCount) || 0));
+  if (expectedCount <= 0 || !snapshot || typeof snapshot !== 'object') return false;
+  const latestIndexCount = Number(snapshot.latestIndexCount);
+  const storyCount = Number(snapshot.storyCount);
+  return Number.isFinite(latestIndexCount)
+    && Number.isFinite(storyCount)
+    && latestIndexCount >= expectedCount
+    && storyCount >= expectedCount;
+}
+
+function shouldRejectScrollGrowthWithoutMeshRefresh({
+  meshIndexCount,
+  initialVisibleCount,
+  newVisibleStoryCount,
+  loadMoreRefreshCallCount,
+  beforeScrollNewsStore,
+}) {
+  return meshIndexCount > initialVisibleCount
+    && newVisibleStoryCount > 0
+    && loadMoreRefreshCallCount === 0
+    && !publicNewsStoreHasPreloadedMeshWindow(beforeScrollNewsStore, meshIndexCount);
+}
+
 async function waitForPublicNewsStoreIdle(page, timeoutMs, progress, label) {
   const startedAt = Date.now();
   const result = await page.waitForFunction(() => {
@@ -3238,6 +3262,7 @@ async function runPublicFeedBrowserSmoke({
     const afterScrollNewStoryIds = afterScrollCards
       .map((card) => card.storyId)
       .filter((storyId) => storyId && !initialStoryIds.has(storyId));
+    const preloadedMeshWindow = publicNewsStoreHasPreloadedMeshWindow(beforeScrollNewsStore, meshIndexCount);
     progress('scroll-screenshot', {
       count: afterScrollCards.length,
       newStoryIds: afterScrollNewStoryIds.slice(0, 12),
@@ -3245,11 +3270,18 @@ async function runPublicFeedBrowserSmoke({
       initialCount: initialCards.length,
       beforeScrollNewsStore,
       afterScrollNewsStore,
+      preloadedMeshWindow,
       refreshRecorder,
       loadMoreRefreshCalls: loadMoreRefreshCalls.slice(0, 12),
     });
     if (afterScrollCards.length < minHeadlines) throw new Error(`scroll-feed-lost-headlines:${afterScrollCards.length}/${minHeadlines}`);
-    if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length > 0 && loadMoreRefreshCalls.length === 0) {
+    if (shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount,
+      initialVisibleCount: initialCards.length,
+      newVisibleStoryCount: afterScrollNewStoryIds.length,
+      loadMoreRefreshCallCount: loadMoreRefreshCalls.length,
+      beforeScrollNewsStore,
+    })) {
       throw new Error(`public-feed-load-more-not-from-mesh:${afterScrollCards.length}/${initialCards.length}/${meshIndexCount}:preloaded-window`);
     }
     if (meshIndexCount > initialCards.length && afterScrollNewStoryIds.length === 0) {
@@ -3444,6 +3476,8 @@ async function runPublicFeedBrowserSmoke({
       checks: {
         daemonGunLatestIndexReadback: gunReadback,
         publicRelaySynthesisReadback,
+        publicRelayAnalysisFrameCoverage,
+        publicRelayPaginationReadback,
         publicRelayRestDiagnostics: publicRelayRestDiagnostics.summary(),
         deployedSystemWriterPin: systemWriterPinResolution.evidence,
         identityCreation: identity,
@@ -3558,6 +3592,8 @@ export const publicFeedBrowserSmokeInternal = {
   installRefreshLatestRecorder,
   readRefreshLatestRecorder,
   readPublicNewsStoreSnapshot,
+  publicNewsStoreHasPreloadedMeshWindow,
+  shouldRejectScrollGrowthWithoutMeshRefresh,
   findVisibleStoryRow,
   summarizeBrowserLogDiagnostics,
   waitForInitialOpenHeadlines,

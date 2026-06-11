@@ -173,6 +173,48 @@ describe('public feed browser smoke helpers', () => {
     expect(refreshLatest).toHaveBeenCalledWith({ limit: 15, before: 20 });
   });
 
+  it('allows scroll growth from cards already present in the public news store', () => {
+    expect(internal.publicNewsStoreHasPreloadedMeshWindow({
+      latestIndexCount: 15,
+      storyCount: 15,
+      loading: false,
+      error: null,
+    }, 15)).toBe(true);
+    expect(internal.shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount: 15,
+      initialVisibleCount: 7,
+      newVisibleStoryCount: 8,
+      loadMoreRefreshCallCount: 0,
+      beforeScrollNewsStore: {
+        latestIndexCount: 15,
+        storyCount: 15,
+        loading: false,
+        error: null,
+      },
+    })).toBe(false);
+  });
+
+  it('still rejects scroll growth without mesh refresh when the store lacks the mesh window', () => {
+    expect(internal.publicNewsStoreHasPreloadedMeshWindow({
+      latestIndexCount: 15,
+      storyCount: 7,
+      loading: false,
+      error: null,
+    }, 15)).toBe(false);
+    expect(internal.shouldRejectScrollGrowthWithoutMeshRefresh({
+      meshIndexCount: 15,
+      initialVisibleCount: 7,
+      newVisibleStoryCount: 8,
+      loadMoreRefreshCallCount: 0,
+      beforeScrollNewsStore: {
+        latestIndexCount: 15,
+        storyCount: 7,
+        loading: false,
+        error: null,
+      },
+    })).toBe(true);
+  });
+
   it('verifies relay latest-index pagination with an exclusive older cursor window', async () => {
     const fetchMock = vi.fn(async (url) => {
       const href = String(url);
@@ -502,6 +544,13 @@ describe('public feed browser smoke helpers', () => {
     expect(source).toContain('readPublicRelaySynthesisCandidates({');
     expect(source).toContain('topStories: stories,');
     expect(source).not.toContain('topStories: stories.slice(0, 8)');
+  });
+
+  it('keeps public relay pagination evidence in the final pass summary', async () => {
+    const source = await readFile(new URL('./public-feed-browser-smoke.mjs', import.meta.url), 'utf8');
+
+    expect(source).toContain('publicRelayPaginationReadback,');
+    expect(source).toContain('publicRelayAnalysisFrameCoverage,');
   });
 
   it('discovers accepted public synthesis candidates through the deployed relay REST shape', async () => {
