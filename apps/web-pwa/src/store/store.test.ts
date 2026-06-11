@@ -170,7 +170,10 @@ describe('useAppStore', () => {
   });
 
   it('uses the public-beta news system writer as the baked distribution pin', () => {
-    expect(resolveClientSystemWriterPin().writers).toEqual(expect.arrayContaining([
+    const writers = resolveClientSystemWriterPin().writers;
+
+    expect(writers.filter((writer) => writer.status === 'active')).toHaveLength(1);
+    expect(writers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'vh-public-beta-news-system-writer-v1',
         status: 'retired',
@@ -181,10 +184,18 @@ describe('useAppStore', () => {
       }),
       expect.objectContaining({
         id: 'vh-public-beta-news-system-writer-v3',
-        status: 'active',
+        status: 'retired',
         publicKey: {
           encoding: 'spki-base64url',
           material: 'MCowBQYDK2VwAyEAv8YZ8WoDOfearavnNDQt98ndEzk5pqyeEz1KX6lDE1s',
+        },
+      }),
+      expect.objectContaining({
+        id: 'vh-public-beta-news-system-writer-v4',
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: 'MCowBQYDK2VwAyEAzcTUyVZKnSbCb8DhAyXWJYWH9drlLrmdGj0HZkjwjQU',
         },
       }),
     ]));
