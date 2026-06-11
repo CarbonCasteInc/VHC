@@ -1306,6 +1306,48 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('preserves an explicit terminal relay latest-index cursor', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-terminal', 321);
+    const record = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-terminal', 321);
+    const relayedStory = { ...STORY, story_id: 'story-terminal', cluster_window_end: 321 };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record_count: 1,
+      truncated: false,
+      next_cursor: null,
+      records: { 'story-terminal': record },
+      stories: { 'story-terminal': relayedStory },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+
+    try {
+      await expect(readNewsLatestIndexPageViaRelayRest(client)).resolves.toMatchObject({
+        index: { 'story-terminal': 321 },
+        nextCursor: null,
+        recordCount: 1,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps relay-embedded latest-index stories when legacy index signatures cannot be revalidated in the browser', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;

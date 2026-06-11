@@ -25,8 +25,9 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   loadingMore,
   loadMore,
 }) => {
+  const showLoadSentinel = hasMore && !loadingMore;
   const sentinelRef = useIntersectionLoader<HTMLLIElement>({
-    enabled: hasMore,
+    enabled: showLoadSentinel,
     loading: loadingMore,
     onLoadMore: loadMore,
   });
@@ -72,7 +73,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
           <FeedItemRow key={getFeedItemKey(item)} item={item} />
         ))}
 
-        {hasMore && (
+        {showLoadSentinel && (
           <li
             ref={sentinelRef}
             data-testid="feed-load-sentinel"

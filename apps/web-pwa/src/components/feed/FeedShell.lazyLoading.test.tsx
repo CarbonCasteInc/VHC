@@ -264,6 +264,26 @@ describe('FeedShell lazy loading', () => {
     expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
   });
 
+  it('does not render public load-more sentinel when the relay cursor is exhausted', () => {
+    useNewsStore.setState({
+      stories: [makeSnapshotStory(1, { story_id: 'story-terminal' }) as any],
+      latestIndex: { 'story-terminal': NOW },
+      latestIndexCursor: null,
+    });
+
+    render(<FeedShell feedResult={makeFeedResult([
+      makeFeedItem({
+        topic_id: 'story-terminal',
+        story_id: 'story-terminal',
+        title: 'Terminal public story',
+      }),
+    ])} />);
+
+    expect(screen.getByTestId('feed-item-story-terminal')).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-load-sentinel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feed-loading-more')).not.toBeInTheDocument();
+  });
+
   it('requests an older public latest-index cursor window when visible news fits one page', async () => {
     vi.useFakeTimers();
     const originalRefreshLatest = useNewsStore.getState().refreshLatest;
