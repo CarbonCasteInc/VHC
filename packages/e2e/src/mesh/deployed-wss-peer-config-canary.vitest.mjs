@@ -48,7 +48,7 @@ function validEnv(overrides = {}) {
       'wss://relay-b.mesh.example.com/gun',
       'wss://relay-c.mesh.example.com/gun',
     ]),
-    VH_MESH_PUBLIC_CSP_CONNECT_SRC: "'self' https://config.mesh.example.com wss://relay-a.mesh.example.com wss://relay-b.mesh.example.com wss://relay-c.mesh.example.com",
+    VH_MESH_PUBLIC_CSP_CONNECT_SRC: "'self' https://config.mesh.example.com https://relay-a.mesh.example.com https://relay-b.mesh.example.com https://relay-c.mesh.example.com wss://relay-a.mesh.example.com wss://relay-b.mesh.example.com wss://relay-c.mesh.example.com",
     VH_MESH_PUBLIC_MINIMUM_PEER_COUNT: '3',
     VH_MESH_PUBLIC_QUORUM_REQUIRED: '2',
     VH_MESH_PUBLIC_APP_URL: 'https://app.mesh.example.com/',
@@ -74,6 +74,16 @@ describe('public WSS proof input validation', () => {
     const parsed = parsePublicProofConfig(validEnv());
 
     expect(parsed.ok).toBe(true);
+    expect(parsed.config.requiredCspTokens).toEqual([
+      "'self'",
+      'https://config.mesh.example.com',
+      'https://relay-a.mesh.example.com',
+      'https://relay-b.mesh.example.com',
+      'https://relay-c.mesh.example.com',
+      'wss://relay-a.mesh.example.com',
+      'wss://relay-b.mesh.example.com',
+      'wss://relay-c.mesh.example.com',
+    ]);
     expect(parsed.config.healthEndpoints).toHaveLength(3);
     expect(parsed.config.healthEndpoints[0]).toMatchObject({
       healthz: 'https://relay-a.mesh.example.com/healthz',
