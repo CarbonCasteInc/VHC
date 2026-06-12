@@ -211,6 +211,50 @@ describe('public feed fresh propagation gate', () => {
     });
   });
 
+  it('keeps fresh singleton-only propagation valid unless multi-source proof is required', () => {
+    const now = Date.now();
+    const snapshot = publisherSnapshot(now);
+    snapshot.stories = snapshot.stories.map((story) => ({
+      ...story,
+      sources: [story.sources[0]],
+    }));
+
+    expect(validateFreshPropagationEvidence({
+      publisherSummary: publisherSummary(),
+      publisherLogs: publisherLogs(),
+      publisherSnapshot: snapshot,
+      consumerSummary: consumerSummary(),
+      env: {},
+      now,
+    })).toMatchObject({
+      status: 'pass',
+      storyCounts: {
+        singletonCount: 2,
+        multiSourceCount: 0,
+      },
+    });
+  });
+
+  it('rejects fresh singleton-only propagation when multi-source proof is required', () => {
+    const now = Date.now();
+    const snapshot = publisherSnapshot(now);
+    snapshot.stories = snapshot.stories.map((story) => ({
+      ...story,
+      sources: [story.sources[0]],
+    }));
+
+    expect(() => validateFreshPropagationEvidence({
+      publisherSummary: publisherSummary(),
+      publisherLogs: publisherLogs(),
+      publisherSnapshot: snapshot,
+      consumerSummary: consumerSummary(),
+      env: {
+        VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_MULTI_SOURCE: 'true',
+      },
+      now,
+    })).toThrow('fresh-propagation-multi-source-missing');
+  });
+
   it('rejects fixture-only producer evidence when live RSS is required', () => {
     const summary = publisherSummary();
     summary.sourceHealth.reportSource = 'fixture';
