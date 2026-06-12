@@ -1,5 +1,10 @@
 # Public News MVP Polish Walkthrough - 2026-06-12
 
+> Status: Public Beta Polish Evidence
+> Owner: VHC Launch Ops
+> Last Reviewed: 2026-06-12
+> Depends On: docs/ops/public-feed-freshness-monitor.md, docs/ops/public-news-mvp-release-decisions.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+
 ## Scope
 
 Target: `https://venn.carboncaste.io/`

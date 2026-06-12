@@ -1,5 +1,10 @@
 # Public Feed Freshness Monitor
 
+> Status: Operational Monitor
+> Owner: VHC Launch Ops
+> Last Reviewed: 2026-06-12
+> Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+
 ## Purpose
 
 The MVP release gates are point-in-time evidence. This monitor is the continuous

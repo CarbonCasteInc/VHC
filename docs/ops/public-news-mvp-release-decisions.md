@@ -1,5 +1,10 @@
 # Public News MVP Release Decisions
 
+> Status: Owner Decision Ledger
+> Owner: VHC Product + Launch Ops
+> Last Reviewed: 2026-06-12
+> Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+
 ## Status
 
 These decisions are required before broad public-beta claims. This file records
