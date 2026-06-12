@@ -10,6 +10,7 @@ coverage/
 .tmp/
 packages/e2e/.tmp/
 services/news-aggregator/.tmp/
+output/playwright/
 tools/scripts/vh/data/
 *.lcov
 .nyc_output

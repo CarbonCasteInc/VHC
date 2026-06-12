@@ -19,6 +19,7 @@ import {
   PublicBetaComplianceIndex,
   PublicBetaCompliancePageView,
 } from './publicBetaCompliance';
+import { PublicBetaNotFoundState } from './PublicBetaNotFoundState';
 
 const RootComponent = () => (
   <RootShell>
@@ -198,7 +199,7 @@ const HermesThreadPage: React.FC = () => {
 
 const rootRoute = createRootRoute({
   component: RootComponent,
-  notFoundComponent: () => <div className="text-slate-700">Not Found</div>
+  notFoundComponent: PublicBetaNotFoundState
 });
 
 const indexRoute = createRoute({

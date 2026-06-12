@@ -10,6 +10,7 @@ import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { DEFAULT_FEED_PERSONALIZATION_CONFIG, type FeedItem } from '@vh/data-model';
 import { resetExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
+import { useNewsStore } from '../../store/news';
 
 const mockNavigate = vi.fn();
 let mockSearch: Record<string, unknown> = {};
@@ -88,6 +89,13 @@ function makeFeedResult(
   };
 }
 
+function setNavigatorOnlineForTest(online: boolean): void {
+  Object.defineProperty(window.navigator, 'onLine', {
+    configurable: true,
+    get: () => online,
+  });
+}
+
 describe('FeedShell', () => {
   afterEach(() => {
     cleanup();
@@ -95,6 +103,8 @@ describe('FeedShell', () => {
     mockSearch = {};
     resetExpandedCardStore();
     useDiscoveryStore.getState().reset();
+    useNewsStore.getState().reset();
+    setNavigatorOnlineForTest(true);
     localStorage.clear();
     delete (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__;
     window.history.replaceState(window.history.state, '', '/');
@@ -343,10 +353,21 @@ describe('FeedShell', () => {
 
   // ---- Empty state ----
 
-  it('shows empty state when feed is empty', () => {
+  it('keeps an empty public relay cold start in loading state', () => {
     render(<FeedShell feedResult={makeFeedResult({ feed: [] })} />);
+    expect(screen.getByTestId('feed-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-empty')).not.toBeInTheDocument();
+  });
+
+  it('shows an offline empty state when the browser has no network', () => {
+    setNavigatorOnlineForTest(false);
+
+    render(<FeedShell feedResult={makeFeedResult({ feed: [] })} />);
+
     expect(screen.getByTestId('feed-empty')).toBeInTheDocument();
-    expect(screen.getByText('No items to show.')).toBeInTheDocument();
+    expect(screen.getByText("You're offline")).toBeInTheDocument();
+    expect(screen.getByText('Reconnect to refresh the public news mesh.')).toBeInTheDocument();
+    expect(screen.queryByText('No items to show.')).not.toBeInTheDocument();
   });
 
   // ---- Loading state ----
@@ -355,6 +376,15 @@ describe('FeedShell', () => {
     render(<FeedShell feedResult={makeFeedResult({ loading: true })} />);
     expect(screen.getByTestId('feed-loading')).toBeInTheDocument();
     expect(screen.getByText('Loading feed…')).toBeInTheDocument();
+  });
+
+  it('keeps the feed in loading state while public news is still hydrating', () => {
+    useNewsStore.getState().setLoading(true);
+
+    render(<FeedShell feedResult={makeFeedResult({ feed: [] })} />);
+
+    expect(screen.getByTestId('feed-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-empty')).not.toBeInTheDocument();
   });
 
   it('does not show feed list while loading', () => {

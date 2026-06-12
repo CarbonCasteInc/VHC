@@ -338,6 +338,115 @@ describe('public beta origin server', () => {
     expect(writeRequests.every((request) => request.headers['x-vh-relay-device-pub'] === 'device-pub')).toBe(true);
   });
 
+  it('passes through relay 4xx JSON for malformed aggregate fanout reads', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayUrls = [];
+    const relayPayloads = [
+      { status: 422, body: { ok: false, error: 'topic_id is required', code: 'missing_topic_id', relay: 'a' } },
+      { status: 400, body: { ok: false, error: 'topic_id is required', code: 'missing_topic_id', relay: 'b' } },
+      { status: 500, body: { ok: false, error: 'relay unavailable', relay: 'c' } },
+    ];
+
+    for (const payload of relayPayloads) {
+      const relay = createServer((_req, res) => {
+        res.writeHead(payload.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload.body));
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const response = await fetch(`${origin}/vh/aggregates/point`);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'topic_id is required',
+      code: 'missing_topic_id',
+      relay: 'b',
+    });
+  });
+
+  it('keeps aggregate fanout network failures as origin 502s', async () => {
+    const staticDir = await makeStaticRoot();
+    const closedPorts = [];
+    for (let index = 0; index < 3; index += 1) {
+      const server = createServer();
+      const url = await listen(server);
+      await new Promise((resolve) => server.close(resolve));
+      closedPorts.push(url);
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: closedPorts,
+      relayFanoutTimeoutMs: 25,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const response = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ ok: false, error: 'Upstream request failed' });
+  });
+
+  it('prefers aggregate fanout 2xx responses over relay 4xx responses', async () => {
+    const staticDir = await makeStaticRoot();
+    const relayUrls = [];
+    const relayPayloads = [
+      { status: 400, body: { ok: false, error: 'topic_id is required' } },
+      {
+        status: 200,
+        body: {
+          ok: true,
+          aggregate: {
+            point_id: 'point-1',
+            agree: 7,
+            disagree: 0,
+            weight: 7,
+            participants: 7,
+          },
+          row_count: 7,
+        },
+      },
+      { status: 422, body: { ok: false, error: 'invalid point_id' } },
+    ];
+
+    for (const payload of relayPayloads) {
+      const relay = createServer((_req, res) => {
+        res.writeHead(payload.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload.body));
+      });
+      relayUrls.push(await listen(relay));
+      cleanup.push(() => new Promise((resolve) => relay.close(resolve)));
+    }
+
+    const origin = await startOrigin({
+      staticDir,
+      peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      relayTargets: relayUrls,
+      cspConnectSrc: PUBLIC_CSP_CONNECT_SRC,
+    });
+
+    const response = await fetch(`${origin}/vh/aggregates/point?topic_id=topic-1&synthesis_id=synth-1&epoch=0&point_id=point-1`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      aggregate: {
+        point_id: 'point-1',
+        agree: 7,
+        participants: 7,
+      },
+      row_count: 7,
+    });
+  });
+
   it('serves public news and synthesis read fallbacks from the first usable completed relay target', async () => {
     const staticDir = await makeStaticRoot();
     const relayRequests = [];

@@ -15,6 +15,14 @@ export interface FeedContentProps {
   readonly hasMore: boolean;
   readonly loadingMore: boolean;
   readonly loadMore: () => void;
+  readonly emptyState?: FeedEmptyState;
+}
+
+export interface FeedEmptyState {
+  readonly title: string;
+  readonly description?: string;
+  readonly actionLabel?: string;
+  readonly onAction?: () => void;
 }
 
 export const FeedContent: React.FC<FeedContentProps> = ({
@@ -24,6 +32,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   hasMore,
   loadingMore,
   loadMore,
+  emptyState,
 }) => {
   const showLoadSentinel = hasMore && !loadingMore;
   const sentinelRef = useIntersectionLoader<HTMLLIElement>({
@@ -56,12 +65,25 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   }
 
   if (feed.length === 0) {
+    const title = emptyState?.title ?? 'No items to show.';
+    const description = emptyState?.description;
+    const showAction = emptyState?.actionLabel && emptyState.onAction;
     return (
       <div
         data-testid="feed-empty"
         className="rounded-[1.5rem] border border-dashed border-slate-200/90 bg-white/82 px-4 py-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
       >
-        No items to show.
+        <p className="font-semibold text-slate-700 dark:text-slate-100">{title}</p>
+        {description && <p className="mx-auto mt-2 max-w-sm">{description}</p>}
+        {showAction && (
+          <button
+            type="button"
+            className="mt-4 rounded-full border border-slate-300/80 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            onClick={emptyState.onAction}
+          >
+            {emptyState.actionLabel}
+          </button>
+        )}
       </div>
     );
   }

@@ -299,6 +299,16 @@ function aggregateScore(payload) {
   ].reduce((score, value, index) => score + Math.max(0, value) / (index + 1), 0);
 }
 
+function selectBestUpstreamHttpError(results) {
+  const errors = results.filter((result) =>
+    result?.ok === true && (result.status < 200 || result.status >= 300));
+  if (errors.length === 0) return null;
+
+  const clientErrors = errors.filter((result) => result.status >= 400 && result.status < 500);
+  const candidates = clientErrors.length > 0 ? clientErrors : errors;
+  return [...candidates].sort((a, b) => a.status - b.status)[0] ?? null;
+}
+
 function selectBestAggregateRead(results) {
   let best = null;
   for (const result of results) {
@@ -310,7 +320,7 @@ function selectBestAggregateRead(results) {
       best = { result, score };
     }
   }
-  return best?.result ?? null;
+  return best?.result ?? selectBestUpstreamHttpError(results);
 }
 
 function selectBestAggregateWrite(results) {
@@ -671,7 +681,9 @@ export function createPublicBetaOriginHandler(options) {
 
 export function startPublicBetaOriginServer(options) {
   const host = options.host || DEFAULT_HOST;
-  const port = Number(options.port || DEFAULT_PORT);
+  const port = options.port === undefined || options.port === null || options.port === ''
+    ? DEFAULT_PORT
+    : Number(options.port);
   const handler = createPublicBetaOriginHandler(options);
   const server = createServer((req, res) => {
     handler(req, res).catch((error) => {

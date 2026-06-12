@@ -284,6 +284,7 @@ export function validateFreshPropagationEvidence({
   const consumerRequired = boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_CONSUMER_SMOKE, true);
   const browserConsumerRequired = boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_BROWSER_CONSUMER, true);
   const browserSmokeRequired = boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE, false);
+  const multiSourceRequired = boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_MULTI_SOURCE, false);
   const freshnessWindowMs = freshnessWindowMsFromEnv(env);
 
   if (!publisherSummary || typeof publisherSummary !== 'object') {
@@ -358,6 +359,11 @@ export function validateFreshPropagationEvidence({
   }
   if (readableStories.length <= 0) {
     throw new Error('fresh-propagation-readable-story-body-missing');
+  }
+  const singletonStories = stories.filter((story) => storySources(story).length === 1);
+  const multiSourceStories = stories.filter((story) => storySources(story).length >= 2);
+  if (multiSourceRequired && multiSourceStories.length <= 0) {
+    throw new Error('fresh-propagation-multi-source-missing');
   }
 
   const latestActivityAt = Math.max(
@@ -443,8 +449,8 @@ export function validateFreshPropagationEvidence({
       readableStoryBodyCount: readableStories.length,
       latestIndexCount: Object.keys(latestIndex).length,
       hotIndexCount: Object.keys(hotIndex).length,
-      singletonCount: stories.filter((story) => storySources(story).length === 1).length,
-      multiSourceCount: stories.filter((story) => storySources(story).length >= 2).length,
+      singletonCount: singletonStories.length,
+      multiSourceCount: multiSourceStories.length,
     },
     storyIds: stories.map((story) => story?.story_id).filter(Boolean),
     readableStoryIds: readableStories,
@@ -655,6 +661,7 @@ export async function runPublicFeedFreshPropagationGate({
       requireConsumerSmoke: boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_CONSUMER_SMOKE, true),
       requireBrowserConsumer: boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_BROWSER_CONSUMER, true),
       requirePublicBrowserSmoke: boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_PUBLIC_BROWSER_SMOKE, false),
+      requireMultiSource: boolEnv(env.VH_PUBLIC_FEED_FRESH_PROPAGATION_REQUIRE_MULTI_SOURCE, false),
     },
     status: 'fail',
     publisherRun,

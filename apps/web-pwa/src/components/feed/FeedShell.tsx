@@ -45,6 +45,13 @@ function hasBrowserPublicNewsRelay(): boolean {
   return /^https?:\/\//.test(origin);
 }
 
+function readBrowserOnline(): boolean {
+  if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') {
+    return true;
+  }
+  return navigator.onLine;
+}
+
 /**
  * Shell container for the V2 discovery feed.
  * Composes route state, feed paging, refresh safety, and feed chrome.
@@ -117,6 +124,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const [newsRefreshLimit, setNewsRefreshLimit] = useState(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
   const [meshLoadingMore, setMeshLoadingMore] = useState(false);
   const [meshPaginationExhausted, setMeshPaginationExhausted] = useState(false);
+  const [browserOnline, setBrowserOnline] = useState(readBrowserOnline);
 
   const focusedStoryline = selectedStorylineId ? storylinesById[selectedStorylineId] ?? null : null;
   const directRouteStoryId = useMemo(
@@ -242,7 +250,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   );
 
   const handleRefresh = useCallback(async () => {
-    if (refreshing) return;
+    if (refreshing || !browserOnline) return;
     setRefreshing(true);
     setMeshPaginationExhausted(false);
     setNewsRefreshLimit(PUBLIC_NEWS_REFRESH_INITIAL_LIMIT);
@@ -254,7 +262,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         setRefreshing(false);
       }
     }
-  }, [applyDeferredFeed, refreshLatest, refreshing]);
+  }, [applyDeferredFeed, browserOnline, refreshLatest, refreshing]);
 
   useEffect(() => {
     return () => {
@@ -263,8 +271,27 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateBrowserOnline = () => {
+      setBrowserOnline(readBrowserOnline());
+    };
+
+    updateBrowserOnline();
+    window.addEventListener('online', updateBrowserOnline);
+    window.addEventListener('offline', updateBrowserOnline);
+    return () => {
+      window.removeEventListener('online', updateBrowserOnline);
+      window.removeEventListener('offline', updateBrowserOnline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (
       initialPublicNewsRefreshRef.current ||
+      !browserOnline ||
       (!publicNewsClientReady && !publicRelayColdStartReady) ||
       loading ||
       publicNewsLoading
@@ -290,6 +317,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       });
   }, [
     applyDeferredFeed,
+    browserOnline,
     loading,
     loadedPublicNewsStoryCount,
     publicNewsClientReady,
@@ -302,6 +330,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     typeof publicNewsLatestIndexCursor === 'number' && Number.isFinite(publicNewsLatestIndexCursor);
   const canRequestMorePublicNews =
     !hasMore &&
+    browserOnline &&
     !loading &&
     !error &&
     newsCount > 0 &&
@@ -508,6 +537,15 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     pullTriggeredRef.current = false;
   }, []);
 
+  const feedContentLoading =
+    loading || (browserOnline && pagedFeed.length === 0 && (refreshing || publicNewsLoading));
+  const feedEmptyState = !browserOnline
+    ? {
+        title: "You're offline",
+        description: 'Reconnect to refresh the public news mesh.',
+      }
+    : undefined;
+
   return (
     <div
       className="mx-auto flex max-w-[760px] flex-col gap-4"
@@ -554,11 +592,12 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       <div className="rounded-[1.5rem] border border-white/70 bg-white/70 p-2.5 shadow-[0_22px_58px_-44px_rgba(15,23,42,0.34)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/55 sm:p-3">
         <FeedContent
           feed={pagedFeed}
-          loading={loading}
+          loading={feedContentLoading}
           error={error}
           hasMore={hasMore || canRequestMorePublicNews}
           loadingMore={loadingMore || meshLoadingMore}
           loadMore={handleLoadMore}
+          emptyState={feedEmptyState}
         />
       </div>
     </div>
