@@ -66,9 +66,10 @@ describe('FeedList', () => {
     expect(screen.getByTestId('feed-shell')).toBeInTheDocument();
   });
 
-  it('shows empty state when no items', () => {
+  it('keeps the public relay cold start in loading state when no items are hydrated yet', () => {
     render(<FeedList />);
-    expect(screen.getAllByTestId('feed-empty').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('feed-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-empty')).not.toBeInTheDocument();
   });
 
   it('renders feed items when present', async () => {
