@@ -1146,6 +1146,7 @@ async function readPublicRelayLatestIndexPage({
   if (Number.isFinite(scanLimit) && scanLimit > 0) {
     indexUrl.searchParams.set('scan_limit', String(Math.floor(scanLimit)));
   }
+  indexUrl.searchParams.set('persist', 'false');
   const payload = await fetchJsonWithTimeout(
     indexUrl.href,
     timeoutMs,
@@ -1419,6 +1420,7 @@ async function readPublicRelaySynthesisCandidates({
   const root = normalizeUrl(baseUrl || DEFAULT_BASE_URL);
   const indexUrl = new URL('/vh/news/latest-index', root);
   indexUrl.searchParams.set('limit', String(indexLimit));
+  indexUrl.searchParams.set('persist', 'false');
   const index = await fetchJsonWithTimeout(indexUrl.href, timeoutMs, 'public-relay-latest-index', restDiagnostics);
   const storyStates = index?.story_states && typeof index.story_states === 'object'
     ? index.story_states
