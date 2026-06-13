@@ -218,7 +218,7 @@ describe('public feed browser smoke helpers', () => {
   it('verifies relay latest-index pagination with an exclusive older cursor window', async () => {
     const fetchMock = vi.fn(async (url) => {
       const href = String(url);
-      if (href === 'https://venn.example/vh/news/latest-index?limit=2&scan_limit=8') {
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&scan_limit=8&persist=false') {
         return new Response(JSON.stringify({
           ok: true,
           record_count: 2,
@@ -232,7 +232,7 @@ describe('public feed browser smoke helpers', () => {
           },
         }), { status: 200 });
       }
-      if (href === 'https://venn.example/vh/news/latest-index?limit=2&before=200&scan_limit=8') {
+      if (href === 'https://venn.example/vh/news/latest-index?limit=2&before=200&scan_limit=8&persist=false') {
         return new Response(JSON.stringify({
           ok: true,
           record_count: 1,

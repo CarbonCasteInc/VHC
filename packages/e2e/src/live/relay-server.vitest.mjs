@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -2500,6 +2500,132 @@ describe('infra relay server', () => {
       frame_table_ready: 1,
     });
   }, 60_000);
+
+  it('does not persist a latest-index snapshot when a default GET falls through to live Gun records', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-readonly-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'news-latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '100',
+    });
+    const story = makeRelayNewsStory('story-readonly-live-fallback', 1778993000000, [
+      {
+        source_id: 'source-readonly-live-fallback-a',
+        publisher: 'Read-only Live Fallback A',
+        url: 'https://example.com/readonly-live-fallback-a',
+        url_hash: 'hash-readonly-live-fallback-a',
+        published_at: 1778992999000,
+        title: 'Read-only live fallback story A',
+      },
+      {
+        source_id: 'source-readonly-live-fallback-b',
+        publisher: 'Read-only Live Fallback B',
+        url: 'https://example.com/readonly-live-fallback-b',
+        url_hash: 'hash-readonly-live-fallback-b',
+        published_at: 1778993000000,
+        title: 'Read-only live fallback story B',
+      },
+    ]);
+    await writeRelayNewsStory(port, story);
+    await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    expect(existsSync(snapshotFile)).toBe(true);
+    const snapshotBefore = readFileSync(snapshotFile, 'utf8');
+
+    const latest = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=1&scan_limit=3&consistency=false`,
+    );
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 1,
+        consistency: expect.objectContaining({
+          enabled: false,
+          mode: 'disabled',
+        }),
+        records: {
+          [story.story_id]: expect.objectContaining({
+            story_id: story.story_id,
+            latest_activity_at: story.cluster_window_end,
+          }),
+        },
+      }),
+    });
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBefore);
+  }, 30_000);
+
+  it('keeps explicit persist=false latest-index GETs nonmutating', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-persist-false-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'news-latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_LIFECYCLE_FIELD_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS: '100',
+    });
+    const story = makeRelayNewsStory('story-persist-false-live-fallback', 1778994000000, [
+      {
+        source_id: 'source-persist-false-live-fallback',
+        publisher: 'Persist False Source',
+        url: 'https://example.com/persist-false-live-fallback',
+        url_hash: 'hash-persist-false-live-fallback',
+        published_at: 1778994000000,
+        title: 'Persist false live fallback story',
+      },
+    ]);
+    await writeRelayNewsStory(port, story);
+    await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    expect(existsSync(snapshotFile)).toBe(true);
+    const snapshotBefore = readFileSync(snapshotFile, 'utf8');
+
+    const latest = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=1&scan_limit=3&consistency=false&persist=false`,
+    );
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 1,
+        consistency: expect.objectContaining({
+          enabled: false,
+          mode: 'disabled',
+        }),
+        records: {
+          [story.story_id]: expect.objectContaining({
+            story_id: story.story_id,
+            latest_activity_at: story.cluster_window_end,
+          }),
+        },
+      }),
+    });
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBefore);
+  }, 30_000);
+
+  it('rejects mutating latest-index persistence requests on GET', async () => {
+    const { port } = await startRelay(children, tempDirs);
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?persist=true`))
+      .resolves.toMatchObject({
+        statusCode: 400,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'latest-index-persist-mode-unsupported',
+        }),
+      });
+  }, 30_000);
 
   it('persists latest-index snapshots as news write-through evidence before any latest-index read', async () => {
     const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-write-through-snapshot-test-'));

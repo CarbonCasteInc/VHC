@@ -43,6 +43,24 @@ Default origins:
 
 Default freshness SLO: newest latest-index row age <= 6 hours.
 
+## Latest-Index Snapshot Safety
+
+Freshness monitor latest-index reads are nonmutating. The monitor and browser
+smoke helper add `persist=false` to `/vh/news/latest-index` requests as an
+explicit diagnostic marker, and the relay's default GET path must not refresh
+`news-latest-index-snapshot.json` when it falls through to live Gun records.
+
+Persisted latest-index snapshot refresh is reserved for intentional
+write-through and maintenance code paths, including relay news story,
+latest-index, and synthesis-lifecycle writes. Routine read traffic must not
+poison a served snapshot with an under-scanned window, and must not heal a stale
+served snapshot as a side effect of monitoring.
+
+The stale publisher/feed incident remains separate from this monitor. A passing
+freshness monitor proves the public latest-index read surface is current enough
+at the sampled origins; it does not prove publisher recovery, source ingest
+health, or release readiness.
+
 ## Configuration
 
 | Variable | Default | Notes |

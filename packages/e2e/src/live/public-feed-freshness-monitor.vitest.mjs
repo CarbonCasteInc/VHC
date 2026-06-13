@@ -35,8 +35,10 @@ async function startOrigin({
   timestamp,
   service = 'vh-public-beta-origin',
   readyStatus = 200,
+  requests = [],
 } = {}) {
   const server = createServer((req, res) => {
+    requests.push(req.url ?? '');
     if (req.url?.startsWith('/healthz')) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
@@ -85,8 +87,10 @@ describe('public feed freshness monitor', () => {
   it('passes when configured origins are healthy and latest-index rows are fresh', async () => {
     const now = Date.UTC(2026, 5, 12, 12, 0, 0);
     const repoRoot = await makeRepoRoot();
-    const appOrigin = await startOrigin({ timestamp: now - 5_000 });
-    const relayOrigin = await startOrigin({ timestamp: now - 10_000, service: 'vh-relay' });
+    const appRequests = [];
+    const relayRequests = [];
+    const appOrigin = await startOrigin({ timestamp: now - 5_000, requests: appRequests });
+    const relayOrigin = await startOrigin({ timestamp: now - 10_000, service: 'vh-relay', requests: relayRequests });
 
     const summary = await runPublicFeedFreshnessMonitor({
       repoRoot,
@@ -104,6 +108,9 @@ describe('public feed freshness monitor', () => {
       'story-fresh',
       'story-fresh',
     ]);
+    for (const requestUrl of [...appRequests, ...relayRequests].filter((url) => url.startsWith('/vh/news/latest-index'))) {
+      expect(new URL(requestUrl, 'http://127.0.0.1').searchParams.get('persist')).toBe('false');
+    }
   });
 
   it('fails closed when threshold zero makes the latest-index window stale', async () => {

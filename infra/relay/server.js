@@ -3005,7 +3005,9 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
   selectedEntries = bodyReadbackResult.entries;
   const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
   selectedEntries = refreshResult.entries;
-  persistRefreshedLatestIndexSnapshotEntries(snapshot, options, selectedEntries, refreshResult.info);
+  if (options.persistSnapshotOnRead === true) {
+    persistRefreshedLatestIndexSnapshotEntries(snapshot, options, selectedEntries, refreshResult.info);
+  }
   const records = {};
   const stories = {};
   const storyStates = {};
@@ -3098,7 +3100,13 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
       if (hasRecords && cacheKey && cacheTtlMs > 0) {
         newsLatestIndexRestCache.set(cacheKey, { cached_at: Date.now(), result });
       }
-      if (hasRecords && Array.isArray(result.snapshotEntries) && result.snapshotEntries.length > 0 && cacheTtlMs > 0) {
+      if (
+        options.persistSnapshotOnRead === true
+        && hasRecords
+        && Array.isArray(result.snapshotEntries)
+        && result.snapshotEntries.length > 0
+        && cacheTtlMs > 0
+      ) {
         const snapshot = {
           cached_at: Date.now(),
           entries: result.snapshotEntries,
@@ -4504,9 +4512,27 @@ const server = http.createServer((req, res) => {
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
     const before = parsedUrl.searchParams.get('before');
     const compositionBackfillMinLimit = parsedUrl.searchParams.get('composition_backfill_min_limit');
+    const persistMode = parsedUrl.searchParams.get('persist');
+    if (persistMode !== null && persistMode !== 'false') {
+      sendJson(res, 400, {
+        ok: false,
+        error: 'latest-index-persist-mode-unsupported',
+        supported_persist_values: ['false'],
+      });
+      return;
+    }
     void readNewsLatestIndexRecordsWithEmptyRetry(
       gun,
-      { limit, includeRoot, includeExcluded, consistencyFilter, scanLimit, before, compositionBackfillMinLimit },
+      {
+        limit,
+        includeRoot,
+        includeExcluded,
+        consistencyFilter,
+        scanLimit,
+        before,
+        compositionBackfillMinLimit,
+        persistSnapshotOnRead: false,
+      },
     )
       .then((result) => {
         const payload = {
