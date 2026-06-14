@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const BUILD_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/build-public-beta-images.sh');
+const EXPORT_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/export-public-beta-image-artifacts.sh');
 const PACKET_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/emit-a6-public-beta-deploy-packet.sh');
 const RECOVER_PROVENANCE_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/recover-public-beta-origin-provenance.mjs');
 
@@ -88,6 +89,117 @@ test('image smoke runs requested platform and binds relay Gun to the container i
   assert.match(script, /smoke_relay\(\) \{[\s\S]*--platform "\$\{PLATFORM\}"/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-e GUN_HOST=0\.0\.0\.0/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-v "\$\{tmp\}:\/data"/);
+});
+
+test('image artifact exporter validates platform and emits approval-only load packet', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-export-'));
+  try {
+    const bin = path.join(root, 'bin');
+    const out = path.join(root, 'artifacts');
+    const relativeOut = path.relative(REPO_ROOT, out);
+    mkdirSync(bin);
+    const fakeDocker = path.join(bin, 'docker');
+    writeFileSync(
+      fakeDocker,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
+  image="\${3:-}"
+  arch="\${FAKE_DOCKER_ARCH:-amd64}"
+  revision="\${FAKE_DOCKER_REVISION:-test-revision}"
+  case "\${image}" in
+    *origin*) id="sha256:origin-image-id" ;;
+    *relay*) id="sha256:relay-image-id" ;;
+    *) id="sha256:unknown-image-id" ;;
+  esac
+  printf '%s|linux|%s|%s|2026-06-14T00:00:00Z\\n' "\${id}" "\${arch}" "\${revision}"
+  exit 0
+fi
+if [[ "\${1:-}" == "save" ]]; then
+  out=""
+  image=""
+  shift
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -o) out="\${2:-}"; shift 2 ;;
+      *) image="$1"; shift ;;
+    esac
+  done
+  test -n "\${out}"
+  printf 'fake docker tar for %s\\n' "\${image}" > "\${out}"
+  exit 0
+fi
+echo "unexpected fake docker invocation: $*" >&2
+exit 2
+`,
+      'utf8',
+    );
+    chmodSync(fakeDocker, 0o755);
+
+    const env = {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      FAKE_DOCKER_REVISION: 'test-revision',
+    };
+    const result = run('bash', [
+      EXPORT_SCRIPT,
+      '--origin-image',
+      'vhc-public-beta-origin:test-tag',
+      '--relay-image',
+      'vhc-public-beta-relay:test-tag',
+      '--output-dir',
+      relativeOut,
+      '--remote-dir',
+      '/tmp/vhc-public-beta-images/test-tag',
+      '--source-revision',
+      'test-revision',
+    ], { env });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /artifact_dir=/);
+    assert.match(result.stdout, /load_packet=/);
+
+    const packet = readFileSync(path.join(out, 'a6-image-load-packet.md'), 'utf8');
+    assert.match(packet, /approval-required/);
+    assert.match(packet, /sha256sum -c SHA256SUMS/);
+    assert.match(packet, /docker load -i/);
+    assert.match(packet, /Loading images is not approval to restart relays/);
+    assert.doesNotMatch(packet, /SECRET|TOKEN|do-not-print/);
+
+    const checksums = readFileSync(path.join(out, 'SHA256SUMS'), 'utf8');
+    assert.match(checksums, /^[-a-f0-9]+  vhc-public-beta-origin_test-tag\.tar$/m);
+    assert.match(checksums, /^[-a-f0-9]+  vhc-public-beta-relay_test-tag\.tar$/m);
+    assert.equal(statSync(path.join(out, 'vhc-public-beta-origin_test-tag.tar')).mode & 0o777, 0o600);
+    assert.equal(statSync(path.join(out, 'vhc-public-beta-relay_test-tag.tar')).mode & 0o777, 0o600);
+    assert.equal(statSync(path.join(out, 'artifact-manifest.json')).mode & 0o777, 0o600);
+
+    const manifest = JSON.parse(readFileSync(path.join(out, 'artifact-manifest.json'), 'utf8'));
+    assert.equal(manifest.schema_version, 'vh-public-beta-local-image-artifact-manifest-v1');
+    assert.equal(manifest.production_actions_performed, false);
+    assert.equal(manifest.approval_required_before_host_load_or_deploy, true);
+    assert.equal(manifest.platform, 'linux/amd64');
+    assert.equal(manifest.images[0].revision, 'test-revision');
+
+    const badPlatform = run('bash', [
+      EXPORT_SCRIPT,
+      '--origin-image',
+      'vhc-public-beta-origin:test-tag',
+      '--relay-image',
+      'vhc-public-beta-relay:test-tag',
+      '--output-dir',
+      path.join(root, 'bad-platform'),
+      '--source-revision',
+      'test-revision',
+    ], {
+      env: {
+        ...env,
+        FAKE_DOCKER_ARCH: 'arm64',
+      },
+    });
+    assert.equal(badPlatform.status, 78);
+    assert.match(badPlatform.stderr, /platform mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('origin provenance recovery writes private env without printing recovered values', () => {

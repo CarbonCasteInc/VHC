@@ -45,6 +45,9 @@ re-enable monitors.
   and image tags supplied by env.
 - `tools/scripts/build-public-beta-images.sh` builds origin and relay images
   with a pinned platform and records buildx metadata.
+- `tools/scripts/export-public-beta-image-artifacts.sh` exports already-built
+  images to private tarballs, writes checksums, and emits the approval-only A6
+  image-load packet.
 - `tools/scripts/recover-public-beta-origin-provenance.mjs` creates a private
   origin build provenance env template from captured origin static artifacts
   without printing recovered values.
@@ -205,6 +208,34 @@ tools/scripts/build-public-beta-images.sh \
 For registry publication, add `--push` and use immutable tags or digests in the
 deploy packet. Do not bake relay daemon tokens, OpenAI keys, or system-writer
 private keys into image layers.
+
+## Export Image Artifacts
+
+If A6 is receiving images by direct file transfer rather than a registry push,
+export the locally loaded images with the committed exporter:
+
+```bash
+tools/scripts/export-public-beta-image-artifacts.sh \
+  --origin-image vhc-public-beta-origin:<tag> \
+  --relay-image vhc-public-beta-relay:<tag> \
+  --output-dir .tmp/public-beta-image-artifacts/<tag>
+```
+
+The exporter refuses images whose Docker metadata platform is not
+`linux/amd64`, and by default refuses images whose
+`org.opencontainers.image.revision` label does not match the current checkout.
+It writes:
+
+- `vhc-public-beta-origin_<tag>.tar`
+- `vhc-public-beta-relay_<tag>.tar`
+- `SHA256SUMS`
+- `artifact-manifest.json`
+- `a6-image-load-packet.md`
+
+All files are local artifacts. The emitted load packet contains `scp`,
+`sha256sum -c`, `docker load`, and `docker image inspect` commands only. It is
+not approval to restart containers, deploy relays, deploy origin, run
+latest-index HTTP probes, start publisher writes, or re-enable monitors.
 
 ## Emit Deploy Packet
 
