@@ -106,7 +106,9 @@ test('deploy packet preserves relay bind mounts and does not print env values', 
       '--include-recreate-commands',
     ]);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/app\/data:rw/);
+    assert.match(result.stdout, /GUN_FILE destination: `\/data`/);
+    assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/data:rw/);
+    assert.match(result.stdout, /sudo docker exec vhc-relay-a test -f \/data\/news-latest-index-snapshot\.json/);
     assert.match(result.stdout, /VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001/);
     assert.match(result.stdout, /vhc-public-beta-relay:new/);
     assert.doesNotMatch(result.stdout, /do-not-print/);
@@ -119,11 +121,12 @@ test('deploy packet preserves relay bind mounts and does not print env values', 
 function makeRelay(name, dataDir) {
   return makeContainer(name, 'vhc-public-beta-relay:old', [
     'NODE_ENV=production',
+    'GUN_FILE=/data',
     'VH_RELAY_DAEMON_TOKEN=do-not-print',
   ], [{
     Type: 'bind',
     Source: dataDir,
-    Destination: '/app/data',
+    Destination: '/data',
     Mode: 'rw',
     RW: true,
   }], { '7777/tcp': [{ HostIp: '127.0.0.1', HostPort: '7777' }] });

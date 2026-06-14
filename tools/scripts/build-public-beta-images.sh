@@ -353,9 +353,9 @@ smoke_relay() {
   tmp="$(mktemp -d)"
   cid="$(docker run -d --rm -P \
     -e NODE_ENV=production \
-    -e GUN_FILE=/app/data \
+    -e GUN_FILE=/data \
     -e GUN_RADISK=true \
-    -v "${tmp}:/app/data" \
+    -v "${tmp}:/data" \
     "${RELAY_IMAGE}")"
   trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true; rm -rf "${tmp}"' RETURN
   port="$(docker port "${cid}" 7777/tcp | awk -F: 'NR==1 {print $NF}')"

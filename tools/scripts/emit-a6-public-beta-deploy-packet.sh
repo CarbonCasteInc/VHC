@@ -153,8 +153,31 @@ function mountFlags(container) {
   return flags;
 }
 
+function envMap(container) {
+  const out = new Map();
+  for (const entry of container?.Config?.Env || []) {
+    const text = String(entry);
+    const index = text.indexOf('=');
+    if (index <= 0) continue;
+    out.set(text.slice(0, index), text.slice(index + 1));
+  }
+  return out;
+}
+
+function envValue(container, name) {
+  return envMap(container).get(name) || '';
+}
+
+function gunFileDestination(container) {
+  const gunFile = envValue(container, 'GUN_FILE').trim();
+  if (!gunFile || gunFile === 'data') return '/app/data';
+  if (gunFile.startsWith('/')) return gunFile.replace(/\/+$/, '') || '/';
+  return `/app/${gunFile.replace(/^\.?\//, '').replace(/\/+$/, '')}`;
+}
+
 function dataMount(container) {
-  return (container?.Mounts || []).find((mount) => mount.Destination === '/app/data') || null;
+  const destination = gunFileDestination(container);
+  return (container?.Mounts || []).find((mount) => mount.Destination === destination) || null;
 }
 
 function restartFlag(container) {
@@ -211,13 +234,15 @@ function runCommandFor(name, image, forceRelayUser = false) {
 
 const blockers = [];
 for (const name of relayNames) {
-  const mount = dataMount(byName.get(name));
+  const container = byName.get(name);
+  const mount = dataMount(container);
+  const destination = gunFileDestination(container);
   if (!mount) {
-    blockers.push(`${name}: missing /app/data mount`);
+    blockers.push(`${name}: missing ${destination} mount for GUN_FILE`);
   } else if (mount.Type !== 'bind') {
-    blockers.push(`${name}: /app/data mount is ${mount.Type}, expected bind`);
+    blockers.push(`${name}: ${destination} mount is ${mount.Type}, expected bind`);
   } else if (!mount.Source.includes(`/vhc-${name}/data`) && !mount.Source.endsWith(`/${name}/data`)) {
-    blockers.push(`${name}: /app/data source is unusual: ${mount.Source}`);
+    blockers.push(`${name}: ${destination} source is unusual: ${mount.Source}`);
   }
 }
 
@@ -236,12 +261,14 @@ lines.push('## Current Containers');
 lines.push('');
 for (const name of requiredNames) {
   const container = byName.get(name);
+  const dataDestination = relayNames.includes(name) ? gunFileDestination(container) : null;
   lines.push(`### ${name}`);
   lines.push('');
   lines.push(`- current image tag: \`${container.Config?.Image || 'unknown'}\``);
   lines.push(`- current image id: \`${container.Image || 'unknown'}\``);
   lines.push(`- networks: \`${networkNames(container).join(', ') || 'none'}\``);
   lines.push(`- env names: \`${envNames(container).join(', ')}\``);
+  if (dataDestination) lines.push(`- GUN_FILE destination: \`${dataDestination}\``);
   lines.push(`- mounts: \`${mountFlags(container).join(' ; ') || 'none'}\``);
   lines.push('');
 }
@@ -316,10 +343,11 @@ if (includeRecreate) {
   lines.push('');
   lines.push('```bash');
   for (const name of relayNames) {
+    const dataDestination = gunFileDestination(byName.get(name));
     lines.push(`sudo docker rm -f ${name}`);
     lines.push(runCommandFor(name, newRelayImage, true));
     lines.push(`sudo docker inspect ${name} --format '{{.Config.Image}} {{.Image}}'`);
-    lines.push(`sudo docker exec ${name} test -f /app/data/news-latest-index-snapshot.json`);
+    lines.push(`sudo docker exec ${name} test -f ${dataDestination}/news-latest-index-snapshot.json`);
   }
   lines.push('```');
   lines.push('');
