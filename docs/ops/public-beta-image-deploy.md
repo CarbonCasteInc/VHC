@@ -56,15 +56,15 @@ Capture image/container evidence before any restart:
 ssh humble@ccibootstrap
 mkdir -p /tmp/vhc-public-beta-capture
 sudo docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' \
-  | grep -E 'vhc-relay|vhc-public-beta-origin'
-sudo docker inspect vhc-public-beta-origin vhc-relay-a vhc-relay-b vhc-relay-c \
+  | grep -E 'vhc-public-origin|vhc-relay-a|vhc-relay-b|vhc-relay-c'
+sudo docker inspect vhc-public-origin vhc-relay-a vhc-relay-b vhc-relay-c \
   >/tmp/vhc-public-beta-capture/containers.json
 sudo docker image inspect \
-  "$(sudo docker inspect -f '{{.Config.Image}}' vhc-public-beta-origin)" \
+  "$(sudo docker inspect -f '{{.Config.Image}}' vhc-public-origin)" \
   "$(sudo docker inspect -f '{{.Config.Image}}' vhc-relay-a)" \
   >/tmp/vhc-public-beta-capture/images.json
 sudo docker history --no-trunc \
-  "$(sudo docker inspect -f '{{.Config.Image}}' vhc-public-beta-origin)" \
+  "$(sudo docker inspect -f '{{.Config.Image}}' vhc-public-origin)" \
   >/tmp/vhc-public-beta-capture/origin-history.txt
 sudo docker history --no-trunc \
   "$(sudo docker inspect -f '{{.Config.Image}}' vhc-relay-a)" \

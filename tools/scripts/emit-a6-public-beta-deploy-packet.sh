@@ -6,7 +6,7 @@ INSPECT_JSON=""
 NEW_ORIGIN_IMAGE=""
 NEW_RELAY_IMAGE=""
 ANALYSIS_TARGET="http://127.0.0.1:3001"
-ORIGIN_NAME="vhc-public-beta-origin"
+ORIGIN_NAME="vhc-public-origin"
 RELAY_NAMES="vhc-relay-a,vhc-relay-b,vhc-relay-c"
 OUTPUT_FILE=""
 INCLUDE_RECREATE=false
@@ -25,7 +25,7 @@ Required:
 
 Options:
   --analysis-target <url>     Corrected origin analysis target (default http://127.0.0.1:3001)
-  --origin-name <name>        Origin container name (default vhc-public-beta-origin)
+  --origin-name <name>        Origin container name (default vhc-public-origin)
   --relay-names <a,b,c>       Relay container names (default vhc-relay-a,vhc-relay-b,vhc-relay-c)
   --include-recreate-commands Include docker rm/run commands in the packet
   --output <path>             Write packet to a file instead of stdout
@@ -215,6 +215,14 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false) {
   ].join('\n');
 }
 
+function escapeExtendedRegex(value) {
+  return String(value).replace(/[|\\{}()[\]^$+*?.-]/g, '\\$&');
+}
+
+function shellSingleQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 function runCommandFor(name, image, forceRelayUser = false) {
   const container = byName.get(name);
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
@@ -247,6 +255,7 @@ for (const name of relayNames) {
 }
 
 const lines = [];
+const psPattern = [originName, ...relayNames].map(escapeExtendedRegex).join('|');
 lines.push('# A6 Public-Beta Deploy Packet');
 lines.push('');
 lines.push('Generated from captured `docker inspect` JSON. This packet is secret-safe: it records env var names and uses host-side env-file capture commands without printing values.');
@@ -286,7 +295,7 @@ lines.push('## Read-Only Precheck');
 lines.push('');
 lines.push('```bash');
 lines.push('set -euo pipefail');
-lines.push('sudo docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" | grep -E "vhc-relay|vhc-public-beta-origin"');
+lines.push(`sudo docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" | grep -E ${shellSingleQuote(psPattern)}`);
 lines.push('python3 <<\'PY\'');
 lines.push('import json, os, time');
 lines.push('SNAPSHOTS = {');
