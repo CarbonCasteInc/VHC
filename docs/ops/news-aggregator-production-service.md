@@ -45,13 +45,20 @@ The installer writes user units and reloads systemd. It does not start publisher
 writes by default.
 
 Host runtime prerequisite observed on A6 on 2026-06-14: `node` is available at
-`/home/humble/.local/bin/node`, while `pnpm` was not installed for `humble`.
-Install the repo-pinned pnpm before enabling publisher services:
+`/home/humble/.local/bin/node`, and `pnpm` is available through the
+`/home/humble/.hermes/node/bin` Corepack shims. The installed user units set
+`PATH=%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin` so both
+the `node` and `pnpm` shims resolve under systemd. Verify before enabling
+publisher services:
 
 ```bash
-bash -lc 'npm install -g pnpm@9.7.1'
-bash -lc 'node -v && pnpm -v'
+cd /home/humble/VHC
+PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin" node -v
+PATH="$HOME/.local/bin:$HOME/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin" pnpm -v
 ```
+
+Run the `pnpm -v` check from the repo root so Corepack applies the
+`packageManager` pin from `package.json`.
 
 Read-only relay snapshot watch timer:
 

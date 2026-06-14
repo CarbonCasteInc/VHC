@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 UNIT_DIR="${HOME}/.config/systemd/user"
 UNIT_PATH="${UNIT_DIR}/vh-analysis-backend-3001.service"
+SERVICE_PATH="%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin"
 
 mkdir -p "${UNIT_DIR}"
 
@@ -16,7 +17,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=VHC_REPO=${REPO_ROOT}
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${SERVICE_PATH}
 Environment=HOST=127.0.0.1
 Environment=PORT=3001
 Environment=ARTICLE_TEXT_MAX_CHARS=24000
