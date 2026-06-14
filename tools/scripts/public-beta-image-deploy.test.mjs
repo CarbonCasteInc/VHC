@@ -376,15 +376,24 @@ test('origin provenance recovery completes from inspect JSON and Vite bundle wit
   }
 });
 
-test('deploy packet preserves relay bind mounts and does not print env values', () => {
+test('deploy packet preserves relay bind mounts and rewrites origin env safely', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-packet-'));
   try {
     const inspectPath = path.join(root, 'inspect.json');
+    const staleOriginEnv = [
+      'VH_PUBLIC_ORIGIN_STATIC_DIR=/app/dist',
+      'VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/app/dist/mesh-peer-config.json',
+      'VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http://127.0.0.1:2048',
+      'HOST=127.0.0.1',
+      'PORT=8080',
+      'NODE_ENV=production',
+      'VH_PUBLIC_ORIGIN_FAIL_IF_MISSING_STATIC=true',
+      'VH_PUBLIC_ORIGIN_RELAY_TARGETS=http://127.0.0.1:8777,http://127.0.0.1:8778,http://127.0.0.1:8779',
+      "VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC='self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      'SECRET_VALUE=do-not-print',
+    ];
     const containers = [
-      makeContainer('vhc-public-origin', 'vhc-public-beta-origin:old', [
-        'VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http://127.0.0.1:2048',
-        'SECRET_VALUE=do-not-print',
-      ], [], { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] }),
+      makeContainer('vhc-public-origin', 'vhc-public-beta-origin:old', staleOriginEnv, [], { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] }),
       makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data'),
       makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
       makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
@@ -407,8 +416,28 @@ test('deploy packet preserves relay bind mounts and does not print env values', 
     assert.match(result.stdout, /grep -E 'vhc\\-public\\-origin\|vhc\\-relay\\-a\|vhc\\-relay\\-b\|vhc\\-relay\\-c'/);
     assert.match(result.stdout, /VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001/);
     assert.match(result.stdout, /vhc-public-beta-relay:new/);
+    const originRewriteLine = result.stdout
+      .split('\n')
+      .find((line) => line.startsWith("awk '") && line.includes('VH_PUBLIC_ORIGIN_ANALYSIS_TARGET'));
+    assert.ok(originRewriteLine, result.stdout);
+    assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_STATIC_DIR=\//);
+    assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=\//);
+    const originRewriteMatch = originRewriteLine.match(/^awk '([^']+)' \/tmp\/vhc-public-beta-deploy\/vhc-public-origin\.env\.current > \/tmp\/vhc-public-beta-deploy\/vhc-public-origin\.env$/);
+    assert.ok(originRewriteMatch, originRewriteLine);
+    const currentEnvPath = path.join(root, 'vhc-public-origin.env.current');
+    writeFileSync(currentEnvPath, `${staleOriginEnv.join('\n')}\n`, 'utf8');
+    const transformed = run('awk', [originRewriteMatch[1], currentEnvPath]);
+    assert.equal(transformed.status, 0, transformed.stderr);
+    assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_STATIC_DIR=/m);
+    assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/m);
+    assert.match(transformed.stdout, /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001$/m);
+    assert.match(transformed.stdout, /^HOST=127\.0\.0\.1$/m);
+    assert.match(transformed.stdout, /^PORT=8080$/m);
+    assert.match(transformed.stdout, /^VH_PUBLIC_ORIGIN_RELAY_TARGETS=http:\/\/127\.0\.0\.1:8777,http:\/\/127\.0\.0\.1:8778,http:\/\/127\.0\.0\.1:8779$/m);
+    assert.match(transformed.stdout, /^VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC='self' https:\/\/venn\.carboncaste\.io wss:\/\/gun-a\.carboncaste\.io$/m);
     assert.doesNotMatch(result.stdout, /vhc-public-beta-origin\|vhc-relay/);
     assert.doesNotMatch(result.stdout, /do-not-print/);
+    assert.doesNotMatch(result.stdout, /\/app\/dist/);
     assert.doesNotMatch(result.stdout, /http:\/\/127\.0\.0\.1:2048/);
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -209,7 +209,7 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false) {
   }
   return [
     `sudo docker inspect ${name} --format '{{range .Config.Env}}{{println .}}{{end}}' > ${envPath}.current`,
-    `awk 'BEGIN{done=0} /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=/{print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"; done=1; next} {print} END{if(!done) print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"}' ${envPath}.current > ${envPath}`,
+    `awk 'BEGIN{done=0} /^VH_PUBLIC_ORIGIN_STATIC_DIR=/{next} /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/{next} /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=/{print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"; done=1; next} {print} END{if(!done) print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"}' ${envPath}.current > ${envPath}`,
     `chmod 600 ${envPath}`,
     `rm -f ${envPath}.current`,
   ].join('\n');
