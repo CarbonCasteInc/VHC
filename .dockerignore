@@ -1,0 +1,15 @@
+.git
+.github
+.turbo
+.tmp
+coverage
+node_modules
+**/node_modules
+**/coverage
+**/.tmp
+**/radata
+**/dist
+*.log
+.env
+.env.*
+!.env.example

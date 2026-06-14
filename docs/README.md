@@ -58,5 +58,6 @@ CI enforces this via docs governance checks.
 - `docs/ops/ANALYSIS_EVAL_ARTIFACTS.md`
 - `docs/ops/analysis-backend-3001.md`
 - `docs/ops/news-aggregator-production-service.md`
+- `docs/ops/public-beta-image-deploy.md`
 - `docs/ops/public-beta-compliance-minimums.md`
 - `docs/feature-flags.md`
