@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -81,12 +81,18 @@ test('public beta image build dry-run passes build args by name without leaking 
   }
 });
 
+test('relay image smoke binds Gun to the container interface', () => {
+  const script = readFileSync(BUILD_SCRIPT, 'utf8');
+  assert.match(script, /smoke_relay\(\) \{[\s\S]*-e GUN_HOST=0\.0\.0\.0/);
+  assert.match(script, /smoke_relay\(\) \{[\s\S]*-v "\$\{tmp\}:\/data"/);
+});
+
 test('deploy packet preserves relay bind mounts and does not print env values', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-packet-'));
   try {
     const inspectPath = path.join(root, 'inspect.json');
     const containers = [
-      makeContainer('vhc-public-beta-origin', 'vhc-public-beta-origin:old', [
+      makeContainer('vhc-public-origin', 'vhc-public-beta-origin:old', [
         'VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http://127.0.0.1:2048',
         'SECRET_VALUE=do-not-print',
       ], [], { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '8080' }] }),
@@ -109,8 +115,10 @@ test('deploy packet preserves relay bind mounts and does not print env values', 
     assert.match(result.stdout, /GUN_FILE destination: `\/data`/);
     assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/data:rw/);
     assert.match(result.stdout, /sudo docker exec vhc-relay-a test -f \/data\/news-latest-index-snapshot\.json/);
+    assert.match(result.stdout, /grep -E 'vhc\\-public\\-origin\|vhc\\-relay\\-a\|vhc\\-relay\\-b\|vhc\\-relay\\-c'/);
     assert.match(result.stdout, /VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001/);
     assert.match(result.stdout, /vhc-public-beta-relay:new/);
+    assert.doesNotMatch(result.stdout, /vhc-public-beta-origin\|vhc-relay/);
     assert.doesNotMatch(result.stdout, /do-not-print/);
     assert.doesNotMatch(result.stdout, /http:\/\/127\.0\.0\.1:2048/);
   } finally {

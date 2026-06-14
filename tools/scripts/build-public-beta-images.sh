@@ -353,6 +353,7 @@ smoke_relay() {
   tmp="$(mktemp -d)"
   cid="$(docker run -d --rm -P \
     -e NODE_ENV=production \
+    -e GUN_HOST=0.0.0.0 \
     -e GUN_FILE=/data \
     -e GUN_RADISK=true \
     -v "${tmp}:/data" \
