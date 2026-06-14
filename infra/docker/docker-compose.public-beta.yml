@@ -1,0 +1,100 @@
+name: vh-public-beta
+
+services:
+  origin:
+    image: ${VH_PUBLIC_BETA_ORIGIN_IMAGE:?set rebuilt origin image tag or digest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8080"
+      VH_PUBLIC_ORIGIN_FAIL_IF_MISSING_STATIC: "true"
+      VH_PUBLIC_ORIGIN_ANALYSIS_TARGET: ${VH_PUBLIC_ORIGIN_ANALYSIS_TARGET:?set analysis backend URL}
+      VH_PUBLIC_ORIGIN_RELAY_TARGETS: ${VH_PUBLIC_ORIGIN_RELAY_TARGETS:?set relay fanout targets}
+      VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC: ${VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC:?set CSP connect-src}
+      VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS: ${VH_PUBLIC_ORIGIN_RELAY_PROXY_TIMEOUT_MS:-10000}
+      VH_PUBLIC_ORIGIN_RELAY_FANOUT_TIMEOUT_MS: ${VH_PUBLIC_ORIGIN_RELAY_FANOUT_TIMEOUT_MS:-30000}
+      VH_PUBLIC_ORIGIN_RELAY_NEWS_FANOUT_TIMEOUT_MS: ${VH_PUBLIC_ORIGIN_RELAY_NEWS_FANOUT_TIMEOUT_MS:-60000}
+    ports:
+      - "${VH_PUBLIC_BETA_ORIGIN_PORT:-8080}:8080"
+    networks:
+      - public_beta
+
+  relay-a:
+    image: ${VH_PUBLIC_BETA_RELAY_IMAGE:?set rebuilt relay image tag or digest}
+    restart: unless-stopped
+    user: ${VH_PUBLIC_BETA_RELAY_UID_GID:?set relay UID:GID, for example humble uid:gid}
+    env_file:
+      - ${VH_PUBLIC_BETA_RELAY_ENV_FILE:?set relay env file outside git}
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: /app/data
+      GUN_RADISK: "true"
+      NODE_ENV: production
+      VH_RELAY_ID: public-beta-relay-a
+      VH_RELAY_PEERS: ${VH_PUBLIC_BETA_RELAY_A_PEERS:?set relay-a peer list}
+      VH_RELAY_PEER_AUTH_MODE: ${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}
+      VH_RELAY_PEER_ALLOWLIST: ${VH_RELAY_PEER_ALLOWLIST:-private}
+    volumes:
+      - type: bind
+        source: ${VH_PUBLIC_BETA_RELAY_A_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-a/data}
+        target: /app/data
+    ports:
+      - "${VH_PUBLIC_BETA_RELAY_A_PORT:-7777}:7777"
+    networks:
+      - public_beta
+
+  relay-b:
+    image: ${VH_PUBLIC_BETA_RELAY_IMAGE:?set rebuilt relay image tag or digest}
+    restart: unless-stopped
+    user: ${VH_PUBLIC_BETA_RELAY_UID_GID:?set relay UID:GID, for example humble uid:gid}
+    env_file:
+      - ${VH_PUBLIC_BETA_RELAY_ENV_FILE:?set relay env file outside git}
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: /app/data
+      GUN_RADISK: "true"
+      NODE_ENV: production
+      VH_RELAY_ID: public-beta-relay-b
+      VH_RELAY_PEERS: ${VH_PUBLIC_BETA_RELAY_B_PEERS:?set relay-b peer list}
+      VH_RELAY_PEER_AUTH_MODE: ${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}
+      VH_RELAY_PEER_ALLOWLIST: ${VH_RELAY_PEER_ALLOWLIST:-private}
+    volumes:
+      - type: bind
+        source: ${VH_PUBLIC_BETA_RELAY_B_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-b/data}
+        target: /app/data
+    ports:
+      - "${VH_PUBLIC_BETA_RELAY_B_PORT:-7778}:7777"
+    networks:
+      - public_beta
+
+  relay-c:
+    image: ${VH_PUBLIC_BETA_RELAY_IMAGE:?set rebuilt relay image tag or digest}
+    restart: unless-stopped
+    user: ${VH_PUBLIC_BETA_RELAY_UID_GID:?set relay UID:GID, for example humble uid:gid}
+    env_file:
+      - ${VH_PUBLIC_BETA_RELAY_ENV_FILE:?set relay env file outside git}
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: /app/data
+      GUN_RADISK: "true"
+      NODE_ENV: production
+      VH_RELAY_ID: public-beta-relay-c
+      VH_RELAY_PEERS: ${VH_PUBLIC_BETA_RELAY_C_PEERS:?set relay-c peer list}
+      VH_RELAY_PEER_AUTH_MODE: ${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}
+      VH_RELAY_PEER_ALLOWLIST: ${VH_RELAY_PEER_ALLOWLIST:-private}
+    volumes:
+      - type: bind
+        source: ${VH_PUBLIC_BETA_RELAY_C_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-c/data}
+        target: /app/data
+    ports:
+      - "${VH_PUBLIC_BETA_RELAY_C_PORT:-7779}:7777"
+    networks:
+      - public_beta
+
+networks:
+  public_beta:
+    driver: bridge
