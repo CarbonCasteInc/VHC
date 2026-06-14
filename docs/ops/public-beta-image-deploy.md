@@ -45,6 +45,9 @@ re-enable monitors.
   and image tags supplied by env.
 - `tools/scripts/build-public-beta-images.sh` builds origin and relay images
   with a pinned platform and records buildx metadata.
+- `tools/scripts/recover-public-beta-origin-provenance.mjs` creates a private
+  origin build provenance env template from captured origin static artifacts
+  without printing recovered values.
 - `tools/scripts/emit-a6-public-beta-deploy-packet.sh` emits a secret-safe A6
   deploy packet from captured `docker inspect` JSON.
 
@@ -72,8 +75,57 @@ sudo docker history --no-trunc \
 ```
 
 Record env var names only in tickets or PRs. Do not paste values. For the origin
-build, create a private env file outside git from the current deployed image or
-the operator that built it:
+build, first capture the currently deployed static artifact without using public
+HTTP:
+
+```bash
+ssh humble@ccibootstrap
+mkdir -p /tmp/vhc-public-beta-capture
+STATIC_DIR="$(
+  sudo docker inspect vhc-public-origin --format '{{range .Config.Env}}{{println .}}{{end}}' \
+    | awk -F= '/^VH_PUBLIC_ORIGIN_STATIC_DIR=/{print $2; found=1} END{if(!found) print "/app/dist"}'
+)"
+sudo docker exec vhc-public-origin tar -C "${STATIC_DIR}" -cf - . \
+  >/tmp/vhc-public-beta-capture/origin-dist.tar
+exit
+
+mkdir -p ~/.config/vhc
+scp humble@ccibootstrap:/tmp/vhc-public-beta-capture/origin-dist.tar \
+  ~/.config/vhc/origin-dist.tar
+rm -rf ~/.config/vhc/a6-origin-dist
+mkdir -p ~/.config/vhc/a6-origin-dist
+tar -C ~/.config/vhc/a6-origin-dist -xf ~/.config/vhc/origin-dist.tar
+```
+
+Then create a private env file outside git from the captured static artifact:
+
+```bash
+node tools/scripts/recover-public-beta-origin-provenance.mjs \
+  --dist ~/.config/vhc/a6-origin-dist \
+  --output ~/.config/vhc/public-beta-origin-build-provenance.env
+```
+
+The recovery helper writes recovered values to the private env file but prints
+only names, file mode, and hashes. It intentionally leaves non-recoverable
+required values commented as `TODO(operator)`, including CSP connect sources and
+the public news system-writer pin. Fill those from the current deployed build or
+the operator record before attempting the image build. Also review any reported
+`default_names` and `blank_names`; those are behavior-preserving defaults, not
+proof of the exact previous build. `build-public-beta-images.sh` will refuse an
+incomplete provenance file.
+
+If the deployed origin image path differs from `/app/dist`, identify it from:
+
+```bash
+sudo docker inspect vhc-public-origin --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep -E '^VH_PUBLIC_ORIGIN_STATIC_DIR='
+```
+
+Do not paste the value in tickets if it contains anything beyond host-local
+paths; record only the env var name and the fact that it was verified.
+
+If the static artifact is unavailable, fall back to a blank private template and
+fill every value from the operator record:
 
 ```bash
 tools/scripts/build-public-beta-images.sh --print-provenance-template \

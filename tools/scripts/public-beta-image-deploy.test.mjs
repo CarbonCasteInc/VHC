@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,6 +10,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const BUILD_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/build-public-beta-images.sh');
 const PACKET_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/emit-a6-public-beta-deploy-packet.sh');
+const RECOVER_PROVENANCE_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/recover-public-beta-origin-provenance.mjs');
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -87,6 +88,82 @@ test('image smoke runs requested platform and binds relay Gun to the container i
   assert.match(script, /smoke_relay\(\) \{[\s\S]*--platform "\$\{PLATFORM\}"/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-e GUN_HOST=0\.0\.0\.0/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-v "\$\{tmp\}:\/data"/);
+});
+
+test('origin provenance recovery writes private env without printing recovered values', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-provenance-'));
+  try {
+    const dist = path.join(root, 'dist');
+    const output = path.join(root, 'origin-provenance.env');
+    const signerPub = 'public-signer-value-that-must-not-print';
+    const peerConfig = {
+      payload: {
+        schemaVersion: 'mesh-peer-config-v1',
+        configId: 'prod-public-beta',
+        peers: [
+          'wss://relay-a.example/gun',
+          'wss://relay-b.example/gun',
+          'wss://relay-c.example/gun',
+        ],
+        minimumPeerCount: 3,
+        quorumRequired: 2,
+        issuedAt: 1,
+        expiresAt: 9999999999999,
+      },
+      signature: 'public-signature-value-that-must-not-print',
+      signerPub,
+    };
+    mkdirSync(dist);
+    writeFileSync(path.join(dist, 'index.html'), '<html></html>\n', 'utf8');
+    writeFileSync(path.join(dist, 'mesh-peer-config.json'), JSON.stringify(peerConfig), 'utf8');
+
+    const result = run('node', [
+      RECOVER_PROVENANCE_SCRIPT,
+      '--dist',
+      dist,
+      '--output',
+      output,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /wrote_provenance_env=/);
+    assert.match(result.stdout, /mode=600/);
+    assert.match(result.stdout, /inferred_names: .*VITE_GUN_PEER_CONFIG_PUBLIC_KEY/);
+    assert.match(result.stdout, /todo_names: .*VITE_VH_CSP_CONNECT_SRC/);
+    assert.match(result.stdout, /todo_names: .*VITE_NEWS_SYSTEM_WRITER_PIN_JSON/);
+    assert.match(result.stdout, /build_ready=no/);
+    assert.doesNotMatch(result.stdout, new RegExp(signerPub));
+    assert.doesNotMatch(result.stdout, /relay-a\.example/);
+    assert.doesNotMatch(result.stderr, new RegExp(signerPub));
+
+    const mode = statSync(output).mode & 0o777;
+    assert.equal(mode, 0o600);
+    const env = readFileSync(output, 'utf8');
+    assert.match(env, new RegExp(`VITE_GUN_PEER_CONFIG_PUBLIC_KEY=${signerPub}`));
+    assert.match(env, /VITE_GUN_PEERS=\n/);
+    assert.match(env, /VITE_GUN_PEER_CONFIG_URL=\n/);
+    assert.match(env, /VITE_GUN_PEER_MINIMUM=3/);
+    assert.match(env, /VITE_GUN_PEER_QUORUM_REQUIRED=2/);
+    assert.match(env, /# TODO\(operator\): set VITE_VH_CSP_CONNECT_SRC/);
+    assert.match(env, /# TODO\(operator\): set VITE_NEWS_SYSTEM_WRITER_PIN_JSON/);
+
+    const buildResult = run('bash', [
+      BUILD_SCRIPT,
+      '--origin',
+      '--dry-run',
+      '--skip-smoke',
+      '--tag',
+      'test-tag',
+      '--provenance-env',
+      output,
+      '--peer-config-file',
+      path.join(dist, 'mesh-peer-config.json'),
+    ]);
+    assert.equal(buildResult.status, 78);
+    assert.match(buildResult.stderr, /VITE_VH_CSP_CONNECT_SRC/);
+    assert.match(buildResult.stderr, /VITE_NEWS_SYSTEM_WRITER_PIN_JSON/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('deploy packet preserves relay bind mounts and does not print env values', () => {
