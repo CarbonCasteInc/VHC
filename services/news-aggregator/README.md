@@ -39,6 +39,11 @@ pnpm report:source-scout
 pnpm check:source-health
 ```
 
+Production service packaging lives in
+`../../docs/ops/news-aggregator-production-service.md`. The managed service
+wraps this same `pnpm daemon` path with source-health and OpenAI preflight
+gates; it is not a separate publisher.
+
 ## Mesh paths
 
 - `vh/news/stories/<storyId>` — published story bundles
