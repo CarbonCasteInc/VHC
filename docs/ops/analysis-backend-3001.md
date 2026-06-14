@@ -98,6 +98,11 @@ Vite-proxied checks (when web-pwa dev server is up):
 Do not repoint production origin until the local `:3001` contract is green and
 the operator approves the env change.
 
+The installer writes a user unit with
+`PATH=%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin`. This
+matches the A6 `humble` runtime layout where Node may be exposed through
+`~/.local/bin` and package-manager shims may live under `~/.hermes/node/bin`.
+
 Approved host packet:
 
 ```bash
