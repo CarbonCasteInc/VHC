@@ -326,6 +326,7 @@ smoke_origin() {
   fi
   local cid
   cid="$(docker run -d --rm -P \
+    --platform "${PLATFORM}" \
     -e HOST=0.0.0.0 \
     -e VH_PUBLIC_ORIGIN_RELAY_TARGET=http://127.0.0.1:9 \
     -e VH_PUBLIC_ORIGIN_ANALYSIS_TARGET="${VH_PUBLIC_BETA_SMOKE_ANALYSIS_TARGET:-http://127.0.0.1:3001}" \
@@ -352,6 +353,7 @@ smoke_relay() {
   local tmp cid port
   tmp="$(mktemp -d)"
   cid="$(docker run -d --rm -P \
+    --platform "${PLATFORM}" \
     -e NODE_ENV=production \
     -e GUN_HOST=0.0.0.0 \
     -e GUN_FILE=/data \
