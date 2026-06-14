@@ -18,6 +18,11 @@ set -a
 source "${ENV_FILE}"
 set +a
 
+if [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
+  echo "[vh:news-daemon:prod] refusing to start without VH_NEWS_DAEMON_START_APPROVED=1 in ${ENV_FILE}" >&2
+  exit 78
+fi
+
 export VH_NEWS_DAEMON_STATE_DIR="${VH_NEWS_DAEMON_STATE_DIR:-${STATE_DIR}}"
 export VH_DAEMON_FEED_ARTIFACT_ROOT="${VH_DAEMON_FEED_ARTIFACT_ROOT:-${ARTIFACT_ROOT}}"
 export VH_BUNDLE_SYNTHESIS_QUEUE_DIR="${VH_BUNDLE_SYNTHESIS_QUEUE_DIR:-${VH_NEWS_DAEMON_STATE_DIR}/bundle-synthesis-queue}"

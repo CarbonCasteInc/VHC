@@ -98,9 +98,10 @@ systemctl --user restart vh-news-aggregator.service
 `ExecStart` entrypoint for the managed publisher service. It fails closed unless:
 
 1. `VH_NEWS_DAEMON_ENV_FILE` is readable.
-2. `pnpm check:news-sources:health` passes with release-evidence enforcement.
-3. `pnpm --filter @vh/storycluster-engine build` passes.
-4. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
+2. `VH_NEWS_DAEMON_START_APPROVED=1` is present in that env file.
+3. `pnpm check:news-sources:health` passes with release-evidence enforcement.
+4. `pnpm --filter @vh/storycluster-engine build` passes.
+5. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
 
 After these pass, the wrapper writes
 `VH_NEWS_DAEMON_LAST_SUCCESS_FILE` or
@@ -125,6 +126,7 @@ Required or commonly used names:
 
 ```bash
 VH_GUN_PEERS
+VH_NEWS_DAEMON_START_APPROVED
 VH_STORYCLUSTER_REMOTE_URL
 VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
