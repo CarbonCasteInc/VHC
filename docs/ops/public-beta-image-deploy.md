@@ -92,6 +92,8 @@ exit
 mkdir -p ~/.config/vhc
 scp humble@ccibootstrap:/tmp/vhc-public-beta-capture/origin-dist.tar \
   ~/.config/vhc/origin-dist.tar
+scp humble@ccibootstrap:/tmp/vhc-public-beta-capture/containers.json \
+  ~/.config/vhc/containers.json
 rm -rf ~/.config/vhc/a6-origin-dist
 mkdir -p ~/.config/vhc/a6-origin-dist
 tar -C ~/.config/vhc/a6-origin-dist -xf ~/.config/vhc/origin-dist.tar
@@ -102,17 +104,26 @@ Then create a private env file outside git from the captured static artifact:
 ```bash
 node tools/scripts/recover-public-beta-origin-provenance.mjs \
   --dist ~/.config/vhc/a6-origin-dist \
+  --inspect-json ~/.config/vhc/containers.json \
   --output ~/.config/vhc/public-beta-origin-build-provenance.env
 ```
 
 The recovery helper writes recovered values to the private env file but prints
-only names, file mode, and hashes. It intentionally leaves non-recoverable
-required values commented as `TODO(operator)`, including CSP connect sources and
-the public news system-writer pin. Fill those from the current deployed build or
-the operator record before attempting the image build. Also review any reported
-`default_names` and `blank_names`; those are behavior-preserving defaults, not
-proof of the exact previous build. `build-public-beta-images.sh` will refuse an
-incomplete provenance file.
+only names, file mode, and hashes. With both `--dist` and `--inspect-json`, it
+recovers:
+
+- signed peer config public key, minimum peer count, and quorum from
+  `mesh-peer-config.json`;
+- `VITE_VH_CSP_CONNECT_SRC` from the current origin container's
+  `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC`;
+- `VITE_NEWS_SYSTEM_WRITER_PIN_JSON` from captured Vite JS chunks.
+
+It does not print those values. It intentionally leaves any non-recoverable
+required values commented as `TODO(operator)`, and
+`build-public-beta-images.sh` will refuse an incomplete provenance file. Even
+when the helper reports `build_ready=yes`, review any reported `default_names`
+and `blank_names`; those are behavior-preserving defaults, not proof of the
+exact previous build.
 
 If the deployed origin image path differs from `/app/dist`, identify it from:
 

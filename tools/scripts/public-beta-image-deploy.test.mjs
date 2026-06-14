@@ -166,6 +166,104 @@ test('origin provenance recovery writes private env without printing recovered v
   }
 });
 
+test('origin provenance recovery completes from inspect JSON and Vite bundle without printing values', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-provenance-complete-'));
+  try {
+    const dist = path.join(root, 'dist');
+    const output = path.join(root, 'origin-provenance.env');
+    const inspectPath = path.join(root, 'inspect.json');
+    const signerPub = 'complete-public-signer-value-that-must-not-print';
+    const cspConnectSrc = "'self' https://origin.example wss://relay-a.example";
+    const pin = {
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      maxProtocolVersion: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      writers: [{
+        id: 'vh-public-beta-news-system-writer-v1',
+        status: 'active',
+        publicKey: { encoding: 'spki-base64url', material: 'public-material-that-must-not-print' },
+      }],
+    };
+    const peerConfig = {
+      payload: {
+        schemaVersion: 'mesh-peer-config-v1',
+        configId: 'prod-public-beta',
+        peers: [
+          'wss://relay-a.example/gun',
+          'wss://relay-b.example/gun',
+          'wss://relay-c.example/gun',
+        ],
+        minimumPeerCount: 3,
+        quorumRequired: 2,
+        issuedAt: 1,
+        expiresAt: 9999999999999,
+      },
+      signature: 'complete-public-signature-value-that-must-not-print',
+      signerPub,
+    };
+    mkdirSync(path.join(dist, 'assets'), { recursive: true });
+    writeFileSync(path.join(dist, 'index.html'), '<script type="module" src="/assets/index.js"></script>\n', 'utf8');
+    writeFileSync(path.join(dist, 'mesh-peer-config.json'), JSON.stringify(peerConfig), 'utf8');
+    writeFileSync(
+      path.join(dist, 'assets', 'index.js'),
+      `const env={VITE_NEWS_SYSTEM_WRITER_PIN_JSON:${JSON.stringify(JSON.stringify(pin))}};\n`,
+      'utf8',
+    );
+    writeFileSync(
+      inspectPath,
+      JSON.stringify([
+        makeContainer('vhc-public-origin', 'vhc-public-beta-origin:old', [
+          `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC=${cspConnectSrc}`,
+        ], [], {}),
+      ]),
+      'utf8',
+    );
+
+    const result = run('node', [
+      RECOVER_PROVENANCE_SCRIPT,
+      '--dist',
+      dist,
+      '--inspect-json',
+      inspectPath,
+      '--output',
+      output,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /inferred_names: .*VITE_NEWS_SYSTEM_WRITER_PIN_JSON/);
+    assert.match(result.stdout, /inferred_names: .*VITE_VH_CSP_CONNECT_SRC/);
+    assert.match(result.stdout, /todo_names: \(none\)/);
+    assert.match(result.stdout, /build_ready=yes/);
+    assert.doesNotMatch(result.stdout, new RegExp(signerPub));
+    assert.doesNotMatch(result.stdout, /origin\.example/);
+    assert.doesNotMatch(result.stdout, /public-material-that-must-not-print/);
+
+    const env = readFileSync(output, 'utf8');
+    assert.match(env, /VITE_VH_CSP_CONNECT_SRC='/);
+    assert.match(env, /VITE_NEWS_SYSTEM_WRITER_PIN_JSON='/);
+    assert.match(env, /complete-public-signer-value-that-must-not-print/);
+    assert.match(env, /public-material-that-must-not-print/);
+
+    const buildResult = run('bash', [
+      BUILD_SCRIPT,
+      '--origin',
+      '--dry-run',
+      '--skip-smoke',
+      '--tag',
+      'test-tag',
+      '--provenance-env',
+      output,
+      '--peer-config-file',
+      path.join(dist, 'mesh-peer-config.json'),
+    ]);
+    assert.equal(buildResult.status, 0, buildResult.stderr);
+    assert.doesNotMatch(buildResult.stdout, /origin\.example/);
+    assert.doesNotMatch(buildResult.stdout, /public-material-that-must-not-print/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('deploy packet preserves relay bind mounts and does not print env values', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-packet-'));
   try {
