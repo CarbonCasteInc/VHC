@@ -15,11 +15,13 @@ re-enable monitors.
 
 - Build and deploy images for `linux/amd64`; do not rely on the local Docker
   default platform.
-- Preserve relay data bind mounts exactly:
-  - `/home/humble/.local/share/vhc/vhc-relay-a/data:/app/data`
-  - `/home/humble/.local/share/vhc/vhc-relay-b/data:/app/data`
-  - `/home/humble/.local/share/vhc/vhc-relay-c/data:/app/data`
-- Preserve the three relay snapshot files in each `/app/data`:
+- Preserve relay data bind mounts exactly at each relay's `GUN_FILE`
+  destination. Current A6 relays set `GUN_FILE=/data`, so the production-shape
+  bind mounts are:
+  - `/home/humble/.local/share/vhc/vhc-relay-a/data:/data`
+  - `/home/humble/.local/share/vhc/vhc-relay-b/data:/data`
+  - `/home/humble/.local/share/vhc/vhc-relay-c/data:/data`
+- Preserve the three relay snapshot files in each relay `GUN_FILE` directory:
   - `news-latest-index-snapshot.json`
   - `news-synthesis-lifecycle-snapshot.json`
   - `topic-synthesis-latest-snapshot.json`
@@ -38,8 +40,9 @@ re-enable monitors.
 
 - `infra/origin/Dockerfile` builds the Web PWA and origin server image.
 - `infra/relay/Dockerfile` builds the relay image.
-- `infra/docker/docker-compose.public-beta.yml` records the production-shape
-  topology with bind-mounted relay data dirs and image tags supplied by env.
+- `infra/docker/docker-compose.public-beta.yml` records the current A6
+  production-shape topology with bind-mounted relay data dirs at `GUN_FILE=/data`
+  and image tags supplied by env.
 - `tools/scripts/build-public-beta-images.sh` builds origin and relay images
   with a pinned platform and records buildx metadata.
 - `tools/scripts/emit-a6-public-beta-deploy-packet.sh` emits a secret-safe A6
@@ -180,7 +183,7 @@ their values.
 2. Run the direct on-disk relay snapshot precheck for every relay.
 3. Deploy one relay at a time with the existing host data bind mount preserved.
 4. After each relay restart, prove the running image tag/digest and verify the
-   three snapshot files still exist in `/app/data`.
+   three snapshot files still exist in the relay `GUN_FILE` directory.
 5. After all relays prove the #638 image is running, run safe latest-index
    behavior probes:
    - `persist=true` returns JSON 400.
@@ -199,7 +202,7 @@ their values.
 
 Abort the deploy if any of these are true:
 
-- Any relay `/app/data` mount is not a bind mount to the existing host path.
+- Any relay `GUN_FILE` data mount is not a bind mount to the existing host path.
 - Any relay data dir is empty, unwritable by the intended UID/GID, or missing
   one of the three snapshot files.
 - Any latest-index snapshot has entries other than `15`.

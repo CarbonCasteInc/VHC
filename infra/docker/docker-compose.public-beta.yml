@@ -29,7 +29,7 @@ services:
     environment:
       GUN_PORT: "7777"
       GUN_HOST: "0.0.0.0"
-      GUN_FILE: /app/data
+      GUN_FILE: /data
       GUN_RADISK: "true"
       NODE_ENV: production
       VH_RELAY_ID: public-beta-relay-a
@@ -39,7 +39,7 @@ services:
     volumes:
       - type: bind
         source: ${VH_PUBLIC_BETA_RELAY_A_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-a/data}
-        target: /app/data
+        target: /data
     ports:
       - "${VH_PUBLIC_BETA_RELAY_A_PORT:-7777}:7777"
     networks:
@@ -54,7 +54,7 @@ services:
     environment:
       GUN_PORT: "7777"
       GUN_HOST: "0.0.0.0"
-      GUN_FILE: /app/data
+      GUN_FILE: /data
       GUN_RADISK: "true"
       NODE_ENV: production
       VH_RELAY_ID: public-beta-relay-b
@@ -64,7 +64,7 @@ services:
     volumes:
       - type: bind
         source: ${VH_PUBLIC_BETA_RELAY_B_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-b/data}
-        target: /app/data
+        target: /data
     ports:
       - "${VH_PUBLIC_BETA_RELAY_B_PORT:-7778}:7777"
     networks:
@@ -79,7 +79,7 @@ services:
     environment:
       GUN_PORT: "7777"
       GUN_HOST: "0.0.0.0"
-      GUN_FILE: /app/data
+      GUN_FILE: /data
       GUN_RADISK: "true"
       NODE_ENV: production
       VH_RELAY_ID: public-beta-relay-c
@@ -89,7 +89,7 @@ services:
     volumes:
       - type: bind
         source: ${VH_PUBLIC_BETA_RELAY_C_DATA_DIR:-/home/humble/.local/share/vhc/vhc-relay-c/data}
-        target: /app/data
+        target: /data
     ports:
       - "${VH_PUBLIC_BETA_RELAY_C_PORT:-7779}:7777"
     networks:
