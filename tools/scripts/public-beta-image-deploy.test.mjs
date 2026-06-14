@@ -81,8 +81,10 @@ test('public beta image build dry-run passes build args by name without leaking 
   }
 });
 
-test('relay image smoke binds Gun to the container interface', () => {
+test('image smoke runs requested platform and binds relay Gun to the container interface', () => {
   const script = readFileSync(BUILD_SCRIPT, 'utf8');
+  assert.match(script, /smoke_origin\(\) \{[\s\S]*--platform "\$\{PLATFORM\}"/);
+  assert.match(script, /smoke_relay\(\) \{[\s\S]*--platform "\$\{PLATFORM\}"/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-e GUN_HOST=0\.0\.0\.0/);
   assert.match(script, /smoke_relay\(\) \{[\s\S]*-v "\$\{tmp\}:\/data"/);
 });
