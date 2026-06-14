@@ -28,6 +28,11 @@ for the release owner account. If this monitor is promoted into PagerDuty or a
 host-local launchd check later, the GitHub Action remains the canonical public
 artifact producer unless this document is updated.
 
+Host-local relay snapshot freshness is covered separately by
+`docs/ops/news-aggregator-production-service.md`. That watch reads
+`news-latest-index-snapshot.json` files directly and does not perform public
+latest-index HTTP probes.
+
 ## Command
 
 ```bash

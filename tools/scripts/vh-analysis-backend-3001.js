@@ -15,6 +15,7 @@ const ARTICLE_FETCH_TIMEOUT_MS = Number(process.env.ARTICLE_FETCH_TIMEOUT_MS || 
 const ARTICLE_FETCH_USER_AGENT =
   process.env.ARTICLE_FETCH_USER_AGENT
   || 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+const ANALYZE_FAIL_CLOSED_STATUS = 501;
 
 const startedAt = Date.now();
 const articleTextCache = new Map();
@@ -78,8 +79,36 @@ function buildHealthPayload(parsedRequest) {
     pipeline: parsedRequest.searchParams.get('pipeline') === 'true',
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
     routes: {
-      health: ['/health', '/api/health', '/healthz', '/status', '/api/analysis/health?pipeline=true', '/?pipeline=true'],
+      health: ['/health', '/api/health', '/healthz', '/status', '/api/analyze/health', '/api/analysis/health?pipeline=true', '/?pipeline=true'],
+      config: '/api/analyze/config',
+      analyze: '/api/analyze',
       articleText: '/api/article-text?url=<http(s)://...>',
+    },
+  };
+}
+
+function buildAnalyzeConfigPayload() {
+  return {
+    configured: true,
+    service: 'vh-analysis-backend-3001',
+    contract: 'analysis-backend-config-v1',
+    provider_id: 'vh-analysis-backend-3001',
+    upstream_url: 'local-only',
+    model: 'not-configured',
+    analyses_limit: 0,
+    analyses_per_topic_limit: 0,
+    article_text: {
+      configured: true,
+      route: '/api/article-text?url=<http(s)://...>',
+      max_chars: ARTICLE_TEXT_MAX_CHARS,
+      cache_ttl_ms: ARTICLE_TEXT_CACHE_TTL_MS,
+      fetch_timeout_ms: ARTICLE_FETCH_TIMEOUT_MS,
+    },
+    analyze_post: {
+      configured: false,
+      status: 'fail_closed',
+      http_status: ANALYZE_FAIL_CLOSED_STATUS,
+      reason: 'full_analysis_out_of_beta_scope',
     },
   };
 }
@@ -90,6 +119,7 @@ function isHealthPath(pathname, parsedRequest) {
     pathname === '/api/health' ||
     pathname === '/healthz' ||
     pathname === '/status' ||
+    pathname === '/api/analyze/health' ||
     pathname === '/api/analysis/health'
   ) {
     return true;
@@ -188,47 +218,97 @@ async function handleArticleText(parsedRequest, res) {
   }
 }
 
-const server = http.createServer((req, res) => {
-  const method = (req.method ?? 'GET').toUpperCase();
-  const parsedRequest = new URL(req.url ?? '/', 'http://localhost');
-  const pathname = parsedRequest.pathname;
-
-  if (isHealthPath(pathname, parsedRequest)) {
-    if (method !== 'GET') {
-      sendJson(res, 405, { error: 'Method not allowed' });
-      return;
-    }
-    sendJson(res, 200, buildHealthPayload(parsedRequest));
-    return;
+async function drainRequestBody(req) {
+  for await (const _chunk of req) {
+    // Drain the request so keep-alive clients do not see a reset.
   }
-
-  if (pathname === '/api/article-text' || pathname === '/article-text') {
-    if (method !== 'GET') {
-      sendJson(res, 405, { error: 'Method not allowed' });
-      return;
-    }
-    void handleArticleText(parsedRequest, res);
-    return;
-  }
-
-  sendJson(res, 404, {
-    error: 'Not found',
-    contract: 'analysis-backend-health-v1',
-    hint: 'Use /health or /api/analysis/health?pipeline=true',
-  });
-});
-
-server.listen(PORT, HOST, () => {
-  console.log(
-    `[vh:analysis-backend] listening http://${HOST}:${PORT} (health=/api/analysis/health?pipeline=true article=/api/article-text?url=...)`,
-  );
-});
-
-function shutdown(signal) {
-  console.log(`[vh:analysis-backend] received ${signal}, shutting down`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5000).unref();
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+async function handleAnalyzePost(req, res) {
+  await drainRequestBody(req);
+  sendJson(res, ANALYZE_FAIL_CLOSED_STATUS, {
+    ok: false,
+    configured: false,
+    service: 'vh-analysis-backend-3001',
+    contract: 'analysis-backend-post-v1',
+    error: 'On-demand full analysis is not enabled on this beta backend',
+    error_class: 'full_analysis_out_of_beta_scope',
+    release_ready: false,
+    article_text_route: '/api/article-text?url=<http(s)://...>',
+  });
+}
+
+function createAnalysisBackendServer() {
+  return http.createServer((req, res) => {
+    const method = (req.method ?? 'GET').toUpperCase();
+    const parsedRequest = new URL(req.url ?? '/', 'http://localhost');
+    const pathname = parsedRequest.pathname;
+
+    if (isHealthPath(pathname, parsedRequest)) {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+      sendJson(res, 200, buildHealthPayload(parsedRequest));
+      return;
+    }
+
+    if (pathname === '/api/analyze/config') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+      sendJson(res, 200, buildAnalyzeConfigPayload());
+      return;
+    }
+
+    if (pathname === '/api/analyze') {
+      if (method !== 'POST') {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+      void handleAnalyzePost(req, res);
+      return;
+    }
+
+    if (pathname === '/api/article-text' || pathname === '/article-text') {
+      if (method !== 'GET') {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+      void handleArticleText(parsedRequest, res);
+      return;
+    }
+
+    sendJson(res, 404, {
+      error: 'Not found',
+      contract: 'analysis-backend-health-v1',
+      hint: 'Use /api/analyze/health, /api/analyze/config, /health, or /api/analysis/health?pipeline=true',
+    });
+  });
+}
+
+if (require.main === module) {
+  const server = createAnalysisBackendServer();
+  server.listen(PORT, HOST, () => {
+    console.log(
+      `[vh:analysis-backend] listening http://${HOST}:${PORT} (health=/api/analyze/health config=/api/analyze/config article=/api/article-text?url=...)`,
+    );
+  });
+
+  function shutdown(signal) {
+    console.log(`[vh:analysis-backend] received ${signal}, shutting down`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 5000).unref();
+  }
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+}
+
+module.exports = {
+  ANALYZE_FAIL_CLOSED_STATUS,
+  buildAnalyzeConfigPayload,
+  buildHealthPayload,
+  createAnalysisBackendServer,
+};
