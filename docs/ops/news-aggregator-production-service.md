@@ -3,7 +3,7 @@
 > Status: Operational Runbook
 > Owner: VHC Ops
 > Last Reviewed: 2026-06-14
-> Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/public-beta-launch-readiness-closeout.md
+> Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
 
@@ -43,6 +43,15 @@ cd /home/humble/VHC
 
 The installer writes user units and reloads systemd. It does not start publisher
 writes by default.
+
+The publisher requires the managed StoryCluster service to be running before
+publisher start. Install and verify the Qdrant-backed service first:
+
+```bash
+./tools/scripts/install-storycluster-production-service.sh --start
+systemctl --user status vh-storycluster-qdrant.service --no-pager
+systemctl --user status vh-storycluster-engine.service --no-pager
+```
 
 Host runtime prerequisite observed on A6 on 2026-06-14: `node` is available at
 `/home/humble/.local/bin/node`, and `pnpm` is available through the
@@ -109,6 +118,8 @@ systemctl --user restart vh-news-aggregator.service
 3. `pnpm check:news-sources:liveness` passes the operational restart gate.
 4. `pnpm --filter @vh/storycluster-engine build` passes.
 5. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
+6. Authenticated StoryCluster `VH_STORYCLUSTER_REMOTE_HEALTH_URL` returns
+   `ok: true` with a readiness `detail` beginning with `qdrant:`.
 
 The liveness preflight writes a regular source-health artifact and a
 `source-health-liveness-report.json`, but it does not enforce the rolling
@@ -132,7 +143,9 @@ pnpm --filter @vh/news-aggregator daemon
 ```
 
 The daemon itself still verifies StoryCluster health before creating the Gun
-client and starting the runtime.
+client and starting the runtime; the wrapper readiness check above exists to
+reject shallow `/health` endpoints or memory-vector StoryCluster instances
+before the preflight-success marker is written.
 
 ## Env File Surface
 
