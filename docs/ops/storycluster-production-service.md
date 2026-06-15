@@ -49,6 +49,23 @@ hash, and sorted variable names. Do not print secret values.
 
 ## Install / Start
 
+These units run as `humble` user services. Enable and verify linger before
+installing so Qdrant and StoryCluster survive logout and reboot:
+
+```bash
+loginctl enable-linger humble
+loginctl show-user humble -p Linger --value
+```
+
+The verification command must print `yes`. The installer fails closed if
+`loginctl` cannot confirm linger is enabled. After install, verify both units are
+enabled:
+
+```bash
+systemctl --user is-enabled vh-storycluster-qdrant.service
+systemctl --user is-enabled vh-storycluster-engine.service
+```
+
 Install units without starting:
 
 ```bash
