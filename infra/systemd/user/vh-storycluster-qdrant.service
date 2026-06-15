@@ -1,0 +1,23 @@
+[Unit]
+Description=VHC StoryCluster Qdrant Vector Store
+Documentation=file:/home/humble/VHC/docs/ops/storycluster-production-service.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Override VHC_REPO, ExecStart, ExecStop, and VH_STORYCLUSTER_ENV_FILE in a drop-in if the checkout or env file differs.
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_STORYCLUSTER_ENV_FILE=%h/.config/vhc/storycluster.env
+Environment=PATH=%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env bash /home/humble/VHC/tools/scripts/start-storycluster-qdrant-production.sh
+ExecStop=/usr/bin/env bash /home/humble/VHC/tools/scripts/stop-storycluster-qdrant-production.sh
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStartSec=180
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

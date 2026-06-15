@@ -1,0 +1,22 @@
+[Unit]
+Description=VHC StoryCluster Engine (:4310 production Qdrant)
+Documentation=file:/home/humble/VHC/docs/ops/storycluster-production-service.md
+After=network-online.target vh-storycluster-qdrant.service
+Wants=network-online.target vh-storycluster-qdrant.service
+
+[Service]
+Type=simple
+# Override VHC_REPO, WorkingDirectory, ExecStart, and VH_STORYCLUSTER_ENV_FILE in a drop-in if the checkout or env file differs.
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_STORYCLUSTER_ENV_FILE=%h/.config/vhc/storycluster.env
+Environment=PATH=%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env bash /home/humble/VHC/tools/scripts/start-storycluster-production.sh
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStartSec=240
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

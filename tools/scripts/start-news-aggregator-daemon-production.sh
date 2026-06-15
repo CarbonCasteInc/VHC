@@ -57,6 +57,66 @@ if (result.status !== 'pass') {
 }
 NODE
 
+echo "[vh:news-daemon:prod] StoryCluster service readiness preflight starting"
+node --input-type=module <<'NODE'
+const endpointUrl = process.env.VH_STORYCLUSTER_REMOTE_URL?.trim();
+const healthUrl = process.env.VH_STORYCLUSTER_REMOTE_HEALTH_URL?.trim();
+const token = process.env.VH_STORYCLUSTER_REMOTE_AUTH_TOKEN?.trim();
+const authHeader = process.env.VH_STORYCLUSTER_REMOTE_AUTH_HEADER?.trim() || 'authorization';
+const authScheme = process.env.VH_STORYCLUSTER_REMOTE_AUTH_SCHEME?.trim() || 'Bearer';
+const timeoutMs = Number.parseInt(process.env.VH_STORYCLUSTER_REMOTE_TIMEOUT_MS ?? '300000', 10);
+
+if (!endpointUrl || !healthUrl || !token) {
+  console.error(JSON.stringify({
+    stage: 'storycluster_service_readiness',
+    status: 'fail',
+    code: 'storycluster-remote-config-missing',
+  }));
+  process.exit(1);
+}
+
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300000);
+try {
+  const response = await fetch(healthUrl, {
+    headers: {
+      [authHeader]: `${authScheme} ${token}`,
+    },
+    signal: controller.signal,
+  });
+  const payload = await response.json().catch(() => ({}));
+  const detail = typeof payload.detail === 'string' ? payload.detail : null;
+  if (!response.ok || payload.ok !== true || !detail?.startsWith('qdrant:')) {
+    console.error(JSON.stringify({
+      stage: 'storycluster_service_readiness',
+      status: 'fail',
+      code: 'storycluster-ready-not-qdrant-backed',
+      http_status: response.status,
+      service: typeof payload.service === 'string' ? payload.service : null,
+      detail,
+    }));
+    process.exit(1);
+  }
+  console.info(JSON.stringify({
+    stage: 'storycluster_service_readiness',
+    status: 'pass',
+    http_status: response.status,
+    service: payload.service,
+    detail,
+  }));
+} catch (error) {
+  console.error(JSON.stringify({
+    stage: 'storycluster_service_readiness',
+    status: 'fail',
+    code: 'storycluster-ready-fetch-failed',
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  process.exit(1);
+} finally {
+  clearTimeout(timer);
+}
+NODE
+
 LAST_SUCCESS_FILE="${LAST_SUCCESS_FILE}" node --input-type=module <<'NODE'
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
