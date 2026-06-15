@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-14
+> Last Reviewed: 2026-06-15
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -36,6 +36,22 @@ A6 runtime note, observed 2026-06-14: `node` is available for `humble` at
 `/home/humble/.local/bin/node`; the user service template includes that path.
 
 ## Install / start (user service)
+
+Enable and verify linger before installing the `humble` user service so the
+analysis backend survives operator logout and reboot:
+
+```bash
+loginctl enable-linger humble
+loginctl show-user humble -p Linger --value
+```
+
+The verification command must print `yes`. The installer fails closed if
+`loginctl` cannot confirm linger is enabled. After install, verify the unit is
+enabled:
+
+```bash
+systemctl --user is-enabled vh-analysis-backend-3001.service
+```
 
 ```bash
 cd /home/humble/VHC

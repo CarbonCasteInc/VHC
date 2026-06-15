@@ -11,6 +11,20 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const INSTALLER = path.join(REPO_ROOT, 'tools/scripts/install-storycluster-production-service.sh');
 
+function writeLoginctlMock(bin) {
+  writeFileSync(
+    path.join(bin, 'loginctl'),
+    `#!/usr/bin/env bash
+if [[ "$1" == "show-user" && "$3" == "-p" && "$4" == "Linger" && "$5" == "--value" ]]; then
+  echo "yes"
+  exit 0
+fi
+exit 1
+`,
+    { mode: 0o755 },
+  );
+}
+
 test('storycluster installer renders user units without starting services by default', async () => {
   const home = mkdtempSync(path.join(tmpdir(), 'vh-storycluster-home-'));
   const bin = path.join(home, 'bin');
@@ -25,6 +39,7 @@ exit 0
 `,
     { mode: 0o755 },
   );
+  writeLoginctlMock(bin);
 
   const result = spawnSync('bash', [INSTALLER], {
     cwd: REPO_ROOT,
@@ -70,6 +85,7 @@ test('storycluster installer refuses to start engine without env file', async ()
     '#!/usr/bin/env bash\nexit 0\n',
     { mode: 0o755 },
   );
+  writeLoginctlMock(bin);
 
   const result = spawnSync('bash', [INSTALLER, '--start-storycluster'], {
     cwd: REPO_ROOT,

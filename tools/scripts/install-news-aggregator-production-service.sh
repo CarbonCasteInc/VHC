@@ -23,14 +23,45 @@ for arg in "$@"; do
   esac
 done
 
+require_user_linger() {
+  local user_name="${VHC_SYSTEMD_USER:-${USER:-}}"
+  if [[ -z "${user_name}" ]]; then
+    user_name="$(id -un)"
+  fi
+
+  if ! command -v loginctl >/dev/null 2>&1; then
+    echo "Unable to verify user linger: loginctl is not available" >&2
+    echo "Before installing user services, run: loginctl enable-linger ${user_name}" >&2
+    return 78
+  fi
+
+  local linger
+  if ! linger="$(loginctl show-user "${user_name}" -p Linger --value 2>/dev/null)"; then
+    echo "Unable to verify user linger for ${user_name}" >&2
+    echo "Before installing user services, run: loginctl enable-linger ${user_name}" >&2
+    return 78
+  fi
+
+  if [[ "${linger}" != "yes" ]]; then
+    echo "User linger is required for durable user services; ${user_name} Linger=${linger:-unset}" >&2
+    echo "Run: loginctl enable-linger ${user_name}" >&2
+    echo "Verify: loginctl show-user ${user_name} -p Linger --value" >&2
+    echo "Required user services: vh-analysis-backend-3001.service vh-storycluster-qdrant.service vh-storycluster-engine.service vh-news-aggregator.service" >&2
+    return 78
+  fi
+
+  echo "Verified user linger for ${user_name}: yes"
+}
+
+require_user_linger
 mkdir -p "${UNIT_DIR}"
 
 cat >"${UNIT_DIR}/vh-news-aggregator.service" <<EOF
 [Unit]
 Description=VHC News Aggregator Publisher Daemon
 Documentation=file:${REPO_ROOT}/docs/ops/news-aggregator-production-service.md
-After=network-online.target
-Wants=network-online.target
+After=network-online.target vh-storycluster-engine.service
+Wants=network-online.target vh-storycluster-engine.service
 
 [Service]
 Type=simple

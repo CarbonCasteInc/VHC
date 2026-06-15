@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-14
+> Last Reviewed: 2026-06-15
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -43,6 +43,36 @@ cd /home/humble/VHC
 
 The installer writes user units and reloads systemd. It does not start publisher
 writes by default.
+
+## User Service Durability
+
+These production surfaces run as `humble` user services and require linger so
+they survive operator logout and host reboot:
+
+```bash
+vh-analysis-backend-3001.service
+vh-storycluster-qdrant.service
+vh-storycluster-engine.service
+vh-news-aggregator.service
+```
+
+Before installing or enabling any Phase 5 user unit, enable and verify linger:
+
+```bash
+loginctl enable-linger humble
+loginctl show-user humble -p Linger --value
+```
+
+The verification command must print `yes`. The installers fail closed if
+`loginctl` cannot confirm linger is enabled. After install, verify the intended
+units are enabled:
+
+```bash
+systemctl --user is-enabled vh-analysis-backend-3001.service
+systemctl --user is-enabled vh-storycluster-qdrant.service
+systemctl --user is-enabled vh-storycluster-engine.service
+systemctl --user is-enabled vh-news-aggregator.service
+```
 
 The publisher requires the managed StoryCluster service to be running before
 publisher start. Install and verify the Qdrant-backed service first:

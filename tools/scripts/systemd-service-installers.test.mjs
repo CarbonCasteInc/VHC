@@ -12,6 +12,10 @@ function readScript(name) {
   return readFileSync(path.join(REPO_ROOT, 'tools/scripts', name), 'utf8');
 }
 
+function readInfraUnit(name) {
+  return readFileSync(path.join(REPO_ROOT, 'infra/systemd/user', name), 'utf8');
+}
+
 test('systemd installers include A6 node and pnpm paths', () => {
   for (const scriptName of [
     'install-analysis-backend-service.sh',
@@ -53,6 +57,30 @@ test('news aggregator installer still gates publisher start on explicit approval
   assert.match(source, /VH_NEWS_DAEMON_START_APPROVED:-/);
   assert.match(source, /--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1/);
   assert.match(source, /systemctl --user enable --now vh-news-aggregator\.service/);
+});
+
+test('news aggregator user unit orders publisher after StoryCluster', () => {
+  for (const source of [
+    readScript('install-news-aggregator-production-service.sh'),
+    readInfraUnit('vh-news-aggregator.service'),
+  ]) {
+    assert.match(source, /After=network-online\.target vh-storycluster-engine\.service/);
+    assert.match(source, /Wants=network-online\.target vh-storycluster-engine\.service/);
+  }
+});
+
+test('installers fail closed unless user linger is enabled', () => {
+  for (const scriptName of [
+    'install-analysis-backend-service.sh',
+    'install-news-aggregator-production-service.sh',
+    'install-storycluster-production-service.sh',
+  ]) {
+    const source = readScript(scriptName);
+    assert.match(source, /loginctl show-user "\$\{user_name\}" -p Linger --value/);
+    assert.match(source, /loginctl enable-linger \$\{user_name\}/);
+    assert.match(source, /User linger is required for durable user services/);
+    assert.match(source, /vh-analysis-backend-3001\.service vh-storycluster-qdrant\.service vh-storycluster-engine\.service vh-news-aggregator\.service/);
+  }
 });
 
 test('news aggregator production start requires qdrant-backed StoryCluster readiness', () => {
