@@ -6,6 +6,7 @@ import {
 import { buildEnrichmentWorkItems } from './newsCluster';
 import {
   orchestrateNewsPipeline,
+  type NewsOrchestratorClusterArtifacts,
   type NewsOrchestratorOptions,
 } from './newsOrchestrator';
 import {
@@ -80,14 +81,70 @@ export interface NewsRuntimeConfig {
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
   createAdvancedArtifact?: (bundle: StoryBundle) => StoryAdvancedArtifact;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
+  onTickSummary?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   onError?: (error: unknown) => void;
   orchestratorOptions?: NewsOrchestratorOptions;
+  noWrite?: boolean;
+  tickWatchdogMs?: number;
 }
 
 export interface NewsRuntimeHandle {
   stop(): void;
   isRunning(): boolean;
   lastRun(): Date | null;
+}
+
+export type NewsRuntimeTickStage =
+  | 'queued'
+  | 'started'
+  | 'orchestrating'
+  | 'clustered'
+  | 'writing_raw_bundles'
+  | 'writing_storylines'
+  | 'pruning_stale'
+  | 'completed'
+  | 'failed';
+
+export interface NewsRuntimeTickSummary {
+  readonly schemaVersion: 'vh-news-runtime-tick-summary-v1';
+  readonly tick_sequence: number;
+  readonly first_tick: boolean;
+  readonly status: 'completed' | 'failed';
+  readonly no_write: boolean;
+  readonly started_at: string;
+  readonly completed_at: string;
+  readonly duration_ms: number;
+  readonly poll_interval_ms: number;
+  readonly feed_source_count: number;
+  readonly ingested_item_count: number | null;
+  readonly normalized_item_count: number | null;
+  readonly clustered_bundle_count: number;
+  readonly clustered_storyline_count: number;
+  readonly selected_bundle_count: number;
+  readonly selected_singleton_bundle_count: number;
+  readonly selected_multi_source_bundle_count: number;
+  readonly publication_ineligible_bundle_count: number;
+  readonly raw_write_attempted_count: number;
+  readonly raw_write_suppressed_count: number;
+  readonly raw_wrote_count: number;
+  readonly raw_write_failed_count: number;
+  readonly storyline_write_attempted_count: number;
+  readonly storyline_write_suppressed_count: number;
+  readonly storyline_wrote_count: number;
+  readonly storyline_write_failed_count: number;
+  readonly stale_story_remove_attempted_count: number;
+  readonly stale_story_remove_suppressed_count: number;
+  readonly stale_story_removed_count: number;
+  readonly stale_story_remove_failed_count: number;
+  readonly stale_storyline_remove_attempted_count: number;
+  readonly stale_storyline_remove_suppressed_count: number;
+  readonly stale_storyline_removed_count: number;
+  readonly stale_storyline_remove_failed_count: number;
+  readonly synthesis_candidate_enqueued_count: number;
+  readonly synthesis_candidate_suppressed_count: number;
+  readonly last_stage: NewsRuntimeTickStage;
+  readonly first_selected_story_ids: readonly string[];
+  readonly error?: string;
 }
 
 function readEnvVar(name: string): string | undefined {
@@ -332,6 +389,56 @@ function runtimeTrace(event: string, detail: Record<string, unknown>): void {
   console.info(`[vh:news-runtime] ${event}`, detail);
 }
 
+function normalizeRuntimeWatchdogMs(config: NewsRuntimeConfig): number | null {
+  const configured = config.tickWatchdogMs ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_TICK_WATCHDOG_MS');
+  if (configured === null || configured === undefined) {
+    return null;
+  }
+  if (!Number.isFinite(configured) || configured <= 0) {
+    throw new Error('tickWatchdogMs must be a positive finite number');
+  }
+  return Math.floor(configured);
+}
+
+function summarizeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logTickSummary(summary: NewsRuntimeTickSummary): void {
+  const logger = summary.status === 'failed' ? console.warn : console.info;
+  logger('[vh:news-runtime] tick summary', summary);
+
+  if (!summary.first_tick) {
+    return;
+  }
+
+  const firstTickLogger =
+    summary.status === 'failed'
+    || summary.selected_bundle_count === 0
+    || (!summary.no_write && summary.raw_wrote_count === 0)
+      ? console.warn
+      : console.info;
+  firstTickLogger('[vh:news-runtime] first tick outcome', summary);
+}
+
+async function emitTickSummary(
+  summary: NewsRuntimeTickSummary,
+  onTickSummary: NewsRuntimeConfig['onTickSummary'],
+): Promise<void> {
+  logTickSummary(summary);
+  if (!onTickSummary) {
+    return;
+  }
+  try {
+    await Promise.resolve(onTickSummary(summary));
+  } catch (error) {
+    console.warn('[vh:news-runtime] tick summary artifact callback failed', {
+      tick_sequence: summary.tick_sequence,
+      error: summarizeError(error),
+    });
+  }
+}
+
 function trustsClusterOutputForPublication(config: NewsRuntimeConfig): boolean {
   return config.orchestratorOptions?.productionMode === true
     && config.orchestratorOptions.allowHeuristicFallback === false;
@@ -342,11 +449,14 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
   const pruneStaleBundles = resolvePruneStaleBundles(config);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
+  const noWrite = config.noWrite === true;
+  const tickWatchdogMs = normalizeRuntimeWatchdogMs(config);
 
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;
   let inFlight = false;
   let lastRunAt: Date | null = null;
+  let tickSequence = 0;
   let publishedStoryIds = new Set<string>();
   let publishedStorylineIds = new Set<string>();
 
@@ -360,19 +470,86 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     }
 
     inFlight = true;
+    tickSequence += 1;
+    const currentTickSequence = tickSequence;
+    const firstTick = currentTickSequence === 1;
     const startedAt = Date.now();
+    let lastStage: NewsRuntimeTickStage = 'started';
+    let latestClusterArtifacts: NewsOrchestratorClusterArtifacts | null = null;
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    if (tickWatchdogMs !== null) {
+      watchdogTimer = setTimeout(() => {
+        if (!inFlight) {
+          return;
+        }
+        console.warn('[vh:news-runtime] tick watchdog warning', {
+          tick_sequence: currentTickSequence,
+          first_tick: firstTick,
+          elapsed_ms: Math.max(0, Date.now() - startedAt),
+          threshold_ms: tickWatchdogMs,
+          last_stage: lastStage,
+          poll_interval_ms: pollIntervalMs,
+        });
+      }, tickWatchdogMs);
+    }
     runtimeTrace('tick_started', {
       poll_interval_ms: pollIntervalMs,
       feed_source_count: config.feedSources.length,
     });
 
+    const baseSummary = (): Omit<NewsRuntimeTickSummary, 'status' | 'completed_at' | 'duration_ms' | 'last_stage'> => ({
+      schemaVersion: 'vh-news-runtime-tick-summary-v1',
+      tick_sequence: currentTickSequence,
+      first_tick: firstTick,
+      no_write: noWrite,
+      started_at: new Date(startedAt).toISOString(),
+      poll_interval_ms: pollIntervalMs,
+      feed_source_count: config.feedSources.length,
+      ingested_item_count: latestClusterArtifacts?.rawItemCount ?? null,
+      normalized_item_count: latestClusterArtifacts?.normalizedItems.length ?? null,
+      clustered_bundle_count: 0,
+      clustered_storyline_count: 0,
+      selected_bundle_count: 0,
+      selected_singleton_bundle_count: 0,
+      selected_multi_source_bundle_count: 0,
+      publication_ineligible_bundle_count: 0,
+      raw_write_attempted_count: 0,
+      raw_write_suppressed_count: 0,
+      raw_wrote_count: 0,
+      raw_write_failed_count: 0,
+      storyline_write_attempted_count: 0,
+      storyline_write_suppressed_count: 0,
+      storyline_wrote_count: 0,
+      storyline_write_failed_count: 0,
+      stale_story_remove_attempted_count: 0,
+      stale_story_remove_suppressed_count: 0,
+      stale_story_removed_count: 0,
+      stale_story_remove_failed_count: 0,
+      stale_storyline_remove_attempted_count: 0,
+      stale_storyline_remove_suppressed_count: 0,
+      stale_storyline_removed_count: 0,
+      stale_storyline_remove_failed_count: 0,
+      synthesis_candidate_enqueued_count: 0,
+      synthesis_candidate_suppressed_count: 0,
+      first_selected_story_ids: [],
+    });
+
     try {
+      const orchestratorOptions: NewsOrchestratorOptions = {
+        ...(config.orchestratorOptions ?? {}),
+      };
+      const existingClusterArtifactsHook = orchestratorOptions.onClusterArtifacts;
+      orchestratorOptions.onClusterArtifacts = async (artifacts) => {
+        latestClusterArtifacts = artifacts;
+        await existingClusterArtifactsHook?.(artifacts);
+      };
+      lastStage = 'orchestrating';
       const result = await orchestrateNewsPipeline(
         {
           feedSources: config.feedSources,
           topicMapping: config.topicMapping,
         },
-        config.orchestratorOptions,
+        orchestratorOptions,
       );
       const { bundles, storylines } = result;
       const trustClusterOutput = trustsClusterOutputForPublication(config);
@@ -382,6 +559,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       const publicationEligibleBundleCount = trustClusterOutput
         ? bundles.length
         : bundles.filter(isPublicationEligibleBundle).length;
+      lastStage = 'clustered';
       runtimeTrace('tick_clustered', {
         bundle_count: bundles.length,
         storyline_count: storylines.length,
@@ -398,7 +576,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       });
 
       const writeStoryBundle = config.writeStoryBundle;
-      if (!writeStoryBundle) {
+      if (!writeStoryBundle && !noWrite) {
         throw new Error('writeStoryBundle adapter is required');
       }
       const removeStoryBundle = config.removeStoryBundle;
@@ -411,26 +589,38 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       const nextPublishedStoryIds = new Set<string>();
       const nextPublishedStorylineIds = new Set<string>();
+      let rawWriteAttemptedCount = 0;
+      let rawWriteSuppressedCount = 0;
+      let rawWroteCount = 0;
       let failedStoryPublishCount = 0;
+      let synthesisCandidateEnqueuedCount = 0;
+      let synthesisCandidateSuppressedCount = 0;
 
+      lastStage = 'writing_raw_bundles';
       for (const bundle of bundlesToPublish) {
         const request = buildRemoteRequest(createPrompt(bundle));
         const workItems = buildEnrichmentWorkItems(bundle);
 
-        try {
-          await writeStoryBundle(config.gunClient, bundle);
-        } catch (error) {
-          failedStoryPublishCount += 1;
-          runtimeTrace('bundle_write_failed', {
-            story_id: bundle.story_id,
-            source_count: canonicalSourceCount(bundle),
-            error: error instanceof Error ? error.message : String(error),
-          });
-          config.onError?.(error);
-          continue;
+        if (noWrite) {
+          rawWriteSuppressedCount += 1;
+        } else {
+          rawWriteAttemptedCount += 1;
+          try {
+            await writeStoryBundle!(config.gunClient, bundle);
+            rawWroteCount += 1;
+          } catch (error) {
+            failedStoryPublishCount += 1;
+            runtimeTrace('bundle_write_failed', {
+              story_id: bundle.story_id,
+              source_count: canonicalSourceCount(bundle),
+              error: summarizeError(error),
+            });
+            config.onError?.(error);
+            continue;
+          }
+          nextPublishedStoryIds.add(bundle.story_id);
+          publishedStoryIds.add(bundle.story_id);
         }
-        nextPublishedStoryIds.add(bundle.story_id);
-        publishedStoryIds.add(bundle.story_id);
 
         let advancedArtifact: StoryAdvancedArtifact | undefined;
         try {
@@ -439,7 +629,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           config.onError?.(error);
         }
 
-        if (config.onSynthesisCandidate && workItems.length > 0) {
+        if (workItems.length > 0) {
           const candidate: NewsRuntimeSynthesisCandidate = {
             story_id: bundle.story_id,
             provider: {
@@ -452,57 +642,109 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             advanced_artifact: advancedArtifact,
           };
 
-          void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
-            config.onError?.(error);
-          });
+          if (noWrite || !config.onSynthesisCandidate) {
+            synthesisCandidateSuppressedCount += 1;
+          } else {
+            synthesisCandidateEnqueuedCount += 1;
+            void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
+              config.onError?.(error);
+            });
+          }
         }
       }
 
-      if (bundlesToPublish.length > 0 && nextPublishedStoryIds.size === 0 && failedStoryPublishCount > 0) {
+      if (!noWrite && bundlesToPublish.length > 0 && nextPublishedStoryIds.size === 0 && failedStoryPublishCount > 0) {
         throw new Error(
           `news runtime failed to publish any selected bundles (${failedStoryPublishCount}/${bundlesToPublish.length} failed)`,
         );
       }
 
+      let storylineWriteAttemptedCount = 0;
+      let storylineWriteSuppressedCount = 0;
+      let storylineWroteCount = 0;
+      let storylineWriteFailedCount = 0;
       if (writeStorylineGroup) {
+        lastStage = 'writing_storylines';
         for (const storyline of storylines) {
-          try {
-            await writeStorylineGroup(config.gunClient, storyline);
-            nextPublishedStorylineIds.add(storyline.storyline_id);
-            publishedStorylineIds.add(storyline.storyline_id);
-          } catch (error) {
-            runtimeTrace('storyline_write_failed', {
-              storyline_id: storyline.storyline_id,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            config.onError?.(error);
+          if (noWrite) {
+            storylineWriteSuppressedCount += 1;
+          } else {
+            storylineWriteAttemptedCount += 1;
+            try {
+              await writeStorylineGroup(config.gunClient, storyline);
+              storylineWroteCount += 1;
+              nextPublishedStorylineIds.add(storyline.storyline_id);
+              publishedStorylineIds.add(storyline.storyline_id);
+            } catch (error) {
+              storylineWriteFailedCount += 1;
+              runtimeTrace('storyline_write_failed', {
+                storyline_id: storyline.storyline_id,
+                error: summarizeError(error),
+              });
+              config.onError?.(error);
+            }
           }
         }
+      } else if (noWrite) {
+        storylineWriteSuppressedCount = storylines.length;
       }
 
-      if (pruneStaleBundles && removeStorylineGroup && bundlesToPublish.length > 0) {
+      let staleStorylineRemoveAttemptedCount = 0;
+      let staleStorylineRemoveSuppressedCount = 0;
+      let staleStorylineRemovedCount = 0;
+      let staleStorylineRemoveFailedCount = 0;
+      if (pruneStaleBundles && (removeStorylineGroup || noWrite) && bundlesToPublish.length > 0) {
+        lastStage = 'pruning_stale';
         const staleStorylineIds = [...publishedStorylineIds]
           .filter((storylineId) => !nextPublishedStorylineIds.has(storylineId))
           .sort();
 
         for (const staleStorylineId of staleStorylineIds) {
-          await removeStorylineGroup(config.gunClient, staleStorylineId);
-          publishedStorylineIds.delete(staleStorylineId);
+          if (noWrite) {
+            staleStorylineRemoveSuppressedCount += 1;
+          } else {
+            staleStorylineRemoveAttemptedCount += 1;
+            try {
+              await removeStorylineGroup!(config.gunClient, staleStorylineId);
+              staleStorylineRemovedCount += 1;
+              publishedStorylineIds.delete(staleStorylineId);
+            } catch (error) {
+              staleStorylineRemoveFailedCount += 1;
+              config.onError?.(error);
+            }
+          }
         }
       }
 
-      if (pruneStaleBundles && removeStoryBundle && nextPublishedStoryIds.size > 0) {
+      let staleStoryRemoveAttemptedCount = 0;
+      let staleStoryRemoveSuppressedCount = 0;
+      let staleStoryRemovedCount = 0;
+      let staleStoryRemoveFailedCount = 0;
+      if (pruneStaleBundles && (removeStoryBundle || noWrite) && (nextPublishedStoryIds.size > 0 || noWrite)) {
+        lastStage = 'pruning_stale';
         const staleStoryIds = [...publishedStoryIds]
           .filter((storyId) => !nextPublishedStoryIds.has(storyId))
           .sort();
 
         for (const staleStoryId of staleStoryIds) {
-          await removeStoryBundle(config.gunClient, staleStoryId);
-          publishedStoryIds.delete(staleStoryId);
+          if (noWrite) {
+            staleStoryRemoveSuppressedCount += 1;
+          } else {
+            staleStoryRemoveAttemptedCount += 1;
+            try {
+              await removeStoryBundle!(config.gunClient, staleStoryId);
+              staleStoryRemovedCount += 1;
+              publishedStoryIds.delete(staleStoryId);
+            } catch (error) {
+              staleStoryRemoveFailedCount += 1;
+              config.onError?.(error);
+            }
+          }
         }
       }
 
       lastRunAt = new Date();
+      lastStage = 'completed';
       runtimeTrace('tick_completed', {
         duration_ms: Math.max(0, Date.now() - startedAt),
         selected_story_count: bundlesToPublish.length,
@@ -510,13 +752,62 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         failed_story_count: failedStoryPublishCount,
         published_storyline_count: nextPublishedStorylineIds.size,
       });
+      const clusterArtifactsSnapshot = latestClusterArtifacts as NewsOrchestratorClusterArtifacts | null;
+      await emitTickSummary({
+        ...baseSummary(),
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        ingested_item_count: clusterArtifactsSnapshot?.rawItemCount ?? null,
+        normalized_item_count: clusterArtifactsSnapshot?.normalizedItems.length ?? null,
+        clustered_bundle_count: bundles.length,
+        clustered_storyline_count: storylines.length,
+        selected_bundle_count: bundlesToPublish.length,
+        selected_singleton_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) === 1).length,
+        selected_multi_source_bundle_count: bundlesToPublish
+          .filter((bundle) => canonicalSourceCount(bundle) > 1).length,
+        publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
+        raw_write_attempted_count: rawWriteAttemptedCount,
+        raw_write_suppressed_count: rawWriteSuppressedCount,
+        raw_wrote_count: rawWroteCount,
+        raw_write_failed_count: failedStoryPublishCount,
+        storyline_write_attempted_count: storylineWriteAttemptedCount,
+        storyline_write_suppressed_count: storylineWriteSuppressedCount,
+        storyline_wrote_count: storylineWroteCount,
+        storyline_write_failed_count: storylineWriteFailedCount,
+        stale_story_remove_attempted_count: staleStoryRemoveAttemptedCount,
+        stale_story_remove_suppressed_count: staleStoryRemoveSuppressedCount,
+        stale_story_removed_count: staleStoryRemovedCount,
+        stale_story_remove_failed_count: staleStoryRemoveFailedCount,
+        stale_storyline_remove_attempted_count: staleStorylineRemoveAttemptedCount,
+        stale_storyline_remove_suppressed_count: staleStorylineRemoveSuppressedCount,
+        stale_storyline_removed_count: staleStorylineRemovedCount,
+        stale_storyline_remove_failed_count: staleStorylineRemoveFailedCount,
+        synthesis_candidate_enqueued_count: synthesisCandidateEnqueuedCount,
+        synthesis_candidate_suppressed_count: synthesisCandidateSuppressedCount,
+        first_selected_story_ids: bundlesToPublish.slice(0, 10).map((bundle) => bundle.story_id),
+        last_stage: lastStage,
+      }, config.onTickSummary);
     } catch (error) {
+      lastStage = 'failed';
       runtimeTrace('tick_failed', {
         duration_ms: Math.max(0, Date.now() - startedAt),
-        error: error instanceof Error ? error.message : String(error),
+        error: summarizeError(error),
       });
+      await emitTickSummary({
+        ...baseSummary(),
+        status: 'failed',
+        completed_at: new Date().toISOString(),
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        last_stage: lastStage,
+        error: summarizeError(error),
+      }, config.onTickSummary);
       config.onError?.(error);
     } finally {
+      if (watchdogTimer !== null) {
+        clearTimeout(watchdogTimer);
+      }
       inFlight = false;
     }
   };
@@ -541,8 +832,10 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   }, pollIntervalMs);
 
   if (config.runOnStart !== false) {
+    const queuedStage: NewsRuntimeTickStage = 'queued';
     runtimeTrace('tick_queued_immediate', {
       poll_interval_ms: pollIntervalMs,
+      last_stage: queuedStage,
     });
     void runTick();
   }

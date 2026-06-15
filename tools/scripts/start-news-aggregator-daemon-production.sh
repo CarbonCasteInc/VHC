@@ -18,7 +18,26 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-if [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
+truthy_flag() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+NO_WRITE_DIAGNOSTIC=false
+if truthy_flag "${VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE:-${VH_NEWS_DAEMON_NO_WRITE:-}}"; then
+  NO_WRITE_DIAGNOSTIC=true
+  export VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1
+fi
+
+if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
+  if [[ "${VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED:-}" != "1" ]]; then
+    echo "[vh:news-daemon:prod] refusing no-write diagnostic without VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1 in ${ENV_FILE}" >&2
+    exit 78
+  fi
+  echo "[vh:news-daemon:prod] no-write diagnostic mode approved; live mesh mutations are suppressed"
+elif [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
   echo "[vh:news-daemon:prod] refusing to start without VH_NEWS_DAEMON_START_APPROVED=1 in ${ENV_FILE}" >&2
   exit 78
 fi
@@ -116,6 +135,9 @@ try {
   clearTimeout(timer);
 }
 NODE
+
+echo "[vh:news-daemon:prod] raw publication readiness preflight starting"
+node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-preflight.mjs"
 
 LAST_SUCCESS_FILE="${LAST_SUCCESS_FILE}" node --input-type=module <<'NODE'
 import { mkdir, writeFile } from 'node:fs/promises';

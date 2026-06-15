@@ -30,6 +30,29 @@ function boolEnv(value, fallback = true) {
   return fallback;
 }
 
+function parseMode(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'baseline') return 'baseline';
+  if (normalized === 'structural-only' || normalized === 'structural_only') return 'structural-only';
+  return 'freshness';
+}
+
+function parseArgs(argv = []) {
+  let mode = null;
+  for (const arg of argv) {
+    if (arg === '--baseline') {
+      mode = 'baseline';
+    } else if (arg === '--structural-only') {
+      mode = 'structural-only';
+    } else if (arg === '--freshness') {
+      mode = 'freshness';
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return { mode };
+}
+
 function parseDelimitedValues(value) {
   const raw = String(value ?? '').trim();
   if (!raw) return [];
@@ -99,6 +122,7 @@ function inspectSnapshotFile(filePath, {
   expectedEntryCount = DEFAULT_EXPECTED_ENTRY_COUNT,
   maxAgeMs = DEFAULT_MAX_AGE_MS,
   maxFileBytes = DEFAULT_MAX_FILE_BYTES,
+  enforceFreshness = true,
 } = {}) {
   const failures = validateSnapshotPath(filePath);
   const result = {
@@ -116,6 +140,7 @@ function inspectSnapshotFile(filePath, {
     newestEntryAt: null,
     newestEntryAtIso: null,
     newestEntryAgeMs: null,
+    freshnessFailures: [],
   };
 
   if (!result.exists) {
@@ -173,7 +198,11 @@ function inspectSnapshotFile(filePath, {
   if (!newestEntryAt || result.newestEntryAgeMs < 0) {
     result.failures.push('newest_entry_not_sane');
   } else if (result.newestEntryAgeMs > maxAgeMs) {
-    result.failures.push(`newest_entry_stale:${result.newestEntryAgeMs}/${maxAgeMs}`);
+    const failure = `newest_entry_stale:${result.newestEntryAgeMs}/${maxAgeMs}`;
+    result.freshnessFailures.push(failure);
+    if (enforceFreshness) {
+      result.failures.push(failure);
+    }
   }
 
   result.status = result.failures.length === 0 ? 'pass' : 'fail';
@@ -198,7 +227,11 @@ function syslogFailure(summary, env = process.env) {
 export async function runRelayLatestIndexSnapshotWatch({
   env = process.env,
   now = Date.now(),
+  argv = [],
 } = {}) {
+  const args = parseArgs(argv);
+  const mode = args.mode ?? parseMode(env.VH_RELAY_SNAPSHOT_WATCH_MODE);
+  const enforceFreshness = mode === 'freshness';
   const maxAgeMs = positiveInt(env.VH_RELAY_SNAPSHOT_WATCH_MAX_AGE_MS, DEFAULT_MAX_AGE_MS);
   const expectedEntryCount = positiveInt(
     env.VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES,
@@ -207,21 +240,33 @@ export async function runRelayLatestIndexSnapshotWatch({
   const maxFileBytes = positiveInt(env.VH_RELAY_SNAPSHOT_WATCH_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES);
   const files = resolveSnapshotFiles(env);
   const snapshots = files.map((filePath) =>
-    inspectSnapshotFile(filePath, { now, expectedEntryCount, maxAgeMs, maxFileBytes }));
+    inspectSnapshotFile(filePath, { now, expectedEntryCount, maxAgeMs, maxFileBytes, enforceFreshness }));
   const blockers = snapshots
     .filter((snapshot) => snapshot.status !== 'pass')
     .map((snapshot) => `${snapshot.file}:${snapshot.failures.join('|')}`);
+  const freshnessBaseline = snapshots
+    .filter((snapshot) => snapshot.freshnessFailures.length > 0)
+    .map((snapshot) => ({
+      file: snapshot.file,
+      newestEntryAt: snapshot.newestEntryAt,
+      newestEntryAtIso: snapshot.newestEntryAtIso,
+      newestEntryAgeMs: snapshot.newestEntryAgeMs,
+      failures: snapshot.freshnessFailures,
+    }));
   const summary = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     generatedAt: new Date(now).toISOString(),
     status: blockers.length === 0 ? 'pass' : 'fail',
     blockers,
     config: {
+      mode,
+      enforceFreshness,
       maxAgeMs,
       expectedEntryCount,
       maxFileBytes,
       files,
     },
+    freshnessBaseline,
     snapshots,
   };
 
@@ -236,7 +281,7 @@ export async function runRelayLatestIndexSnapshotWatch({
 }
 
 async function main() {
-  const summary = await runRelayLatestIndexSnapshotWatch();
+  const summary = await runRelayLatestIndexSnapshotWatch({ argv: process.argv.slice(2) });
   console.info(JSON.stringify(summary, null, 2));
   if (summary.status !== 'pass') {
     process.exit(1);
@@ -248,6 +293,8 @@ export const relayLatestIndexSnapshotWatchInternal = {
   SCHEMA_VERSION,
   entryActivityMs,
   inspectSnapshotFile,
+  parseArgs,
+  parseMode,
   parseDelimitedValues,
   resolveSnapshotFiles,
 };
