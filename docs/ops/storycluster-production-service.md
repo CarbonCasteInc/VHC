@@ -68,8 +68,11 @@ journalctl --user -u vh-storycluster-engine.service -n 200 --no-pager
 ```
 
 The installer starts Qdrant first, waits for `GET /collections`, then starts
-StoryCluster and waits for authenticated `GET /ready`. StoryCluster readiness
-must return `ok: true` and a `detail` beginning with `qdrant:`.
+StoryCluster and waits for authenticated `GET /ready`. The StoryCluster start
+wrapper also polls Qdrant before running the Node server, so unattended restarts
+and reboots do not expose a transient memory-backed or Qdrant-unready service.
+StoryCluster readiness must return `ok: true` and a `detail` beginning with
+`qdrant:`.
 
 ## Health And Contract Checks
 

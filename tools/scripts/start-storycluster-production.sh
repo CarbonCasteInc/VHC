@@ -44,6 +44,40 @@ export VH_STORYCLUSTER_QDRANT_TIMEOUT_MS="${VH_STORYCLUSTER_QDRANT_TIMEOUT_MS:-2
 
 mkdir -p "${VH_STORYCLUSTER_STATE_DIR}"
 
+echo "[vh:storycluster:prod] Qdrant readiness preflight starting"
+node --input-type=module <<'NODE'
+const baseUrl = process.env.VH_STORYCLUSTER_QDRANT_URL?.replace(/\/+$/, '');
+const timeoutMs = Number.parseInt(process.env.VH_STORYCLUSTER_QDRANT_STARTUP_TIMEOUT_MS ?? '120000', 10);
+const deadline = Date.now() + (Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000);
+const headers = {};
+if (process.env.VH_STORYCLUSTER_QDRANT_API_KEY) {
+  headers['api-key'] = process.env.VH_STORYCLUSTER_QDRANT_API_KEY;
+}
+
+let last = 'not-run';
+while (Date.now() < deadline) {
+  try {
+    const response = await fetch(`${baseUrl}/collections`, { headers });
+    last = `HTTP ${response.status}`;
+    if (response.ok) {
+      console.info(JSON.stringify({ stage: 'storycluster_qdrant_readiness', status: 'pass', url: baseUrl }));
+      process.exit(0);
+    }
+  } catch (error) {
+    last = error instanceof Error ? error.message : String(error);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+}
+
+console.error(JSON.stringify({
+  stage: 'storycluster_qdrant_readiness',
+  status: 'fail',
+  url: baseUrl,
+  detail: last,
+}));
+process.exit(1);
+NODE
+
 echo "[vh:storycluster:prod] build starting"
 pnpm --filter @vh/storycluster-engine build
 

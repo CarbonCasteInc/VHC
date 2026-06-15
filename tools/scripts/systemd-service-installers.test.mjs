@@ -41,6 +41,8 @@ test('storycluster production starter refuses non-qdrant service mode', () => {
   assert.match(source, /export NODE_ENV=production/);
   assert.match(source, /VH_STORYCLUSTER_VECTOR_BACKEND="\$\{VH_STORYCLUSTER_VECTOR_BACKEND:-qdrant\}"/);
   assert.match(source, /refusing non-qdrant vector backend in production/);
+  assert.match(source, /Qdrant readiness preflight starting/);
+  assert.match(source, /stage: 'storycluster_qdrant_readiness'/);
   assert.match(source, /preflightOpenAIStoryClusterProviderFromEnv/);
   assert.match(source, /start-storycluster-local\.mjs/);
 });
