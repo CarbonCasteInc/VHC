@@ -168,7 +168,7 @@ jobs:
       - name: Source health applicability
         run: |
           if [ "${{ needs.change-detection.outputs.run-source-health }}" = "true" ]; then
-            echo "Source health: relevant changes detected; running source-health gate."
+            echo "Source health: relevant changes detected; running source-health liveness gate."
           else
             echo "Source health: no relevant changes detected; passing required check."
           fi
@@ -193,7 +193,7 @@ jobs:
 
       - name: Run Source Health Gate
         if: needs.change-detection.outputs.run-source-health == 'true'
-        run: pnpm check:news-sources:health
+        run: pnpm check:news-sources:liveness
 
       - name: Upload Source Health Artifacts
         if: always() && needs.change-detection.outputs.run-source-health == 'true'
@@ -202,6 +202,7 @@ jobs:
           name: news-source-health
           path: |
             services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json
+            services/news-aggregator/.tmp/news-source-admission/latest/source-health-liveness-report.json
             services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json
           if-no-files-found: warn
 

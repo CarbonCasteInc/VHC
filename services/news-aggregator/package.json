@@ -10,6 +10,7 @@
     "build:source-health-deps": "pnpm --filter @vh/types build && pnpm --filter @vh/crypto build && pnpm --filter @vh/data-model build && pnpm --filter @vh/luma-sdk build && pnpm --filter @vh/gun-client build && pnpm --filter @vh/ai-engine build",
     "report:source-admission": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
     "report:source-health": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
+    "check:source-health:liveness": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthLivenessReport.js",
     "report:source-scout": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceCandidateScout.js",
     "replay:bundle-synthesis-lifecycle": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/synthesisLifecycleReplay.js",
     "catchup:public-synthesis": "pnpm build:source-health-deps && pnpm build && node --loader ../../tools/node/esm-resolve-loader.mjs dist/publicSynthesisCatchup.js",

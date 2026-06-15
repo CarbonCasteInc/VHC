@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   computeStoryHotness,
   writeNewsHotIndexEntry,
@@ -55,6 +55,13 @@ const STORY: StoryBundle = {
 };
 
 describe('bundleSynthesisDaemonConfig', () => {
+  beforeEach(() => {
+    vi.stubEnv('ANALYSIS_RELAY_API_KEY', '');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_API_KEY', '');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_ENABLED', '');
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
