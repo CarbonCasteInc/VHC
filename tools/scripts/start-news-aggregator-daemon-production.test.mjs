@@ -75,8 +75,8 @@ test('production daemon start proceeds to preflights when env file contains appr
   try {
     const result = runStartScript(harness);
     assert.equal(result.status, 99);
-    assert.match(result.stdout, /source-health preflight starting/);
-    assert.equal(readFileSync(harness.pnpmMarker, 'utf8').trim(), 'check:news-sources:health');
+    assert.match(result.stdout, /source-health liveness preflight starting/);
+    assert.equal(readFileSync(harness.pnpmMarker, 'utf8').trim(), 'check:news-sources:liveness');
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
   }

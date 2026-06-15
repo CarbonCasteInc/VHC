@@ -106,9 +106,22 @@ systemctl --user restart vh-news-aggregator.service
 
 1. `VH_NEWS_DAEMON_ENV_FILE` is readable.
 2. `VH_NEWS_DAEMON_START_APPROVED=1` is present in that env file.
-3. `pnpm check:news-sources:health` passes with release-evidence enforcement.
+3. `pnpm check:news-sources:liveness` passes the operational restart gate.
 4. `pnpm --filter @vh/storycluster-engine build` passes.
 5. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
+
+The liveness preflight writes a regular source-health artifact and a
+`source-health-liveness-report.json`, but it does not enforce the rolling
+release-evidence window. It fails on current operational blockers only:
+
+- global feed-stage outage / latest publication preservation;
+- enabled source count below the configured floor;
+- live contributing source count below the configured floor;
+- zero admitted sources.
+
+Watch/remove candidates and release-evidence failures are reported as restart
+warnings. They remain release/canary concerns unless the current liveness
+blockers above are present.
 
 After these pass, the wrapper writes
 `VH_NEWS_DAEMON_LAST_SUCCESS_FILE` or
@@ -127,6 +140,12 @@ Default env file:
 
 ```bash
 ~/.config/vhc/news-aggregator.env
+```
+
+Template:
+
+```bash
+docs/ops/news-aggregator.env.example
 ```
 
 Required or commonly used names:
@@ -310,11 +329,23 @@ curl -sS -i https://venn.carboncaste.io/api/analyze/health
 curl -sS -i https://venn.carboncaste.io/api/analyze/config
 ```
 
+## Release Evidence Gate
+
+`pnpm check:news-sources:health` remains the release-grade source-health gate.
+It enforces the rolling release-evidence window and should stay in release
+readiness, canary, and Phase 6 evidence chains. Pull-request CI and publisher
+restart use `pnpm check:news-sources:liveness` so normal engineering validation
+and incident recovery are not blocked on the live release-evidence window. The
+release-grade command is intentionally not the publisher restart preflight
+because a long publisher outage can otherwise create a deadlock: the feed cannot
+restart until it has recent release-evidence runs, but it cannot generate those
+runs while the publisher is stopped.
+
 ## Publisher Start Abort Criteria
 
 Abort or stop the service if any of these occur:
 
-- source-health preflight fails or reports non-pass release evidence;
+- source-health liveness preflight fails;
 - OpenAI preflight is not `pass`;
 - StoryCluster health check fails;
 - relay REST write fanout is below the configured `require_all` target;
@@ -322,6 +353,7 @@ Abort or stop the service if any of these occur:
 - latest content does not advance after approved start and expected ingest
   cadence.
 
-After an approved start, release evidence still requires fresh content advance,
-synthesis lifecycle/publication evidence, public canary, and soak. The service
-starting successfully is not a release-ready claim.
+After an approved start, release evidence still requires
+`pnpm check:news-sources:health`, fresh content advance, synthesis
+lifecycle/publication evidence, public canary, and soak. The service starting
+successfully is not a release-ready claim.

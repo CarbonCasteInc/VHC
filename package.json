@@ -83,6 +83,7 @@
     "check:luma:mvp-production-readiness": "node ./packages/e2e/src/luma/mvp-production-readiness.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
+    "check:news-sources:liveness": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator check:source-health:liveness",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",
     "check:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator check:source-health",
     "catchup:public-synthesis": "pnpm --filter @vh/news-aggregator catchup:public-synthesis",

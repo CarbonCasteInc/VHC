@@ -32,8 +32,8 @@ OPENAI_PREFLIGHT_TIMEOUT_MS="${VH_NEWS_PUBLISHER_OPENAI_PREFLIGHT_TIMEOUT_MS:-12
 
 mkdir -p "${VH_NEWS_DAEMON_STATE_DIR}" "${VH_DAEMON_FEED_ARTIFACT_ROOT}" "$(dirname "${LAST_SUCCESS_FILE}")"
 
-echo "[vh:news-daemon:prod] source-health preflight starting"
-pnpm check:news-sources:health
+echo "[vh:news-daemon:prod] source-health liveness preflight starting"
+pnpm check:news-sources:liveness
 
 echo "[vh:news-daemon:prod] StoryCluster OpenAI preflight build starting"
 pnpm --filter @vh/storycluster-engine build
