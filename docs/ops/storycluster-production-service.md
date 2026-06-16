@@ -131,6 +131,46 @@ VH_STORYCLUSTER_REMOTE_AUTH_SCHEME=Bearer
 The publisher start wrapper still runs the StoryCluster OpenAI preflight, and
 the daemon still verifies StoryCluster health before creating the Gun client.
 
+## Reset Persistent State
+
+StoryCluster persists derived topic state in `VH_STORYCLUSTER_STATE_DIR` and
+cluster vectors in the configured Qdrant collection. A publisher no-write
+diagnostic suppresses mesh writes, but it still calls the StoryCluster service,
+so it can change this derived StoryCluster state. Reset StoryCluster state
+before any live publisher path that must start from current RSS only.
+
+Use the gated reset script. It refuses to run while
+`vh-news-aggregator.service` is active, stops and restarts the StoryCluster
+engine to drop in-memory state, backs up the file store before clearing it,
+deletes the configured Qdrant collection, verifies authenticated `/ready`
+returns `qdrant:...`, and verifies the recreated collection has `0` points.
+It prints only redacted proof.
+
+```bash
+cd /home/humble/VHC
+VH_STORYCLUSTER_RESET_APPROVED=1 \
+  ./tools/scripts/reset-storycluster-production-state.sh
+```
+
+Default backup location:
+
+```bash
+~/.local/state/vhc/storycluster-reset-backups/<timestamp>/storycluster-state.tgz
+```
+
+For Phase 5 publisher recovery, use this cadence unless the diagnostic is
+explicitly pointed at an ephemeral StoryCluster state dir and Qdrant collection:
+
+1. Reset StoryCluster state.
+2. Run the capped publisher no-write diagnostic with a fresh
+   `VH_DAEMON_FEED_RUN_ID`.
+3. Inspect tick shape, not only `selected > 0`: completed tick, no watchdog,
+   sane bundle count, fresh cluster window, no singleton explosion, and recent
+   first selected story IDs.
+4. Reset StoryCluster state again.
+5. Proceed to the gated live publisher start only after the explicit
+   `start Phase 5 now` approval and the publisher preflight gates pass.
+
 ## Abort / Stop
 
 Stopping StoryCluster is read/compute-only and does not write to the mesh:
