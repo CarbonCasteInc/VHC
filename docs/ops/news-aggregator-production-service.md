@@ -199,15 +199,17 @@ unless the env file explicitly overrides them:
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
+VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 ```
 
 These caps keep the first publisher tick from expanding a broad source set into
-dozens of sequential remote StoryCluster requests before any raw story can be
-published. The wrapper also gives the first-tick watchdog enough headroom for
-the bounded cold-start batch to finish before a warning becomes an operator
-abort signal. Override these values deliberately only when StoryCluster
-throughput and the first-tick watchdog window have been recalibrated together.
+dozens of sequential remote StoryCluster requests or hundreds of raw publication
+attempts before the first successful write can be observed. The wrapper also
+gives the first-tick watchdog enough headroom for the bounded cold-start batch
+to finish before a warning becomes an operator abort signal. Override these
+values deliberately only when StoryCluster throughput, publication fanout, and
+the first-tick watchdog window have been recalibrated together.
 
 Every daemon tick writes an always-on diagnostic artifact at
 `$VH_DAEMON_FEED_ARTIFACT_ROOT/news-runtime-diagnostics.json` unless
@@ -257,6 +259,7 @@ VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
+VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_SYSTEM_WRITER_ID
 VH_NEWS_SYSTEM_WRITER_PIN_JSON
