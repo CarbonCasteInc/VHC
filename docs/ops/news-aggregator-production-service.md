@@ -211,6 +211,12 @@ to finish before a warning becomes an operator abort signal. Override these
 values deliberately only when StoryCluster throughput, publication fanout, and
 the first-tick watchdog window have been recalibrated together.
 
+The production wrapper defaults the watchdog to 420 seconds. That budget is
+based on the bounded A6 no-write diagnostic path with 96 feed items and a 96
+bundle publication cap; it should leave room for normal cold-start
+StoryCluster/OpenAI variance while still surfacing a genuinely stuck first
+tick during an attended start.
+
 Every daemon tick writes an always-on diagnostic artifact at
 `$VH_DAEMON_FEED_ARTIFACT_ROOT/news-runtime-diagnostics.json` unless
 `VH_NEWS_RUNTIME_DIAGNOSTIC_FILE` overrides it. The journal also logs

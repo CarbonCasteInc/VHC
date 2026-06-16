@@ -139,7 +139,7 @@ test('production daemon start applies bounded clustering defaults before preflig
       'VH_NEWS_FEED_MAX_ITEMS_TOTAL=96',
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=24',
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=96',
-      'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=300000',
+      'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
     ]);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
