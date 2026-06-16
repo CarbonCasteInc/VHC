@@ -171,6 +171,114 @@ describe('newsOrchestrator', () => {
     expect(result).toEqual({ bundles: [], storylines: [] });
   });
 
+  it('captures zero-normalized cluster artifacts before returning an empty result', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
+    } as unknown as Response);
+    const onClusterArtifacts = vi.fn();
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [
+          {
+            id: 'source-empty',
+            name: 'Source Empty',
+            rssUrl: 'https://feeds.example.com/empty.xml',
+            enabled: true,
+          },
+        ],
+        topicMapping: {
+          defaultTopicId: 'topic-general',
+        },
+      },
+      { onClusterArtifacts },
+    );
+
+    expect(result).toEqual({ bundles: [], storylines: [] });
+    expect(onClusterArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+      rawItemCount: 0,
+      normalizedItems: [],
+      topicCaptures: [],
+    }));
+  });
+
+  it('continues empty pipeline completion when zero-normalized artifact capture fails', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
+    } as unknown as Response);
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [
+          {
+            id: 'source-empty',
+            name: 'Source Empty',
+            rssUrl: 'https://feeds.example.com/empty.xml',
+            enabled: true,
+          },
+        ],
+        topicMapping: {
+          defaultTopicId: 'topic-general',
+        },
+      },
+      {
+        onClusterArtifacts: () => {
+          throw new Error('artifact sink unavailable');
+        },
+      },
+    );
+
+    expect(result).toEqual({ bundles: [], storylines: [] });
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({ error: 'artifact sink unavailable' }),
+    );
+  });
+
+  it('traces non-Error zero-normalized artifact capture failures', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
+    } as unknown as Response);
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [
+          {
+            id: 'source-empty',
+            name: 'Source Empty',
+            rssUrl: 'https://feeds.example.com/empty.xml',
+            enabled: true,
+          },
+        ],
+        topicMapping: {
+          defaultTopicId: 'topic-general',
+        },
+      },
+      {
+        onClusterArtifacts: () => {
+          throw 'artifact sink string failure';
+        },
+      },
+    );
+
+    expect(result).toEqual({ bundles: [], storylines: [] });
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({ error: 'artifact sink string failure' }),
+    );
+  });
+
   it('emits trace logs when VH_NEWS_RUNTIME_TRACE is enabled', async () => {
     vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

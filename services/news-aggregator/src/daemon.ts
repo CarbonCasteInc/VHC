@@ -6,6 +6,7 @@ import {
   type FeedSource,
   type NewsRuntimeConfig,
   type NewsRuntimeHandle,
+  type NewsRuntimeTickSummary,
   type TopicMapping,
 } from '@vh/ai-engine';
 import {
@@ -45,6 +46,7 @@ import {
 } from './daemonUtils';
 import { createLeaseGuard } from './leaseGuard';
 import { createDaemonFeedClusterCaptureRecorder } from './clusterCapturePersistence';
+import { createRuntimeDiagnosticRecorder } from './runtimeDiagnostics';
 import {
   createBundleSynthesisEnrichmentFromEnv,
   isTruthyFlag,
@@ -110,6 +112,8 @@ export interface NewsAggregatorDaemonConfig {
   synthesisCatchupSampleLimit?: number;
   synthesisInProgressStaleMs?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
+  noWrite?: boolean;
+  runtimeTickWatchdogMs?: number;
   now?: () => number;
   random?: () => number;
   setIntervalFn?: typeof setInterval;
@@ -142,6 +146,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseRenewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
+  const noWrite = config.noWrite === true;
   const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({ logger, now: nowFn });
   const queue = createAsyncEnrichmentQueue(
     config.enrichmentWorker ?? (() => undefined),
@@ -154,6 +159,10 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
     readEnvVar('VH_DAEMON_FEED_RUN_ID'),
   );
+  const runtimeDiagnosticRecorder = createRuntimeDiagnosticRecorder({
+    runId: readEnvVar('VH_DAEMON_FEED_RUN_ID'),
+    noWrite,
+  });
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -221,8 +230,28 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       topicMapping: config.topicMapping,
       gunClient: config.client,
       pollIntervalMs: config.pollIntervalMs,
+      noWrite,
+      tickWatchdogMs: config.runtimeTickWatchdogMs,
+      async onTickSummary(summary: NewsRuntimeTickSummary) {
+        const snapshot = await runtimeDiagnosticRecorder(summary);
+        logger.info('[vh:news-daemon] runtime diagnostic artifact written', {
+          holder_id: holderId,
+          tick_sequence: summary.tick_sequence,
+          status: summary.status,
+          no_write: summary.no_write,
+          raw_wrote_count: summary.raw_wrote_count,
+          selected_bundle_count: summary.selected_bundle_count,
+          diagnostic_summary_count: snapshot.summaries.length,
+        });
+      },
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
         const storyId = typeof bundle === 'object' && bundle !== null ? (bundle as { story_id?: unknown }).story_id : null;
+        if (noWrite) {
+          logger.info('[vh:news-daemon] no-write raw bundle write suppressed', {
+            story_id: storyId ?? null,
+          });
+          return bundle;
+        }
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle', { story_id: storyId ?? null }, async () => {
           const written = await writeBundle(runtimeClient as VennClient, bundle);
@@ -263,6 +292,10 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         });
       },
       removeStoryBundle: async (runtimeClient: unknown, storyId: string) => {
+        if (noWrite) {
+          logger.info('[vh:news-daemon] no-write raw bundle remove suppressed', { story_id: storyId });
+          return undefined;
+        }
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle_remove', { story_id: storyId }, async () => {
           return removeBundle(runtimeClient as VennClient, storyId);
@@ -273,18 +306,37 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           typeof storyline === 'object' && storyline !== null
             ? (storyline as { storyline_id?: unknown }).storyline_id
             : null;
+        if (noWrite) {
+          logger.info('[vh:news-daemon] no-write storyline write suppressed', {
+            storyline_id: storylineId ?? null,
+          });
+          return storyline;
+        }
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('storyline', { storyline_id: storylineId ?? null }, async () => {
           return writeNewsStoryline(runtimeClient as VennClient, storyline);
         });
       },
       removeStorylineGroup: async (runtimeClient: unknown, storylineId: string) => {
+        if (noWrite) {
+          logger.info('[vh:news-daemon] no-write storyline remove suppressed', {
+            storyline_id: storylineId,
+          });
+          return undefined;
+        }
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('storyline_remove', { storyline_id: storylineId }, async () => {
           return removeNewsStoryline(runtimeClient as VennClient, storylineId);
         });
       },
       onSynthesisCandidate(candidate) {
+        if (noWrite) {
+          logger.info('[vh:news-daemon] no-write synthesis candidate suppressed', {
+            story_id: candidate.story_id,
+            work_item_count: candidate.work_items.length,
+          });
+          return;
+        }
         queue.enqueue(candidate);
         logger.info('[vh:news-daemon] enrichment candidate enqueued', {
           story_id: candidate.story_id,
@@ -321,10 +373,28 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       now_ms: nowMs,
     });
     if (currentLease && currentLease.holder_id !== holderId && currentLease.expires_at > nowMs) {
+      if (noWrite) {
+        logger.warn('[vh:news-daemon] no-write diagnostic observed active writer lease; continuing without writes', {
+          holder_id: holderId,
+          observed_lease_holder_id: currentLease.holder_id,
+          observed_lease_expires_at: currentLease.expires_at,
+        });
+        startRuntimeIfNeeded();
+        return;
+      }
       logger.warn('[vh:news-daemon] lease held by another writer; runtime stays stopped', { holder_id: holderId, observed_lease_holder_id: currentLease.holder_id, observed_lease_expires_at: currentLease.expires_at });
       leaseGuard.clear();
       queue.pause();
       stopRuntime();
+      return;
+    }
+    if (noWrite) {
+      logger.warn('[vh:news-daemon] no-write diagnostic mode active; skipping lease heartbeat and mutation workers', {
+        holder_id: holderId,
+        observed_lease_holder_id: currentLease?.holder_id ?? null,
+        observed_lease_expires_at: currentLease?.expires_at ?? null,
+      });
+      startRuntimeIfNeeded();
       return;
     }
     const nextLease = buildLeasePayload(
@@ -413,6 +483,10 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     });
   };
   const releaseLease = async (): Promise<void> => {
+    if (noWrite) {
+      leaseGuard.clear();
+      return;
+    }
     const nowMs = nowFn();
     const releaseLease = leaseGuard.releasePayload(nowMs);
     if (!releaseLease) {
@@ -497,6 +571,11 @@ function isDisabledFlag(value: string | undefined): boolean {
   return normalized === '0' || normalized === 'false' || normalized === 'off' || normalized === 'no';
 }
 
+function isEnabledFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 function safePathToken(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'default';
 }
@@ -535,6 +614,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     });
   }
   const holderId = readEnvVar('VH_NEWS_DAEMON_HOLDER_ID');
+  const noWrite = isEnabledFlag(readEnvVar('VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE'))
+    || isEnabledFlag(readEnvVar('VH_NEWS_DAEMON_NO_WRITE'));
+  const runtimeTickWatchdogMs = parseOptionalPositiveInt(readEnvVar('VH_NEWS_RUNTIME_TICK_WATCHDOG_MS'));
   const leaseScope = firstNonEmpty(readEnvVar('VH_NEWS_INGESTION_LEASE_SCOPE'));
   const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
   const gunFile = gunRadisk
@@ -553,9 +635,14 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     ...(leaseScope ? { newsIngestionLeaseScope: leaseScope } : {}),
     ...systemWriterConfig,
   });
-  const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console, {
-    runWrite: writeLanes.run,
-  });
+  const bundleSynthesisEnrichment = noWrite
+    ? {}
+    : createBundleSynthesisEnrichmentFromEnv(client, console, {
+        runWrite: writeLanes.run,
+      });
+  if (noWrite) {
+    console.warn('[vh:news-daemon] no-write diagnostic mode enabled; all mesh mutations are suppressed');
+  }
   const replayArtifactDir = resolveAnalysisEvalReplayArtifactDirFromEnv();
   const daemon = createNewsAggregatorDaemon({
     client,
@@ -565,7 +652,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     leaseTtlMs,
     leaseHolderId: holderId,
     writeLanes,
-    replayAcceptedSynthesis: replayArtifactDir
+    noWrite,
+    runtimeTickWatchdogMs,
+    replayAcceptedSynthesis: !noWrite && replayArtifactDir
       ? (runtimeClient) =>
           replayAcceptedAnalysisEvalSyntheses({
             client: runtimeClient,
@@ -615,4 +704,5 @@ export const __internal = {
   startNewsAggregatorDaemonFromEnv,
   verifyStoryClusterHealth,
   isTruthyFlag,
+  isEnabledFlag,
 };

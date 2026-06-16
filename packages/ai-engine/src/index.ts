@@ -30,4 +30,6 @@ export type {
   NewsRuntimeEnrichmentWorkItem,
   NewsRuntimeHandle,
   NewsRuntimeSynthesisCandidate,
+  NewsRuntimeTickStage,
+  NewsRuntimeTickSummary,
 } from './newsRuntime';

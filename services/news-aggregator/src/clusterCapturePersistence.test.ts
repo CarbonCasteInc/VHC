@@ -19,6 +19,7 @@ function makeArtifacts(overrides: Partial<{
   return {
     schemaVersion: 'news-orchestrator-cluster-artifacts-v1' as const,
     generatedAt: '2026-03-24T00:00:00.000Z',
+    rawItemCount: 1,
     normalizedItems: [
       {
         sourceId,

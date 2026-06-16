@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { NewsRuntimeConfig, NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { NewsRuntimeConfig, NewsRuntimeSynthesisCandidate, NewsRuntimeTickSummary } from '@vh/ai-engine';
 import type { NewsIngestionLease, VennClient } from '@vh/gun-client';
 import { createNewsAggregatorDaemon, __internal } from './daemon';
 
@@ -87,6 +90,50 @@ function makeTimerControls() {
   const clearIntervalFn = vi.fn((() => undefined) as typeof clearInterval);
 
   return { ticks, setIntervalFn, clearIntervalFn };
+}
+
+function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsRuntimeTickSummary {
+  return {
+    schemaVersion: 'vh-news-runtime-tick-summary-v1',
+    tick_sequence: 1,
+    first_tick: true,
+    status: 'completed',
+    no_write: false,
+    started_at: new Date(1_700_000_000_000).toISOString(),
+    completed_at: new Date(1_700_000_001_000).toISOString(),
+    duration_ms: 1_000,
+    poll_interval_ms: 60_000,
+    feed_source_count: 1,
+    ingested_item_count: 3,
+    normalized_item_count: 2,
+    clustered_bundle_count: 1,
+    clustered_storyline_count: 0,
+    selected_bundle_count: 1,
+    selected_singleton_bundle_count: 1,
+    selected_multi_source_bundle_count: 0,
+    publication_ineligible_bundle_count: 0,
+    raw_write_attempted_count: 1,
+    raw_write_suppressed_count: 0,
+    raw_wrote_count: 1,
+    raw_write_failed_count: 0,
+    storyline_write_attempted_count: 0,
+    storyline_write_suppressed_count: 0,
+    storyline_wrote_count: 0,
+    storyline_write_failed_count: 0,
+    stale_story_remove_attempted_count: 0,
+    stale_story_remove_suppressed_count: 0,
+    stale_story_removed_count: 0,
+    stale_story_remove_failed_count: 0,
+    stale_storyline_remove_attempted_count: 0,
+    stale_storyline_remove_suppressed_count: 0,
+    stale_storyline_removed_count: 0,
+    stale_storyline_remove_failed_count: 0,
+    synthesis_candidate_enqueued_count: 1,
+    synthesis_candidate_suppressed_count: 0,
+    last_stage: 'completed',
+    first_selected_story_ids: ['story-1'],
+    ...overrides,
+  };
 }
 
 describe('news aggregator daemon', () => {
@@ -380,6 +427,93 @@ describe('news aggregator daemon', () => {
     });
 
     await daemon.stop();
+  });
+
+  it('runs no-write diagnostics without lease writes, mutation workers, or queue persistence', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-runtime-diagnostics-'));
+    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', tmpDir);
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const replayAcceptedSynthesis = vi.fn().mockResolvedValue({ written: 1 });
+    const reconcileProductFeed = vi.fn().mockResolvedValue({ repaired_latest_index: 1 });
+    const collectPendingSynthesisCandidates = vi.fn().mockResolvedValue({
+      scanned: 1,
+      enqueued: 1,
+      skipped: 0,
+      staleInProgress: 0,
+      bootstrappedMissingLifecycle: 0,
+      acceptedMissingSynthesis: 0,
+      candidates: [{ story: { story_id: CANDIDATE.story_id }, lifecycle: { status: 'pending' }, candidate: CANDIDATE }],
+    });
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      const startRuntime = vi.fn(() => runtimeHandle);
+      const readLease = vi.fn().mockResolvedValue(null);
+      const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+      const writeBundle = vi.fn().mockResolvedValue(undefined);
+      const client = { id: 'client-no-write' } as VennClient;
+
+      const daemon = createNewsAggregatorDaemon({
+        client,
+        feedSources: [...FEED_SOURCES],
+        topicMapping: { ...TOPIC_MAPPING },
+        startRuntime,
+        readLease,
+        writeLease,
+        writeBundle,
+        replayAcceptedSynthesis,
+        reconcileProductFeed,
+        collectPendingSynthesisCandidates,
+        enrichmentWorker,
+        noWrite: true,
+        logger,
+        setIntervalFn: timers.setIntervalFn,
+        clearIntervalFn: timers.clearIntervalFn,
+        now: () => 1_700_000_000_000,
+        random: () => 0.12345,
+        leaseHolderId: 'vh-news-daemon:test',
+      });
+
+      await daemon.start();
+
+      expect(readLease).toHaveBeenCalledTimes(1);
+      expect(writeLease).not.toHaveBeenCalled();
+      expect(replayAcceptedSynthesis).not.toHaveBeenCalled();
+      expect(reconcileProductFeed).not.toHaveBeenCalled();
+      expect(collectPendingSynthesisCandidates).not.toHaveBeenCalled();
+      expect(startRuntime).toHaveBeenCalledTimes(1);
+
+      const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+      expect(runtimeConfig.noWrite).toBe(true);
+      runtimeConfig.onSynthesisCandidate?.(CANDIDATE);
+      await Promise.resolve();
+      expect(enrichmentWorker).not.toHaveBeenCalled();
+
+      await runtimeConfig.onTickSummary?.(makeTickSummary({
+        no_write: true,
+        raw_write_attempted_count: 0,
+        raw_write_suppressed_count: 1,
+        raw_wrote_count: 0,
+        synthesis_candidate_enqueued_count: 0,
+        synthesis_candidate_suppressed_count: 1,
+      }));
+      const artifactPath = path.join(tmpDir, 'news-runtime-diagnostics.json');
+      expect(existsSync(artifactPath)).toBe(true);
+      const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as {
+        schemaVersion: string;
+        noWrite: boolean;
+        latest: NewsRuntimeTickSummary;
+      };
+      expect(artifact.schemaVersion).toBe('vh-news-runtime-diagnostics-v1');
+      expect(artifact.noWrite).toBe(true);
+      expect(artifact.latest.raw_write_suppressed_count).toBe(1);
+
+      await daemon.stop();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('refuses publish writes when daemon lease is no longer held', async () => {

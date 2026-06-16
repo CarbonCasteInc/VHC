@@ -144,12 +144,20 @@ systemctl --user restart vh-news-aggregator.service
 `ExecStart` entrypoint for the managed publisher service. It fails closed unless:
 
 1. `VH_NEWS_DAEMON_ENV_FILE` is readable.
-2. `VH_NEWS_DAEMON_START_APPROVED=1` is present in that env file.
+2. Either live start approval or diagnostic no-write approval is present:
+   - live publisher: `VH_NEWS_DAEMON_START_APPROVED=1`;
+   - no-write diagnostic: `VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1` and
+     `VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1`.
 3. `pnpm check:news-sources:liveness` passes the operational restart gate.
 4. `pnpm --filter @vh/storycluster-engine build` passes.
 5. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
 6. Authenticated StoryCluster `VH_STORYCLUSTER_REMOTE_HEALTH_URL` returns
    `ok: true` with a readiness `detail` beginning with `qdrant:`.
+7. The raw publication readiness preflight passes without writing a canary:
+   signer material names are present, `VH_GUN_PEERS` parses, relay health
+   endpoints are reachable through read-only `/healthz`, StoryCluster config is
+   present, and relay-REST synthesis config is complete when synthesis is
+   enabled.
 
 The liveness preflight writes a regular source-health artifact and a
 `source-health-liveness-report.json`, but it does not enforce the rolling
@@ -177,6 +185,21 @@ client and starting the runtime; the wrapper readiness check above exists to
 reject shallow `/health` endpoints or memory-vector StoryCluster instances
 before the preflight-success marker is written.
 
+No-write diagnostic mode starts the same runtime path with all mesh mutations
+suppressed: lease writes/releases, raw bundle writes/removes, storyline
+writes/removes, latest/hot/lifecycle writes, relay-REST synthesis writes,
+synthesis queue persistence, replay writes, and product-feed repair writes.
+It still fetches feeds and calls StoryCluster so the tick summary can prove
+nonzero ingest/normalize/cluster/select before a live start is approved.
+
+Every daemon tick writes an always-on diagnostic artifact at
+`$VH_DAEMON_FEED_ARTIFACT_ROOT/news-runtime-diagnostics.json` unless
+`VH_NEWS_RUNTIME_DIAGNOSTIC_FILE` overrides it. The journal also logs
+`[vh:news-runtime] tick summary` and `[vh:news-runtime] first tick outcome`
+outside `VH_NEWS_RUNTIME_TRACE`; use those fields for first-publish evidence.
+Set `VH_NEWS_RUNTIME_TICK_WATCHDOG_MS` to emit an in-flight warning with elapsed
+time and last known stage if a tick exceeds the threshold.
+
 ## Env File Surface
 
 Default env file:
@@ -196,6 +219,8 @@ Required or commonly used names:
 ```bash
 VH_GUN_PEERS
 VH_NEWS_DAEMON_START_APPROVED
+VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE
+VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED
 VH_STORYCLUSTER_REMOTE_URL
 VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
@@ -211,6 +236,8 @@ VH_NEWS_INGESTION_LEASE_SCOPE
 VH_NEWS_DAEMON_STATE_DIR
 VH_DAEMON_FEED_ARTIFACT_ROOT
 VH_NEWS_DAEMON_LAST_SUCCESS_FILE
+VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
+VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 VH_NEWS_SYSTEM_WRITER_ID
 VH_NEWS_SYSTEM_WRITER_PIN_JSON
 VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL
@@ -254,10 +281,28 @@ VH_RELAY_SNAPSHOT_WATCH_OUTPUT_FILE="$HOME/.local/state/vhc/relay-snapshot-watch
 node tools/scripts/relay-latest-index-snapshot-watch.mjs
 ```
 
+Pre-start publisher recovery baseline:
+
+```bash
+VH_RELAY_SNAPSHOT_WATCH_OUTPUT_FILE="$HOME/.local/state/vhc/relay-snapshot-watch/pre-start-baseline.json" \
+node tools/scripts/relay-latest-index-snapshot-watch.mjs --baseline
+```
+
+`--baseline` and `--structural-only` still validate snapshot file paths,
+schema, entry count, JSON parseability, size, mtime sanity, and timestamp
+sanity. They do not fail solely because `newest_entry_stale` is already beyond
+the 6-hour SLO; instead they record that stale age under `freshnessBaseline`.
+Use this before publisher start to prove the snapshots are structurally safe and
+to preserve the stale baseline. After publisher start, run the default watcher
+with no mode flag; default freshness mode must still fail hard on
+`newest_entry_stale` until new signed stories move the snapshots below the 6h
+SLO.
+
 Config knobs:
 
 ```bash
 VH_RELAY_SNAPSHOT_WATCH_FILES
+VH_RELAY_SNAPSHOT_WATCH_MODE
 VH_RELAY_SNAPSHOT_WATCH_MAX_AGE_MS
 VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES
 VH_RELAY_SNAPSHOT_WATCH_MAX_FILE_BYTES
@@ -300,13 +345,15 @@ for container in containers:
     }, sort_keys=True))
 PY
 rm -f /tmp/vhc-relay-inspect.json
-node /home/humble/VHC/tools/scripts/relay-latest-index-snapshot-watch.mjs
+node /home/humble/VHC/tools/scripts/relay-latest-index-snapshot-watch.mjs --baseline
 ```
 
 The precheck must show schema `vh-news-latest-index-relay-snapshot-v1`, `15`
-entries for every relay snapshot, sane size/mtime, and newest-entry age under
-the 6-hour SLO. Preserve the current relay image tags and inspect output for
-rollback before restart.
+entries for every relay snapshot, and sane size/mtime. A stale newest-entry age
+is recorded as the baseline during publisher recovery; after first-publish
+proof, default freshness mode must show newest-entry age under the 6-hour SLO.
+Preserve the current relay image tags and inspect output for rollback before
+restart.
 
 Only after that direct disk precheck passes, use the existing host deploy pattern
 for the relay image containing #638. If the host does not already have a clear

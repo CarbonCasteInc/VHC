@@ -18,7 +18,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/start-news-aggregator-daemon-production.sh');
 
-function makeHarness({ approved }) {
+function makeHarness({ approved, noWriteDiagnostic = false, diagnosticApproved = false }) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-start-'));
   const binDir = path.join(root, 'bin');
   const envFile = path.join(root, 'news-aggregator.env');
@@ -34,10 +34,12 @@ function makeHarness({ approved }) {
     envFile,
     [
       approved ? 'VH_NEWS_DAEMON_START_APPROVED=1' : 'VH_NEWS_DAEMON_HOLDER_ID=test-unapproved',
+      noWriteDiagnostic ? 'VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1' : null,
+      diagnosticApproved ? 'VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1' : null,
       `VH_NEWS_DAEMON_STATE_DIR=${path.join(root, 'state')}`,
       `VH_DAEMON_FEED_ARTIFACT_ROOT=${path.join(root, 'artifacts')}`,
       `VH_NEWS_DAEMON_LAST_SUCCESS_FILE=${path.join(root, 'state/last-success.json')}`,
-    ].join('\n') + '\n',
+    ].filter(Boolean).join('\n') + '\n',
     'utf8',
   );
 
@@ -65,6 +67,34 @@ test('production daemon start requires persistent approval before any preflight 
     assert.equal(result.status, 78);
     assert.match(result.stderr, /refusing to start without VH_NEWS_DAEMON_START_APPROVED=1/);
     assert.equal(existsSync(harness.pnpmMarker), false);
+  } finally {
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+});
+
+test('no-write diagnostic start requires separate diagnostic approval before any preflight runs', () => {
+  const harness = makeHarness({ approved: false, noWriteDiagnostic: true });
+  try {
+    const result = runStartScript(harness);
+    assert.equal(result.status, 78);
+    assert.match(result.stderr, /refusing no-write diagnostic without VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1/);
+    assert.equal(existsSync(harness.pnpmMarker), false);
+  } finally {
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+});
+
+test('no-write diagnostic approval proceeds to preflights without live start approval', () => {
+  const harness = makeHarness({
+    approved: false,
+    noWriteDiagnostic: true,
+    diagnosticApproved: true,
+  });
+  try {
+    const result = runStartScript(harness);
+    assert.equal(result.status, 99);
+    assert.match(result.stdout, /no-write diagnostic mode approved/);
+    assert.equal(readFileSync(harness.pnpmMarker, 'utf8').trim(), 'check:news-sources:liveness');
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
   }

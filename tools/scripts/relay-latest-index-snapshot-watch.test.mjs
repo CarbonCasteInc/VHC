@@ -99,6 +99,60 @@ test('relay snapshot watcher fails stale newest-entry and entry-count mismatches
   }
 });
 
+test('relay snapshot watcher baseline mode records stale freshness without failing structural checks', async () => {
+  const { root, file } = makeTempSnapshotDir();
+  try {
+    writeSnapshot(file, {
+      snapshot: {
+        cached_at: NOW - 7 * 60 * 60 * 1000,
+        entries: Array.from({ length: 15 }, (_, index) => ({
+          story_id: `story-stale-${index}`,
+          record: { latest_activity_at: NOW - 7 * 60 * 60 * 1000 },
+          story: { story_id: `story-stale-${index}`, cluster_window_end: NOW - 7 * 60 * 60 * 1000 },
+        })),
+      },
+    });
+    const summary = await runRelayLatestIndexSnapshotWatch({
+      now: NOW,
+      argv: ['--baseline'],
+      env: {
+        VH_RELAY_SNAPSHOT_WATCH_FILES: file,
+        VH_RELAY_SNAPSHOT_WATCH_SYSLOG: 'false',
+      },
+    });
+
+    assert.equal(summary.status, 'pass');
+    assert.equal(summary.config.mode, 'baseline');
+    assert.equal(summary.config.enforceFreshness, false);
+    assert.equal(summary.blockers.length, 0);
+    assert.match(summary.freshnessBaseline[0].failures.join('\n'), /newest_entry_stale:/);
+    assert.equal(summary.snapshots[0].status, 'pass');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay snapshot watcher structural-only mode still fails malformed snapshots', async () => {
+  const { root, file } = makeTempSnapshotDir();
+  try {
+    writeSnapshot(file, { entryCount: 14 });
+    const summary = await runRelayLatestIndexSnapshotWatch({
+      now: NOW,
+      argv: ['--structural-only'],
+      env: {
+        VH_RELAY_SNAPSHOT_WATCH_FILES: file,
+        VH_RELAY_SNAPSHOT_WATCH_SYSLOG: 'false',
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.config.mode, 'structural-only');
+    assert.match(summary.blockers.join('\n'), /entry_count_mismatch:14\/15/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('relay snapshot watcher reports missing default snapshot files without HTTP probes', async () => {
   const summary = await runRelayLatestIndexSnapshotWatch({
     now: NOW,

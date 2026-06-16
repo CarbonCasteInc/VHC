@@ -31,6 +31,7 @@ export interface NewsOrchestratorTopicClusterArtifacts {
 export interface NewsOrchestratorClusterArtifacts {
   readonly schemaVersion: 'news-orchestrator-cluster-artifacts-v1';
   readonly generatedAt: string;
+  readonly rawItemCount: number;
   readonly normalizedItems: ReadonlyArray<NormalizedItem>;
   readonly topicCaptures: ReadonlyArray<NewsOrchestratorTopicClusterArtifacts>;
 }
@@ -363,6 +364,22 @@ export async function orchestrateNewsPipeline(
   });
 
   if (normalizedItems.length === 0) {
+    if (options.onClusterArtifacts) {
+      try {
+        await Promise.resolve(options.onClusterArtifacts({
+          schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+          generatedAt: new Date().toISOString(),
+          rawItemCount: rawItems.length,
+          normalizedItems,
+          topicCaptures: [],
+        }));
+      } catch (error) {
+        orchestratorTrace('cluster_artifacts_capture_failed', {
+          duration_ms: Math.max(0, Date.now() - startedAt),
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     orchestratorTrace('pipeline_completed', {
       duration_ms: Math.max(0, Date.now() - startedAt),
       bundle_count: 0,
@@ -421,6 +438,7 @@ export async function orchestrateNewsPipeline(
       await Promise.resolve(options.onClusterArtifacts({
         schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
         generatedAt: new Date().toISOString(),
+        rawItemCount: rawItems.length,
         normalizedItems,
         topicCaptures,
       }));
