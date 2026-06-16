@@ -32,6 +32,7 @@ function makeHarness({ approved, noWriteDiagnostic = false, diagnosticApproved =
       'printf "VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE=%s\\n" "${VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_FEED_MAX_ITEMS_TOTAL=%s\\n" "${VH_NEWS_FEED_MAX_ITEMS_TOTAL:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=%s\\n" "${VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
+      'printf "VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=%s\\n" "${VH_NEWS_RUNTIME_TICK_WATCHDOG_MS:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'exit 99',
       '',
     ].join('\n'),
@@ -136,6 +137,7 @@ test('production daemon start applies bounded clustering defaults before preflig
       'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE=8',
       'VH_NEWS_FEED_MAX_ITEMS_TOTAL=96',
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=24',
+      'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=300000',
     ]);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
@@ -149,6 +151,7 @@ test('production daemon start preserves explicit clustering budget overrides', (
       'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE=12',
       'VH_NEWS_FEED_MAX_ITEMS_TOTAL=144',
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=36',
+      'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
     ],
   });
   try {
@@ -159,6 +162,7 @@ test('production daemon start preserves explicit clustering budget overrides', (
       'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE=12',
       'VH_NEWS_FEED_MAX_ITEMS_TOTAL=144',
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=36',
+      'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
     ]);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
