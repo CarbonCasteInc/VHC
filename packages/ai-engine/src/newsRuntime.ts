@@ -479,6 +479,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
     if (tickWatchdogMs !== null) {
       watchdogTimer = setTimeout(() => {
+        /* c8 ignore next 3 -- defensive guard for a timer callback already queued as the tick completes. */
         if (!inFlight) {
           return;
         }
@@ -603,6 +604,8 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
         if (noWrite) {
           rawWriteSuppressedCount += 1;
+          nextPublishedStoryIds.add(bundle.story_id);
+          publishedStoryIds.add(bundle.story_id);
         } else {
           rawWriteAttemptedCount += 1;
           try {
@@ -668,6 +671,8 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         for (const storyline of storylines) {
           if (noWrite) {
             storylineWriteSuppressedCount += 1;
+            nextPublishedStorylineIds.add(storyline.storyline_id);
+            publishedStorylineIds.add(storyline.storyline_id);
           } else {
             storylineWriteAttemptedCount += 1;
             try {
@@ -687,6 +692,10 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         }
       } else if (noWrite) {
         storylineWriteSuppressedCount = storylines.length;
+        for (const storyline of storylines) {
+          nextPublishedStorylineIds.add(storyline.storyline_id);
+          publishedStorylineIds.add(storyline.storyline_id);
+        }
       }
 
       let staleStorylineRemoveAttemptedCount = 0;

@@ -154,6 +154,16 @@ function storyBundle(
   };
 }
 
+function storylineGroup(storylineId: string, storyIds: string[] = [storylineId]): StorylineGroup {
+  return {
+    ...STORYLINE,
+    storyline_id: storylineId,
+    canonical_story_id: storyIds[0] ?? storylineId,
+    story_ids: storyIds,
+    headline: `${storylineId} headline`,
+  };
+}
+
 describe('newsRuntime', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -189,6 +199,9 @@ describe('newsRuntime', () => {
     expect(__internal.normalizeOptionalPositiveInt(4.8, 'sample')).toBe(4);
     expect(() => __internal.normalizeOptionalPositiveInt(0, 'sample')).toThrow(
       'sample must be a positive finite number',
+    );
+    expect(() => startNewsRuntime({ ...BASE_CONFIG, tickWatchdogMs: 0 })).toThrow(
+      'tickWatchdogMs must be a positive finite number',
     );
 
     vi.stubEnv('CUSTOM_RUNTIME_ENV', ' value ');
@@ -663,6 +676,62 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('reports stale story and storyline cleanup failures without failing the tick', async () => {
+    const storyTwo = storyBundle('story-2', { sourceCount: 2, clusterWindowEnd: 200 });
+    const storylineTwo = storylineGroup('storyline-2', ['story-2']);
+    const removeStoryError = new Error('story remove failed');
+    const removeStorylineError = new Error('storyline remove failed');
+    orchestrateNewsPipelineMock
+      .mockImplementationOnce(async (_config, options) => {
+        await emitMockClusterArtifacts(options, 6, 4);
+        return batch([STORY_BUNDLE, storyTwo], [STORYLINE, storylineTwo]);
+      })
+      .mockImplementationOnce(async (_config, options) => {
+        await emitMockClusterArtifacts(options, 3, 2);
+        return batch([STORY_BUNDLE], [STORYLINE]);
+      });
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
+    const removeStoryBundle = vi.fn().mockRejectedValue(removeStoryError);
+    const removeStorylineGroup = vi.fn().mockRejectedValue(removeStorylineError);
+    const onError = vi.fn();
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      removeStoryBundle,
+      removeStorylineGroup,
+      onError,
+      onTickSummary,
+      pruneStaleBundles: true,
+      pollIntervalMs: 10,
+      runOnStart: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+    expect(onTickSummary).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+    expect(onTickSummary).toHaveBeenCalledTimes(2);
+
+    expect(removeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'storyline-2');
+    expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
+    expect(onError).toHaveBeenCalledWith(removeStorylineError);
+    expect(onError).toHaveBeenCalledWith(removeStoryError);
+    expect(onTickSummary.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      stale_storyline_remove_attempted_count: 1,
+      stale_storyline_remove_failed_count: 1,
+      stale_story_remove_attempted_count: 1,
+      stale_story_remove_failed_count: 1,
+    }));
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+
+    handle.stop();
+  });
+
   it('preserves previously published stories by default when a refresh returns fewer bundles', async () => {
     const storyTwo: StoryBundle = {
       ...STORY_BUNDLE,
@@ -708,6 +777,7 @@ describe('newsRuntime', () => {
       ...BASE_CONFIG,
       writeStoryBundle,
       removeStoryBundle,
+      pruneStaleBundles: true,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -923,12 +993,16 @@ describe('newsRuntime', () => {
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
     const onTickSummary = vi.fn();
+    const onClusterArtifacts = vi.fn();
 
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       writeStorylineGroup,
       onTickSummary,
+      orchestratorOptions: {
+        onClusterArtifacts,
+      },
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -949,6 +1023,10 @@ describe('newsRuntime', () => {
       raw_wrote_count: 1,
       storyline_write_attempted_count: 1,
       storyline_wrote_count: 1,
+    }));
+    expect(onClusterArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      rawItemCount: 3,
+      normalizedItems: expect.any(Array),
     }));
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:news-runtime] tick summary',
@@ -1001,6 +1079,40 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('warns when the tick summary artifact callback fails', async () => {
+    orchestrateNewsPipelineMock.mockImplementation(async (_config, options) => {
+      await emitMockClusterArtifacts(options);
+      return batch([STORY_BUNDLE]);
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onTickSummary = vi.fn().mockRejectedValue(new Error('artifact write failed'));
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onTickSummary,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(onTickSummary).toHaveBeenCalled();
+    });
+    await flushTasks();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] tick summary artifact callback failed',
+      expect.objectContaining({
+        tick_sequence: 1,
+        error: 'artifact write failed',
+      }),
+    );
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+
+    handle.stop();
+  });
+
   it('suppresses writes and synthesis callbacks in no-write mode while still reporting selected bundles', async () => {
     orchestrateNewsPipelineMock.mockImplementation(async (_config, options) => {
       await emitMockClusterArtifacts(options, 4, 3);
@@ -1039,6 +1151,54 @@ describe('newsRuntime', () => {
       raw_wrote_count: 0,
       storyline_write_suppressed_count: 1,
       synthesis_candidate_suppressed_count: 1,
+    }));
+
+    handle.stop();
+  });
+
+  it('simulates stale cleanup suppression across no-write ticks without mesh callbacks', async () => {
+    const storyTwo = storyBundle('story-2', { sourceCount: 2, clusterWindowEnd: 200 });
+    const storylineTwo = storylineGroup('storyline-2', ['story-2']);
+    orchestrateNewsPipelineMock
+      .mockImplementationOnce(async (_config, options) => {
+        await emitMockClusterArtifacts(options, 6, 4);
+        return batch([STORY_BUNDLE, storyTwo], [STORYLINE, storylineTwo]);
+      })
+      .mockImplementationOnce(async (_config, options) => {
+        await emitMockClusterArtifacts(options, 3, 2);
+        return batch([STORY_BUNDLE], [STORYLINE]);
+      });
+    const onTickSummary = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      noWrite: true,
+      pruneStaleBundles: true,
+      onTickSummary,
+      pollIntervalMs: 10,
+      runOnStart: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+    expect(onTickSummary).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+    expect(onTickSummary).toHaveBeenCalledTimes(2);
+
+    const firstSummary = onTickSummary.mock.calls[0]?.[0];
+    const secondSummary = onTickSummary.mock.calls[1]?.[0];
+    expect(firstSummary).toEqual(expect.objectContaining({
+      raw_write_suppressed_count: 2,
+      storyline_write_suppressed_count: 2,
+      stale_story_remove_suppressed_count: 0,
+      stale_storyline_remove_suppressed_count: 0,
+    }));
+    expect(secondSummary).toEqual(expect.objectContaining({
+      raw_write_suppressed_count: 1,
+      storyline_write_suppressed_count: 1,
+      stale_story_remove_suppressed_count: 1,
+      stale_storyline_remove_suppressed_count: 1,
     }));
 
     handle.stop();
