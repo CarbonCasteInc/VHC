@@ -17,6 +17,7 @@ function summary(tickSequence: number): NewsRuntimeTickSummary {
     duration_ms: 1_000,
     poll_interval_ms: 60_000,
     feed_source_count: 1,
+    published_bundle_limit: 24,
     ingested_item_count: 3,
     normalized_item_count: 2,
     clustered_bundle_count: 1,
