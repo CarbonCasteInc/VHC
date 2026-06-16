@@ -71,6 +71,7 @@ export interface NewsRuntimeConfig {
   gunClient: unknown;
   pollIntervalMs?: number;
   maxPublishedBundles?: number;
+  firstTickMaxPublishedBundles?: number;
   pruneStaleBundles?: boolean;
   runOnStart?: boolean;
   enabled?: boolean;
@@ -116,6 +117,7 @@ export interface NewsRuntimeTickSummary {
   readonly duration_ms: number;
   readonly poll_interval_ms: number;
   readonly feed_source_count: number;
+  readonly published_bundle_limit: number | null;
   readonly ingested_item_count: number | null;
   readonly normalized_item_count: number | null;
   readonly clustered_bundle_count: number;
@@ -211,6 +213,26 @@ function resolveMaxPublishedBundles(config: NewsRuntimeConfig): number | null {
   return normalizeOptionalPositiveInt(config.maxPublishedBundles, 'maxPublishedBundles')
     ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')
     ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES');
+}
+
+function resolveFirstTickMaxPublishedBundles(config: NewsRuntimeConfig): number | null {
+  return normalizeOptionalPositiveInt(config.firstTickMaxPublishedBundles, 'firstTickMaxPublishedBundles')
+    ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES')
+    ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES');
+}
+
+function resolvePublishedBundleLimit(
+  firstTick: boolean,
+  maxPublishedBundles: number | null,
+  firstTickMaxPublishedBundles: number | null,
+): number | null {
+  if (!firstTick || firstTickMaxPublishedBundles === null) {
+    return maxPublishedBundles;
+  }
+  if (maxPublishedBundles === null) {
+    return firstTickMaxPublishedBundles;
+  }
+  return Math.min(firstTickMaxPublishedBundles, maxPublishedBundles);
 }
 
 function resolvePruneStaleBundles(config: NewsRuntimeConfig): boolean {
@@ -447,6 +469,7 @@ function trustsClusterOutputForPublication(config: NewsRuntimeConfig): boolean {
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
+  const firstTickMaxPublishedBundles = resolveFirstTickMaxPublishedBundles(config);
   const pruneStaleBundles = resolvePruneStaleBundles(config);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
   const noWrite = config.noWrite === true;
@@ -473,6 +496,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     tickSequence += 1;
     const currentTickSequence = tickSequence;
     const firstTick = currentTickSequence === 1;
+    const publishedBundleLimit = resolvePublishedBundleLimit(
+      firstTick,
+      maxPublishedBundles,
+      firstTickMaxPublishedBundles,
+    );
     const startedAt = Date.now();
     let lastStage: NewsRuntimeTickStage = 'started';
     let latestClusterArtifacts: NewsOrchestratorClusterArtifacts | null = null;
@@ -506,6 +534,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       started_at: new Date(startedAt).toISOString(),
       poll_interval_ms: pollIntervalMs,
       feed_source_count: config.feedSources.length,
+      published_bundle_limit: publishedBundleLimit,
       ingested_item_count: latestClusterArtifacts?.rawItemCount ?? null,
       normalized_item_count: latestClusterArtifacts?.normalizedItems.length ?? null,
       clustered_bundle_count: 0,
@@ -554,7 +583,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       );
       const { bundles, storylines } = result;
       const trustClusterOutput = trustsClusterOutputForPublication(config);
-      const bundlesToPublish = selectBundlesForPublication(bundles, maxPublishedBundles, {
+      const bundlesToPublish = selectBundlesForPublication(bundles, publishedBundleLimit, {
         trustClusterOutput,
       });
       const publicationEligibleBundleCount = trustClusterOutput
@@ -564,7 +593,9 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       runtimeTrace('tick_clustered', {
         bundle_count: bundles.length,
         storyline_count: storylines.length,
-        published_bundle_limit: maxPublishedBundles,
+        published_bundle_limit: publishedBundleLimit,
+        steady_published_bundle_limit: maxPublishedBundles,
+        first_tick_published_bundle_limit: firstTickMaxPublishedBundles,
         prune_stale_bundles: pruneStaleBundles,
         trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
@@ -879,6 +910,9 @@ export const __internal = {
   normalizeTitleKeyword,
   isPublicationEligibleBundle,
   refineBundleForPublication,
+  resolveFirstTickMaxPublishedBundles,
+  resolveMaxPublishedBundles,
+  resolvePublishedBundleLimit,
   resolvePruneStaleBundles,
   compareBundlesForPublication,
   selectBundlesForPublication,

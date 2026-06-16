@@ -200,20 +200,26 @@ VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
+VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 ```
 
 These caps keep the first publisher tick from expanding a broad source set into
-dozens of sequential remote StoryCluster requests or hundreds of raw publication
-attempts before the first successful write can be observed. The wrapper also
-gives the first-tick watchdog enough headroom for the bounded cold-start batch
-to finish before a warning becomes an operator abort signal. Override these
-values deliberately only when StoryCluster throughput, publication fanout, and
-the first-tick watchdog window have been recalibrated together.
+dozens of sequential remote StoryCluster requests or a large raw publication
+blast before the first successful write can be observed. The steady-state
+publication cap defaults to 96 bundles, while
+`VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES` defaults to 24 and applies
+only to tick 1. That first-tick cap is intentionally lower so the post-reset
+live start lands a small, inspectable batch before the daemon opens to the
+steady-state publication limit. The wrapper also gives the first-tick watchdog
+enough headroom for the bounded cold-start batch to finish before a warning
+becomes an operator abort signal. Override these values deliberately only when
+StoryCluster throughput, first-tick quality review, steady-state publication
+fanout, and the watchdog window have been recalibrated together.
 
 The production wrapper defaults the watchdog to 420 seconds. That budget is
 based on the bounded A6 no-write diagnostic path with 96 feed items and a 96
-bundle publication cap; it should leave room for normal cold-start
+bundle steady-state publication cap; it should leave room for normal cold-start
 StoryCluster/OpenAI variance while still surfacing a genuinely stuck first
 tick during an attended start.
 

@@ -212,6 +212,14 @@ describe('newsRuntime', () => {
     expect(() => __internal.readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES')).toThrow(
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES must be a positive integer',
     );
+    vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', '');
+    vi.stubEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES', ' 2 ');
+    expect(__internal.resolveFirstTickMaxPublishedBundles(BASE_CONFIG)).toBe(2);
+    expect(__internal.resolvePublishedBundleLimit(true, 96, 24)).toBe(24);
+    expect(__internal.resolvePublishedBundleLimit(false, 96, 24)).toBe(96);
+    expect(__internal.resolvePublishedBundleLimit(true, 12, 24)).toBe(12);
+    expect(__internal.resolvePublishedBundleLimit(true, null, 24)).toBe(24);
+    expect(__internal.resolvePublishedBundleLimit(true, 96, null)).toBe(96);
     expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(false);
     vi.stubEnv('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES', 'true');
     expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(true);
@@ -333,6 +341,60 @@ describe('newsRuntime', () => {
       'corroborated',
       'recent-singleton',
     ]);
+
+    handle.stop();
+  });
+
+  it('applies the first-tick publication cap only to the first tick', async () => {
+    const bundles = [
+      storyBundle('story-old', { clusterWindowEnd: 100 }),
+      storyBundle('story-freshest', { clusterWindowEnd: 400 }),
+      storyBundle('story-middle', { clusterWindowEnd: 300 }),
+      storyBundle('story-fresh', { clusterWindowEnd: 200 }),
+    ];
+    orchestrateNewsPipelineMock.mockResolvedValue(batch(bundles));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onTickSummary = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      maxPublishedBundles: 3,
+      firstTickMaxPublishedBundles: 1,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+      onTickSummary,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'story-freshest',
+    ]);
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      first_tick: true,
+      published_bundle_limit: 1,
+      selected_bundle_count: 1,
+      first_selected_story_ids: ['story-freshest'],
+    }));
+
+    writeStoryBundle.mockClear();
+    onTickSummary.mockClear();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'story-freshest',
+      'story-middle',
+      'story-fresh',
+    ]);
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      first_tick: false,
+      published_bundle_limit: 3,
+      selected_bundle_count: 3,
+      first_selected_story_ids: ['story-freshest', 'story-middle', 'story-fresh'],
+    }));
 
     handle.stop();
   });
