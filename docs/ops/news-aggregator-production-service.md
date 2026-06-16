@@ -192,6 +192,20 @@ synthesis queue persistence, replay writes, and product-feed repair writes.
 It still fetches feeds and calls StoryCluster so the tick summary can prove
 nonzero ingest/normalize/cluster/select before a live start is approved.
 
+The production wrapper applies bounded feed/StoryCluster workload defaults
+unless the env file explicitly overrides them:
+
+```bash
+VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
+VH_NEWS_FEED_MAX_ITEMS_TOTAL
+VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
+```
+
+These caps keep the first publisher tick from expanding a broad source set into
+dozens of sequential remote StoryCluster requests before any raw story can be
+published. Override them deliberately only when StoryCluster throughput and the
+first-tick watchdog window have been recalibrated together.
+
 Every daemon tick writes an always-on diagnostic artifact at
 `$VH_DAEMON_FEED_ARTIFACT_ROOT/news-runtime-diagnostics.json` unless
 `VH_NEWS_RUNTIME_DIAGNOSTIC_FILE` overrides it. The journal also logs
@@ -238,6 +252,9 @@ VH_DAEMON_FEED_ARTIFACT_ROOT
 VH_NEWS_DAEMON_LAST_SUCCESS_FILE
 VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
+VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
+VH_NEWS_FEED_MAX_ITEMS_TOTAL
+VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_SYSTEM_WRITER_ID
 VH_NEWS_SYSTEM_WRITER_PIN_JSON
 VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL
