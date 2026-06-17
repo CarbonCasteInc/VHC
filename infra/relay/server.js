@@ -54,6 +54,7 @@ const port = Number(process.env.GUN_PORT || 7777);
 const host = process.env.GUN_HOST || '127.0.0.1';
 const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
+const gunStatsEnabled = boolEnv('GUN_STATS', false);
 const newsLatestIndexSnapshotFile = process.env.VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE
   || (typeof gunFile === 'string' ? path.join(gunFile, 'news-latest-index-snapshot.json') : '');
 const newsSynthesisLifecycleSnapshotFile = process.env.VH_RELAY_NEWS_LIFECYCLE_SNAPSHOT_FILE
@@ -4377,6 +4378,7 @@ const server = http.createServer((req, res) => {
       relay_id: relayId,
       uptime_ms: Date.now() - metrics.startedAt,
       radisk_enabled: radiskEnabled,
+      gun_stats_enabled: gunStatsEnabled,
       auth_required: authRequired,
       relay_peer_count: relayPeers.length,
       relay_peers_configured: relayPeers.length > 0,
@@ -4398,6 +4400,7 @@ const server = http.createServer((req, res) => {
       daemon_auth_configured: Boolean(daemonToken),
       user_signature_auth_available: true,
       radisk_enabled: radiskEnabled,
+      gun_stats_enabled: gunStatsEnabled,
       relay_peer_count: relayPeers.length,
       relay_peers_configured: relayPeers.length > 0,
       relay_peer_auth_mode: relayPeerAuthMode,
@@ -4862,6 +4865,7 @@ const gun = Gun({
   web: server,
   radisk: radiskEnabled,
   file: gunFile,
+  stats: gunStatsEnabled,
   axe: false,
   multicast: gunMulticastEnabled,
   peers: relayPeers
