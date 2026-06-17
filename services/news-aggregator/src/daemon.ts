@@ -1,4 +1,11 @@
-import { mkdirSync } from 'node:fs';
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -113,6 +120,8 @@ export interface NewsAggregatorDaemonConfig {
   synthesisInProgressStaleMs?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   noWrite?: boolean;
+  runtimeMaxTicks?: number;
+  onRuntimeTickLimitReached?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   runtimeTickWatchdogMs?: number;
   now?: () => number;
   random?: () => number;
@@ -163,6 +172,8 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     runId: readEnvVar('VH_DAEMON_FEED_RUN_ID'),
     noWrite,
   });
+  const runtimeMaxTicks = config.runtimeMaxTicks;
+  let runtimeTickLimitReached = false;
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -243,6 +254,23 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           selected_bundle_count: summary.selected_bundle_count,
           diagnostic_summary_count: snapshot.summaries.length,
         });
+        if (
+          runtimeMaxTicks
+          && summary.tick_sequence >= runtimeMaxTicks
+          && !runtimeTickLimitReached
+        ) {
+          runtimeTickLimitReached = true;
+          logger.info('[vh:news-daemon] runtime tick limit reached', {
+            holder_id: holderId,
+            tick_sequence: summary.tick_sequence,
+            max_ticks: runtimeMaxTicks,
+            status: summary.status,
+            no_write: summary.no_write,
+          });
+          void Promise.resolve(config.onRuntimeTickLimitReached?.(summary)).catch((error) => {
+            logger.warn('[vh:news-daemon] runtime tick limit stop callback failed', error);
+          });
+        }
       },
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
         const storyId = typeof bundle === 'object' && bundle !== null ? (bundle as { story_id?: unknown }).story_id : null;
@@ -580,6 +608,77 @@ function safePathToken(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'default';
 }
 
+interface DaemonProcessLock {
+  readonly filePath: string;
+  release(): void;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') {
+      return false;
+    }
+    return true;
+  }
+}
+
+function readLockPid(filePath: string): number | null {
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    const parsed = Number.parseInt(raw.trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function acquireDaemonProcessLock(filePath: string, logger: LoggerLike): DaemonProcessLock {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = openSync(filePath, 'wx', 0o600);
+      try {
+        writeFileSync(fd, `${process.pid}\n`, 'utf8');
+      } finally {
+        closeSync(fd);
+      }
+      return {
+        filePath,
+        release() {
+          const lockPid = readLockPid(filePath);
+          if (lockPid === process.pid) {
+            rmSync(filePath, { force: true });
+          }
+        },
+      };
+    } catch (error) {
+      if (
+        !error
+        || typeof error !== 'object'
+        || !('code' in error)
+        || error.code !== 'EEXIST'
+      ) {
+        throw error;
+      }
+      const existingPid = readLockPid(filePath);
+      if (existingPid && isProcessAlive(existingPid)) {
+        throw new Error(`news daemon process lock is held by pid ${existingPid}`);
+      }
+      logger.warn('[vh:news-daemon] removing stale process lock', {
+        lock_file: filePath,
+        existing_pid: existingPid,
+      });
+      rmSync(filePath, { force: true });
+    }
+  }
+
+  throw new Error(`unable to acquire news daemon process lock: ${filePath}`);
+}
+
 function resolveNewsDaemonGunFile(holderId: string | undefined): string {
   const stateRoot =
     firstNonEmpty(
@@ -616,9 +715,21 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   const holderId = readEnvVar('VH_NEWS_DAEMON_HOLDER_ID');
   const noWrite = isEnabledFlag(readEnvVar('VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE'))
     || isEnabledFlag(readEnvVar('VH_NEWS_DAEMON_NO_WRITE'));
+  const diagnosticMaxTicks = noWrite
+    ? parseOptionalPositiveInt(readEnvVar('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS')) ?? 1
+    : undefined;
   const runtimeTickWatchdogMs = parseOptionalPositiveInt(readEnvVar('VH_NEWS_RUNTIME_TICK_WATCHDOG_MS'));
   const leaseScope = firstNonEmpty(readEnvVar('VH_NEWS_INGESTION_LEASE_SCOPE'));
   const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
+  const daemonStateDir =
+    firstNonEmpty(
+      readEnvVar('VH_NEWS_DAEMON_STATE_DIR'),
+      readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT'),
+    ) ?? path.join(os.tmpdir(), 'vh-news-daemon');
+  const processLock = acquireDaemonProcessLock(
+    firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_PID_FILE')) ?? path.join(daemonStateDir, 'news-daemon.pid'),
+    console,
+  );
   const gunFile = gunRadisk
     ? firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_GUN_FILE')) ?? resolveNewsDaemonGunFile(holderId)
     : false;
@@ -626,62 +737,111 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     mkdirSync(path.dirname(gunFile), { recursive: true });
   }
   const writeLanes = createDaemonWriteLaneRegistry({ logger: console });
-  const systemWriterConfig = await resolveSystemWriterClientConfigFromEnv();
-  const client = createNodeMeshClient({
-    peers: gunPeers.length > 0 ? gunPeers : undefined,
-    requireSession: false,
-    gunRadisk,
-    gunFile,
-    ...(leaseScope ? { newsIngestionLeaseScope: leaseScope } : {}),
-    ...systemWriterConfig,
-  });
-  const bundleSynthesisEnrichment = noWrite
-    ? {}
-    : createBundleSynthesisEnrichmentFromEnv(client, console, {
-        runWrite: writeLanes.run,
+  let client: VennClient | null = null;
+  let processHandle: NewsAggregatorDaemonProcessHandle | null = null;
+  let diagnosticStopRequested = false;
+  try {
+    const systemWriterConfig = await resolveSystemWriterClientConfigFromEnv();
+    client = createNodeMeshClient({
+      peers: gunPeers.length > 0 ? gunPeers : undefined,
+      requireSession: false,
+      gunRadisk,
+      gunFile,
+      ...(leaseScope ? { newsIngestionLeaseScope: leaseScope } : {}),
+      ...systemWriterConfig,
+    });
+    const bundleSynthesisEnrichment = noWrite
+      ? {}
+      : createBundleSynthesisEnrichmentFromEnv(client, console, {
+          runWrite: writeLanes.run,
+        });
+    if (noWrite) {
+      console.warn('[vh:news-daemon] no-write diagnostic mode enabled; all mesh mutations are suppressed', {
+        diagnostic_max_ticks: diagnosticMaxTicks ?? null,
       });
-  if (noWrite) {
-    console.warn('[vh:news-daemon] no-write diagnostic mode enabled; all mesh mutations are suppressed');
-  }
-  const replayArtifactDir = resolveAnalysisEvalReplayArtifactDirFromEnv();
-  const daemon = createNewsAggregatorDaemon({
-    client,
-    feedSources,
-    topicMapping,
-    pollIntervalMs,
-    leaseTtlMs,
-    leaseHolderId: holderId,
-    writeLanes,
-    noWrite,
-    runtimeTickWatchdogMs,
-    replayAcceptedSynthesis: !noWrite && replayArtifactDir
-      ? (runtimeClient) =>
-          replayAcceptedAnalysisEvalSyntheses({
-            client: runtimeClient,
-            artifactDir: replayArtifactDir,
-            logger: console,
-            runWrite: writeLanes.run,
+    }
+    const replayArtifactDir = resolveAnalysisEvalReplayArtifactDirFromEnv();
+    const requestDiagnosticStop = (summary: NewsRuntimeTickSummary) => {
+      if (!noWrite || !diagnosticMaxTicks || diagnosticStopRequested) {
+        return;
+      }
+      diagnosticStopRequested = true;
+      setTimeout(() => {
+        void processHandle?.stop()
+          .then(() => {
+            console.info('[vh:news-daemon] bounded no-write diagnostic stopped after tick limit', {
+              tick_sequence: summary.tick_sequence,
+              max_ticks: diagnosticMaxTicks,
+              status: summary.status,
+            });
           })
-      : undefined,
-    ...bundleSynthesisEnrichment,
-    runtimeOrchestratorOptions: {
-      productionMode: true,
-      allowHeuristicFallback: false,
-      remoteClusterEndpoint: storyCluster.endpointUrl,
-      remoteClusterTimeoutMs: storyCluster.timeoutMs,
-      remoteClusterMaxItemsPerRequest: storyCluster.maxItemsPerRequest,
-      remoteClusterHeaders: storyCluster.headers,
-    } as RuntimeOrchestratorOptions,
-  });
-  await daemon.start();
-  return {
-    daemon,
-    client,
-    async stop() {
-      await daemon.stop();
-      await client.shutdown();
-    },
-  };
+          .catch((error) => {
+            console.warn('[vh:news-daemon] bounded no-write diagnostic stop failed', error);
+          });
+      }, 0);
+    };
+    const daemon = createNewsAggregatorDaemon({
+      client,
+      feedSources,
+      topicMapping,
+      pollIntervalMs,
+      leaseTtlMs,
+      leaseHolderId: holderId,
+      writeLanes,
+      noWrite,
+      runtimeMaxTicks: diagnosticMaxTicks,
+      onRuntimeTickLimitReached: diagnosticMaxTicks ? requestDiagnosticStop : undefined,
+      runtimeTickWatchdogMs,
+      replayAcceptedSynthesis: !noWrite && replayArtifactDir
+        ? (runtimeClient) =>
+            replayAcceptedAnalysisEvalSyntheses({
+              client: runtimeClient,
+              artifactDir: replayArtifactDir,
+              logger: console,
+              runWrite: writeLanes.run,
+            })
+        : undefined,
+      ...bundleSynthesisEnrichment,
+      runtimeOrchestratorOptions: {
+        productionMode: true,
+        allowHeuristicFallback: false,
+        remoteClusterEndpoint: storyCluster.endpointUrl,
+        remoteClusterTimeoutMs: storyCluster.timeoutMs,
+        remoteClusterMaxItemsPerRequest: storyCluster.maxItemsPerRequest,
+        remoteClusterHeaders: storyCluster.headers,
+      } as RuntimeOrchestratorOptions,
+    });
+    let stopped = false;
+    processHandle = {
+      daemon,
+      client,
+      async stop() {
+        if (stopped) {
+          return;
+        }
+        stopped = true;
+        try {
+          await daemon.stop();
+          await client?.shutdown();
+        } finally {
+          processLock.release();
+        }
+      },
+    };
+    await daemon.start();
+    return processHandle;
+  } catch (error) {
+    if (processHandle) {
+      await processHandle?.stop();
+    } else {
+      try {
+        await client?.shutdown();
+      } finally {
+        processLock.release();
+      }
+    }
+    throw error;
+  }
 }
 
 /* c8 ignore start */

@@ -162,8 +162,9 @@ For Phase 5 publisher recovery, use this cadence unless the diagnostic is
 explicitly pointed at an ephemeral StoryCluster state dir and Qdrant collection:
 
 1. Reset StoryCluster state.
-2. Run the capped publisher no-write diagnostic with a fresh
-   `VH_DAEMON_FEED_RUN_ID`.
+2. Run the capped, self-terminating publisher no-write diagnostic with a fresh
+   `VH_DAEMON_FEED_RUN_ID`; the production wrapper defaults this diagnostic to
+   one runtime tick via `VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=1`.
 3. Inspect tick shape, not only `selected > 0`: completed tick, no watchdog,
    sane bundle count, fresh cluster window, no singleton explosion, and recent
    first selected story IDs.

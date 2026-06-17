@@ -18,7 +18,13 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/start-news-aggregator-daemon-production.sh');
 
-function makeHarness({ approved, noWriteDiagnostic = false, diagnosticApproved = false, extraEnv = [] }) {
+function makeHarness({
+  approved,
+  noWriteDiagnostic = false,
+  diagnosticApproved = false,
+  extraEnv = [],
+  psOutput = null,
+}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-start-'));
   const binDir = path.join(root, 'bin');
   const envFile = path.join(root, 'news-aggregator.env');
@@ -35,12 +41,29 @@ function makeHarness({ approved, noWriteDiagnostic = false, diagnosticApproved =
       'printf "VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=%s\\n" "${VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=%s\\n" "${VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=%s\\n" "${VH_NEWS_RUNTIME_TICK_WATCHDOG_MS:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
+      'if [[ -n "${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS:-}" ]]; then',
+      '  printf "VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=%s\\n" "${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS}" >> "${VH_TEST_PNPM_MARKER:?}"',
+      'fi',
       'exit 99',
       '',
     ].join('\n'),
     'utf8',
   );
   chmodSync(path.join(binDir, 'pnpm'), 0o755);
+  if (psOutput !== null) {
+    writeFileSync(
+      path.join(binDir, 'ps'),
+      [
+        '#!/usr/bin/env bash',
+        'cat <<\'VH_PS_OUTPUT\'',
+        psOutput.trimEnd(),
+        'VH_PS_OUTPUT',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    chmodSync(path.join(binDir, 'ps'), 0o755);
+  }
   writeFileSync(
     envFile,
     [
@@ -110,7 +133,42 @@ test('no-write diagnostic approval proceeds to preflights without live start app
     const result = runStartScript(harness);
     assert.equal(result.status, 99);
     assert.match(result.stdout, /no-write diagnostic mode approved/);
-    assert.equal(readPnpmMarker(harness.pnpmMarker)[0], 'args=check:news-sources:liveness');
+    assert.deepEqual(readPnpmMarker(harness.pnpmMarker).slice(0, 2), [
+      'args=check:news-sources:liveness',
+      'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE=8',
+    ]);
+    assert.ok(readPnpmMarker(harness.pnpmMarker).includes('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=1'));
+  } finally {
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+});
+
+test('no-write diagnostic approval preserves explicit max tick override', () => {
+  const harness = makeHarness({
+    approved: false,
+    noWriteDiagnostic: true,
+    diagnosticApproved: true,
+    extraEnv: ['VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=3'],
+  });
+  try {
+    const result = runStartScript(harness);
+    assert.equal(result.status, 99);
+    assert.ok(readPnpmMarker(harness.pnpmMarker).includes('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=3'));
+  } finally {
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+});
+
+test('production daemon start refuses an existing sibling daemon before preflights', () => {
+  const harness = makeHarness({
+    approved: true,
+    psOutput: '123 node node --loader ../../tools/node/esm-resolve-loader.mjs dist/daemon.js',
+  });
+  try {
+    const result = runStartScript(harness);
+    assert.equal(result.status, 75);
+    assert.match(result.stderr, /refusing start: existing news daemon runtime process/);
+    assert.equal(existsSync(harness.pnpmMarker), false);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
   }

@@ -148,12 +148,14 @@ systemctl --user restart vh-news-aggregator.service
    - live publisher: `VH_NEWS_DAEMON_START_APPROVED=1`;
    - no-write diagnostic: `VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1` and
      `VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1`.
-3. `pnpm check:news-sources:liveness` passes the operational restart gate.
-4. `pnpm --filter @vh/storycluster-engine build` passes.
-5. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
-6. Authenticated StoryCluster `VH_STORYCLUSTER_REMOTE_HEALTH_URL` returns
+3. No existing `@vh/news-aggregator daemon` / `dist/daemon.js` runtime process
+   is already running for the current user.
+4. `pnpm check:news-sources:liveness` passes the operational restart gate.
+5. `pnpm --filter @vh/storycluster-engine build` passes.
+6. `preflightOpenAIStoryClusterProviderFromEnv` returns `status: "pass"`.
+7. Authenticated StoryCluster `VH_STORYCLUSTER_REMOTE_HEALTH_URL` returns
    `ok: true` with a readiness `detail` beginning with `qdrant:`.
-7. The raw publication readiness preflight passes without writing a canary:
+8. The raw publication readiness preflight passes without writing a canary:
    signer material names are present, `VH_GUN_PEERS` parses, relay health
    endpoints are reachable through read-only `/healthz`, StoryCluster config is
    present, and relay-REST synthesis config is complete when synthesis is
@@ -174,11 +176,14 @@ blockers above are present.
 
 After these pass, the wrapper writes
 `VH_NEWS_DAEMON_LAST_SUCCESS_FILE` or
-`$VH_NEWS_DAEMON_STATE_DIR/last-success.json`, then `exec`s:
+`$VH_NEWS_DAEMON_STATE_DIR/last-success.json`, then starts:
 
 ```bash
 pnpm --filter @vh/news-aggregator daemon
 ```
+
+Live publisher starts `exec` the daemon. No-write diagnostic starts wait for the
+daemon process to exit and then recheck that no sibling daemon process remains.
 
 The daemon itself still verifies StoryCluster health before creating the Gun
 client and starting the runtime; the wrapper readiness check above exists to
@@ -191,6 +196,14 @@ writes/removes, latest/hot/lifecycle writes, relay-REST synthesis writes,
 synthesis queue persistence, replay writes, and product-feed repair writes.
 It still fetches feeds and calls StoryCluster so the tick summary can prove
 nonzero ingest/normalize/cluster/select before a live start is approved.
+
+No-write diagnostics are bounded by default. The wrapper exports
+`VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=1` unless the env file deliberately
+overrides it, and the daemon self-stops after writing the tick summary and
+cluster-capture artifact for that many ticks. The daemon also acquires
+`$VH_NEWS_DAEMON_PID_FILE` or `$VH_NEWS_DAEMON_STATE_DIR/news-daemon.pid` before
+creating the mesh client; a direct `pnpm --filter @vh/news-aggregator daemon`
+launch refuses to start while another daemon process owns that pidfile.
 
 The production wrapper applies bounded feed/StoryCluster workload defaults
 unless the env file explicitly overrides them:

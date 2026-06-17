@@ -25,6 +25,33 @@ truthy_flag() {
   esac
 }
 
+find_news_daemon_sibling_pids() {
+  ps -axo pid=,comm=,command= 2>/dev/null \
+    | awk -v self_pid="$$" '
+        $1 != self_pid && $2 == "node" && (index($0, "@vh/news-aggregator daemon") || index($0, "dist/daemon.js")) { print $1 }
+      ' \
+    | tr '\n' ' '
+}
+
+redact_process_line() {
+  sed -E 's/([A-Z0-9_]*(KEY|TOKEN|SECRET|PRIVATE|PIN|OPENAI)[A-Z0-9_]*=)[^[:space:]]+/\1[redacted]/g'
+}
+
+require_no_news_daemon_siblings() {
+  local context="${1:-preflight}"
+  local pids
+  pids="$(find_news_daemon_sibling_pids)"
+  if [[ -z "${pids// }" ]]; then
+    return 0
+  fi
+
+  echo "[vh:news-daemon:prod] refusing ${context}: existing news daemon runtime process(es): ${pids}" >&2
+  for pid in ${pids}; do
+    ps -p "${pid}" -o pid=,comm=,command= 2>/dev/null | redact_process_line >&2 || true
+  done
+  return 75
+}
+
 NO_WRITE_DIAGNOSTIC=false
 if truthy_flag "${VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE:-${VH_NEWS_DAEMON_NO_WRITE:-}}"; then
   NO_WRITE_DIAGNOSTIC=true
@@ -37,10 +64,13 @@ if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
     exit 78
   fi
   echo "[vh:news-daemon:prod] no-write diagnostic mode approved; live mesh mutations are suppressed"
+  export VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS="${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS:-1}"
 elif [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
   echo "[vh:news-daemon:prod] refusing to start without VH_NEWS_DAEMON_START_APPROVED=1 in ${ENV_FILE}" >&2
   exit 78
 fi
+
+require_no_news_daemon_siblings "start"
 
 export VH_NEWS_DAEMON_STATE_DIR="${VH_NEWS_DAEMON_STATE_DIR:-${STATE_DIR}}"
 export VH_DAEMON_FEED_ARTIFACT_ROOT="${VH_DAEMON_FEED_ARTIFACT_ROOT:-${ARTIFACT_ROOT}}"
@@ -164,4 +194,12 @@ await writeFile(filePath, `${JSON.stringify({
 NODE
 
 echo "[vh:news-daemon:prod] preflights passed; starting canonical @vh/news-aggregator daemon"
+if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
+  set +e
+  pnpm --filter @vh/news-aggregator daemon
+  daemon_status=$?
+  set -e
+  require_no_news_daemon_siblings "post-diagnostic"
+  exit "${daemon_status}"
+fi
 exec pnpm --filter @vh/news-aggregator daemon
