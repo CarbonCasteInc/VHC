@@ -675,6 +675,110 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('defers enrichment queue work until the first runtime tick completes', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn(async () => heldLease);
+    const writeBundle = vi.fn().mockResolvedValue(undefined);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-deferred-enrichment' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      enrichmentWorker,
+      deferEnrichmentUntilFirstTickComplete: true,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onSynthesisCandidate?.(CANDIDATE);
+    await Promise.resolve();
+
+    expect(enrichmentWorker).not.toHaveBeenCalled();
+    expect(daemon.enrichmentQueueStats()).toMatchObject({
+      active: false,
+      pending_depth: 1,
+    });
+
+    await runtimeConfig.onTickSummary?.(makeTickSummary({
+      raw_wrote_count: 1,
+      selected_bundle_count: 1,
+      synthesis_candidate_enqueued_count: 1,
+    }));
+    await Promise.resolve();
+
+    expect(enrichmentWorker).toHaveBeenCalledTimes(1);
+    expect(daemon.enrichmentQueueStats()).toMatchObject({
+      active: true,
+      pending_depth: 0,
+    });
+
+    await daemon.stop();
+  });
+
+  it('keeps deferred enrichment paused when the first runtime tick fails', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn(async () => heldLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-failed-first-tick' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      enrichmentWorker,
+      deferEnrichmentUntilFirstTickComplete: true,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onSynthesisCandidate?.(CANDIDATE);
+    await runtimeConfig.onTickSummary?.(makeTickSummary({
+      status: 'failed',
+      raw_wrote_count: 0,
+      raw_write_failed_count: 1,
+      selected_bundle_count: 1,
+      last_stage: 'failed',
+    }));
+    await Promise.resolve();
+
+    expect(enrichmentWorker).not.toHaveBeenCalled();
+    expect(daemon.enrichmentQueueStats()).toMatchObject({
+      active: false,
+      pending_depth: 1,
+    });
+
+    await daemon.stop();
+  });
+
   it('renews lease on heartbeat ticks while running', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();

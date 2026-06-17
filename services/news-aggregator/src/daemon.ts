@@ -123,6 +123,7 @@ export interface NewsAggregatorDaemonConfig {
   runtimeMaxTicks?: number;
   onRuntimeTickLimitReached?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   runtimeTickWatchdogMs?: number;
+  deferEnrichmentUntilFirstTickComplete?: boolean;
   now?: () => number;
   random?: () => number;
   setIntervalFn?: typeof setInterval;
@@ -173,7 +174,10 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     noWrite,
   });
   const runtimeMaxTicks = config.runtimeMaxTicks;
+  const deferEnrichmentUntilFirstTickComplete = config.deferEnrichmentUntilFirstTickComplete === true;
   let runtimeTickLimitReached = false;
+  let firstRuntimeTickCompleted = false;
+  let enrichmentQueueDeferredLogged = false;
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -269,6 +273,21 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           });
           void Promise.resolve(config.onRuntimeTickLimitReached?.(summary)).catch((error) => {
             logger.warn('[vh:news-daemon] runtime tick limit stop callback failed', error);
+          });
+        }
+        if (
+          deferEnrichmentUntilFirstTickComplete
+          && !firstRuntimeTickCompleted
+          && summary.status === 'completed'
+        ) {
+          firstRuntimeTickCompleted = true;
+          queue.start();
+          logger.info('[vh:news-daemon] enrichment queue started after first runtime tick', {
+            holder_id: holderId,
+            tick_sequence: summary.tick_sequence,
+            raw_wrote_count: summary.raw_wrote_count,
+            selected_bundle_count: summary.selected_bundle_count,
+            enrichment_queue: queue.snapshot(),
           });
         }
       },
@@ -377,7 +396,18 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       orchestratorOptions,
     });
     if (runtimeHandle.isRunning()) {
-      queue.start();
+      if (deferEnrichmentUntilFirstTickComplete && !firstRuntimeTickCompleted) {
+        queue.pause();
+        if (!enrichmentQueueDeferredLogged) {
+          enrichmentQueueDeferredLogged = true;
+          logger.info('[vh:news-daemon] enrichment queue deferred until first runtime tick completes', {
+            holder_id: holderId,
+            enrichment_queue: queue.snapshot(),
+          });
+        }
+      } else {
+        queue.start();
+      }
       logger.info('[vh:news-daemon] runtime started', {
         holder_id: holderId,
         poll_interval_ms: config.pollIntervalMs ?? null,
@@ -720,6 +750,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     ? parseOptionalPositiveInt(readEnvVar('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS')) ?? 1
     : undefined;
   const runtimeTickWatchdogMs = parseOptionalPositiveInt(readEnvVar('VH_NEWS_RUNTIME_TICK_WATCHDOG_MS'));
+  const deferEnrichmentUntilFirstTickComplete = !isDisabledFlag(
+    readEnvVar('VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE'),
+  );
   const leaseScope = firstNonEmpty(readEnvVar('VH_NEWS_INGESTION_LEASE_SCOPE'));
   const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
   const daemonStateDir =
@@ -808,6 +841,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       runtimeMaxTicks: diagnosticMaxTicks,
       onRuntimeTickLimitReached: diagnosticMaxTicks ? requestDiagnosticStop : undefined,
       runtimeTickWatchdogMs,
+      deferEnrichmentUntilFirstTickComplete: !noWrite && deferEnrichmentUntilFirstTickComplete,
       replayAcceptedSynthesis: !noWrite && replayArtifactDir
         ? (runtimeClient) =>
             replayAcceptedAnalysisEvalSyntheses({
