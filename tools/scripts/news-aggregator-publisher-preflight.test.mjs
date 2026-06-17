@@ -75,16 +75,25 @@ test('publisher preflight fails closed when news relay REST write-first lacks da
 });
 
 test('publisher preflight checks relay health with redacted pass output', async () => {
-  const origins = [];
+  const calls = [];
   const result = await runNewsAggregatorPublisherPreflight({
     env: baseEnv({
       VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
       VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
     }),
     fetchFn: async (input, init) => {
+      calls.push({ origin: input.origin, pathname: input.pathname, method: init.method, headers: init.headers });
+      if (init.method === 'POST') {
+        assert.equal(input.pathname, '/vh/news/story');
+        assert.equal(init.body, '{}');
+        assert.equal(init.headers.authorization, 'Bearer relay-token-redacted');
+        return new Response(JSON.stringify({ ok: false, error: 'news-story-record-required' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       assert.equal(init.method, 'GET');
       assert.deepEqual(init.headers, { accept: 'application/json' });
-      origins.push(input.origin);
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -93,7 +102,12 @@ test('publisher preflight checks relay health with redacted pass output', async 
   });
 
   assert.equal(result.status, 'pass');
-  assert.deepEqual(origins, ['https://gun-a.example.test', 'https://gun-b.example.test']);
+  assert.deepEqual(calls.map(({ origin, pathname, method }) => ({ origin, pathname, method })), [
+    { origin: 'https://gun-a.example.test', pathname: '/healthz', method: 'GET' },
+    { origin: 'https://gun-b.example.test', pathname: '/healthz', method: 'GET' },
+    { origin: 'https://gun-a.example.test', pathname: '/vh/news/story', method: 'POST' },
+    { origin: 'https://gun-b.example.test', pathname: '/vh/news/story', method: 'POST' },
+  ]);
   assert.deepEqual(result.relay_health_results, [
     { origin: 'https://gun-a.example.test', status: 200, ok: true },
     { origin: 'https://gun-b.example.test', status: 200, ok: true },
@@ -106,12 +120,71 @@ test('publisher preflight checks relay health with redacted pass output', async 
     origin_count: 2,
     require_all: true,
     daemon_token_present: true,
+    auth_probe_results: [
+      {
+        origin: 'https://gun-a.example.test',
+        status: 400,
+        authenticated: true,
+        error: 'news-story-record-required',
+      },
+      {
+        origin: 'https://gun-b.example.test',
+        status: 400,
+        authenticated: true,
+        error: 'news-story-record-required',
+      },
+    ],
   });
+});
+
+test('publisher preflight fails closed when relay REST news auth rejects the daemon token', async () => {
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test',
+    }),
+    fetchFn: async (input, init) => {
+      if (init.method === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'daemon-token-required' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.status, 'fail');
+  assert.match(result.failures.join('\n'), /relay_rest_news_auth:https:\/\/gun-a\.example\.test:http_401/);
+  assert.deepEqual(result.relay_rest_news_publication.auth_probe_results, [
+    {
+      origin: 'https://gun-a.example.test',
+      status: 401,
+      authenticated: false,
+      error: 'daemon-token-required',
+    },
+  ]);
+  assert.equal(JSON.stringify(result).includes('relay-token-redacted'), false);
 });
 
 test('publisher preflight derives health URLs from Gun peers', () => {
   assert.equal(
     newsAggregatorPublisherPreflightInternal.relayHealthUrlFromPeer('wss://gun-a.example.test/gun', []),
     'https://gun-a.example.test/healthz',
+  );
+});
+
+test('publisher preflight derives news write auth probe URLs from relay origins', () => {
+  assert.equal(
+    newsAggregatorPublisherPreflightInternal.relayRestWriteUrlFromOrigin(
+      'wss://gun-a.example.test/gun',
+      '/vh/news/story',
+      'relay_rest_news_origin',
+      [],
+    ),
+    'https://gun-a.example.test/vh/news/story',
   );
 });

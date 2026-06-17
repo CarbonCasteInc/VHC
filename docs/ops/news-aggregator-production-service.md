@@ -316,6 +316,13 @@ direct Gun publication. `VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL=true` is the
 default and should remain set so a partial relay fanout fails closed instead of
 claiming first-publish success from one relay.
 
+The raw publication readiness preflight also performs an authenticated no-write
+relay REST probe when write-first publication is enabled: it POSTs an empty JSON
+body to `/vh/news/story` with the daemon bearer token and requires the relay to
+reject the body as a validation error after auth. A 401/403/503 response means
+the publisher token does not match the relay daemon token, so live start must
+fail before the first real story write.
+
 ## Lease / Lock Behavior
 
 The daemon writes and renews the shared `NewsIngestionLease` before starting the

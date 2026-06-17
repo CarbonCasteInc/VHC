@@ -62,12 +62,59 @@ function relayHealthUrlFromPeer(peer, failures) {
   return parsed.toString();
 }
 
+function relayRestWriteUrlFromOrigin(origin, path, label, failures) {
+  const parsed = validUrl(origin, label, failures);
+  if (!parsed) {
+    return null;
+  }
+  if (parsed.protocol === 'ws:') {
+    parsed.protocol = 'http:';
+  } else if (parsed.protocol === 'wss:') {
+    parsed.protocol = 'https:';
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    failures.push(`${label}:unsupported_protocol`);
+    return null;
+  }
+  parsed.pathname = path;
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
+}
+
 function assertPresent(env, name, failures) {
   if (!firstNonEmpty(env[name])) {
     failures.push(`${name}:missing`);
     return false;
   }
   return true;
+}
+
+async function probeNewsRelayRestAuth(url, token, fetchFn) {
+  const parsed = new URL(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetchFn(parsed, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    return {
+      origin: parsed.origin,
+      status: response.status,
+      authenticated: response.status === 400 && /required|invalid/i.test(String(body?.error ?? '')),
+      error: typeof body?.error === 'string' ? body.error : null,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function runNewsAggregatorPublisherPreflight({
@@ -117,6 +164,20 @@ export async function runNewsAggregatorPublisherPreflight({
     || relayRestOrigins.length > 0;
   const newsRelayRestOrigins = parseDelimited(env.VH_NEWS_RELAY_REST_WRITE_ORIGINS);
   const newsRelayRestWriteFirst = truthy(env.VH_NEWS_RELAY_REST_WRITE_FIRST);
+  const newsRelayRestWriteOriginInputs = newsRelayRestWriteFirst
+    ? (
+        newsRelayRestOrigins.length > 0
+          ? newsRelayRestOrigins
+          : relayRestOrigins.length > 0
+            ? relayRestOrigins
+            : gunPeers
+      )
+    : [];
+  const newsRelayRestWriteAuthUrls = newsRelayRestWriteFirst
+    ? [...new Set(newsRelayRestWriteOriginInputs
+      .map((origin) => relayRestWriteUrlFromOrigin(origin, '/vh/news/story', 'relay_rest_news_origin', failures))
+      .filter(Boolean))]
+    : [];
   if (synthesisEnabled) {
     if (!relayRestWriteRequested) failures.push('relay_rest_synthesis:disabled_while_synthesis_enabled');
     if (relayRestOrigins.length === 0) failures.push('relay_rest_synthesis_origins:missing');
@@ -130,15 +191,13 @@ export async function runNewsAggregatorPublisherPreflight({
   }
   if (newsRelayRestWriteFirst) {
     if (!firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)) failures.push('relay_rest_news_token:missing');
-    for (const origin of newsRelayRestOrigins) {
-      const url = validUrl(origin, 'relay_rest_news_origin', failures);
-      if (url && !['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) {
-        failures.push('relay_rest_news_origin:unsupported_protocol');
-      }
+    if (newsRelayRestWriteAuthUrls.length === 0) {
+      failures.push('relay_rest_news_auth_targets:missing');
     }
   }
 
   const relayResults = [];
+  const newsRelayRestAuthResults = [];
   if (failures.length === 0) {
     if (typeof fetchFn !== 'function') {
       failures.push('fetch:unavailable');
@@ -165,6 +224,21 @@ export async function runNewsAggregatorPublisherPreflight({
           failures.push(`relay_read_health:${parsed.origin}:${error instanceof Error ? error.message : String(error)}`);
         } finally {
           clearTimeout(timeout);
+        }
+      }
+      if (newsRelayRestWriteFirst) {
+        const token = firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN);
+        for (const url of newsRelayRestWriteAuthUrls) {
+          try {
+            const result = await probeNewsRelayRestAuth(url, token, fetchFn);
+            newsRelayRestAuthResults.push(result);
+            if (!result.authenticated) {
+              failures.push(`relay_rest_news_auth:${result.origin}:http_${result.status}`);
+            }
+          } catch (error) {
+            const origin = new URL(url).origin;
+            failures.push(`relay_rest_news_auth:${origin}:${error instanceof Error ? error.message : String(error)}`);
+          }
         }
       }
     }
@@ -196,9 +270,10 @@ export async function runNewsAggregatorPublisherPreflight({
     },
     relay_rest_news_publication: {
       write_first: newsRelayRestWriteFirst,
-      origin_count: newsRelayRestOrigins.length,
+      origin_count: newsRelayRestWriteAuthUrls.length,
       require_all: !/^(0|false|no|off)$/i.test(String(env.VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL ?? '').trim()),
       daemon_token_present: Boolean(firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)),
+      auth_probe_results: newsRelayRestAuthResults,
     },
     failures,
   };
@@ -219,6 +294,7 @@ export const newsAggregatorPublisherPreflightInternal = {
   firstNonEmpty,
   parseDelimited,
   relayHealthUrlFromPeer,
+  relayRestWriteUrlFromOrigin,
   truthy,
 };
 
