@@ -44,6 +44,7 @@ describe('createNodeMeshClient', () => {
       localStorage: false,
       radisk: false,
       file: false,
+      stats: false,
       axe: false,
     });
     expect(client.config.peers).toEqual(['http://127.0.0.1:7777/gun']);
@@ -72,6 +73,7 @@ describe('createNodeMeshClient', () => {
       localStorage: false,
       radisk: true,
       file: expect.stringMatching(/vh-node-mesh-/),
+      stats: false,
       axe: false,
     });
   });
@@ -92,6 +94,7 @@ describe('createNodeMeshClient', () => {
       localStorage: false,
       radisk: false,
       file: false,
+      stats: false,
       axe: false,
     });
   });
