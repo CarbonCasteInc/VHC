@@ -56,10 +56,31 @@ test('publisher preflight fails closed when synthesis is enabled without relay R
   assert.match(result.failures.join('\n'), /relay_rest_synthesis_token:missing/);
 });
 
+test('publisher preflight fails closed when news relay REST write-first lacks daemon token', async () => {
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test',
+      VH_RELAY_DAEMON_TOKEN: '',
+      VH_BUNDLE_SYNTHESIS_ENABLED: '',
+    }),
+    fetchFn: async () => new Response('{}'),
+  });
+
+  assert.equal(result.status, 'fail');
+  assert.match(result.failures.join('\n'), /relay_rest_news_token:missing/);
+  assert.equal(result.relay_rest_news_publication.write_first, true);
+  assert.equal(result.relay_rest_news_publication.origin_count, 1);
+  assert.equal(result.relay_rest_news_publication.daemon_token_present, false);
+});
+
 test('publisher preflight checks relay health with redacted pass output', async () => {
   const origins = [];
   const result = await runNewsAggregatorPublisherPreflight({
-    env: baseEnv(),
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+    }),
     fetchFn: async (input, init) => {
       assert.equal(init.method, 'GET');
       assert.deepEqual(init.headers, { accept: 'application/json' });
@@ -80,6 +101,12 @@ test('publisher preflight checks relay health with redacted pass output', async 
   assert.equal(JSON.stringify(result).includes('relay-token-redacted'), false);
   assert.equal(JSON.stringify(result).includes('storycluster-token-redacted'), false);
   assert.equal(JSON.stringify(result).includes('private-material-redacted'), false);
+  assert.deepEqual(result.relay_rest_news_publication, {
+    write_first: true,
+    origin_count: 2,
+    require_all: true,
+    daemon_token_present: true,
+  });
 });
 
 test('publisher preflight derives health URLs from Gun peers', () => {

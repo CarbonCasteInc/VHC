@@ -280,6 +280,10 @@ VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
 OPENAI_API_KEY
 VH_BUNDLE_SYNTHESIS_ENABLED
+VH_NEWS_RELAY_REST_WRITE_FIRST
+VH_NEWS_RELAY_REST_WRITE_ORIGINS
+VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL
+VH_NEWS_RELAY_REST_WRITE_TIMEOUT_MS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL
 VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST
@@ -303,6 +307,14 @@ VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
 ```
 
 Do not paste values into tickets, PRs, or evidence docs.
+
+For production Phase 5 publisher starts, keep `VH_NEWS_RELAY_REST_WRITE_FIRST`
+enabled. The daemon still signs story bodies, latest-index rows, hot-index rows,
+and synthesis lifecycle rows with the public news system writer, but it submits
+those records to the relay REST write-through routes before attempting any
+direct Gun publication. `VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL=true` is the
+default and should remain set so a partial relay fanout fails closed instead of
+claiming first-publish success from one relay.
 
 ## Lease / Lock Behavior
 
@@ -496,7 +508,8 @@ Abort or stop the service if any of these occur:
 - source-health liveness preflight fails;
 - OpenAI preflight is not `pass`;
 - StoryCluster health check fails;
-- relay REST write fanout is below the configured `require_all` target;
+- raw news or synthesis relay REST write fanout is below the configured
+  `require_all` target;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.

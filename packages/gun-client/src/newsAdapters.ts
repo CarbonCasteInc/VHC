@@ -18,6 +18,7 @@ import {
 } from './systemWriter';
 import type { VennClient } from './types';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
+import { createRelayDaemonAuthHeaders } from './relayAuth';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
@@ -157,6 +158,16 @@ const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
   10_000,
 );
+const RELAY_REST_WRITE_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_NEWS_RELAY_REST_WRITE_TIMEOUT_MS',
+    'VH_NEWS_RELAY_REST_WRITE_TIMEOUT_MS',
+    'VITE_VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+    'VH_RELAY_REST_FALLBACK_TIMEOUT_MS',
+  ],
+  10_000,
+  100,
+);
 const RELAY_REST_INDEX_LIMIT = readGunTimeoutMs(
   ['VITE_VH_NEWS_RELAY_REST_INDEX_LIMIT', 'VH_NEWS_RELAY_REST_INDEX_LIMIT'],
   80,
@@ -169,6 +180,99 @@ const SECRET_TEXT_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
   /"?(?:api[_-]?key|token|authorization|secret)"?\s*[:=]\s*"[^"]+"/gi,
 ] as const;
+const RELAY_REST_NEWS_WRITE_FIRST_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_WRITE_FIRST',
+  'VH_NEWS_RELAY_REST_WRITE_FIRST',
+] as const;
+const RELAY_REST_NEWS_WRITE_ORIGINS_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_WRITE_ORIGINS',
+  'VH_NEWS_RELAY_REST_WRITE_ORIGINS',
+  'VITE_VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS',
+  'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS',
+] as const;
+const RELAY_REST_NEWS_WRITE_REQUIRE_ALL_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
+  'VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
+] as const;
+
+type NewsRelayRestWritePath =
+  | '/vh/news/story'
+  | '/vh/news/latest-index'
+  | '/vh/news/hot-index'
+  | '/vh/news/synthesis-lifecycle';
+
+function readNewsRuntimeString(name: string): string | undefined {
+  const importMetaEnv = (
+    globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined }
+  ).__VH_IMPORT_META_ENV__ ?? (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const importMetaValue = importMetaEnv?.[name];
+  if (typeof importMetaValue === 'string' && importMetaValue.trim().length > 0) {
+    return importMetaValue.trim();
+  }
+
+  if (typeof process !== 'undefined') {
+    const processValue = process.env?.[name];
+    if (typeof processValue === 'string' && processValue.trim().length > 0) {
+      return processValue.trim();
+    }
+  }
+
+  const globalValue = (globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> })
+    .__VH_GUN_CLIENT_CONFIG__?.[name];
+  if (typeof globalValue === 'string' && globalValue.trim().length > 0) {
+    return globalValue.trim();
+  }
+
+  return undefined;
+}
+
+function readNewsRuntimeBoolean(names: readonly string[], fallback = false): boolean {
+  for (const name of names) {
+    const raw = readNewsRuntimeString(name);
+    if (!raw) continue;
+    if (/^(1|true|yes|on)$/i.test(raw)) return true;
+    if (/^(0|false|no|off)$/i.test(raw)) return false;
+  }
+  return fallback;
+}
+
+function parseRuntimeList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  const rawValues = value.trim().startsWith('[')
+    ? (() => {
+        try {
+          return JSON.parse(value) as unknown[];
+        } catch {
+          return [];
+        }
+      })()
+    : value.split(',');
+  return rawValues.map((entry) => String(entry).trim()).filter(Boolean);
+}
+
+function readFirstRuntimeList(names: readonly string[]): string[] {
+  for (const name of names) {
+    const parsed = parseRuntimeList(readNewsRuntimeString(name));
+    if (parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return [];
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+function shouldWriteNewsViaRelayRestFirst(): boolean {
+  return readNewsRuntimeBoolean(RELAY_REST_NEWS_WRITE_FIRST_ENV, false);
+}
+
+function shouldRequireAllNewsRelayRestWrites(): boolean {
+  return readNewsRuntimeBoolean(RELAY_REST_NEWS_WRITE_REQUIRE_ALL_ENV, true);
+}
 
 function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_INDEX_LIMIT): number {
   const parsed = Number(limit);
@@ -1755,7 +1859,9 @@ function sanitizeStoryBundle(data: unknown): StoryBundle {
 }
 
 async function enforceCreatedAtFirstWriteWins(client: VennClient, story: StoryBundle): Promise<StoryBundle> {
-  const existing = await readNewsStory(client, story.story_id);
+  const existing = shouldWriteNewsViaRelayRestFirst()
+    ? await readNewsStoryWithRelayRestFallback(client, story.story_id)
+    : await readNewsStory(client, story.story_id);
   if (!existing) {
     return story;
   }
@@ -2075,6 +2181,86 @@ function resolveRelayRestEndpointsFromPeers(client: VennClient, path: string): s
   return endpoints;
 }
 
+function resolveRelayRestWriteEndpoints(client: VennClient, path: NewsRelayRestWritePath): string[] {
+  const configuredOrigins = readFirstRuntimeList(RELAY_REST_NEWS_WRITE_ORIGINS_ENV);
+  const peers = configuredOrigins.length > 0 ? configuredOrigins : client.config.peers;
+  return uniqueStrings(
+    peers.flatMap((peer) => {
+      const endpoint = resolveRelayRestEndpointFromPeer(peer, path);
+      return endpoint ? [endpoint] : [];
+    }),
+  );
+}
+
+function requireNewsRelayDaemonAuthHeaders(): Record<string, string> {
+  const headers = createRelayDaemonAuthHeaders();
+  if (!headers.Authorization) {
+    throw new Error('VH_RELAY_DAEMON_TOKEN is required for relay REST news writes');
+  }
+  return headers;
+}
+
+async function writeNewsRecordViaRelayRest(input: {
+  readonly client: VennClient;
+  readonly path: NewsRelayRestWritePath;
+  readonly record: Record<string, unknown>;
+  readonly writeClass: string;
+  readonly validate: (payload: Record<string, unknown>) => boolean;
+}): Promise<void> {
+  if (typeof fetch !== 'function') {
+    throw new Error('fetch is required for relay REST news writes');
+  }
+  const endpoints = resolveRelayRestWriteEndpoints(input.client, input.path);
+  if (endpoints.length === 0) {
+    throw new Error(`No relay REST endpoints configured for ${input.path}`);
+  }
+  const headers = requireNewsRelayDaemonAuthHeaders();
+  const requireAll = shouldRequireAllNewsRelayRestWrites();
+  const failures: string[] = [];
+  let successCount = 0;
+
+  for (const endpoint of endpoints) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({ record: input.record }),
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (response.ok && payload && input.validate(payload)) {
+        successCount += 1;
+        continue;
+      }
+      failures.push(`${endpoint}:http_${response.status}`);
+    } catch (error) {
+      failures.push(`${endpoint}:${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  if (successCount > 0 && (!requireAll || successCount === endpoints.length)) {
+    console.info('[vh:news] relay REST write completed', {
+      write_class: input.writeClass,
+      path: input.path,
+      relay_success_count: successCount,
+      relay_target_count: endpoints.length,
+      require_all: requireAll,
+    });
+    return;
+  }
+
+  throw new Error(
+    `Relay REST news write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; ${failures.join('; ')}`,
+  );
+}
+
 function resolveLatestIndexRelayRestRead(
   client: VennClient,
   options: NewsLatestIndexReadOptions = {},
@@ -2190,6 +2376,16 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
   await assertCanonicalNewsTopicId(sanitized);
   const normalized = await enforceCreatedAtFirstWriteWins(client, sanitized);
   const encoded = await buildSystemWriterStoryRecord(client, normalized);
+  if (shouldWriteNewsViaRelayRestFirst()) {
+    await writeNewsRecordViaRelayRest({
+      client,
+      path: '/vh/news/story',
+      record: encoded,
+      writeClass: 'news-story',
+      validate: (payload) => payload.ok === true && payload.story_id === normalized.story_id,
+    });
+    return normalized;
+  }
   await putWithAck(
     getNewsStoryChain(client, normalized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
     encoded,
@@ -2344,6 +2540,19 @@ export async function writeNewsSynthesisLifecycleStatus(
     throw new Error('news synthesis lifecycle record is invalid');
   }
   const encoded = await buildSystemWriterSynthesisLifecycleRecord(client, sanitized);
+  if (shouldWriteNewsViaRelayRestFirst()) {
+    await writeNewsRecordViaRelayRest({
+      client,
+      path: '/vh/news/synthesis-lifecycle',
+      record: encoded,
+      writeClass: 'news-synthesis-lifecycle',
+      validate: (payload) =>
+        payload.ok === true
+        && payload.story_id === sanitized.story_id
+        && payload.status === sanitized.status,
+    });
+    return sanitized;
+  }
   await putWithAck(
     getNewsSynthesisLifecycleChain(client, sanitized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
     encoded,
@@ -2796,6 +3005,16 @@ export async function writeNewsLatestIndexEntry(
   const encoded = await buildSystemWriterLatestIndexRecord(client, normalizedId, normalizedLatestTimestamp, story);
   const chain = getNewsLatestIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
   const expectedMetadata = story ? latestIndexProductMetadataForStory(story) : null;
+  if (shouldWriteNewsViaRelayRestFirst()) {
+    await writeNewsRecordViaRelayRest({
+      client,
+      path: '/vh/news/latest-index',
+      record: encoded,
+      writeClass: 'news-latest-index',
+      validate: (payload) => payload.ok === true && payload.story_id === normalizedId,
+    });
+    return;
+  }
   await putWithAck(chain, encoded, {
     writeClass: 'news-latest-index',
     timeoutError: 'news latest-index write timed out and readback did not confirm persistence',
@@ -2863,6 +3082,16 @@ export async function writeNewsHotIndexEntry(
   const encoded = await buildSystemWriterHotIndexRecord(client, normalizedId, normalizedHotness, story);
   const chain = getNewsHotIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
   const expectedMetadata = story ? latestIndexProductMetadataForStory(story) : null;
+  if (shouldWriteNewsViaRelayRestFirst()) {
+    await writeNewsRecordViaRelayRest({
+      client,
+      path: '/vh/news/hot-index',
+      record: encoded,
+      writeClass: 'news-hot-index',
+      validate: (payload) => payload.ok === true && payload.story_id === normalizedId,
+    });
+    return normalizedHotness;
+  }
   await putWithAck(chain, encoded, {
     writeClass: 'news-hot-index',
     timeoutError: 'news hot-index write timed out and readback did not confirm persistence',
@@ -3008,4 +3237,8 @@ export const newsAdapterInternal = {
   parseNewsSynthesisLifecycleFromRelayPayload,
   parseLatestIndexEntryPayload,
   parseHotIndexEntryPayload,
+  resolveRelayRestWriteEndpoints,
+  shouldRequireAllNewsRelayRestWrites,
+  shouldWriteNewsViaRelayRestFirst,
+  writeNewsRecordViaRelayRest,
 };
