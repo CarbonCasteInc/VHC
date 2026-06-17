@@ -32,6 +32,10 @@ re-enable monitors.
   deploy error.
 - Set `NODE_ENV=production` on relays so snapshot-first latest-index serving
   stays enabled by default.
+- Leave relay `GUN_STATS` unset or explicitly `false`. The relay disables GUN's
+  package-local stats writer by default; setting `GUN_STATS=true` makes GUN
+  write `stats.<basename(GUN_FILE)>` beside `node_modules/gun`, which is not a
+  production data mount and can produce persistent permission errors.
 - Capture build-time Web PWA `VITE_*` provenance before rebuilding origin.
   Runtime env cannot repair a bundle built against the wrong peer config, CSP,
   system-writer pin, or local-peer policy.

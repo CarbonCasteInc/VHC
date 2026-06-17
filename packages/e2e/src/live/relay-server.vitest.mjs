@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
 const gunRequire = createRequire(path.join(repoRoot, 'packages/gun-client/package.json'));
+const gunPackageRoot = path.dirname(gunRequire.resolve('gun/package.json'));
 const Gun = gunRequire('gun');
 const SEA = gunRequire('gun/sea');
 
@@ -226,7 +227,13 @@ function createRelayGunClient(port) {
     localStorage: false,
     radisk: false,
     file: path.join(os.tmpdir(), `vh-relay-client-${process.pid}-${port}-${Date.now()}-${Math.random()}`),
+    stats: false,
   });
+}
+
+function gunStatsFileForGunFile(gunFile) {
+  const file = path.basename(path.resolve(gunFile));
+  return path.join(gunPackageRoot, `stats.${file}`);
 }
 
 function makeRelayNewsStory(storyId, latestActivityAt, sources) {
@@ -365,11 +372,19 @@ describe('infra relay server', () => {
 
     await expect(requestJson(`http://127.0.0.1:${port}/healthz`)).resolves.toMatchObject({
       statusCode: 200,
-      body: expect.objectContaining({ ok: true, service: 'vh-relay' }),
+      body: expect.objectContaining({
+        ok: true,
+        service: 'vh-relay',
+        gun_stats_enabled: false,
+      }),
     });
     await expect(requestJson(`http://127.0.0.1:${port}/readyz`)).resolves.toMatchObject({
       statusCode: 200,
-      body: expect.objectContaining({ ok: true, daemon_auth_configured: false }),
+      body: expect.objectContaining({
+        ok: true,
+        daemon_auth_configured: false,
+        gun_stats_enabled: false,
+      }),
     });
 
     const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
@@ -378,6 +393,49 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
     expect(metrics.body).toMatch(/vh_relay_process_open_fds \d+/);
+  });
+
+  it('keeps GUN package stats file writes disabled by default', async () => {
+    const gunDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-stats-disabled-test-'));
+    tempDirs.add(gunDir);
+    const gunFile = path.join(
+      gunDir,
+      `radisk-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const statsFile = gunStatsFileForGunFile(gunFile);
+    rmSync(statsFile, { force: true });
+
+    const { port, child } = await startRelay(children, tempDirs, { GUN_FILE: gunFile });
+    await expect(requestJson(`http://127.0.0.1:${port}/readyz`)).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        radisk_enabled: true,
+        gun_stats_enabled: false,
+      }),
+    });
+
+    await delay(5_500);
+
+    expect(existsSync(statsFile)).toBe(false);
+    expect(`${child.stdoutText}\n${child.stderrText}`).not.toContain(path.basename(statsFile));
+    rmSync(statsFile, { force: true });
+  }, 10_000);
+
+  it('reports explicit GUN package stats opt-in for diagnostics', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      GUN_RADISK: 'false',
+      GUN_STATS: 'true',
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/readyz`)).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        radisk_enabled: false,
+        gun_stats_enabled: true,
+      }),
+    });
   });
 
   it('exposes explicit relay topology metadata when relay peers are configured', async () => {
