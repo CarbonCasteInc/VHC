@@ -115,6 +115,8 @@ export async function runNewsAggregatorPublisherPreflight({
   const relayRestOrigins = parseDelimited(env.VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS);
   const relayRestWriteRequested = truthy(env.VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST)
     || relayRestOrigins.length > 0;
+  const newsRelayRestOrigins = parseDelimited(env.VH_NEWS_RELAY_REST_WRITE_ORIGINS);
+  const newsRelayRestWriteFirst = truthy(env.VH_NEWS_RELAY_REST_WRITE_FIRST);
   if (synthesisEnabled) {
     if (!relayRestWriteRequested) failures.push('relay_rest_synthesis:disabled_while_synthesis_enabled');
     if (relayRestOrigins.length === 0) failures.push('relay_rest_synthesis_origins:missing');
@@ -123,6 +125,15 @@ export async function runNewsAggregatorPublisherPreflight({
       const url = validUrl(origin, 'relay_rest_synthesis_origin', failures);
       if (url && !['http:', 'https:'].includes(url.protocol)) {
         failures.push('relay_rest_synthesis_origin:unsupported_protocol');
+      }
+    }
+  }
+  if (newsRelayRestWriteFirst) {
+    if (!firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)) failures.push('relay_rest_news_token:missing');
+    for (const origin of newsRelayRestOrigins) {
+      const url = validUrl(origin, 'relay_rest_news_origin', failures);
+      if (url && !['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) {
+        failures.push('relay_rest_news_origin:unsupported_protocol');
       }
     }
   }
@@ -181,6 +192,12 @@ export async function runNewsAggregatorPublisherPreflight({
     relay_rest_synthesis: {
       requested: relayRestWriteRequested,
       origin_count: relayRestOrigins.length,
+      daemon_token_present: Boolean(firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)),
+    },
+    relay_rest_news_publication: {
+      write_first: newsRelayRestWriteFirst,
+      origin_count: newsRelayRestOrigins.length,
+      require_all: !/^(0|false|no|off)$/i.test(String(env.VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL ?? '').trim()),
       daemon_token_present: Boolean(firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)),
     },
     failures,

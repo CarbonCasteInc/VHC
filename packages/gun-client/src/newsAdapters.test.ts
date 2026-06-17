@@ -266,6 +266,43 @@ function createClient(
   };
 }
 
+function withGunClientRuntimeConfig(config: Record<string, unknown>): () => void {
+  const target = globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> | undefined };
+  const previous = target.__VH_GUN_CLIENT_CONFIG__;
+  target.__VH_GUN_CLIENT_CONFIG__ = {
+    ...(previous ?? {}),
+    ...config,
+  };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_GUN_CLIENT_CONFIG__;
+      return;
+    }
+    target.__VH_GUN_CLIENT_CONFIG__ = previous;
+  };
+}
+
+function withProcessEnv(config: Record<string, string | undefined>): () => void {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(config)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  return () => {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+}
+
 function bytesToBase64Url(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
 }
@@ -515,6 +552,234 @@ describe('newsAdapters', () => {
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
     ).toEqual(STORY);
+  });
+
+  it('writeNewsBundle writes signed story and indexes through relay REST first when configured', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('news/stories/story-123', STORY);
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['wss://gun-a.example.test/gun'],
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input)).pathname;
+        const body = JSON.parse(String(init?.body ?? '{}')) as { record?: Record<string, unknown> };
+        const storyId = body.record?.story_id;
+        return new Response(JSON.stringify({
+          ok: true,
+          story_id: storyId,
+          ...(path === '/vh/news/synthesis-lifecycle' ? { status: body.record?.status } : {}),
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writeNewsBundle(client, STORY)).resolves.toEqual(STORY);
+
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).href)).toEqual([
+        'https://gun-a.example.test/vh/news/story',
+        'https://gun-a.example.test/vh/news/latest-index',
+        'https://gun-a.example.test/vh/news/hot-index',
+      ]);
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(init?.method).toBe('POST');
+        expect(init?.headers).toEqual(expect.objectContaining({
+          'content-type': 'application/json',
+          Authorization: 'Bearer relay-token-redacted',
+        }));
+      }
+      const storyBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as {
+        record?: SystemWriterStoryBundleRecord;
+      };
+      expect(expectSystemStoryRecord(storyBody.record)).toMatchObject({
+        story_id: STORY.story_id,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+      });
+      const latestBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body ?? '{}')) as {
+        record?: SystemWriterLatestIndexRecord;
+      };
+      expect(expectSystemLatestIndexRecord(latestBody.record, STORY.story_id, STORY.cluster_window_end, STORY))
+        .toMatchObject({
+          story_id: STORY.story_id,
+          source_set_revision: STORY.provenance_hash,
+        });
+      const hotBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body ?? '{}')) as {
+        record?: SystemWriterHotIndexRecord;
+      };
+      expect(expectSystemHotIndexRecord(hotBody.record, STORY.story_id, computeStoryHotness(STORY), STORY))
+        .toMatchObject({
+          story_id: STORY.story_id,
+          source_set_revision: STORY.provenance_hash,
+        });
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsSynthesisLifecycleStatus uses relay REST write-first with signed lifecycle records', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://gun-a.example.test/gun'],
+      });
+      const lifecycle = buildNewsSynthesisLifecycleRecord({
+        story: STORY,
+        status: 'pending',
+        updatedAt: 1_700_000_050_000,
+      });
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { record?: Record<string, unknown> };
+        return new Response(JSON.stringify({
+          ok: true,
+          story_id: body.record?.story_id,
+          status: body.record?.status,
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writeNewsSynthesisLifecycleStatus(client, lifecycle)).resolves.toEqual(lifecycle);
+
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(new URL(String(fetchMock.mock.calls[0]?.[0])).href)
+        .toBe('https://gun-a.example.test/vh/news/synthesis-lifecycle');
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}')) as {
+        record?: Record<string, unknown>;
+      };
+      expect(body.record).toMatchObject({
+        story_id: STORY.story_id,
+        status: 'pending',
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+      });
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsStory fails closed for relay REST write-first without daemon token', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: undefined });
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('news/stories/story-123', STORY);
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://gun-a.example.test/gun'],
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(writeNewsStory(client, STORY)).rejects.toThrow(
+        'VH_RELAY_DAEMON_TOKEN is required for relay REST news writes',
+      );
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry requires all relay REST targets by default', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test"]',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).rejects.toThrow('Relay REST news write failed for /vh/news/latest-index: 1/2 succeeded');
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).origin)).toEqual([
+        'https://gun-a.example.test',
+        'https://gun-b.example.test',
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('reads news relay write-first flags from import, process, and global config sources', () => {
+    const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined };
+    const previousImportMetaEnv = target.__VH_IMPORT_META_ENV__;
+    const previousProcessValue = process.env.VH_NEWS_RELAY_REST_WRITE_FIRST;
+    const restoreGlobalConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'off',
+    });
+
+    try {
+      target.__VH_IMPORT_META_ENV__ = {
+        VITE_VH_NEWS_RELAY_REST_WRITE_FIRST: 'yes',
+      };
+      expect(newsAdapterInternal.shouldWriteNewsViaRelayRestFirst()).toBe(true);
+
+      target.__VH_IMPORT_META_ENV__ = {};
+      process.env.VH_NEWS_RELAY_REST_WRITE_FIRST = 'false';
+      expect(newsAdapterInternal.shouldWriteNewsViaRelayRestFirst()).toBe(false);
+
+      delete process.env.VH_NEWS_RELAY_REST_WRITE_FIRST;
+      expect(newsAdapterInternal.shouldWriteNewsViaRelayRestFirst()).toBe(false);
+    } finally {
+      if (previousImportMetaEnv === undefined) {
+        delete target.__VH_IMPORT_META_ENV__;
+      } else {
+        target.__VH_IMPORT_META_ENV__ = previousImportMetaEnv;
+      }
+      if (previousProcessValue === undefined) {
+        delete process.env.VH_NEWS_RELAY_REST_WRITE_FIRST;
+      } else {
+        process.env.VH_NEWS_RELAY_REST_WRITE_FIRST = previousProcessValue;
+      }
+      restoreGlobalConfig();
+    }
   });
 
   it('writes and reads signed synthesis lifecycle records for story source revisions', async () => {
