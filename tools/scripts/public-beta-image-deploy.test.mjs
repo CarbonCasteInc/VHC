@@ -414,6 +414,9 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/data:rw/);
     assert.match(result.stdout, /sudo docker exec vhc-relay-a test -f \/data\/news-latest-index-snapshot\.json/);
     assert.match(result.stdout, /grep -E 'vhc\\-public\\-origin\|vhc\\-relay\\-a\|vhc\\-relay\\-b\|vhc\\-relay\\-c'/);
+    assert.match(result.stdout, /len\(entries\) == 0/);
+    assert.match(result.stdout, /"entry_count": len\(entries\)/);
+    assert.doesNotMatch(result.stdout, /entries != 15/);
     assert.match(result.stdout, /VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001/);
     assert.match(result.stdout, /vhc-public-beta-relay:new/);
     const originRewriteLine = result.stdout

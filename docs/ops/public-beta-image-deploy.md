@@ -26,7 +26,9 @@ re-enable monitors.
   - `news-synthesis-lifecycle-snapshot.json`
   - `topic-synthesis-latest-snapshot.json`
 - Abort if any relay latest-index snapshot is missing, has schema other than
-  `vh-news-latest-index-relay-snapshot-v1`, or has entries other than `15`.
+  `vh-news-latest-index-relay-snapshot-v1`, or has an empty/non-list `entries`
+  array. Do not scrub or rewrite a valid latest-index snapshot solely because
+  its preserved entry count differs from an older runbook example.
 - Run relays with a UID/GID that can write the existing host data dirs.
   Snapshot persistence can otherwise fail without surfacing as a user-facing
   deploy error.
@@ -303,7 +305,7 @@ Abort the deploy if any of these are true:
 - Any relay `GUN_FILE` data mount is not a bind mount to the existing host path.
 - Any relay data dir is empty, unwritable by the intended UID/GID, or missing
   one of the three snapshot files.
-- Any latest-index snapshot has entries other than `15`.
+- Any latest-index snapshot has an empty or non-list `entries` array.
 - The new image platform is not `linux/amd64`.
 - The origin image lacks `apps/web-pwa/dist/index.html` or
   `apps/web-pwa/dist/mesh-peer-config.json`.

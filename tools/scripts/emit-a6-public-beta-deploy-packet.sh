@@ -322,15 +322,15 @@ lines.push('        with open(path, "r", encoding="utf-8") as handle: payload = 
 lines.push('        if payload.get("schema_version") != schema: raise SystemExit(f"{relay}:{filename}: bad schema {payload.get(\'schema_version\')}")');
 lines.push('        if filename == "news-latest-index-snapshot.json":');
 lines.push('            entries = payload.get("entries")');
-lines.push('            if not isinstance(entries, list) or len(entries) != 15: raise SystemExit(f"{relay}:{filename}: entries={len(entries) if isinstance(entries, list) else \'n/a\'}")');
+lines.push('            if not isinstance(entries, list) or len(entries) == 0: raise SystemExit(f"{relay}:{filename}: entries={len(entries) if isinstance(entries, list) else \'n/a\'}")');
 lines.push('            newest = max((entry.get("record", {}).get("latest_activity_at") or entry.get("story", {}).get("cluster_window_end") or 0) for entry in entries)');
-lines.push('            print(json.dumps({"relay": relay, "file": filename, "size": st.st_size, "mtime": st.st_mtime, "cached_at": payload.get("cached_at"), "newest_entry_age_ms": now - newest}, sort_keys=True))');
+lines.push('            print(json.dumps({"relay": relay, "file": filename, "size": st.st_size, "mtime": st.st_mtime, "cached_at": payload.get("cached_at"), "entry_count": len(entries), "newest_entry_age_ms": now - newest}, sort_keys=True))');
 lines.push('        else:');
 lines.push('            print(json.dumps({"relay": relay, "file": filename, "size": st.st_size, "mtime": st.st_mtime, "cached_at": payload.get("cached_at")}, sort_keys=True))');
 lines.push('PY');
 lines.push('```');
 lines.push('');
-lines.push('Abort if any relay data dir is empty, not a bind mount, not writable by `humble`, has a missing snapshot, has a schema mismatch, or latest-index entries != 15.');
+lines.push('Abort if any relay data dir is empty, not a bind mount, not writable by `humble`, has a missing snapshot, has a schema mismatch, or has an empty/non-list latest-index entries array.');
 lines.push('');
 
 lines.push('## Env Capture');
