@@ -254,6 +254,14 @@ outside `VH_NEWS_RUNTIME_TRACE`; use those fields for first-publish evidence.
 Set `VH_NEWS_RUNTIME_TICK_WATCHDOG_MS` to emit an in-flight warning with elapsed
 time and last known stage if a tick exceeds the threshold.
 
+Production starts defer publish-time bundle synthesis until the first completed
+runtime tick by default. `VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE`
+keeps synthesis candidates queued while the raw story/latest/hot/lifecycle batch
+lands and emits its first-publish summary, then starts the synthesis queue
+immediately after that completed summary. Set it to `false` only when first-tick
+caps, synthesis throughput, relay fanout, and the watchdog window have been
+recalibrated together.
+
 ## Env File Surface
 
 Default env file:
@@ -298,6 +306,7 @@ VH_DAEMON_FEED_ARTIFACT_ROOT
 VH_NEWS_DAEMON_LAST_SUCCESS_FILE
 VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
+VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
