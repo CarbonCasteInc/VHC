@@ -697,7 +697,7 @@ describe('newsAdapters', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       await expect(writeNewsStory(client, STORY)).rejects.toThrow(
-        'VH_RELAY_DAEMON_TOKEN is required for relay REST news writes',
+        'VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[https://gun-a.example.test] is required for relay REST news writes',
       );
       expect(mesh.writes).toEqual([]);
       expect(fetchMock).not.toHaveBeenCalled();
@@ -740,6 +740,87 @@ describe('newsAdapters', () => {
         'https://gun-a.example.test',
         'https://gun-b.example.test',
       ]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest uses per-origin daemon tokens when relays differ', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test"]',
+    });
+    const restoreEnv = withProcessEnv({
+      VH_RELAY_DAEMON_TOKEN: undefined,
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'token-a',
+        'https://gun-b.example.test': 'token-b',
+      }),
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: (payload) => payload.ok === true,
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock.mock.calls.map(([input, init]) => ({
+        origin: new URL(String(input)).origin,
+        auth: (init?.headers as Record<string, string>).Authorization,
+      }))).toEqual([
+        { origin: 'https://gun-a.example.test', auth: 'Bearer token-a' },
+        { origin: 'https://gun-b.example.test', auth: 'Bearer token-b' },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest fails before posting when a relay token map is incomplete', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test"]',
+    });
+    const restoreEnv = withProcessEnv({
+      VH_RELAY_DAEMON_TOKEN: undefined,
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'token-a',
+      }),
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: (payload) => payload.ok === true,
+      })).rejects.toThrow(
+        'VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[https://gun-b.example.test] is required for relay REST news writes',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();

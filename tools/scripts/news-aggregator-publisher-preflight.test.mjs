@@ -72,6 +72,8 @@ test('publisher preflight fails closed when news relay REST write-first lacks da
   assert.equal(result.relay_rest_news_publication.write_first, true);
   assert.equal(result.relay_rest_news_publication.origin_count, 1);
   assert.equal(result.relay_rest_news_publication.daemon_token_present, false);
+  assert.equal(result.relay_rest_news_publication.per_origin_token_count, 0);
+  assert.equal(result.relay_rest_news_publication.all_target_tokens_present, false);
 });
 
 test('publisher preflight checks relay health with redacted pass output', async () => {
@@ -120,6 +122,8 @@ test('publisher preflight checks relay health with redacted pass output', async 
     origin_count: 2,
     require_all: true,
     daemon_token_present: true,
+    per_origin_token_count: 0,
+    all_target_tokens_present: true,
     auth_probe_results: [
       {
         origin: 'https://gun-a.example.test',
@@ -168,6 +172,76 @@ test('publisher preflight fails closed when relay REST news auth rejects the dae
     },
   ]);
   assert.equal(JSON.stringify(result).includes('relay-token-redacted'), false);
+});
+
+test('publisher preflight probes relay REST news auth with per-origin daemon tokens', async () => {
+  const calls = [];
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_RELAY_DAEMON_TOKEN: '',
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'token-a',
+        'https://gun-b.example.test': 'token-b',
+      }),
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'token-a',
+        'https://gun-b.example.test': 'token-b',
+      }),
+    }),
+    fetchFn: async (input, init) => {
+      calls.push({ origin: input.origin, method: init.method, authorization: init.headers.authorization });
+      if (init.method === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'news-story-record-required' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.status, 'pass');
+  assert.deepEqual(calls.filter(({ method }) => method === 'POST'), [
+    { origin: 'https://gun-a.example.test', method: 'POST', authorization: 'Bearer token-a' },
+    { origin: 'https://gun-b.example.test', method: 'POST', authorization: 'Bearer token-b' },
+  ]);
+  assert.equal(result.relay_rest_news_publication.daemon_token_present, false);
+  assert.equal(result.relay_rest_news_publication.per_origin_token_count, 2);
+  assert.equal(result.relay_rest_news_publication.all_target_tokens_present, true);
+  assert.equal(result.relay_rest_synthesis.per_origin_token_count, 2);
+  assert.equal(result.relay_rest_synthesis.all_target_tokens_present, true);
+  assert.equal(JSON.stringify(result).includes('token-a'), false);
+  assert.equal(JSON.stringify(result).includes('token-b'), false);
+});
+
+test('publisher preflight fails closed when a per-origin relay REST news token is missing', async () => {
+  let fetchCalled = false;
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_RELAY_DAEMON_TOKEN: '',
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'token-a',
+      }),
+      VH_BUNDLE_SYNTHESIS_ENABLED: '',
+    }),
+    fetchFn: async () => {
+      fetchCalled = true;
+      return new Response('{}');
+    },
+  });
+
+  assert.equal(result.status, 'fail');
+  assert.equal(fetchCalled, false);
+  assert.match(result.failures.join('\n'), /relay_rest_news_token:https:\/\/gun-b\.example\.test:missing/);
+  assert.equal(result.relay_rest_news_publication.per_origin_token_count, 1);
+  assert.equal(result.relay_rest_news_publication.all_target_tokens_present, false);
 });
 
 test('publisher preflight derives health URLs from Gun peers', () => {

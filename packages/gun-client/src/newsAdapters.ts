@@ -18,7 +18,9 @@ import {
 } from './systemWriter';
 import type { VennClient } from './types';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
-import { createRelayDaemonAuthHeaders } from './relayAuth';
+import {
+  createRelayDaemonAuthHeadersForEndpoint,
+} from './relayAuth';
 
 export type NewsLatestIndex = Record<string, number>;
 export type NewsHotIndex = Record<string, number>;
@@ -193,6 +195,10 @@ const RELAY_REST_NEWS_WRITE_ORIGINS_ENV = [
 const RELAY_REST_NEWS_WRITE_REQUIRE_ALL_ENV = [
   'VITE_VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
   'VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
+] as const;
+const RELAY_REST_NEWS_WRITE_TOKEN_MAP_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_WRITE_TOKENS',
+  'VH_NEWS_RELAY_REST_WRITE_TOKENS',
 ] as const;
 
 type NewsRelayRestWritePath =
@@ -2192,10 +2198,15 @@ function resolveRelayRestWriteEndpoints(client: VennClient, path: NewsRelayRestW
   );
 }
 
-function requireNewsRelayDaemonAuthHeaders(): Record<string, string> {
-  const headers = createRelayDaemonAuthHeaders();
+function requireNewsRelayDaemonAuthHeaders(endpoint: string): Record<string, string> {
+  const headers = createRelayDaemonAuthHeadersForEndpoint(endpoint, {
+    tokenMapEnvNames: RELAY_REST_NEWS_WRITE_TOKEN_MAP_ENV,
+  });
   if (!headers.Authorization) {
-    throw new Error('VH_RELAY_DAEMON_TOKEN is required for relay REST news writes');
+    const origin = new URL(endpoint).origin;
+    throw new Error(
+      `VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[${origin}] is required for relay REST news writes`,
+    );
   }
   return headers;
 }
@@ -2214,12 +2225,15 @@ async function writeNewsRecordViaRelayRest(input: {
   if (endpoints.length === 0) {
     throw new Error(`No relay REST endpoints configured for ${input.path}`);
   }
-  const headers = requireNewsRelayDaemonAuthHeaders();
+  const relayTargets = endpoints.map((endpoint) => ({
+    endpoint,
+    headers: requireNewsRelayDaemonAuthHeaders(endpoint),
+  }));
   const requireAll = shouldRequireAllNewsRelayRestWrites();
   const failures: string[] = [];
   let successCount = 0;
 
-  for (const endpoint of endpoints) {
+  for (const { endpoint, headers } of relayTargets) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
     try {
