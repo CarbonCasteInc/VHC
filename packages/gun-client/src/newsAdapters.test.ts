@@ -747,6 +747,105 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('resolves news relay write endpoints from runtime origins and falls back after invalid JSON', () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      peers: ['wss://fallback.example.test/gun'],
+    });
+    const restoreCommaOrigins = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,mailto:bad,https://gun-a.example.test',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestWriteEndpoints(client, '/vh/news/story')).toEqual([
+        'https://gun-a.example.test/vh/news/story',
+      ]);
+    } finally {
+      restoreCommaOrigins();
+    }
+
+    const restoreInvalidJsonOrigins = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '[',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestWriteEndpoints(client, '/vh/news/hot-index')).toEqual([
+        'https://fallback.example.test/vh/news/hot-index',
+      ]);
+    } finally {
+      restoreInvalidJsonOrigins();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest fails closed when fetch is unavailable or endpoints are missing', async () => {
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, { peers: ['https://gun-a.example.test/gun'] });
+      vi.stubGlobal('fetch', undefined);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: () => true,
+      })).rejects.toThrow('fetch is required for relay REST news writes');
+
+      vi.stubGlobal('fetch', vi.fn());
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client: createClient(mesh, guard, { peers: [] }),
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: () => true,
+      })).rejects.toThrow('No relay REST endpoints configured for /vh/news/story');
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest records thrown fetch failures in the fail-closed error', async () => {
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL: 'false',
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://gun-a.example.test/gun'],
+      });
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        throw new Error('relay offline');
+      }));
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: () => true,
+      })).rejects.toThrow('relay offline');
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        throw 'relay offline string';
+      }));
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: () => true,
+      })).rejects.toThrow('relay offline string');
+      expect(newsAdapterInternal.shouldRequireAllNewsRelayRestWrites()).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreRuntimeConfig();
+      restoreEnv();
+    }
+  });
+
   it('reads news relay write-first flags from import, process, and global config sources', () => {
     const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined };
     const previousImportMetaEnv = target.__VH_IMPORT_META_ENV__;

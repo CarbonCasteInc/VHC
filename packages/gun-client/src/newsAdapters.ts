@@ -243,8 +243,7 @@ function parseRuntimeList(value: string | undefined): string[] {
   const rawValues = value.trim().startsWith('[')
     ? (() => {
         try {
-          const parsed = JSON.parse(value);
-          return Array.isArray(parsed) ? parsed : [];
+          return JSON.parse(value) as unknown[];
         } catch {
           return [];
         }
