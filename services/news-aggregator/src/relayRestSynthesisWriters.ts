@@ -1,7 +1,8 @@
 import type { CandidateSynthesis, TopicSynthesisV2 } from '@vh/data-model';
 import { CandidateSynthesisSchema, TopicSynthesisV2Schema } from '@vh/data-model';
 import {
-  createRelayDaemonAuthHeaders,
+  createRelayDaemonAuthHeadersForEndpoint,
+  normalizeRelayDaemonAuthOrigin,
   resolveRelayRestEndpointFromPeer,
   type NewsSynthesisLifecycleRecord,
   type SafeLatestSynthesisWriteOptions,
@@ -13,6 +14,10 @@ import type { LoggerLike } from './daemonUtils';
 const WRITE_RELAY_REST_ENV = 'VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST';
 const WRITE_RELAY_ORIGINS_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS';
 const REQUIRE_ALL_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL';
+const RELAY_TOKEN_MAP_ENV_NAMES = [
+  'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS',
+  'VH_NEWS_RELAY_REST_WRITE_TOKENS',
+] as const;
 const DEFAULT_RELAY_WRITE_TIMEOUT_MS = 10_000;
 
 export interface RelayRestSynthesisWriters {
@@ -79,10 +84,15 @@ function shouldRequireAllRelayWrites(): boolean {
   return true;
 }
 
-function relayAuthHeaders(): Record<string, string> {
-  const headers = createRelayDaemonAuthHeaders();
+function relayAuthHeaders(endpoint: string): Record<string, string> {
+  const headers = createRelayDaemonAuthHeadersForEndpoint(endpoint, {
+    tokenMapEnvNames: RELAY_TOKEN_MAP_ENV_NAMES,
+  });
   if (!headers.Authorization) {
-    throw new Error('VH_RELAY_DAEMON_TOKEN is required for relay REST bundle synthesis writes');
+    const origin = normalizeRelayDaemonAuthOrigin(endpoint) ?? endpoint;
+    throw new Error(
+      `VH_RELAY_DAEMON_TOKEN or VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS[${origin}] is required for relay REST bundle synthesis writes`,
+    );
   }
   return headers;
 }
@@ -102,11 +112,14 @@ async function postJsonToRelays(input: {
     throw new Error(`No relay REST endpoints configured for ${input.path}`);
   }
   const requireAll = shouldRequireAllRelayWrites();
-  const headers = relayAuthHeaders();
+  const relayTargets = endpoints.map((endpoint) => ({
+    endpoint,
+    headers: relayAuthHeaders(endpoint),
+  }));
   const failures: string[] = [];
   let successCount = 0;
 
-  for (const endpoint of endpoints) {
+  for (const { endpoint, headers } of relayTargets) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DEFAULT_RELAY_WRITE_TIMEOUT_MS);
     try {
@@ -216,10 +229,11 @@ export function createRelayRestSynthesisWritersFromEnv(
   if (!shouldEnableRelayRestSynthesisWritesFromEnv()) {
     return {};
   }
-  relayAuthHeaders();
-  if (resolveRelayEndpoints(client, '/vh/topics/synthesis').length === 0) {
+  const synthesisEndpoints = resolveRelayEndpoints(client, '/vh/topics/synthesis');
+  if (synthesisEndpoints.length === 0) {
     throw new Error('No relay REST endpoints configured for bundle synthesis writes');
   }
+  synthesisEndpoints.forEach((endpoint) => relayAuthHeaders(endpoint));
 
   return {
     async writeCandidate(writeClient, candidate) {

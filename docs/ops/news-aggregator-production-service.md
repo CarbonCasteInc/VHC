@@ -282,9 +282,11 @@ OPENAI_API_KEY
 VH_BUNDLE_SYNTHESIS_ENABLED
 VH_NEWS_RELAY_REST_WRITE_FIRST
 VH_NEWS_RELAY_REST_WRITE_ORIGINS
+VH_NEWS_RELAY_REST_WRITE_TOKENS
 VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL
 VH_NEWS_RELAY_REST_WRITE_TIMEOUT_MS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS
+VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL
 VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST
 VH_RELAY_DAEMON_TOKEN
@@ -316,12 +318,27 @@ direct Gun publication. `VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL=true` is the
 default and should remain set so a partial relay fanout fails closed instead of
 claiming first-publish success from one relay.
 
+When relays have different daemon tokens, set `VH_NEWS_RELAY_REST_WRITE_TOKENS`
+to a JSON object mapping each relay origin to its token, for example:
+
+```bash
+VH_NEWS_RELAY_REST_WRITE_TOKENS='{"https://gun-a.carboncaste.io":"<gun-a-token>","https://gun-b.carboncaste.io":"<gun-b-token>","https://gun-c.carboncaste.io":"<gun-c-token>"}'
+```
+
+Raw story/index/lifecycle publication uses the per-origin token for each relay
+before falling back to `VH_RELAY_DAEMON_TOKEN`. Bundle synthesis REST writes use
+`VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS` when set, then
+`VH_NEWS_RELAY_REST_WRITE_TOKENS`, then the single `VH_RELAY_DAEMON_TOKEN`
+fallback. A single `VH_RELAY_DAEMON_TOKEN` is safe only when all configured
+relays share that same daemon token.
+
 The raw publication readiness preflight also performs an authenticated no-write
 relay REST probe when write-first publication is enabled: it POSTs an empty JSON
-body to `/vh/news/story` with the daemon bearer token and requires the relay to
-reject the body as a validation error after auth. A 401/403/503 response means
-the publisher token does not match the relay daemon token, so live start must
-fail before the first real story write.
+body to `/vh/news/story` with each relay's configured bearer token and requires
+the relay to reject the body as a validation error after auth. A missing
+per-origin token, or a 401/403/503 response, means the publisher token does not
+match the relay daemon token, so live start must fail before the first real story
+write.
 
 ## Lease / Lock Behavior
 

@@ -112,6 +112,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 describe('relayRestSynthesisWriters', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -126,7 +127,9 @@ describe('relayRestSynthesisWriters', () => {
     vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
 
     expect(() => createRelayRestSynthesisWritersFromEnv(CLIENT))
-      .toThrow('VH_RELAY_DAEMON_TOKEN is required');
+      .toThrow(
+        'VH_RELAY_DAEMON_TOKEN or VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS[https://gun-a.example.test] is required',
+      );
   });
 
   it('posts candidate, accepted synthesis, and lifecycle rows to every configured relay endpoint', async () => {
@@ -185,6 +188,47 @@ describe('relayRestSynthesisWriters', () => {
     expect(postCalls.every(([, init]) => (
       (init?.headers as Record<string, string>).Authorization === 'Bearer relay-token'
     ))).toBe(true);
+  });
+
+  it('posts synthesis rows with per-origin daemon tokens from the news relay token map', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_NEWS_RELAY_REST_WRITE_TOKENS', JSON.stringify({
+      'https://gun-a.example.test': 'token-a',
+      'https://gun-b.example.test': 'token-b',
+    }));
+    const fetchMock = vi.fn(async () => jsonResponse({
+      ok: true,
+      topic_id: CANDIDATE.topic_id,
+      candidate_id: CANDIDATE.candidate_id,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT, console);
+
+    await expect(writers.writeCandidate?.(CLIENT, CANDIDATE)).resolves.toEqual(CANDIDATE);
+
+    expect(fetchMock.mock.calls.map(([url, init]) => ({
+      origin: new URL(String(url)).origin,
+      auth: (init?.headers as Record<string, string>).Authorization,
+    }))).toEqual([
+      { origin: 'https://gun-a.example.test', auth: 'Bearer token-a' },
+      { origin: 'https://gun-b.example.test', auth: 'Bearer token-b' },
+    ]);
+  });
+
+  it('fails before posting when synthesis relay token coverage is incomplete', () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_NEWS_RELAY_REST_WRITE_TOKENS', JSON.stringify({
+      'https://gun-a.example.test': 'token-a',
+    }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(() => createRelayRestSynthesisWritersFromEnv(CLIENT))
+      .toThrow(
+        'VH_RELAY_DAEMON_TOKEN or VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS[https://gun-b.example.test] is required',
+      );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('honors the latest synthesis ownership guard before relay writes', async () => {

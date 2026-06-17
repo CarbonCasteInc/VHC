@@ -90,6 +90,147 @@ function assertPresent(env, name, failures) {
   return true;
 }
 
+function normalizeRelayTokenOrigin(value) {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === 'ws:') {
+      parsed.protocol = 'http:';
+    } else if (parsed.protocol === 'wss:') {
+      parsed.protocol = 'https:';
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return null;
+    }
+    parsed.pathname = '/';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function addRelayTokenMapEntry(map, origin, token, sourceName, failures) {
+  const normalizedOrigin = normalizeRelayTokenOrigin(String(origin ?? '').trim());
+  const normalizedToken = String(token ?? '').trim();
+  if (!normalizedOrigin || !normalizedToken) {
+    failures.push(`${sourceName}:invalid_entry`);
+    return;
+  }
+  if (!map.has(normalizedOrigin)) {
+    map.set(normalizedOrigin, normalizedToken);
+  }
+}
+
+function parseRelayTokenMapValue(value, sourceName, failures) {
+  const map = new Map();
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) {
+    return map;
+  }
+
+  if (trimmed.startsWith('{')) {
+    let parsed;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      failures.push(`${sourceName}:invalid_json`);
+      return map;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      failures.push(`${sourceName}:expected_object`);
+      return map;
+    }
+    for (const [origin, token] of Object.entries(parsed)) {
+      addRelayTokenMapEntry(map, origin, token, sourceName, failures);
+    }
+    return map;
+  }
+
+  if (trimmed.startsWith('[')) {
+    let parsed;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      failures.push(`${sourceName}:invalid_json`);
+      return map;
+    }
+    if (!Array.isArray(parsed)) {
+      failures.push(`${sourceName}:expected_array`);
+      return map;
+    }
+    for (const entry of parsed) {
+      if (typeof entry === 'string') {
+        const separator = entry.indexOf('=');
+        if (separator <= 0) {
+          failures.push(`${sourceName}:invalid_entry`);
+          continue;
+        }
+        addRelayTokenMapEntry(map, entry.slice(0, separator), entry.slice(separator + 1), sourceName, failures);
+        continue;
+      }
+      if (entry && typeof entry === 'object') {
+        addRelayTokenMapEntry(map, entry.origin ?? entry.url, entry.token, sourceName, failures);
+        continue;
+      }
+      failures.push(`${sourceName}:invalid_entry`);
+    }
+    return map;
+  }
+
+  for (const entry of trimmed.split(/[,\n]+/).map((part) => part.trim()).filter(Boolean)) {
+    const separator = entry.indexOf('=');
+    if (separator <= 0) {
+      failures.push(`${sourceName}:invalid_entry`);
+      continue;
+    }
+    addRelayTokenMapEntry(map, entry.slice(0, separator), entry.slice(separator + 1), sourceName, failures);
+  }
+  return map;
+}
+
+function readRelayTokenMap(env, names, failures) {
+  const merged = new Map();
+  for (const name of names) {
+    const raw = firstNonEmpty(env[name]);
+    if (!raw) {
+      continue;
+    }
+    const parsed = parseRelayTokenMapValue(raw, name, failures);
+    for (const [origin, token] of parsed) {
+      if (!merged.has(origin)) {
+        merged.set(origin, token);
+      }
+    }
+  }
+  return merged;
+}
+
+function relayTokenForUrl(url, tokenMap, fallbackToken) {
+  const origin = new URL(url).origin;
+  return tokenMap.get(origin) ?? fallbackToken;
+}
+
+function collectMissingRelayTokens({
+  failures,
+  failurePrefix,
+  urls,
+  tokenMap,
+  fallbackToken,
+}) {
+  const tokensByUrl = new Map();
+  for (const url of urls) {
+    const origin = new URL(url).origin;
+    const token = relayTokenForUrl(url, tokenMap, fallbackToken);
+    if (!token) {
+      failures.push(`${failurePrefix}:${origin}:missing`);
+      continue;
+    }
+    tokensByUrl.set(url, token);
+  }
+  return tokensByUrl;
+}
+
 async function probeNewsRelayRestAuth(url, token, fetchFn) {
   const parsed = new URL(url);
   const controller = new AbortController();
@@ -164,6 +305,22 @@ export async function runNewsAggregatorPublisherPreflight({
     || relayRestOrigins.length > 0;
   const newsRelayRestOrigins = parseDelimited(env.VH_NEWS_RELAY_REST_WRITE_ORIGINS);
   const newsRelayRestWriteFirst = truthy(env.VH_NEWS_RELAY_REST_WRITE_FIRST);
+  const fallbackRelayDaemonToken = firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN);
+  const newsRelayRestTokenMap = readRelayTokenMap(
+    env,
+    ['VH_NEWS_RELAY_REST_WRITE_TOKENS', 'VITE_VH_NEWS_RELAY_REST_WRITE_TOKENS'],
+    failures,
+  );
+  const synthesisRelayRestTokenMap = readRelayTokenMap(
+    env,
+    [
+      'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS',
+      'VH_NEWS_RELAY_REST_WRITE_TOKENS',
+      'VITE_VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS',
+      'VITE_VH_NEWS_RELAY_REST_WRITE_TOKENS',
+    ],
+    failures,
+  );
   const newsRelayRestWriteOriginInputs = newsRelayRestWriteFirst
     ? (
         newsRelayRestOrigins.length > 0
@@ -178,10 +335,34 @@ export async function runNewsAggregatorPublisherPreflight({
       .map((origin) => relayRestWriteUrlFromOrigin(origin, '/vh/news/story', 'relay_rest_news_origin', failures))
       .filter(Boolean))]
     : [];
+  const synthesisRelayRestAuthUrls = [...new Set(relayRestOrigins
+    .map((origin) => relayRestWriteUrlFromOrigin(
+      origin,
+      '/vh/topics/synthesis',
+      'relay_rest_synthesis_origin',
+      failures,
+    ))
+    .filter(Boolean))];
+  const synthesisRelayTokensByUrl = collectMissingRelayTokens({
+    failures,
+    failurePrefix: 'relay_rest_synthesis_token',
+    urls: synthesisEnabled ? synthesisRelayRestAuthUrls : [],
+    tokenMap: synthesisRelayRestTokenMap,
+    fallbackToken: fallbackRelayDaemonToken,
+  });
+  const newsRelayTokensByUrl = collectMissingRelayTokens({
+    failures,
+    failurePrefix: 'relay_rest_news_token',
+    urls: newsRelayRestWriteFirst ? newsRelayRestWriteAuthUrls : [],
+    tokenMap: newsRelayRestTokenMap,
+    fallbackToken: fallbackRelayDaemonToken,
+  });
   if (synthesisEnabled) {
     if (!relayRestWriteRequested) failures.push('relay_rest_synthesis:disabled_while_synthesis_enabled');
     if (relayRestOrigins.length === 0) failures.push('relay_rest_synthesis_origins:missing');
-    if (!firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)) failures.push('relay_rest_synthesis_token:missing');
+    if (!fallbackRelayDaemonToken && synthesisRelayRestTokenMap.size === 0) {
+      failures.push('relay_rest_synthesis_token:missing');
+    }
     for (const origin of relayRestOrigins) {
       const url = validUrl(origin, 'relay_rest_synthesis_origin', failures);
       if (url && !['http:', 'https:'].includes(url.protocol)) {
@@ -190,7 +371,9 @@ export async function runNewsAggregatorPublisherPreflight({
     }
   }
   if (newsRelayRestWriteFirst) {
-    if (!firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)) failures.push('relay_rest_news_token:missing');
+    if (!fallbackRelayDaemonToken && newsRelayRestTokenMap.size === 0) {
+      failures.push('relay_rest_news_token:missing');
+    }
     if (newsRelayRestWriteAuthUrls.length === 0) {
       failures.push('relay_rest_news_auth_targets:missing');
     }
@@ -227,8 +410,11 @@ export async function runNewsAggregatorPublisherPreflight({
         }
       }
       if (newsRelayRestWriteFirst) {
-        const token = firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN);
         for (const url of newsRelayRestWriteAuthUrls) {
+          const token = newsRelayTokensByUrl.get(url);
+          if (!token) {
+            continue;
+          }
           try {
             const result = await probeNewsRelayRestAuth(url, token, fetchFn);
             newsRelayRestAuthResults.push(result);
@@ -266,13 +452,21 @@ export async function runNewsAggregatorPublisherPreflight({
     relay_rest_synthesis: {
       requested: relayRestWriteRequested,
       origin_count: relayRestOrigins.length,
-      daemon_token_present: Boolean(firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)),
+      daemon_token_present: Boolean(fallbackRelayDaemonToken),
+      per_origin_token_count: synthesisRelayRestTokenMap.size,
+      all_target_tokens_present: synthesisEnabled
+        ? synthesisRelayTokensByUrl.size === synthesisRelayRestAuthUrls.length
+        : true,
     },
     relay_rest_news_publication: {
       write_first: newsRelayRestWriteFirst,
       origin_count: newsRelayRestWriteAuthUrls.length,
       require_all: !/^(0|false|no|off)$/i.test(String(env.VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL ?? '').trim()),
-      daemon_token_present: Boolean(firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN)),
+      daemon_token_present: Boolean(fallbackRelayDaemonToken),
+      per_origin_token_count: newsRelayRestTokenMap.size,
+      all_target_tokens_present: newsRelayRestWriteFirst
+        ? newsRelayTokensByUrl.size === newsRelayRestWriteAuthUrls.length
+        : true,
       auth_probe_results: newsRelayRestAuthResults,
     },
     failures,

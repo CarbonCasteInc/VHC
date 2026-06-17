@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SEA from 'gun/sea.js';
-import { createRelayDaemonAuthHeaders, createRelayUserSignatureHeaders } from './relayAuth';
+import {
+  createRelayDaemonAuthHeaders,
+  createRelayDaemonAuthHeadersForEndpoint,
+  createRelayUserSignatureHeaders,
+  normalizeRelayDaemonAuthOrigin,
+  readRelayDaemonTokenMap,
+  resolveRelayDaemonTokenForEndpoint,
+} from './relayAuth';
 
 describe('relayAuth', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('creates daemon bearer headers from server-side env', () => {
@@ -32,6 +40,116 @@ describe('relayAuth', () => {
       if (previousVite === undefined) delete process.env.VITE_VH_RELAY_DAEMON_TOKEN;
       else process.env.VITE_VH_RELAY_DAEMON_TOKEN = previousVite;
     }
+  });
+
+  it('creates per-origin daemon bearer headers from a token map with single-token fallback', () => {
+    vi.stubEnv('VH_NEWS_RELAY_REST_WRITE_TOKENS', JSON.stringify({
+      'https://gun-a.example.test': 'token-a',
+      'wss://gun-b.example.test/gun': 'token-b',
+    }));
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'fallback-token');
+
+    expect(createRelayDaemonAuthHeadersForEndpoint(
+      'https://gun-a.example.test/vh/news/story',
+      { tokenMapEnvNames: ['VH_NEWS_RELAY_REST_WRITE_TOKENS'] },
+    )).toEqual({ Authorization: 'Bearer token-a' });
+    expect(createRelayDaemonAuthHeadersForEndpoint(
+      'https://gun-b.example.test/vh/news/story',
+      { tokenMapEnvNames: ['VH_NEWS_RELAY_REST_WRITE_TOKENS'] },
+    )).toEqual({ Authorization: 'Bearer token-b' });
+    expect(createRelayDaemonAuthHeadersForEndpoint(
+      'https://gun-c.example.test/vh/news/story',
+      { tokenMapEnvNames: ['VH_NEWS_RELAY_REST_WRITE_TOKENS'] },
+    )).toEqual({ Authorization: 'Bearer fallback-token' });
+  });
+
+  it('normalizes relay auth origins across websocket and HTTPS inputs', () => {
+    expect(normalizeRelayDaemonAuthOrigin('ws://gun-a.example.test/gun')).toBe('http://gun-a.example.test');
+    expect(normalizeRelayDaemonAuthOrigin('wss://gun-a.example.test/gun')).toBe('https://gun-a.example.test');
+    expect(normalizeRelayDaemonAuthOrigin('https://gun-a.example.test/vh/news/story')).toBe(
+      'https://gun-a.example.test',
+    );
+    expect(normalizeRelayDaemonAuthOrigin('mailto:bad')).toBeNull();
+    expect(normalizeRelayDaemonAuthOrigin('not a url')).toBeNull();
+  });
+
+  it('supports alternate token env sources and custom fallback env names', () => {
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', '');
+    vi.stubEnv('VITE_VH_RELAY_DAEMON_TOKEN', '');
+    const target = globalThis as {
+      __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> | undefined;
+      __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined;
+    };
+    const previousGlobalConfig = target.__VH_GUN_CLIENT_CONFIG__;
+    const previousImportMetaEnv = target.__VH_IMPORT_META_ENV__;
+    try {
+      target.__VH_IMPORT_META_ENV__ = { VITE_VH_RELAY_DAEMON_TOKEN: 'vite-token' };
+      expect(createRelayDaemonAuthHeaders()).toEqual({ Authorization: 'Bearer vite-token' });
+
+      target.__VH_IMPORT_META_ENV__ = undefined;
+      target.__VH_GUN_CLIENT_CONFIG__ = { VH_RELAY_DAEMON_TOKEN: 'global-token' };
+      expect(createRelayDaemonAuthHeaders()).toEqual({ Authorization: 'Bearer global-token' });
+
+      vi.stubEnv('CUSTOM_RELAY_TOKEN', 'custom-token');
+      expect(resolveRelayDaemonTokenForEndpoint('not a url', {
+        tokenEnvNames: ['CUSTOM_RELAY_TOKEN'],
+      })).toBe('custom-token');
+      expect(resolveRelayDaemonTokenForEndpoint('https://gun-a.example.test/vh/news/story', {
+        tokenEnvNames: ['CUSTOM_RELAY_TOKEN'],
+      })).toBe('custom-token');
+    } finally {
+      target.__VH_GUN_CLIENT_CONFIG__ = previousGlobalConfig;
+      target.__VH_IMPORT_META_ENV__ = previousImportMetaEnv;
+    }
+  });
+
+  it('parses relay daemon token maps from arrays and delimited entries', () => {
+    vi.stubEnv('ARRAY_RELAY_TOKENS', JSON.stringify([
+      'https://gun-a.example.test=token-a',
+      { origin: 'wss://gun-b.example.test/gun', token: 'token-b' },
+      { url: 'https://gun-c.example.test/path', token: 'token-c' },
+    ]));
+    expect([...readRelayDaemonTokenMap(['ARRAY_RELAY_TOKENS'])]).toEqual([
+      ['https://gun-a.example.test', 'token-a'],
+      ['https://gun-b.example.test', 'token-b'],
+      ['https://gun-c.example.test', 'token-c'],
+    ]);
+
+    vi.stubEnv(
+      'DELIMITED_RELAY_TOKENS',
+      'https://gun-a.example.test=primary-a,\nhttps://gun-d.example.test=token-d',
+    );
+    vi.stubEnv('FALLBACK_RELAY_TOKENS', JSON.stringify({
+      'https://gun-a.example.test': 'fallback-a',
+      'https://gun-e.example.test': 'token-e',
+    }));
+    expect([...readRelayDaemonTokenMap(['DELIMITED_RELAY_TOKENS', 'FALLBACK_RELAY_TOKENS'])]).toEqual([
+      ['https://gun-a.example.test', 'primary-a'],
+      ['https://gun-d.example.test', 'token-d'],
+      ['https://gun-e.example.test', 'token-e'],
+    ]);
+  });
+
+  it('fails closed for malformed relay daemon token map entries', () => {
+    vi.stubEnv('BAD_RELAY_TOKEN_MAP', JSON.stringify({ 'mailto:bad': 'token' }));
+    expect(() => readRelayDaemonTokenMap(['BAD_RELAY_TOKEN_MAP']))
+      .toThrow('BAD_RELAY_TOKEN_MAP contains an invalid relay origin/token entry');
+
+    vi.stubEnv('BAD_RELAY_TOKEN_MAP', JSON.stringify(['https://gun-a.example.test']));
+    expect(() => readRelayDaemonTokenMap(['BAD_RELAY_TOKEN_MAP']))
+      .toThrow('BAD_RELAY_TOKEN_MAP contains an invalid relay token entry');
+
+    vi.stubEnv('BAD_RELAY_TOKEN_MAP', JSON.stringify([false]));
+    expect(() => readRelayDaemonTokenMap(['BAD_RELAY_TOKEN_MAP']))
+      .toThrow('BAD_RELAY_TOKEN_MAP contains an invalid relay token entry');
+
+    vi.stubEnv('BAD_RELAY_TOKEN_MAP', JSON.stringify([{ origin: null, token: null }]));
+    expect(() => readRelayDaemonTokenMap(['BAD_RELAY_TOKEN_MAP']))
+      .toThrow('BAD_RELAY_TOKEN_MAP contains an invalid relay origin/token entry');
+
+    vi.stubEnv('BAD_RELAY_TOKEN_MAP', 'https://gun-a.example.test');
+    expect(() => readRelayDaemonTokenMap(['BAD_RELAY_TOKEN_MAP']))
+      .toThrow('BAD_RELAY_TOKEN_MAP contains an invalid relay token entry');
   });
 
   it('does not create user signature headers without a complete device pair', async () => {
