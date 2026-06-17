@@ -53,10 +53,12 @@ function makeTimerControls() {
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -340,5 +342,55 @@ describe('news daemon coverage guards', () => {
     expect(logger.info).toHaveBeenCalledWith('[vh:news-daemon] received SIGTERM; shutting down');
     expect(stop).toHaveBeenCalledTimes(1);
     expect(lifecycle.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('exits the CLI when a bounded diagnostic handle closes without a signal', async () => {
+    const closed = createDeferred<void>();
+    const stop = vi.fn(async () => undefined);
+    const startFromEnv = vi.fn(async () => ({
+      stop,
+      closed: closed.promise,
+    }));
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn(() => lifecycle as any) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    closed.resolve();
+    await flushMicrotasks();
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(0);
+  });
+
+  it('exits the CLI nonzero when a daemon handle closes with an error', async () => {
+    const closed = createDeferred<void>();
+    const startFromEnv = vi.fn(async () => ({
+      stop: vi.fn(async () => undefined),
+      closed: closed.promise,
+    }));
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn(() => lifecycle as any) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+    const error = new Error('diagnostic stop failed');
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    closed.reject(error);
+    await flushMicrotasks();
+
+    expect(logger.error).toHaveBeenCalledWith('[vh:news-daemon] daemon process closed with error', error);
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(1);
   });
 });

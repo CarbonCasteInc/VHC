@@ -581,6 +581,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
 export interface NewsAggregatorDaemonProcessHandle {
   daemon: NewsAggregatorDaemonHandle;
   client: VennClient;
+  readonly closed: Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -740,6 +741,21 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   let client: VennClient | null = null;
   let processHandle: NewsAggregatorDaemonProcessHandle | null = null;
   let diagnosticStopRequested = false;
+  let resolveClosed: (() => void) | null = null;
+  let rejectClosed: ((error: unknown) => void) | null = null;
+  const closed = new Promise<void>((resolve, reject) => {
+    resolveClosed = resolve;
+    rejectClosed = reject;
+  });
+  const settleClosed = (error?: unknown) => {
+    if (error === undefined) {
+      resolveClosed?.();
+    } else {
+      rejectClosed?.(error);
+    }
+    resolveClosed = null;
+    rejectClosed = null;
+  };
   try {
     const systemWriterConfig = await resolveSystemWriterClientConfigFromEnv();
     client = createNodeMeshClient({
@@ -815,16 +831,28 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     processHandle = {
       daemon,
       client,
+      closed,
       async stop() {
         if (stopped) {
           return;
         }
         stopped = true;
+        let stopError: unknown;
         try {
           await daemon.stop();
           await client?.shutdown();
+        } catch (error) {
+          stopError = error;
+          throw error;
         } finally {
-          processLock.release();
+          try {
+            processLock.release();
+          } catch (error) {
+            stopError ??= error;
+            throw error;
+          } finally {
+            settleClosed(stopError);
+          }
         }
       },
     };

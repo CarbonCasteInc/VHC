@@ -255,6 +255,7 @@ describe('news daemon production wiring', () => {
       await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 1 }));
       await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
+      await handle.closed;
 
       await handle.stop();
       expect(runtimeHandle.stop).toHaveBeenCalledTimes(1);
@@ -297,6 +298,7 @@ describe('news daemon production wiring', () => {
       await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 2 }));
       await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
+      await handle.closed;
 
       await handle.stop();
     } finally {

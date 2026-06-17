@@ -4,6 +4,7 @@ export type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
 export type CliLogger = Pick<Console, 'info' | 'error'>;
 export interface CliDaemonProcessHandle {
   stop(): Promise<void>;
+  readonly closed?: Promise<void>;
 }
 
 export function isDirectExecution(metaUrl: string): boolean {
@@ -24,6 +25,14 @@ export async function runFromCli(
   logger: CliLogger = console,
 ): Promise<void> {
   const processHandle = await startFromEnv();
+  let exiting = false;
+  const exitOnce = (code: number): void => {
+    if (exiting) {
+      return;
+    }
+    exiting = true;
+    lifecycle.exit(code);
+  };
   const shutdown = async (signal: string): Promise<void> => {
     logger.info(`[vh:news-daemon] received ${signal}; shutting down`);
     await processHandle.stop();
@@ -31,8 +40,14 @@ export async function runFromCli(
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     lifecycle.once(signal, () => {
       void shutdown(signal).finally(() => {
-        lifecycle.exit(0);
+        exitOnce(0);
       });
     });
   }
+  void processHandle.closed?.then(() => {
+    exitOnce(0);
+  }, (error) => {
+    logger.error('[vh:news-daemon] daemon process closed with error', error);
+    exitOnce(1);
+  });
 }
