@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { NewsRuntimeTickSummary } from '@vh/ai-engine';
 
 const mocks = vi.hoisted(() => ({
   startNewsRuntime: vi.fn(),
@@ -44,6 +48,57 @@ import {
 function primeHealthyEnv(): void {
   vi.stubEnv('VH_STORYCLUSTER_REMOTE_URL', 'https://storycluster.example.com/cluster');
   vi.stubEnv('VH_STORYCLUSTER_REMOTE_AUTH_TOKEN', 'token-123');
+}
+
+function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsRuntimeTickSummary {
+  return {
+    schemaVersion: 'vh-news-runtime-tick-summary-v1',
+    tick_sequence: 1,
+    first_tick: true,
+    status: 'completed',
+    no_write: true,
+    started_at: new Date(1_700_000_000_000).toISOString(),
+    completed_at: new Date(1_700_000_001_000).toISOString(),
+    duration_ms: 1_000,
+    poll_interval_ms: 600_000,
+    feed_source_count: 1,
+    published_bundle_limit: 24,
+    ingested_item_count: 3,
+    normalized_item_count: 2,
+    clustered_bundle_count: 1,
+    clustered_storyline_count: 0,
+    selected_bundle_count: 1,
+    selected_singleton_bundle_count: 1,
+    selected_multi_source_bundle_count: 0,
+    publication_ineligible_bundle_count: 0,
+    raw_write_attempted_count: 0,
+    raw_write_suppressed_count: 1,
+    raw_wrote_count: 0,
+    raw_write_failed_count: 0,
+    storyline_write_attempted_count: 0,
+    storyline_write_suppressed_count: 0,
+    storyline_wrote_count: 0,
+    storyline_write_failed_count: 0,
+    stale_story_remove_attempted_count: 0,
+    stale_story_remove_suppressed_count: 0,
+    stale_story_removed_count: 0,
+    stale_story_remove_failed_count: 0,
+    stale_storyline_remove_attempted_count: 0,
+    stale_storyline_remove_suppressed_count: 0,
+    stale_storyline_removed_count: 0,
+    stale_storyline_remove_failed_count: 0,
+    synthesis_candidate_enqueued_count: 0,
+    synthesis_candidate_suppressed_count: 1,
+    first_selected_story_ids: ['story-1'],
+    last_stage: 'completed',
+    ...overrides,
+  };
+}
+
+function waitForScheduledStop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 describe('news daemon production wiring', () => {
@@ -167,6 +222,103 @@ describe('news daemon production wiring', () => {
       });
     } finally {
       await handle.stop();
+    }
+  });
+
+  it('defaults no-write diagnostics to one runtime tick and self-stops after writing the summary', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-bounded-diagnostic-'));
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const shutdown = vi.fn().mockResolvedValue(undefined);
+    mocks.startNewsRuntime.mockReturnValue(runtimeHandle);
+    mocks.createNodeMeshClient.mockReturnValue({
+      id: 'mock-client',
+      shutdown,
+    });
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE', '1');
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', path.join(tmpDir, 'artifacts'));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    try {
+      const handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        noWrite?: boolean;
+        onTickSummary?: (summary: NewsRuntimeTickSummary) => Promise<void>;
+      };
+
+      expect(runtimeConfig.noWrite).toBe(true);
+      await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 1 }));
+      await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
+
+      await handle.stop();
+      expect(runtimeHandle.stop).toHaveBeenCalledTimes(1);
+      expect(shutdown).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('honors an explicit no-write diagnostic tick limit before self-stopping', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-bounded-diagnostic-'));
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const shutdown = vi.fn().mockResolvedValue(undefined);
+    mocks.startNewsRuntime.mockReturnValue(runtimeHandle);
+    mocks.createNodeMeshClient.mockReturnValue({
+      id: 'mock-client',
+      shutdown,
+    });
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE', '1');
+    vi.stubEnv('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS', '2');
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', path.join(tmpDir, 'artifacts'));
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    try {
+      const handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        onTickSummary?: (summary: NewsRuntimeTickSummary) => Promise<void>;
+      };
+
+      await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 1 }));
+      await waitForScheduledStop();
+      expect(runtimeHandle.stop).not.toHaveBeenCalled();
+
+      await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 2 }));
+      await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
+
+      await handle.stop();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses direct daemon startup when the process pidfile is held', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-held-lock-'));
+    try {
+      writeFileSync(path.join(tmpDir, 'news-daemon.pid'), `${process.pid}\n`, 'utf8');
+      primeHealthyEnv();
+      vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+      await expect(startNewsAggregatorDaemonFromEnv()).rejects.toThrow(
+        `news daemon process lock is held by pid ${process.pid}`,
+      );
+      expect(mocks.createNodeMeshClient).not.toHaveBeenCalled();
+      expect(mocks.startNewsRuntime).not.toHaveBeenCalled();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
