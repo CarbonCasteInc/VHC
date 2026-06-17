@@ -105,6 +105,7 @@ export function createNodeMeshClient(config: VennClientConfig = {}): VennClient 
     localStorage: false,
     radisk: gunRadisk,
     file: gunFile,
+    stats: false,
     axe: false,
   } as never) as IGunInstance;
   const mesh = gun.get('vh') as unknown as ChainWithGet<Record<string, unknown>>;
