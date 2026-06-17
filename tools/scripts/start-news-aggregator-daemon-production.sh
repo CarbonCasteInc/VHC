@@ -52,6 +52,33 @@ require_no_news_daemon_siblings() {
   return 75
 }
 
+# Guarantee no diagnostic daemon outlives this wrapper, even if a tick hung
+# (a hung tick never emits a summary, so the in-daemon max-ticks stop never
+# fires). SIGTERM first for a graceful lease release, then SIGKILL any survivor.
+reap_news_daemon_siblings() {
+  local context="${1:-cleanup}"
+  local pids attempt
+  pids="$(find_news_daemon_sibling_pids)"
+  if [[ -z "${pids// }" ]]; then
+    return 0
+  fi
+  echo "[vh:news-daemon:prod] reaping ${context} news daemon runtime process(es): ${pids}" >&2
+  for pid in ${pids}; do kill -TERM "${pid}" 2>/dev/null || true; done
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    pids="$(find_news_daemon_sibling_pids)"
+    [[ -z "${pids// }" ]] && return 0
+    sleep 1
+  done
+  pids="$(find_news_daemon_sibling_pids)"
+  for pid in ${pids}; do kill -KILL "${pid}" 2>/dev/null || true; done
+  sleep 1
+  pids="$(find_news_daemon_sibling_pids)"
+  if [[ -n "${pids// }" ]]; then
+    echo "[vh:news-daemon:prod] failed to reap ${context} news daemon runtime process(es) after SIGKILL: ${pids}" >&2
+    return 75
+  fi
+}
+
 NO_WRITE_DIAGNOSTIC=false
 if truthy_flag "${VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE:-${VH_NEWS_DAEMON_NO_WRITE:-}}"; then
   NO_WRITE_DIAGNOSTIC=true
@@ -65,6 +92,15 @@ if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
   fi
   echo "[vh:news-daemon:prod] no-write diagnostic mode approved; live mesh mutations are suppressed"
   export VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS="${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS:-1}"
+  # Hard wall-clock bound so a hung tick (which never reaches the in-daemon
+  # max-ticks stop) cannot orphan. Default sits above one healthy capped tick
+  # (~160-235s) and above the 420s tick watchdog so a hang still logs its warning.
+  DIAGNOSTIC_MAX_SECONDS="${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_SECONDS:-600}"
+  if [[ ! "${DIAGNOSTIC_MAX_SECONDS}" =~ ^[0-9]+$ || "${DIAGNOSTIC_MAX_SECONDS}" -le 0 ]]; then
+    echo "[vh:news-daemon:prod] VH_NEWS_DAEMON_DIAGNOSTIC_MAX_SECONDS must be a positive integer" >&2
+    exit 78
+  fi
+  DIAGNOSTIC_TIMEOUT_BIN="${VH_NEWS_DAEMON_DIAGNOSTIC_TIMEOUT_BIN:-timeout}"
 elif [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
   echo "[vh:news-daemon:prod] refusing to start without VH_NEWS_DAEMON_START_APPROVED=1 in ${ENV_FILE}" >&2
   exit 78
@@ -196,10 +232,19 @@ NODE
 echo "[vh:news-daemon:prod] preflights passed; starting canonical @vh/news-aggregator daemon"
 if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
   set +e
-  pnpm --filter @vh/news-aggregator daemon
+  if command -v "${DIAGNOSTIC_TIMEOUT_BIN}" >/dev/null 2>&1; then
+    "${DIAGNOSTIC_TIMEOUT_BIN}" --signal=TERM --kill-after=30s "${DIAGNOSTIC_MAX_SECONDS}" pnpm --filter @vh/news-aggregator daemon
+  else
+    echo "[vh:news-daemon:prod] '${DIAGNOSTIC_TIMEOUT_BIN}' unavailable; relying on in-daemon max-ticks + post-run reap" >&2
+    pnpm --filter @vh/news-aggregator daemon
+  fi
   daemon_status=$?
   set -e
-  require_no_news_daemon_siblings "post-diagnostic"
+  if [[ "${daemon_status}" == "124" ]]; then
+    echo "[vh:news-daemon:prod] no-write diagnostic hit the ${DIAGNOSTIC_MAX_SECONDS}s wall-clock bound (likely a hung tick); reaping" >&2
+  fi
+  # Guarantee no orphan survives this wrapper regardless of how the daemon exited.
+  reap_news_daemon_siblings "post-diagnostic"
   exit "${daemon_status}"
 fi
 exec pnpm --filter @vh/news-aggregator daemon

@@ -200,7 +200,17 @@ nonzero ingest/normalize/cluster/select before a live start is approved.
 No-write diagnostics are bounded by default. The wrapper exports
 `VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=1` unless the env file deliberately
 overrides it, and the daemon self-stops after writing the tick summary and
-cluster-capture artifact for that many ticks. The daemon also acquires
+cluster-capture artifact for that many ticks. The wrapper also applies
+`VH_NEWS_DAEMON_DIAGNOSTIC_MAX_SECONDS=600` by default and, when `timeout` is
+available, runs the diagnostic daemon under that hard wall-clock bound with a
+30-second kill-after grace window. This covers hung ticks that never emit a
+summary and therefore never reach the in-daemon max-ticks stop. If `timeout` is
+not available, the wrapper logs the fallback, relies on the in-daemon max-ticks
+stop, and still runs post-diagnostic sibling cleanup before returning.
+
+After every no-write diagnostic run, the wrapper reaps any remaining sibling
+daemon runtime process with SIGTERM, waits up to 10 seconds, escalates to
+SIGKILL, and fails closed if the process still remains. The daemon also acquires
 `$VH_NEWS_DAEMON_PID_FILE` or `$VH_NEWS_DAEMON_STATE_DIR/news-daemon.pid` before
 creating the mesh client; a direct `pnpm --filter @vh/news-aggregator daemon`
 launch refuses to start while another daemon process owns that pidfile.
