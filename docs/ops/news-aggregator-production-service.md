@@ -262,6 +262,15 @@ immediately after that completed summary. Set it to `false` only when first-tick
 caps, synthesis throughput, relay fanout, and the watchdog window have been
 recalibrated together.
 
+Live mode also fail-closes runtime errors by default through
+`VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR=true`. A runtime error, including a
+partial require-all relay REST write, blocks further runtime writes, stops the
+daemon loop, shuts down the process handle, and leaves systemd to report the
+service stopped instead of allowing the write lane to drain more public stories.
+Do not set it to `false` in production unless the incident commander has chosen
+an attended degraded-write experiment and the public-feed rollback plan is
+already active.
+
 ## Env File Surface
 
 Default env file:
@@ -309,6 +318,7 @@ VH_NEWS_DAEMON_LAST_SUCCESS_FILE
 VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE
+VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES

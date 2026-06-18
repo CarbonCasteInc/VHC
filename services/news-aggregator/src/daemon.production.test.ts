@@ -225,6 +225,46 @@ describe('news daemon production wiring', () => {
     }
   });
 
+  it('shuts down the production process after a live runtime error', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-runtime-error-'));
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const shutdown = vi.fn().mockResolvedValue(undefined);
+    mocks.startNewsRuntime.mockReturnValue(runtimeHandle);
+    mocks.createNodeMeshClient.mockReturnValue({
+      id: 'mock-client',
+      shutdown,
+    });
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    try {
+      const handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        onError?: (error: unknown) => void;
+        writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
+      };
+
+      runtimeConfig.onError?.(new Error('relay require-all failed'));
+
+      await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
+      await handle.closed;
+      await expect(
+        runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, { story_id: 'story-after-error' }),
+      ).rejects.toThrow('news daemon runtime writes stopped after runtime error');
+
+      expect(shutdown).toHaveBeenCalledTimes(1);
+      await handle.stop();
+      expect(shutdown).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('defaults no-write diagnostics to one runtime tick and self-stops after writing the summary', async () => {
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-bounded-diagnostic-'));
     const runtimeHandle = {
