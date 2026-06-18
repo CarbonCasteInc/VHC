@@ -16,6 +16,10 @@ function truthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value ?? '').trim());
 }
 
+function explicitlyFalse(value) {
+  return /^(0|false|no|off)$/i.test(String(value ?? '').trim());
+}
+
 function parseDelimited(value) {
   const raw = String(value ?? '').trim();
   if (!raw) {
@@ -211,6 +215,59 @@ function relayTokenForUrl(url, tokenMap, fallbackToken) {
   return tokenMap.get(origin) ?? fallbackToken;
 }
 
+function parseMinSuccess(value, failurePrefix, endpointCount, failures) {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return { configured: false, value: null };
+  }
+  if (!/^[0-9]+$/.test(raw)) {
+    failures.push(`${failurePrefix}:invalid`);
+    return { configured: true, value: null };
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    failures.push(`${failurePrefix}:invalid`);
+    return { configured: true, value: null };
+  }
+  if (parsed > endpointCount) {
+    failures.push(`${failurePrefix}:impossible:${parsed}_gt_${endpointCount}`);
+  }
+  return { configured: true, value: parsed };
+}
+
+function relayRequiredSuccessCount({
+  active,
+  endpointCount,
+  minSuccessRaw,
+  requireAll,
+  failurePrefix,
+  failures,
+}) {
+  const parsed = parseMinSuccess(minSuccessRaw, failurePrefix, endpointCount, failures);
+  if (!active || endpointCount <= 0) {
+    return {
+      min_success: parsed.value,
+      min_success_configured: parsed.configured,
+      endpoint_count: endpointCount,
+      required_success_count: 0,
+    };
+  }
+  if (parsed.configured) {
+    return {
+      min_success: parsed.value,
+      min_success_configured: true,
+      endpoint_count: endpointCount,
+      required_success_count: parsed.value ?? 0,
+    };
+  }
+  return {
+    min_success: null,
+    min_success_configured: false,
+    endpoint_count: endpointCount,
+    required_success_count: requireAll ? endpointCount : 1,
+  };
+}
+
 function collectMissingRelayTokens({
   failures,
   failurePrefix,
@@ -305,6 +362,8 @@ export async function runNewsAggregatorPublisherPreflight({
     || relayRestOrigins.length > 0;
   const newsRelayRestOrigins = parseDelimited(env.VH_NEWS_RELAY_REST_WRITE_ORIGINS);
   const newsRelayRestWriteFirst = truthy(env.VH_NEWS_RELAY_REST_WRITE_FIRST);
+  const newsRelayRestRequireAll = !explicitlyFalse(env.VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL);
+  const synthesisRelayRestRequireAll = !explicitlyFalse(env.VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL);
   const fallbackRelayDaemonToken = firstNonEmpty(env.VH_RELAY_DAEMON_TOKEN);
   const newsRelayRestTokenMap = readRelayTokenMap(
     env,
@@ -343,6 +402,25 @@ export async function runNewsAggregatorPublisherPreflight({
       failures,
     ))
     .filter(Boolean))];
+  const newsRelayRestQuorum = relayRequiredSuccessCount({
+    active: newsRelayRestWriteFirst,
+    endpointCount: newsRelayRestWriteAuthUrls.length,
+    minSuccessRaw: firstNonEmpty(
+      env.VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS,
+      env.VITE_VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS,
+    ),
+    requireAll: newsRelayRestRequireAll,
+    failurePrefix: 'relay_rest_news_min_success',
+    failures,
+  });
+  const synthesisRelayRestQuorum = relayRequiredSuccessCount({
+    active: synthesisEnabled,
+    endpointCount: synthesisRelayRestAuthUrls.length,
+    minSuccessRaw: env.VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS,
+    requireAll: synthesisRelayRestRequireAll,
+    failurePrefix: 'relay_rest_synthesis_min_success',
+    failures,
+  });
   const synthesisRelayTokensByUrl = collectMissingRelayTokens({
     failures,
     failurePrefix: 'relay_rest_synthesis_token',
@@ -452,6 +530,11 @@ export async function runNewsAggregatorPublisherPreflight({
     relay_rest_synthesis: {
       requested: relayRestWriteRequested,
       origin_count: relayRestOrigins.length,
+      endpoint_count: synthesisRelayRestQuorum.endpoint_count,
+      require_all: synthesisRelayRestRequireAll,
+      min_success: synthesisRelayRestQuorum.min_success,
+      min_success_configured: synthesisRelayRestQuorum.min_success_configured,
+      required_success_count: synthesisRelayRestQuorum.required_success_count,
       daemon_token_present: Boolean(fallbackRelayDaemonToken),
       per_origin_token_count: synthesisRelayRestTokenMap.size,
       all_target_tokens_present: synthesisEnabled
@@ -461,7 +544,11 @@ export async function runNewsAggregatorPublisherPreflight({
     relay_rest_news_publication: {
       write_first: newsRelayRestWriteFirst,
       origin_count: newsRelayRestWriteAuthUrls.length,
-      require_all: !/^(0|false|no|off)$/i.test(String(env.VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL ?? '').trim()),
+      endpoint_count: newsRelayRestQuorum.endpoint_count,
+      require_all: newsRelayRestRequireAll,
+      min_success: newsRelayRestQuorum.min_success,
+      min_success_configured: newsRelayRestQuorum.min_success_configured,
+      required_success_count: newsRelayRestQuorum.required_success_count,
       daemon_token_present: Boolean(fallbackRelayDaemonToken),
       per_origin_token_count: newsRelayRestTokenMap.size,
       all_target_tokens_present: newsRelayRestWriteFirst
@@ -489,6 +576,7 @@ export const newsAggregatorPublisherPreflightInternal = {
   parseDelimited,
   relayHealthUrlFromPeer,
   relayRestWriteUrlFromOrigin,
+  relayRequiredSuccessCount,
   truthy,
 };
 

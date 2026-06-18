@@ -120,7 +120,11 @@ test('publisher preflight checks relay health with redacted pass output', async 
   assert.deepEqual(result.relay_rest_news_publication, {
     write_first: true,
     origin_count: 2,
+    endpoint_count: 2,
     require_all: true,
+    min_success: null,
+    min_success_configured: false,
+    required_success_count: 2,
     daemon_token_present: true,
     per_origin_token_count: 0,
     all_target_tokens_present: true,
@@ -139,6 +143,80 @@ test('publisher preflight checks relay health with redacted pass output', async 
       },
     ],
   });
+});
+
+test('publisher preflight reports raw and synthesis explicit relay REST quorum', async () => {
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test,https://gun-c.example.test',
+      VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL: 'true',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test,https://gun-c.example.test',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL: 'true',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS: '2',
+    }),
+    fetchFn: async (input, init) => {
+      if (init.method === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'news-story-record-required' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.status, 'pass');
+  assert.deepEqual({
+    endpoint_count: result.relay_rest_news_publication.endpoint_count,
+    min_success: result.relay_rest_news_publication.min_success,
+    min_success_configured: result.relay_rest_news_publication.min_success_configured,
+    required_success_count: result.relay_rest_news_publication.required_success_count,
+  }, {
+    endpoint_count: 3,
+    min_success: 2,
+    min_success_configured: true,
+    required_success_count: 2,
+  });
+  assert.deepEqual({
+    endpoint_count: result.relay_rest_synthesis.endpoint_count,
+    min_success: result.relay_rest_synthesis.min_success,
+    min_success_configured: result.relay_rest_synthesis.min_success_configured,
+    required_success_count: result.relay_rest_synthesis.required_success_count,
+  }, {
+    endpoint_count: 3,
+    min_success: 2,
+    min_success_configured: true,
+    required_success_count: 2,
+  });
+});
+
+test('publisher preflight fails closed on invalid or impossible relay REST quorum', async () => {
+  let fetchCalled = false;
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '3',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS: 'two',
+    }),
+    fetchFn: async () => {
+      fetchCalled = true;
+      return new Response('{}');
+    },
+  });
+
+  assert.equal(result.status, 'fail');
+  assert.equal(fetchCalled, false);
+  assert.match(result.failures.join('\n'), /relay_rest_news_min_success:impossible:3_gt_2/);
+  assert.match(result.failures.join('\n'), /relay_rest_synthesis_min_success:invalid/);
+  assert.equal(result.relay_rest_news_publication.required_success_count, 3);
+  assert.equal(result.relay_rest_synthesis.required_success_count, 0);
 });
 
 test('publisher preflight fails closed when relay REST news auth rejects the daemon token', async () => {

@@ -747,6 +747,247 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('writeNewsLatestIndexEntry accepts explicit 2-of-3 relay REST quorum', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL: 'true',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).resolves.toBeUndefined();
+
+      expect(mesh.writes).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(info).toHaveBeenCalledWith('[vh:news] relay REST write completed', expect.objectContaining({
+        path: '/vh/news/latest-index',
+        relay_success_count: 2,
+        relay_target_count: 3,
+        relay_required_success_count: 2,
+        relay_failed_endpoint_labels: ['https://gun-b.example.test'],
+        min_success_configured: true,
+      }));
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry fails explicit 2-of-3 relay REST quorum with one validated success', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: 'wrong-story' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).rejects.toThrow(
+        'Relay REST news write failed for /vh/news/latest-index: 1/3 succeeded; required=2',
+      );
+      expect(mesh.writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest fails before posting for invalid or impossible explicit quorum', async () => {
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://gun-a.example.test/gun', 'https://gun-b.example.test/gun'],
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const restoreInvalidConfig = withGunClientRuntimeConfig({
+        VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2.5',
+      });
+      try {
+        await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/story',
+          record: { story_id: STORY.story_id },
+          writeClass: 'news-story',
+          validate: () => true,
+        })).rejects.toThrow('Invalid VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS');
+      } finally {
+        restoreInvalidConfig();
+      }
+
+      const restoreImpossibleConfig = withGunClientRuntimeConfig({
+        VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '3',
+      });
+      try {
+        await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/story',
+          record: { story_id: STORY.story_id },
+          writeClass: 'news-story',
+          validate: () => true,
+        })).rejects.toThrow('Impossible VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=3: only 2 relay REST endpoint(s) resolved');
+      } finally {
+        restoreImpossibleConfig();
+      }
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+    }
+  });
+
+  it('resolves relay REST quorum edge cases without posting', () => {
+    expect(() => newsAdapterInternal.resolveNewsRelayRestWriteQuorum(0))
+      .toThrow('Relay REST news write quorum requires at least one resolved endpoint');
+    expect(newsAdapterInternal.relayRestEndpointLabel('not a url')).toBe('invalid-relay-endpoint');
+
+    const restoreZeroConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '0',
+    });
+    try {
+      expect(() => newsAdapterInternal.resolveNewsRelayRestWriteQuorum(2))
+        .toThrow('Invalid VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS');
+    } finally {
+      restoreZeroConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest preserves legacy require_all=false one-success behavior', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL: 'false',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: (payload) => payload.ok === true,
+      })).resolves.toBeUndefined();
+
+      expect(info).toHaveBeenCalledWith('[vh:news] relay REST write completed', expect.objectContaining({
+        relay_success_count: 1,
+        relay_target_count: 2,
+        relay_required_success_count: 1,
+        require_all: false,
+        min_success_configured: false,
+      }));
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest rejects impossible quorum after runtime endpoints shrink', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,mailto:bad,https://gun-b.example.test,https://gun-a.example.test',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '3',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      expect(newsAdapterInternal.resolveRelayRestWriteEndpoints(client, '/vh/news/story')).toEqual([
+        'https://gun-a.example.test/vh/news/story',
+        'https://gun-b.example.test/vh/news/story',
+      ]);
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record: { story_id: STORY.story_id },
+        writeClass: 'news-story',
+        validate: () => true,
+      })).rejects.toThrow('Impossible VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=3: only 2 relay REST endpoint(s) resolved');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
   it('writeNewsRecordViaRelayRest uses per-origin daemon tokens when relays differ', async () => {
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test"]',
