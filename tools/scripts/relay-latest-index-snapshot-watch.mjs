@@ -12,7 +12,7 @@ const DEFAULT_SNAPSHOT_FILES = [
   '/home/humble/.local/share/vhc/vhc-relay-c/data/news-latest-index-snapshot.json',
 ];
 const DEFAULT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const DEFAULT_EXPECTED_ENTRY_COUNT = 15;
+const DEFAULT_EXPECTED_ENTRY_COUNT = null;
 const DEFAULT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const SCHEMA_VERSION = 'vh-news-latest-index-relay-snapshot-v1';
 const REPORT_SCHEMA_VERSION = 'vh-relay-latest-index-snapshot-watch-v1';
@@ -20,6 +20,11 @@ const REPORT_SCHEMA_VERSION = 'vh-relay-latest-index-snapshot-watch-v1';
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function optionalPositiveInt(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function boolEnv(value, fallback = true) {
@@ -177,7 +182,9 @@ function inspectSnapshotFile(filePath, {
   result.entryCount = entries?.length ?? null;
   if (!entries) {
     result.failures.push('entries_not_array');
-  } else if (entries.length !== expectedEntryCount) {
+  } else if (entries.length === 0) {
+    result.failures.push('entries_empty');
+  } else if (expectedEntryCount !== null && entries.length !== expectedEntryCount) {
     result.failures.push(`entry_count_mismatch:${entries.length}/${expectedEntryCount}`);
   }
 
@@ -233,10 +240,7 @@ export async function runRelayLatestIndexSnapshotWatch({
   const mode = args.mode ?? parseMode(env.VH_RELAY_SNAPSHOT_WATCH_MODE);
   const enforceFreshness = mode === 'freshness';
   const maxAgeMs = positiveInt(env.VH_RELAY_SNAPSHOT_WATCH_MAX_AGE_MS, DEFAULT_MAX_AGE_MS);
-  const expectedEntryCount = positiveInt(
-    env.VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES,
-    DEFAULT_EXPECTED_ENTRY_COUNT,
-  );
+  const expectedEntryCount = optionalPositiveInt(env.VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES);
   const maxFileBytes = positiveInt(env.VH_RELAY_SNAPSHOT_WATCH_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES);
   const files = resolveSnapshotFiles(env);
   const snapshots = files.map((filePath) =>

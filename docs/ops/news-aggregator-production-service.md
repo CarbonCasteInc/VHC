@@ -301,6 +301,8 @@ VH_RELAY_DAEMON_TOKEN
 VH_NEWS_DAEMON_HOLDER_ID
 VH_NEWS_RUNTIME_LEASE_TTL_MS
 VH_NEWS_INGESTION_LEASE_SCOPE
+VH_NEWS_DAEMON_LEASE_BACKEND
+VH_NEWS_DAEMON_LOCAL_LEASE_FILE
 VH_NEWS_DAEMON_STATE_DIR
 VH_DAEMON_FEED_ARTIFACT_ROOT
 VH_NEWS_DAEMON_LAST_SUCCESS_FILE
@@ -361,6 +363,21 @@ Recommended production holder:
 VH_NEWS_DAEMON_HOLDER_ID=vh-news-daemon:a6-public
 ```
 
+Production A6 can use an explicit local-file lease backend:
+
+```bash
+VH_NEWS_DAEMON_LEASE_BACKEND=local-file
+VH_NEWS_DAEMON_LOCAL_LEASE_FILE=/home/humble/.local/state/vhc/news-aggregator/news-ingestion-lease.json
+```
+
+This keeps the existing daemon lease guard and heartbeat behavior, but stores the
+lease in the daemon state directory instead of relying on direct public GUN
+durable-write readback. It is intended for the single A6 publisher deployment
+where the production wrapper sibling scan, daemon pidfile, and `systemd` unit
+already provide host-level writer exclusion. Public story/latest/hot/lifecycle
+publication remains relay REST write-first with `REQUIRE_ALL=true`; the local
+lease backend does not weaken the public feed write fanout.
+
 ## Relay Snapshot Freshness Watch
 
 `tools/scripts/relay-latest-index-snapshot-watch.mjs` reads files only. It does
@@ -373,7 +390,8 @@ Defaults:
   - `/home/humble/.local/share/vhc/vhc-relay-b/data/news-latest-index-snapshot.json`
   - `/home/humble/.local/share/vhc/vhc-relay-c/data/news-latest-index-snapshot.json`
 - schema: `vh-news-latest-index-relay-snapshot-v1`
-- expected entries: `15`
+- entries: non-empty by default; set `VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES`
+  only when an exact count is intentionally part of a specific recovery packet
 - newest-entry age SLO: `21600000` ms (6 hours)
 - timer cadence: 15 minutes
 
@@ -392,7 +410,7 @@ node tools/scripts/relay-latest-index-snapshot-watch.mjs --baseline
 ```
 
 `--baseline` and `--structural-only` still validate snapshot file paths,
-schema, entry count, JSON parseability, size, mtime sanity, and timestamp
+schema, non-empty entries, JSON parseability, size, mtime sanity, and timestamp
 sanity. They do not fail solely because `newest_entry_stale` is already beyond
 the 6-hour SLO; instead they record that stale age under `freshnessBaseline`.
 Use this before publisher start to prove the snapshots are structurally safe and
@@ -451,10 +469,11 @@ rm -f /tmp/vhc-relay-inspect.json
 node /home/humble/VHC/tools/scripts/relay-latest-index-snapshot-watch.mjs --baseline
 ```
 
-The precheck must show schema `vh-news-latest-index-relay-snapshot-v1`, `15`
-entries for every relay snapshot, and sane size/mtime. A stale newest-entry age
-is recorded as the baseline during publisher recovery; after first-publish
-proof, default freshness mode must show newest-entry age under the 6-hour SLO.
+The precheck must show schema `vh-news-latest-index-relay-snapshot-v1`,
+non-empty entries for every relay snapshot, and sane size/mtime. A stale
+newest-entry age is recorded as the baseline during publisher recovery; after
+first-publish proof, default freshness mode must show newest-entry age under the
+6-hour SLO.
 Preserve the current relay image tags and inspect output for rollback before
 restart.
 

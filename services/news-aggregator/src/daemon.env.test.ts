@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { FeedSource, NewsRuntimeConfig, TopicMapping } from '@vh/ai-engine';
 import type { NewsIngestionLease } from '@vh/gun-client';
 
@@ -105,6 +108,8 @@ async function loadSubject(options: {
     subject,
     startNewsRuntime,
     createNodeMeshClient,
+    readNewsIngestionLease,
+    writeNewsIngestionLease,
     verifyStoryClusterHealth,
     runtimeHandle,
   };
@@ -271,5 +276,57 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
     });
 
     await processHandle.stop();
+  });
+
+  it('can use an explicit local-file lease backend without writing the Gun lease', async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-local-lease-'));
+    try {
+      const leaseFile = path.join(root, 'lease.json');
+      const {
+        subject,
+        createNodeMeshClient,
+        readNewsIngestionLease,
+        writeNewsIngestionLease,
+      } = await loadSubject({
+        env: {
+          VITE_NEWS_FEED_SOURCES: '[]',
+          VITE_NEWS_TOPIC_MAPPING: '{}',
+          VITE_NEWS_POLL_INTERVAL_MS: null,
+          VH_NEWS_RUNTIME_LEASE_TTL_MS: null,
+          VITE_NEWS_RUNTIME_LEASE_TTL_MS: '60000',
+          VH_GUN_PEERS: 'http://127.0.0.1:7777/gun',
+          VITE_GUN_PEERS: null,
+          VH_NEWS_DAEMON_HOLDER_ID: 'vh-news-daemon:test',
+          VH_NEWS_DAEMON_GUN_RADISK: 'false',
+          VH_NEWS_DAEMON_LEASE_BACKEND: 'local-file',
+          VH_NEWS_DAEMON_LOCAL_LEASE_FILE: leaseFile,
+        },
+        gunPeers: ['http://127.0.0.1:7777/gun'],
+        pollIntervalMs: undefined,
+        leaseTtlMs: 60_000,
+      });
+
+      const processHandle = await subject.startNewsAggregatorDaemonFromEnv();
+
+      expect(createNodeMeshClient).toHaveBeenCalledWith({
+        peers: ['http://127.0.0.1:7777/gun'],
+        requireSession: false,
+        gunRadisk: false,
+        gunFile: false,
+      });
+      expect(readNewsIngestionLease).not.toHaveBeenCalled();
+      expect(writeNewsIngestionLease).not.toHaveBeenCalled();
+      expect(JSON.parse(readFileSync(leaseFile, 'utf8'))).toEqual(
+        expect.objectContaining({
+          holder_id: 'vh-news-daemon:test',
+          lease_token: expect.any(String),
+          expires_at: expect.any(Number),
+        }),
+      );
+
+      await processHandle.stop();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
