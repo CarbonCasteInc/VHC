@@ -70,7 +70,7 @@ test('relay snapshot watcher passes valid on-disk snapshots', async () => {
   }
 });
 
-test('relay snapshot watcher fails stale newest-entry and entry-count mismatches', async () => {
+test('relay snapshot watcher fails stale newest-entry without requiring a fixed entry count by default', async () => {
   const { root, file } = makeTempSnapshotDir();
   try {
     writeSnapshot(file, {
@@ -92,8 +92,28 @@ test('relay snapshot watcher fails stale newest-entry and entry-count mismatches
     });
 
     assert.equal(summary.status, 'fail');
-    assert.match(summary.blockers.join('\n'), /entry_count_mismatch:14\/15/);
+    assert.doesNotMatch(summary.blockers.join('\n'), /entry_count_mismatch/);
     assert.match(summary.blockers.join('\n'), /newest_entry_stale:/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay snapshot watcher enforces entry count only when explicitly configured', async () => {
+  const { root, file } = makeTempSnapshotDir();
+  try {
+    writeSnapshot(file, { entryCount: 14 });
+    const summary = await runRelayLatestIndexSnapshotWatch({
+      now: NOW,
+      env: {
+        VH_RELAY_SNAPSHOT_WATCH_FILES: file,
+        VH_RELAY_SNAPSHOT_WATCH_EXPECTED_ENTRIES: '15',
+        VH_RELAY_SNAPSHOT_WATCH_SYSLOG: 'false',
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.match(summary.blockers.join('\n'), /entry_count_mismatch:14\/15/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -132,10 +152,13 @@ test('relay snapshot watcher baseline mode records stale freshness without faili
   }
 });
 
-test('relay snapshot watcher structural-only mode still fails malformed snapshots', async () => {
+test('relay snapshot watcher structural-only mode fails empty snapshots', async () => {
   const { root, file } = makeTempSnapshotDir();
   try {
-    writeSnapshot(file, { entryCount: 14 });
+    writeSnapshot(file, {
+      entryCount: 0,
+      snapshot: { entries: [] },
+    });
     const summary = await runRelayLatestIndexSnapshotWatch({
       now: NOW,
       argv: ['--structural-only'],
@@ -147,7 +170,7 @@ test('relay snapshot watcher structural-only mode still fails malformed snapshot
 
     assert.equal(summary.status, 'fail');
     assert.equal(summary.config.mode, 'structural-only');
-    assert.match(summary.blockers.join('\n'), /entry_count_mismatch:14\/15/);
+    assert.match(summary.blockers.join('\n'), /entries_empty/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

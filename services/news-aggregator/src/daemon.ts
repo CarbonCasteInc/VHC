@@ -3,6 +3,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -77,6 +78,10 @@ import {
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
+};
+type LeaseBackend = {
+  readLease: (client: VennClient) => Promise<NewsIngestionLease | null>;
+  writeLease: (client: VennClient, lease: unknown) => Promise<NewsIngestionLease>;
 };
 function hasReadableMesh(client: VennClient): boolean {
   return Boolean(client.mesh && typeof client.mesh.get === 'function');
@@ -719,6 +724,74 @@ function resolveNewsDaemonGunFile(holderId: string | undefined): string {
   return path.join(stateRoot, 'node-mesh-radisk', safePathToken(holderId ?? 'default'));
 }
 
+function parseLocalLease(value: unknown): NewsIngestionLease | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Partial<NewsIngestionLease>;
+  if (
+    typeof record.holder_id !== 'string'
+    || record.holder_id.trim().length === 0
+    || typeof record.lease_token !== 'string'
+    || record.lease_token.trim().length === 0
+    || typeof record.acquired_at !== 'number'
+    || !Number.isFinite(record.acquired_at)
+    || typeof record.heartbeat_at !== 'number'
+    || !Number.isFinite(record.heartbeat_at)
+    || typeof record.expires_at !== 'number'
+    || !Number.isFinite(record.expires_at)
+  ) {
+    return null;
+  }
+  return {
+    holder_id: record.holder_id.trim(),
+    lease_token: record.lease_token.trim(),
+    acquired_at: record.acquired_at,
+    heartbeat_at: record.heartbeat_at,
+    expires_at: record.expires_at,
+  };
+}
+
+function createLocalFileLeaseBackend(filePath: string): LeaseBackend {
+  return {
+    async readLease(): Promise<NewsIngestionLease | null> {
+      try {
+        return parseLocalLease(JSON.parse(readFileSync(filePath, 'utf8')));
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+          return null;
+        }
+        throw error;
+      }
+    },
+    async writeLease(_client: VennClient, lease: unknown): Promise<NewsIngestionLease> {
+      const normalized = parseLocalLease(lease);
+      if (!normalized) {
+        throw new Error('invalid local news ingestion lease payload');
+      }
+      mkdirSync(path.dirname(filePath), { recursive: true });
+      const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+      writeFileSync(tempPath, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      renameSync(tempPath, filePath);
+      return normalized;
+    },
+  };
+}
+
+function resolveLeaseBackend(daemonStateDir: string): LeaseBackend | undefined {
+  const backend = firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_LEASE_BACKEND'))?.toLowerCase();
+  if (!backend || backend === 'gun') {
+    return undefined;
+  }
+  if (backend !== 'local-file') {
+    throw new Error(`unsupported VH_NEWS_DAEMON_LEASE_BACKEND: ${backend}`);
+  }
+  const leaseFile = firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_LOCAL_LEASE_FILE'))
+    ?? path.join(daemonStateDir, 'news-ingestion-lease.json');
+  console.warn('[vh:news-daemon] local-file lease backend enabled', { lease_file: leaseFile });
+  return createLocalFileLeaseBackend(leaseFile);
+}
+
 export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregatorDaemonProcessHandle> {
   const feedSourceResolution = resolveFeedSourceConfig(readEnvVar('VITE_NEWS_FEED_SOURCES'));
   const feedSources = [...feedSourceResolution.feedSources];
@@ -760,6 +833,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       readEnvVar('VH_NEWS_DAEMON_STATE_DIR'),
       readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT'),
     ) ?? path.join(os.tmpdir(), 'vh-news-daemon');
+  const leaseBackend = resolveLeaseBackend(daemonStateDir);
   const processLock = acquireDaemonProcessLock(
     firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_PID_FILE')) ?? path.join(daemonStateDir, 'news-daemon.pid'),
     console,
@@ -838,6 +912,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       leaseHolderId: holderId,
       writeLanes,
       noWrite,
+      ...(leaseBackend ?? {}),
       runtimeMaxTicks: diagnosticMaxTicks,
       onRuntimeTickLimitReached: diagnosticMaxTicks ? requestDiagnosticStop : undefined,
       runtimeTickWatchdogMs,
