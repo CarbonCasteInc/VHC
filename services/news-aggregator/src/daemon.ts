@@ -129,6 +129,8 @@ export interface NewsAggregatorDaemonConfig {
   onRuntimeTickLimitReached?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   runtimeTickWatchdogMs?: number;
   deferEnrichmentUntilFirstTickComplete?: boolean;
+  failClosedOnRuntimeError?: boolean;
+  onFailClosedRuntimeError?: (error: unknown) => void | Promise<void>;
   now?: () => number;
   random?: () => number;
   setIntervalFn?: typeof setInterval;
@@ -162,7 +164,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
   const noWrite = config.noWrite === true;
-  const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({ logger, now: nowFn });
+  const failClosedOnRuntimeError = config.failClosedOnRuntimeError ?? !noWrite;
+  const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({
+    logger,
+    now: nowFn,
+    stopClassOnFailure: failClosedOnRuntimeError && !noWrite,
+  });
   const queue = createAsyncEnrichmentQueue(
     config.enrichmentWorker ?? (() => undefined),
     logger,
@@ -187,6 +194,8 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
+  let stopPromise: Promise<void> | null = null;
+  let runtimeWritesBlocked = false;
   let acceptedSynthesisReplayAttempted = false;
   const productFeedReconcileIntervalMs = normalizePositiveIntervalMs(
     config.productFeedReconcileIntervalMs
@@ -227,6 +236,11 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     }
     runtimeHandle.stop();
     runtimeHandle = null;
+  };
+  const assertRuntimeWritesAllowed = () => {
+    if (runtimeWritesBlocked) {
+      throw new Error('news daemon runtime writes stopped after runtime error');
+    }
   };
   const startRuntimeIfNeeded = () => {
     if (runtimeHandle?.isRunning()) {
@@ -304,6 +318,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           });
           return bundle;
         }
+        assertRuntimeWritesAllowed();
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle', { story_id: storyId ?? null }, async () => {
           const written = await writeBundle(runtimeClient as VennClient, bundle);
@@ -348,6 +363,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           logger.info('[vh:news-daemon] no-write raw bundle remove suppressed', { story_id: storyId });
           return undefined;
         }
+        assertRuntimeWritesAllowed();
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('news_bundle_remove', { story_id: storyId }, async () => {
           return removeBundle(runtimeClient as VennClient, storyId);
@@ -364,6 +380,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           });
           return storyline;
         }
+        assertRuntimeWritesAllowed();
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('storyline', { storyline_id: storylineId ?? null }, async () => {
           return writeNewsStoryline(runtimeClient as VennClient, storyline);
@@ -376,6 +393,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           });
           return undefined;
         }
+        assertRuntimeWritesAllowed();
         await leaseGuard.assertHeld(nowFn());
         return writeLanes.run('storyline_remove', { storyline_id: storylineId }, async () => {
           return removeNewsStoryline(runtimeClient as VennClient, storylineId);
@@ -389,6 +407,13 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           });
           return;
         }
+        if (runtimeWritesBlocked) {
+          logger.warn('[vh:news-daemon] synthesis candidate suppressed after runtime error', {
+            story_id: candidate.story_id,
+            work_item_count: candidate.work_items.length,
+          });
+          return;
+        }
         queue.enqueue(candidate);
         logger.info('[vh:news-daemon] enrichment candidate enqueued', {
           story_id: candidate.story_id,
@@ -397,6 +422,18 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       },
       onError(error) {
         logger.warn('[vh:news-daemon] runtime tick failed', error);
+        if (failClosedOnRuntimeError && !noWrite) {
+          runtimeWritesBlocked = true;
+          logger.error('[vh:news-daemon] runtime error triggered fail-closed stop', {
+            holder_id: holderId,
+            error,
+          });
+          void stopInternal('runtime_error')
+            .then(() => config.onFailClosedRuntimeError?.(error))
+            .catch((stopError) => {
+              logger.error('[vh:news-daemon] fail-closed stop after runtime error failed', stopError);
+            });
+        }
       },
       orchestratorOptions,
     });
@@ -565,6 +602,46 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       leaseGuard.clear();
     }
   };
+  const stopInternal = async (reason: string): Promise<void> => {
+    if (stopPromise) {
+      await stopPromise;
+      return;
+    }
+    if (!running && !runtimeHandle) {
+      return;
+    }
+    stopPromise = (async () => {
+      let stopError: unknown;
+      running = false;
+      if (leaseHeartbeatTimer) {
+        clearIntervalFn(leaseHeartbeatTimer);
+        leaseHeartbeatTimer = null;
+      }
+      queue.stop();
+      stopRuntime();
+      try {
+        await releaseLease();
+      } catch (error) {
+        stopError = error;
+        logger.warn('[vh:news-daemon] failed to release lease during stop', {
+          holder_id: holderId,
+          reason,
+          error,
+        });
+      } finally {
+        writeLanes.stop();
+        logger.info('[vh:news-daemon] stopped', { holder_id: holderId, reason });
+      }
+      if (stopError && reason !== 'runtime_error') {
+        throw stopError;
+      }
+    })();
+    try {
+      await stopPromise;
+    } finally {
+      stopPromise = null;
+    }
+  };
   return {
     leaseHolderId: holderId,
     async start() {
@@ -579,19 +656,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       logger.info('[vh:news-daemon] leadership loop started', { holder_id: holderId, lease_ttl_ms: leaseTtlMs, lease_renew_interval_ms: leaseRenewIntervalMs });
     },
     async stop() {
-      if (!running) {
-        return;
-      }
-      running = false;
-      if (leaseHeartbeatTimer) {
-        clearIntervalFn(leaseHeartbeatTimer);
-        leaseHeartbeatTimer = null;
-      }
-      queue.stop();
-      stopRuntime();
-      await releaseLease();
-      writeLanes.stop();
-      logger.info('[vh:news-daemon] stopped', { holder_id: holderId });
+      await stopInternal('operator');
     },
     isRunning() {
       return running;
@@ -826,6 +891,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   const deferEnrichmentUntilFirstTickComplete = !isDisabledFlag(
     readEnvVar('VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE'),
   );
+  const failClosedOnRuntimeError = noWrite
+    ? false
+    : !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR'));
   const leaseScope = firstNonEmpty(readEnvVar('VH_NEWS_INGESTION_LEASE_SCOPE'));
   const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
   const daemonStateDir =
@@ -917,6 +985,15 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       onRuntimeTickLimitReached: diagnosticMaxTicks ? requestDiagnosticStop : undefined,
       runtimeTickWatchdogMs,
       deferEnrichmentUntilFirstTickComplete: !noWrite && deferEnrichmentUntilFirstTickComplete,
+      failClosedOnRuntimeError,
+      onFailClosedRuntimeError: (error) => {
+        console.error('[vh:news-daemon] fail-closed runtime error shutting down process', error);
+        setTimeout(() => {
+          void processHandle?.stop().catch((stopError) => {
+            console.error('[vh:news-daemon] fail-closed process shutdown failed', stopError);
+          });
+        }, 0);
+      },
       replayAcceptedSynthesis: !noWrite && replayArtifactDir
         ? (runtimeClient) =>
             replayAcceptedAnalysisEvalSyntheses({

@@ -7,6 +7,7 @@ export interface DaemonWriteLaneSnapshot {
   completed_count: number;
   failed_count: number;
   p95_ms: number | null;
+  stopped: boolean;
 }
 
 export interface DaemonWriteLaneRegistry {
@@ -32,6 +33,7 @@ interface LaneState {
   completedCount: number;
   failedCount: number;
   durations: number[];
+  stopped: boolean;
 }
 
 export interface DaemonWriteLaneOptions {
@@ -40,6 +42,7 @@ export interface DaemonWriteLaneOptions {
   defaultConcurrency?: number;
   classConcurrency?: Record<string, number | undefined>;
   maxSamples?: number;
+  stopClassOnFailure?: boolean;
 }
 
 function normalizeConcurrency(value: number | undefined, fallback: number): number {
@@ -79,6 +82,7 @@ export function createDaemonWriteLaneRegistry(
       completedCount: 0,
       failedCount: 0,
       durations: [],
+      stopped: false,
     };
     lanes.set(writeClass, created);
     return created;
@@ -100,6 +104,9 @@ export function createDaemonWriteLaneRegistry(
       return;
     }
     const state = stateFor(writeClass);
+    if (state.stopped) {
+      return;
+    }
     const maxInFlight = concurrencyFor(writeClass);
     while (state.inFlight < maxInFlight && state.pending.length > 0) {
       const item = state.pending.shift();
@@ -146,6 +153,19 @@ export function createDaemonWriteLaneRegistry(
             ...item.attributes,
             error,
           });
+          if (options.stopClassOnFailure && !state.stopped) {
+            state.stopped = true;
+            const pending = state.pending.splice(0);
+            for (const pendingItem of pending) {
+              pendingItem.reject(new Error(`daemon write lane stopped after failure: ${writeClass}`));
+            }
+            logger.error('[vh:news-daemon] write lane stopped after failure', {
+              write_class: writeClass,
+              rejected_pending_count: pending.length,
+              failed_count: state.failedCount,
+              ...item.attributes,
+            });
+          }
           item.reject(error);
         })
         .finally(() => {
@@ -161,6 +181,9 @@ export function createDaemonWriteLaneRegistry(
         return Promise.reject(new Error(`daemon write lane stopped: ${writeClass}`));
       }
       const state = stateFor(writeClass);
+      if (state.stopped) {
+        return Promise.reject(new Error(`daemon write lane stopped after failure: ${writeClass}`));
+      }
       return new Promise<T>((resolve, reject) => {
         state.pending.push({
           attributes,
@@ -188,6 +211,7 @@ export function createDaemonWriteLaneRegistry(
           completed_count: state.completedCount,
           failed_count: state.failedCount,
           p95_ms: p95(state.durations),
+          stopped: state.stopped,
         }));
     },
 

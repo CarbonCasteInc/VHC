@@ -157,6 +157,7 @@ describe('news daemon coverage guards', () => {
       leaseHolderId: 'vh-news-daemon:test',
       now: () => 1_700_000_000_000,
       random: () => 0.42,
+      failClosedOnRuntimeError: false,
     });
 
     await daemon.start();

@@ -779,6 +779,113 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('fails closed after a live runtime error and blocks further public writes', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const writeBundle = vi.fn().mockResolvedValue({ story_id: 'story-after-error' });
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-runtime-error' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      enrichmentWorker,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: heldLease.holder_id,
+      deferEnrichmentUntilFirstTickComplete: true,
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onError?.(new Error('relay require-all failed'));
+
+    await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith(
+      '[vh:news-daemon] stopped',
+      expect.objectContaining({ reason: 'runtime_error' }),
+    ));
+
+    runtimeConfig.onSynthesisCandidate?.(CANDIDATE);
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-runtime-error' }, { story_id: 'story-after-error' } as any),
+    ).rejects.toThrow('news daemon runtime writes stopped after runtime error');
+
+    expect(daemon.isRunning()).toBe(false);
+    expect(writeBundle).not.toHaveBeenCalled();
+    expect(enrichmentWorker).not.toHaveBeenCalled();
+    expect(timers.clearIntervalFn).toHaveBeenCalledTimes(1);
+    expect(writeLease).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime error triggered fail-closed stop',
+      expect.objectContaining({ holder_id: heldLease.holder_id }),
+    );
+
+    await daemon.stop();
+  });
+
+  it('continues fail-closed runtime shutdown when lease release fails', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const releaseError = new Error('lease release failed');
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn()
+      .mockImplementationOnce(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease)
+      .mockRejectedValueOnce(releaseError);
+    const onFailClosedRuntimeError = vi.fn();
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-runtime-error-release-fail' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      failClosedOnRuntimeError: true,
+      onFailClosedRuntimeError,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    const runtimeError = new Error('relay require-all failed');
+    runtimeConfig.onError?.(runtimeError);
+
+    await vi.waitFor(() => expect(onFailClosedRuntimeError).toHaveBeenCalledWith(runtimeError));
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-runtime-error-release-fail' }, { story_id: 'story-after-error' } as any),
+    ).rejects.toThrow('news daemon runtime writes stopped after runtime error');
+
+    expect(daemon.isRunning()).toBe(false);
+    expect(runtimeHandle.stop).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] failed to release lease',
+      releaseError,
+    );
+
+    await daemon.stop();
+  });
+
   it('renews lease on heartbeat ticks while running', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
