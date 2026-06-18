@@ -15,6 +15,16 @@ const CLIENT = {
   },
 } as VennClient;
 
+const CLIENT_3 = {
+  config: {
+    peers: [
+      'wss://gun-a.example.test/gun',
+      'wss://gun-b.example.test/gun',
+      'wss://gun-c.example.test/gun',
+    ],
+  },
+} as VennClient;
+
 const SYNTHESIS: TopicSynthesisV2 = {
   schemaVersion: 'topic-synthesis-v2',
   topic_id: 'topic-1',
@@ -188,6 +198,142 @@ describe('relayRestSynthesisWriters', () => {
     expect(postCalls.every(([, init]) => (
       (init?.headers as Record<string, string>).Authorization === 'Bearer relay-token'
     ))).toBe(true);
+  });
+
+  it('accepts explicit 2-of-3 quorum for accepted synthesis writes', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '2');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL', 'true');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === 'GET' && url.includes('/vh/topics/synthesis?')) {
+        return jsonResponse({ ok: false, error: 'topic-synthesis-not-found' }, { status: 404 });
+      }
+      if (init?.method === 'POST' && url.includes('gun-a')) {
+        return jsonResponse({
+          ok: true,
+          topic_id: SYNTHESIS.topic_id,
+          synthesis_id: SYNTHESIS.synthesis_id,
+        });
+      }
+      if (init?.method === 'POST' && url.includes('gun-b')) {
+        return jsonResponse({ ok: false }, { status: 503 });
+      }
+      if (init?.method === 'POST' && url.includes('gun-c')) {
+        return jsonResponse({
+          ok: true,
+          topic_id: SYNTHESIS.topic_id,
+          synthesis_id: SYNTHESIS.synthesis_id,
+        });
+      }
+      return jsonResponse({ ok: false }, { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT_3, logger);
+    await expect(writers.writeLatest?.(CLIENT_3, SYNTHESIS)).resolves.toMatchObject({
+      status: 'written',
+      synthesis: SYNTHESIS,
+      previous: null,
+    });
+
+    expect(logger.info).toHaveBeenCalledWith('[vh:bundle-synthesis] relay REST write completed', expect.objectContaining({
+      path: '/vh/topics/synthesis',
+      relay_success_count: 2,
+      relay_target_count: 3,
+      relay_required_success_count: 2,
+      relay_failed_endpoint_labels: ['https://gun-b.example.test'],
+      min_success_configured: true,
+    }));
+  });
+
+  it('fails explicit 2-of-3 quorum for synthesis writes with one validated success', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '2');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        topic_id: CANDIDATE.topic_id,
+        candidate_id: CANDIDATE.candidate_id,
+      }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false }, { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        topic_id: CANDIDATE.topic_id,
+        candidate_id: 'wrong-candidate',
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT_3, console);
+    await expect(writers.writeCandidate?.(CLIENT_3, CANDIDATE))
+      .rejects.toThrow('Relay REST write failed for /vh/topics/synthesis-candidate: 1/3 succeeded; required=2');
+  });
+
+  it('fails before posting synthesis writes for invalid or impossible explicit quorum', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '0');
+    let writers = createRelayRestSynthesisWritersFromEnv(CLIENT, console);
+    await expect(writers.writeCandidate?.(CLIENT, CANDIDATE))
+      .rejects.toThrow('Invalid VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS');
+
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '3');
+    writers = createRelayRestSynthesisWritersFromEnv(CLIENT, console);
+    await expect(writers.writeCandidate?.(CLIENT, CANDIDATE))
+      .rejects.toThrow('Impossible VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS=3: only 2 relay REST endpoint(s) resolved');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves legacy synthesis require_all=false one-success behavior when min success is absent', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL', 'false');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        topic_id: CANDIDATE.topic_id,
+        candidate_id: CANDIDATE.candidate_id,
+      }))
+      .mockResolvedValueOnce(jsonResponse({ ok: false }, { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT, logger);
+    await expect(writers.writeCandidate?.(CLIENT, CANDIDATE)).resolves.toEqual(CANDIDATE);
+
+    expect(logger.info).toHaveBeenCalledWith('[vh:bundle-synthesis] relay REST write completed', expect.objectContaining({
+      relay_success_count: 1,
+      relay_target_count: 2,
+      relay_required_success_count: 1,
+      require_all: false,
+      min_success_configured: false,
+    }));
+  });
+
+  it('rejects impossible synthesis quorum after runtime endpoints shrink', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv(
+      'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS',
+      'https://gun-a.example.test,mailto:bad,https://gun-b.example.test,https://gun-a.example.test',
+    );
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '3');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT_3, console);
+    await expect(writers.writeLifecycle?.(CLIENT_3, LIFECYCLE))
+      .rejects.toThrow('Impossible VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS=3: only 2 relay REST endpoint(s) resolved');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('posts synthesis rows with per-origin daemon tokens from the news relay token map', async () => {

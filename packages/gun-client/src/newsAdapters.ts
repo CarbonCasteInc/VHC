@@ -196,6 +196,10 @@ const RELAY_REST_NEWS_WRITE_REQUIRE_ALL_ENV = [
   'VITE_VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
   'VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL',
 ] as const;
+const RELAY_REST_NEWS_WRITE_MIN_SUCCESS_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS',
+  'VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS',
+] as const;
 const RELAY_REST_NEWS_WRITE_TOKEN_MAP_ENV = [
   'VITE_VH_NEWS_RELAY_REST_WRITE_TOKENS',
   'VH_NEWS_RELAY_REST_WRITE_TOKENS',
@@ -268,6 +272,16 @@ function readFirstRuntimeList(names: readonly string[]): string[] {
   return [];
 }
 
+function readFirstRuntimeString(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const raw = readNewsRuntimeString(name);
+    if (raw) {
+      return raw;
+    }
+  }
+  return undefined;
+}
+
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
@@ -278,6 +292,64 @@ function shouldWriteNewsViaRelayRestFirst(): boolean {
 
 function shouldRequireAllNewsRelayRestWrites(): boolean {
   return readNewsRuntimeBoolean(RELAY_REST_NEWS_WRITE_REQUIRE_ALL_ENV, true);
+}
+
+interface RelayRestWriteQuorum {
+  readonly requiredSuccessCount: number;
+  readonly minSuccessConfigured: boolean;
+  readonly requireAll: boolean;
+}
+
+function parseRelayRestMinSuccess(raw: string | undefined): number | null | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  if (!/^[0-9]+$/.test(raw)) {
+    return null;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function resolveNewsRelayRestWriteQuorum(endpointCount: number): RelayRestWriteQuorum {
+  const rawMinSuccess = readFirstRuntimeString(RELAY_REST_NEWS_WRITE_MIN_SUCCESS_ENV);
+  const parsedMinSuccess = parseRelayRestMinSuccess(rawMinSuccess);
+  const requireAll = shouldRequireAllNewsRelayRestWrites();
+
+  if (endpointCount <= 0) {
+    throw new Error('Relay REST news write quorum requires at least one resolved endpoint');
+  }
+  if (parsedMinSuccess === null) {
+    throw new Error(
+      `Invalid VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: expected integer 1..${endpointCount}, received ${JSON.stringify(rawMinSuccess)}`,
+    );
+  }
+  if (parsedMinSuccess !== undefined) {
+    if (parsedMinSuccess > endpointCount) {
+      throw new Error(
+        `Impossible VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=${parsedMinSuccess}: only ${endpointCount} relay REST endpoint(s) resolved`,
+      );
+    }
+    return {
+      requiredSuccessCount: parsedMinSuccess,
+      minSuccessConfigured: true,
+      requireAll,
+    };
+  }
+
+  return {
+    requiredSuccessCount: requireAll ? endpointCount : 1,
+    minSuccessConfigured: false,
+    requireAll,
+  };
+}
+
+function relayRestEndpointLabel(endpoint: string): string {
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return 'invalid-relay-endpoint';
+  }
 }
 
 function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_INDEX_LIMIT): number {
@@ -2225,15 +2297,17 @@ async function writeNewsRecordViaRelayRest(input: {
   if (endpoints.length === 0) {
     throw new Error(`No relay REST endpoints configured for ${input.path}`);
   }
+  const quorum = resolveNewsRelayRestWriteQuorum(endpoints.length);
   const relayTargets = endpoints.map((endpoint) => ({
     endpoint,
     headers: requireNewsRelayDaemonAuthHeaders(endpoint),
   }));
-  const requireAll = shouldRequireAllNewsRelayRestWrites();
   const failures: string[] = [];
+  const failedEndpointLabels: string[] = [];
   let successCount = 0;
 
   for (const { endpoint, headers } of relayTargets) {
+    const endpointLabel = relayRestEndpointLabel(endpoint);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
     try {
@@ -2251,27 +2325,32 @@ async function writeNewsRecordViaRelayRest(input: {
         successCount += 1;
         continue;
       }
-      failures.push(`${endpoint}:http_${response.status}`);
+      failedEndpointLabels.push(endpointLabel);
+      failures.push(`${endpointLabel}:http_${response.status}`);
     } catch (error) {
-      failures.push(`${endpoint}:${error instanceof Error ? error.message : String(error)}`);
+      failedEndpointLabels.push(endpointLabel);
+      failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  if (successCount > 0 && (!requireAll || successCount === endpoints.length)) {
+  if (successCount >= quorum.requiredSuccessCount) {
     console.info('[vh:news] relay REST write completed', {
       write_class: input.writeClass,
       path: input.path,
       relay_success_count: successCount,
       relay_target_count: endpoints.length,
-      require_all: requireAll,
+      relay_required_success_count: quorum.requiredSuccessCount,
+      relay_failed_endpoint_labels: failedEndpointLabels,
+      require_all: quorum.requireAll,
+      min_success_configured: quorum.minSuccessConfigured,
     });
     return;
   }
 
   throw new Error(
-    `Relay REST news write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; ${failures.join('; ')}`,
+    `Relay REST news write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; required=${quorum.requiredSuccessCount}; failed=${failures.join('; ')}`,
   );
 }
 
@@ -3251,7 +3330,9 @@ export const newsAdapterInternal = {
   parseNewsSynthesisLifecycleFromRelayPayload,
   parseLatestIndexEntryPayload,
   parseHotIndexEntryPayload,
+  relayRestEndpointLabel,
   resolveRelayRestWriteEndpoints,
+  resolveNewsRelayRestWriteQuorum,
   shouldRequireAllNewsRelayRestWrites,
   shouldWriteNewsViaRelayRestFirst,
   writeNewsRecordViaRelayRest,

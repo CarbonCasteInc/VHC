@@ -14,6 +14,7 @@ import type { LoggerLike } from './daemonUtils';
 const WRITE_RELAY_REST_ENV = 'VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST';
 const WRITE_RELAY_ORIGINS_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS';
 const REQUIRE_ALL_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL';
+const MIN_SUCCESS_ENV = 'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS';
 const RELAY_TOKEN_MAP_ENV_NAMES = [
   'VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS',
   'VH_NEWS_RELAY_REST_WRITE_TOKENS',
@@ -84,6 +85,64 @@ function shouldRequireAllRelayWrites(): boolean {
   return true;
 }
 
+interface RelayRestWriteQuorum {
+  readonly requiredSuccessCount: number;
+  readonly minSuccessConfigured: boolean;
+  readonly requireAll: boolean;
+}
+
+function parseMinSuccess(raw: string | undefined): number | null | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  if (!/^[0-9]+$/.test(raw)) {
+    return null;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function resolveRelayWriteQuorum(endpointCount: number): RelayRestWriteQuorum {
+  const rawMinSuccess = readEnv(MIN_SUCCESS_ENV);
+  const parsedMinSuccess = parseMinSuccess(rawMinSuccess);
+  const requireAll = shouldRequireAllRelayWrites();
+
+  if (endpointCount <= 0) {
+    throw new Error('Relay REST bundle synthesis write quorum requires at least one resolved endpoint');
+  }
+  if (parsedMinSuccess === null) {
+    throw new Error(
+      `Invalid ${MIN_SUCCESS_ENV}: expected integer 1..${endpointCount}, received ${JSON.stringify(rawMinSuccess)}`,
+    );
+  }
+  if (parsedMinSuccess !== undefined) {
+    if (parsedMinSuccess > endpointCount) {
+      throw new Error(
+        `Impossible ${MIN_SUCCESS_ENV}=${parsedMinSuccess}: only ${endpointCount} relay REST endpoint(s) resolved`,
+      );
+    }
+    return {
+      requiredSuccessCount: parsedMinSuccess,
+      minSuccessConfigured: true,
+      requireAll,
+    };
+  }
+
+  return {
+    requiredSuccessCount: requireAll ? endpointCount : 1,
+    minSuccessConfigured: false,
+    requireAll,
+  };
+}
+
+function relayEndpointLabel(endpoint: string): string {
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return 'invalid-relay-endpoint';
+  }
+}
+
 function relayAuthHeaders(endpoint: string): Record<string, string> {
   const headers = createRelayDaemonAuthHeadersForEndpoint(endpoint, {
     tokenMapEnvNames: RELAY_TOKEN_MAP_ENV_NAMES,
@@ -111,15 +170,17 @@ async function postJsonToRelays(input: {
   if (endpoints.length === 0) {
     throw new Error(`No relay REST endpoints configured for ${input.path}`);
   }
-  const requireAll = shouldRequireAllRelayWrites();
+  const quorum = resolveRelayWriteQuorum(endpoints.length);
   const relayTargets = endpoints.map((endpoint) => ({
     endpoint,
     headers: relayAuthHeaders(endpoint),
   }));
   const failures: string[] = [];
+  const failedEndpointLabels: string[] = [];
   let successCount = 0;
 
   for (const { endpoint, headers } of relayTargets) {
+    const endpointLabel = relayEndpointLabel(endpoint);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DEFAULT_RELAY_WRITE_TIMEOUT_MS);
     try {
@@ -137,26 +198,31 @@ async function postJsonToRelays(input: {
         successCount += 1;
         continue;
       }
-      failures.push(`${endpoint}:http_${response.status}`);
+      failedEndpointLabels.push(endpointLabel);
+      failures.push(`${endpointLabel}:http_${response.status}`);
     } catch (error) {
-      failures.push(`${endpoint}:${error instanceof Error ? error.message : String(error)}`);
+      failedEndpointLabels.push(endpointLabel);
+      failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  if (successCount > 0 && (!requireAll || successCount === endpoints.length)) {
+  if (successCount >= quorum.requiredSuccessCount) {
     input.logger.info('[vh:bundle-synthesis] relay REST write completed', {
       path: input.path,
       relay_success_count: successCount,
       relay_target_count: endpoints.length,
-      require_all: requireAll,
+      relay_required_success_count: quorum.requiredSuccessCount,
+      relay_failed_endpoint_labels: failedEndpointLabels,
+      require_all: quorum.requireAll,
+      min_success_configured: quorum.minSuccessConfigured,
     });
     return;
   }
 
   throw new Error(
-    `Relay REST write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; ${failures.join('; ')}`,
+    `Relay REST write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; required=${quorum.requiredSuccessCount}; failed=${failures.join('; ')}`,
   );
 }
 

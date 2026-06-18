@@ -262,9 +262,16 @@ immediately after that completed summary. Set it to `false` only when first-tick
 caps, synthesis throughput, relay fanout, and the watchdog window have been
 recalibrated together.
 
+Current Phase 5 public-news MVP scope is **B**: accepted synthesis and frame
+tables on newest cards are launch-required. Raw-fresh, v4-signed, product-visible
+cards with `synthesis_pending` prove the raw publication path but do not satisfy
+the final "done" gate. The attended run must observe synthesis lifecycle advance
+from pending to accepted and accepted synthesis/frame-table rows write to the
+configured relay REST quorum before launch is complete.
+
 Live mode also fail-closes runtime errors by default through
 `VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR=true`. A runtime error, including a
-partial require-all relay REST write, blocks further runtime writes, stops the
+partial relay REST quorum write, blocks further runtime writes, stops the
 daemon loop, shuts down the process handle, and leaves systemd to report the
 service stopped instead of allowing the write lane to drain more public stories.
 Do not set it to `false` in production unless the incident commander has chosen
@@ -301,10 +308,12 @@ VH_NEWS_RELAY_REST_WRITE_FIRST
 VH_NEWS_RELAY_REST_WRITE_ORIGINS
 VH_NEWS_RELAY_REST_WRITE_TOKENS
 VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL
+VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS
 VH_NEWS_RELAY_REST_WRITE_TIMEOUT_MS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_TOKENS
 VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL
+VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS
 VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST
 VH_RELAY_DAEMON_TOKEN
 VH_NEWS_DAEMON_HOLDER_ID
@@ -335,9 +344,35 @@ For production Phase 5 publisher starts, keep `VH_NEWS_RELAY_REST_WRITE_FIRST`
 enabled. The daemon still signs story bodies, latest-index rows, hot-index rows,
 and synthesis lifecycle rows with the public news system writer, but it submits
 those records to the relay REST write-through routes before attempting any
-direct Gun publication. `VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL=true` is the
-default and should remain set so a partial relay fanout fails closed instead of
-claiming first-publish success from one relay.
+direct Gun publication.
+
+Phase 5 production policy is explicit 2-of-3 relay REST quorum for both raw
+public-news rows and bundle synthesis rows:
+
+```bash
+VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=2
+VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS=2
+```
+
+When a `*_MIN_SUCCESS` value is set, it takes precedence over the legacy
+`*_WRITE_REQUIRE_ALL` boolean. The value is a true minimum over the resolved,
+normalized, deduped relay endpoint set. It must be an integer from `1` through
+the resolved endpoint count; invalid values, zero endpoints, or impossible
+thresholds fail closed before publisher start or before the write fanout. It is
+never interpreted as a fallback to one successful relay. If `*_MIN_SUCCESS` is
+absent, legacy behavior is unchanged: `*_WRITE_REQUIRE_ALL=true` requires every
+resolved relay endpoint, while `false` accepts any single validated relay
+success.
+
+Keep `VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL=true` and
+`VH_BUNDLE_SYNTHESIS_RELAY_WRITE_REQUIRE_ALL=true` in the env file as the
+legacy fallback posture, but treat the explicit `*_MIN_SUCCESS=2` fields as the
+production quorum source of truth. A successful write counts only relay
+responses that pass the route's existing payload validation and readback
+contract where that route provides one; plain HTTP acceptance is not enough.
+The preflight and write logs report `endpoint_count`, `required_success_count`,
+`relay_required_success_count`, and failed relay origin labels without printing
+tokens, pins, or key material.
 
 When relays have different daemon tokens, set `VH_NEWS_RELAY_REST_WRITE_TOKENS`
 to a JSON object mapping each relay origin to its token, for example:
@@ -385,8 +420,9 @@ lease in the daemon state directory instead of relying on direct public GUN
 durable-write readback. It is intended for the single A6 publisher deployment
 where the production wrapper sibling scan, daemon pidfile, and `systemd` unit
 already provide host-level writer exclusion. Public story/latest/hot/lifecycle
-publication remains relay REST write-first with `REQUIRE_ALL=true`; the local
-lease backend does not weaken the public feed write fanout.
+publication remains relay REST write-first with explicit 2-of-3
+`*_MIN_SUCCESS` quorum; the local lease backend does not weaken the public feed
+write fanout.
 
 ## Relay Snapshot Freshness Watch
 
@@ -571,7 +607,7 @@ Abort or stop the service if any of these occur:
 - OpenAI preflight is not `pass`;
 - StoryCluster health check fails;
 - raw news or synthesis relay REST write fanout is below the configured
-  `require_all` target;
+  quorum target;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.
