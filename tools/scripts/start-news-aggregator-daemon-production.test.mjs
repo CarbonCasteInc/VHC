@@ -23,7 +23,7 @@ function makeHarness({
   noWriteDiagnostic = false,
   diagnosticApproved = false,
   extraEnv = [],
-  psOutput = null,
+  psOutput = '',
   psOutputs = null,
   pnpmStatuses = [99],
   stubNode = false,
@@ -53,7 +53,9 @@ function makeHarness({
       'printf "VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=%s\\n" "${VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=%s\\n" "${VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=%s\\n" "${VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
+      'printf "VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=%s\\n" "${VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'printf "VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=%s\\n" "${VH_NEWS_RUNTIME_TICK_WATCHDOG_MS:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
+      'printf "VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH=%s\\n" "${VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH:-}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'if [[ -n "${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS:-}" ]]; then',
       '  printf "VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS=%s\\n" "${VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS}" >> "${VH_TEST_PNPM_MARKER:?}"',
       'fi',
@@ -404,8 +406,10 @@ test('production daemon start applies bounded clustering defaults before preflig
       'VH_NEWS_FEED_MAX_ITEMS_TOTAL=96',
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=24',
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=96',
-      'VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=24',
+      'VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=8',
+      'VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2',
       'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
+      'VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH=256',
     ]);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
@@ -421,7 +425,9 @@ test('production daemon start preserves explicit clustering budget overrides', (
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=36',
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=72',
       'VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=18',
+      'VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=3',
       'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
+      'VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH=64',
     ],
   });
   try {
@@ -434,7 +440,9 @@ test('production daemon start preserves explicit clustering budget overrides', (
       'VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST=36',
       'VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=72',
       'VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=18',
+      'VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=3',
       'VH_NEWS_RUNTIME_TICK_WATCHDOG_MS=420000',
+      'VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH=64',
     ]);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });

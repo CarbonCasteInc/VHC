@@ -224,21 +224,33 @@ VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
 VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES
+VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
+VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH
 ```
 
 These caps keep the first publisher tick from expanding a broad source set into
 dozens of sequential remote StoryCluster requests or a large raw publication
 blast before the first successful write can be observed. The steady-state
 publication cap defaults to 96 bundles, while
-`VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES` defaults to 24 and applies
-only to tick 1. That first-tick cap is intentionally lower so the post-reset
+`VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES` defaults to 8 and applies
+only to tick 1. That first-tick cap is intentionally narrow so the post-reset
 live start lands a small, inspectable batch before the daemon opens to the
-steady-state publication limit. The wrapper also gives the first-tick watchdog
-enough headroom for the bounded cold-start batch to finish before a warning
-becomes an operator abort signal. Override these values deliberately only when
-StoryCluster throughput, first-tick quality review, steady-state publication
-fanout, and the watchdog window have been recalibrated together.
+steady-state publication limit. Raw bundle writes default to bounded concurrency
+2 through `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY`, matching the daemon
+write-lane capacity while keeping fail-closed exposure bounded to already
+in-flight writes. The wrapper also keeps the first-tick watchdog at 420 seconds;
+do not use a watchdog increase as the primary fix for raw publication
+throughput. Override these values deliberately only when StoryCluster
+throughput, first-tick quality review, steady-state publication fanout, and the
+watchdog window have been recalibrated together.
+
+`VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH` defaults to 256 in production. This leaves
+room for deferred publish-time synthesis candidates plus replayed `queue_full`
+dead letters while the first raw-publication tick completes. A `queue_full`
+dead-letter spike means the worker did not get a chance to drain before the
+bounded queue filled; it is distinct from `worker_failed`, which is the signal
+for a synthesis worker or relay-write defect.
 
 The production wrapper defaults the watchdog to 420 seconds. That budget is
 based on the bounded A6 no-write diagnostic path with 96 feed items and a 96

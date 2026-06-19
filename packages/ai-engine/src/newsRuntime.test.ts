@@ -215,6 +215,17 @@ describe('newsRuntime', () => {
     vi.stubEnv('VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES', '');
     vi.stubEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES', ' 2 ');
     expect(__internal.resolveFirstTickMaxPublishedBundles(BASE_CONFIG)).toBe(2);
+    vi.stubEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES', '');
+    expect(__internal.resolveRawBundleWriteConcurrency(BASE_CONFIG)).toBe(1);
+    vi.stubEnv('VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY', ' 3 ');
+    expect(__internal.resolveRawBundleWriteConcurrency(BASE_CONFIG)).toBe(3);
+    vi.stubEnv('VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY', '');
+    vi.stubEnv('VITE_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY', ' 4 ');
+    expect(__internal.resolveRawBundleWriteConcurrency(BASE_CONFIG)).toBe(4);
+    expect(__internal.resolveRawBundleWriteConcurrency({
+      ...BASE_CONFIG,
+      rawBundleWriteConcurrency: 2,
+    })).toBe(2);
     expect(__internal.resolvePublishedBundleLimit(true, 96, 24)).toBe(24);
     expect(__internal.resolvePublishedBundleLimit(false, 96, 24)).toBe(96);
     expect(__internal.resolvePublishedBundleLimit(true, 12, 24)).toBe(12);
@@ -394,6 +405,159 @@ describe('newsRuntime', () => {
       published_bundle_limit: 3,
       selected_bundle_count: 3,
       first_selected_story_ids: ['story-freshest', 'story-middle', 'story-fresh'],
+    }));
+
+    handle.stop();
+  });
+
+  it('publishes raw bundles with bounded configured concurrency', async () => {
+    const bundles = [
+      storyBundle('story-fastest', { clusterWindowEnd: 300 }),
+      storyBundle('story-middle', { clusterWindowEnd: 200 }),
+      storyBundle('story-slowest', { clusterWindowEnd: 100 }),
+    ];
+    orchestrateNewsPipelineMock.mockResolvedValue(batch(bundles));
+
+    const releases: Array<() => void> = [];
+    const writeStoryBundle = vi.fn(async () => new Promise<void>((resolve) => {
+      releases.push(resolve);
+    }));
+    const onSynthesisCandidate = vi.fn();
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onSynthesisCandidate,
+      onTickSummary,
+      rawBundleWriteConcurrency: 2,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(writeStoryBundle).toHaveBeenCalledTimes(2);
+    });
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'story-fastest',
+      'story-middle',
+    ]);
+
+    releases[0]?.();
+    await flushTasks();
+    await vi.waitFor(() => {
+      expect(writeStoryBundle).toHaveBeenCalledTimes(3);
+    });
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'story-fastest',
+      'story-middle',
+      'story-slowest',
+    ]);
+
+    releases[1]?.();
+    releases[2]?.();
+    await vi.waitFor(() => {
+      expect(onTickSummary).toHaveBeenCalled();
+    });
+    expect(onSynthesisCandidate).toHaveBeenCalledTimes(3);
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      raw_write_concurrency: 2,
+      raw_write_attempted_count: 3,
+      raw_wrote_count: 3,
+    }));
+
+    handle.stop();
+  });
+
+  it('suppresses concurrent raw writes and synthesis candidates in no-write mode', async () => {
+    const bundles = [
+      storyBundle('story-one', { clusterWindowEnd: 200 }),
+      storyBundle('story-two', { clusterWindowEnd: 100 }),
+    ];
+    orchestrateNewsPipelineMock.mockResolvedValue(batch(bundles));
+
+    const writeStoryBundle = vi.fn();
+    const onSynthesisCandidate = vi.fn();
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onSynthesisCandidate,
+      onTickSummary,
+      noWrite: true,
+      rawBundleWriteConcurrency: 2,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(onTickSummary).toHaveBeenCalled();
+    });
+    expect(writeStoryBundle).not.toHaveBeenCalled();
+    expect(onSynthesisCandidate).not.toHaveBeenCalled();
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      raw_write_concurrency: 2,
+      raw_write_attempted_count: 0,
+      raw_write_suppressed_count: 2,
+      synthesis_candidate_suppressed_count: 2,
+    }));
+
+    handle.stop();
+  });
+
+  it('continues concurrent raw publishing after a failed write and reports async enrichment errors', async () => {
+    const failed = storyBundle('write-fails', { sourceCount: 2, clusterWindowEnd: 200 });
+    const succeeds = storyBundle('write-succeeds', { sourceCount: 1, clusterWindowEnd: 100 });
+    const writeError = new Error('relay quorum failed');
+    const artifactError = new Error('advanced artifact failed');
+    const enrichmentError = new Error('enrichment callback failed');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([failed, succeeds]));
+
+    const writeStoryBundle = vi.fn(async (_client, bundle: StoryBundle) => {
+      if (bundle.story_id === 'write-fails') {
+        throw writeError;
+      }
+    });
+    const onError = vi.fn();
+    const onSynthesisCandidate = vi.fn().mockRejectedValue(enrichmentError);
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onSynthesisCandidate,
+      onTickSummary,
+      createAdvancedArtifact: () => {
+        throw artifactError;
+      },
+      rawBundleWriteConcurrency: 2,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+    });
+
+    await vi.waitFor(() => {
+      expect(onTickSummary).toHaveBeenCalled();
+    });
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(enrichmentError);
+    });
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'write-fails',
+      'write-succeeds',
+    ]);
+    expect(onError).toHaveBeenCalledWith(writeError);
+    expect(onError).toHaveBeenCalledWith(artifactError);
+    expect(onSynthesisCandidate).toHaveBeenCalledTimes(1);
+    expect(onSynthesisCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      story_id: 'write-succeeds',
+      advanced_artifact: undefined,
+    }));
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      raw_write_concurrency: 2,
+      raw_write_attempted_count: 2,
+      raw_wrote_count: 1,
+      raw_write_failed_count: 1,
+      synthesis_candidate_enqueued_count: 1,
     }));
 
     handle.stop();
