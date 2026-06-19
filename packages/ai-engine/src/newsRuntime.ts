@@ -72,6 +72,7 @@ export interface NewsRuntimeConfig {
   pollIntervalMs?: number;
   maxPublishedBundles?: number;
   firstTickMaxPublishedBundles?: number;
+  rawBundleWriteConcurrency?: number;
   pruneStaleBundles?: boolean;
   runOnStart?: boolean;
   enabled?: boolean;
@@ -126,6 +127,7 @@ export interface NewsRuntimeTickSummary {
   readonly selected_singleton_bundle_count: number;
   readonly selected_multi_source_bundle_count: number;
   readonly publication_ineligible_bundle_count: number;
+  readonly raw_write_concurrency?: number;
   readonly raw_write_attempted_count: number;
   readonly raw_write_suppressed_count: number;
   readonly raw_wrote_count: number;
@@ -221,6 +223,14 @@ function resolveFirstTickMaxPublishedBundles(config: NewsRuntimeConfig): number 
     ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES');
 }
 
+function resolveRawBundleWriteConcurrency(config: NewsRuntimeConfig): number {
+  return normalizeOptionalPositiveInt(config.rawBundleWriteConcurrency, 'rawBundleWriteConcurrency')
+    ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY')
+    ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY')
+    ?? readOptionalPositiveIntEnv('VITE_VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY')
+    ?? 1;
+}
+
 function resolvePublishedBundleLimit(
   firstTick: boolean,
   maxPublishedBundles: number | null,
@@ -241,6 +251,22 @@ function resolvePruneStaleBundles(config: NewsRuntimeConfig): boolean {
   }
   return isTruthyFlag(readEnvVar('VH_NEWS_RUNTIME_PRUNE_STALE_BUNDLES'))
     || isTruthyFlag(readEnvVar('VITE_NEWS_RUNTIME_PRUNE_STALE_BUNDLES'));
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      await worker(items[index]!, index);
+    }
+  }));
 }
 
 function canonicalSourceCount(bundle: StoryBundle): number {
@@ -470,6 +496,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
   const firstTickMaxPublishedBundles = resolveFirstTickMaxPublishedBundles(config);
+  const rawBundleWriteConcurrency = resolveRawBundleWriteConcurrency(config);
   const pruneStaleBundles = resolvePruneStaleBundles(config);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
   const noWrite = config.noWrite === true;
@@ -524,6 +551,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     runtimeTrace('tick_started', {
       poll_interval_ms: pollIntervalMs,
       feed_source_count: config.feedSources.length,
+      raw_write_concurrency: rawBundleWriteConcurrency,
     });
 
     const baseSummary = (): Omit<NewsRuntimeTickSummary, 'status' | 'completed_at' | 'duration_ms' | 'last_stage'> => ({
@@ -543,6 +571,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       selected_singleton_bundle_count: 0,
       selected_multi_source_bundle_count: 0,
       publication_ineligible_bundle_count: 0,
+      raw_write_concurrency: rawBundleWriteConcurrency,
       raw_write_attempted_count: 0,
       raw_write_suppressed_count: 0,
       raw_wrote_count: 0,
@@ -599,6 +628,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         prune_stale_bundles: pruneStaleBundles,
         trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
+        raw_write_concurrency: rawBundleWriteConcurrency,
         selected_bundle_count: bundlesToPublish.length,
         selected_singleton_bundle_count: bundlesToPublish
           .filter((bundle) => canonicalSourceCount(bundle) === 1).length,
@@ -629,62 +659,122 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       let synthesisCandidateSuppressedCount = 0;
 
       lastStage = 'writing_raw_bundles';
-      for (const bundle of bundlesToPublish) {
-        const request = buildRemoteRequest(createPrompt(bundle));
-        const workItems = buildEnrichmentWorkItems(bundle);
+      if (rawBundleWriteConcurrency <= 1) {
+        for (const bundle of bundlesToPublish) {
+          const request = buildRemoteRequest(createPrompt(bundle));
+          const workItems = buildEnrichmentWorkItems(bundle);
 
-        if (noWrite) {
-          rawWriteSuppressedCount += 1;
-          nextPublishedStoryIds.add(bundle.story_id);
-          publishedStoryIds.add(bundle.story_id);
-        } else {
-          rawWriteAttemptedCount += 1;
-          try {
-            await writeStoryBundle!(config.gunClient, bundle);
-            rawWroteCount += 1;
-          } catch (error) {
-            failedStoryPublishCount += 1;
-            runtimeTrace('bundle_write_failed', {
-              story_id: bundle.story_id,
-              source_count: canonicalSourceCount(bundle),
-              error: summarizeError(error),
-            });
-            config.onError?.(error);
-            continue;
-          }
-          nextPublishedStoryIds.add(bundle.story_id);
-          publishedStoryIds.add(bundle.story_id);
-        }
-
-        let advancedArtifact: StoryAdvancedArtifact | undefined;
-        try {
-          advancedArtifact = createAdvancedArtifact(bundle);
-        } catch (error) {
-          config.onError?.(error);
-        }
-
-        if (workItems.length > 0) {
-          const candidate: NewsRuntimeSynthesisCandidate = {
-            story_id: bundle.story_id,
-            provider: {
-              provider_id: REMOTE_PROVIDER_ID,
-              model_id: request.model,
-              kind: 'remote',
-            },
-            request,
-            work_items: workItems,
-            advanced_artifact: advancedArtifact,
-          };
-
-          if (noWrite || !config.onSynthesisCandidate) {
-            synthesisCandidateSuppressedCount += 1;
+          if (noWrite) {
+            rawWriteSuppressedCount += 1;
+            nextPublishedStoryIds.add(bundle.story_id);
+            publishedStoryIds.add(bundle.story_id);
           } else {
-            synthesisCandidateEnqueuedCount += 1;
-            void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
+            rawWriteAttemptedCount += 1;
+            try {
+              await writeStoryBundle!(config.gunClient, bundle);
+              rawWroteCount += 1;
+            } catch (error) {
+              failedStoryPublishCount += 1;
+              runtimeTrace('bundle_write_failed', {
+                story_id: bundle.story_id,
+                source_count: canonicalSourceCount(bundle),
+                error: summarizeError(error),
+              });
               config.onError?.(error);
-            });
+              continue;
+            }
+            nextPublishedStoryIds.add(bundle.story_id);
+            publishedStoryIds.add(bundle.story_id);
+          }
+
+          let advancedArtifact: StoryAdvancedArtifact | undefined;
+          try {
+            advancedArtifact = createAdvancedArtifact(bundle);
+          } catch (error) {
+            config.onError?.(error);
+          }
+
+          if (workItems.length > 0) {
+            const candidate: NewsRuntimeSynthesisCandidate = {
+              story_id: bundle.story_id,
+              provider: {
+                provider_id: REMOTE_PROVIDER_ID,
+                model_id: request.model,
+                kind: 'remote',
+              },
+              request,
+              work_items: workItems,
+              advanced_artifact: advancedArtifact,
+            };
+
+            if (noWrite || !config.onSynthesisCandidate) {
+              synthesisCandidateSuppressedCount += 1;
+            } else {
+              synthesisCandidateEnqueuedCount += 1;
+              void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
+                config.onError?.(error);
+              });
+            }
           }
         }
+      } else {
+        await runWithConcurrency(bundlesToPublish, rawBundleWriteConcurrency, async (bundle) => {
+          const request = buildRemoteRequest(createPrompt(bundle));
+          const workItems = buildEnrichmentWorkItems(bundle);
+
+          if (noWrite) {
+            rawWriteSuppressedCount += 1;
+            nextPublishedStoryIds.add(bundle.story_id);
+            publishedStoryIds.add(bundle.story_id);
+          } else {
+            rawWriteAttemptedCount += 1;
+            try {
+              await writeStoryBundle!(config.gunClient, bundle);
+              rawWroteCount += 1;
+            } catch (error) {
+              failedStoryPublishCount += 1;
+              runtimeTrace('bundle_write_failed', {
+                story_id: bundle.story_id,
+                source_count: canonicalSourceCount(bundle),
+                error: summarizeError(error),
+              });
+              config.onError?.(error);
+              return;
+            }
+            nextPublishedStoryIds.add(bundle.story_id);
+            publishedStoryIds.add(bundle.story_id);
+          }
+
+          let advancedArtifact: StoryAdvancedArtifact | undefined;
+          try {
+            advancedArtifact = createAdvancedArtifact(bundle);
+          } catch (error) {
+            config.onError?.(error);
+          }
+
+          if (workItems.length > 0) {
+            const candidate: NewsRuntimeSynthesisCandidate = {
+              story_id: bundle.story_id,
+              provider: {
+                provider_id: REMOTE_PROVIDER_ID,
+                model_id: request.model,
+                kind: 'remote',
+              },
+              request,
+              work_items: workItems,
+              advanced_artifact: advancedArtifact,
+            };
+
+            if (noWrite || !config.onSynthesisCandidate) {
+              synthesisCandidateSuppressedCount += 1;
+            } else {
+              synthesisCandidateEnqueuedCount += 1;
+              void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
+                config.onError?.(error);
+              });
+            }
+          }
+        });
       }
 
       if (!noWrite && bundlesToPublish.length > 0 && nextPublishedStoryIds.size === 0 && failedStoryPublishCount > 0) {
@@ -808,6 +898,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         selected_multi_source_bundle_count: bundlesToPublish
           .filter((bundle) => canonicalSourceCount(bundle) > 1).length,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
+        raw_write_concurrency: rawBundleWriteConcurrency,
         raw_write_attempted_count: rawWriteAttemptedCount,
         raw_write_suppressed_count: rawWriteSuppressedCount,
         raw_wrote_count: rawWroteCount,
@@ -914,6 +1005,7 @@ export const __internal = {
   resolveMaxPublishedBundles,
   resolvePublishedBundleLimit,
   resolvePruneStaleBundles,
+  resolveRawBundleWriteConcurrency,
   compareBundlesForPublication,
   selectBundlesForPublication,
   readEnvVar,
