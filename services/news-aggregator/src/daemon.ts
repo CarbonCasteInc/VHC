@@ -60,7 +60,7 @@ import {
   createBundleSynthesisEnrichmentFromEnv,
   isTruthyFlag,
 } from './bundleSynthesisDaemonConfig';
-import { isDirectExecution, runFromCli } from './daemonCli';
+import { NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE, isDirectExecution, runFromCli } from './daemonCli';
 import {
   createDaemonWriteLaneRegistry,
   type DaemonWriteLaneRegistry,
@@ -710,6 +710,7 @@ export interface NewsAggregatorDaemonProcessHandle {
   daemon: NewsAggregatorDaemonHandle;
   client: VennClient;
   readonly closed: Promise<void>;
+  closeExitCode?(): number;
   stop(): Promise<void>;
 }
 
@@ -949,6 +950,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   let client: VennClient | null = null;
   let processHandle: NewsAggregatorDaemonProcessHandle | null = null;
   let diagnosticStopRequested = false;
+  let closeExitCode = 0;
   let resolveClosed: (() => void) | null = null;
   let rejectClosed: ((error: unknown) => void) | null = null;
   const closed = new Promise<void>((resolve, reject) => {
@@ -1021,6 +1023,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       failClosedOnRuntimeError,
       onFailClosedRuntimeError: (error) => {
         console.error('[vh:news-daemon] fail-closed runtime error shutting down process', error);
+        closeExitCode = NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
         setTimeout(() => {
           void processHandle?.stop().catch((stopError) => {
             console.error('[vh:news-daemon] fail-closed process shutdown failed', stopError);
@@ -1051,6 +1054,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       daemon,
       client,
       closed,
+      closeExitCode: () => closeExitCode,
       async stop() {
         if (stopped) {
           return;
@@ -1108,6 +1112,7 @@ export const __internal = {
   parseTopicMapping,
   resolveLeaseHolderId,
   runFromCli,
+  NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE,
   startNewsAggregatorDaemonFromEnv,
   verifyStoryClusterHealth,
   isTruthyFlag,

@@ -370,6 +370,30 @@ describe('news daemon coverage guards', () => {
     expect(lifecycle.exit).toHaveBeenCalledWith(0);
   });
 
+  it('exits the CLI with the deliberate fail-closed code when the daemon closes cleanly after a runtime violation', async () => {
+    const closed = createDeferred<void>();
+    const startFromEnv = vi.fn(async () => ({
+      stop: vi.fn(async () => undefined),
+      closed: closed.promise,
+      closeExitCode: () => __internal.NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE,
+    }));
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn(() => lifecycle as any) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    closed.resolve();
+    await flushMicrotasks();
+
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(__internal.NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE);
+  });
+
   it('exits the CLI nonzero when a daemon handle closes with an error', async () => {
     const closed = createDeferred<void>();
     const startFromEnv = vi.fn(async () => ({
@@ -393,5 +417,31 @@ describe('news daemon coverage guards', () => {
     expect(logger.error).toHaveBeenCalledWith('[vh:news-daemon] daemon process closed with error', error);
     expect(lifecycle.exit).toHaveBeenCalledTimes(1);
     expect(lifecycle.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('preserves the deliberate fail-closed code when shutdown cleanup rejects', async () => {
+    const closed = createDeferred<void>();
+    const startFromEnv = vi.fn(async () => ({
+      stop: vi.fn(async () => undefined),
+      closed: closed.promise,
+      closeExitCode: () => __internal.NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE,
+    }));
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn(() => lifecycle as any) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+    const error = new Error('client shutdown failed after fail-closed stop');
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    closed.reject(error);
+    await flushMicrotasks();
+
+    expect(logger.error).toHaveBeenCalledWith('[vh:news-daemon] daemon process closed with error', error);
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(__internal.NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE);
   });
 });

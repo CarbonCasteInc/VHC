@@ -2,9 +2,12 @@ import { pathToFileURL } from 'node:url';
 
 export type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
 export type CliLogger = Pick<Console, 'info' | 'error'>;
+export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
+
 export interface CliDaemonProcessHandle {
   stop(): Promise<void>;
   readonly closed?: Promise<void>;
+  closeExitCode?(): number;
 }
 
 export function isDirectExecution(metaUrl: string): boolean {
@@ -26,6 +29,13 @@ export async function runFromCli(
 ): Promise<void> {
   const processHandle = await startFromEnv();
   let exiting = false;
+  const closeExitCode = (fallback: number): number => {
+    const code = processHandle.closeExitCode?.();
+    if (typeof code !== 'number') {
+      return fallback;
+    }
+    return Number.isInteger(code) && code >= 0 && code <= 255 ? code : fallback;
+  };
   const exitOnce = (code: number): void => {
     if (exiting) {
       return;
@@ -45,9 +55,9 @@ export async function runFromCli(
     });
   }
   void processHandle.closed?.then(() => {
-    exitOnce(0);
+    exitOnce(closeExitCode(0));
   }, (error) => {
     logger.error('[vh:news-daemon] daemon process closed with error', error);
-    exitOnce(1);
+    exitOnce(closeExitCode(1));
   });
 }
