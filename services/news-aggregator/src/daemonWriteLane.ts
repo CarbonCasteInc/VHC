@@ -42,7 +42,7 @@ export interface DaemonWriteLaneOptions {
   defaultConcurrency?: number;
   classConcurrency?: Record<string, number | undefined>;
   maxSamples?: number;
-  stopClassOnFailure?: boolean;
+  stopClassOnFailure?: boolean | ((writeClass: string) => boolean);
 }
 
 function normalizeConcurrency(value: number | undefined, fallback: number): number {
@@ -90,6 +90,13 @@ export function createDaemonWriteLaneRegistry(
 
   const concurrencyFor = (writeClass: string): number =>
     normalizeConcurrency(options.classConcurrency?.[writeClass], defaultConcurrency);
+
+  const shouldStopClassOnFailure = (writeClass: string): boolean => {
+    if (typeof options.stopClassOnFailure === 'function') {
+      return options.stopClassOnFailure(writeClass);
+    }
+    return options.stopClassOnFailure === true;
+  };
 
   const recordDuration = (state: LaneState, durationMs: number): number | null => {
     state.durations.push(durationMs);
@@ -153,7 +160,7 @@ export function createDaemonWriteLaneRegistry(
             ...item.attributes,
             error,
           });
-          if (options.stopClassOnFailure && !state.stopped) {
+          if (shouldStopClassOnFailure(writeClass) && !state.stopped) {
             state.stopped = true;
             const pending = state.pending.splice(0);
             for (const pendingItem of pending) {

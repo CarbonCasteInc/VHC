@@ -65,6 +65,22 @@ export interface NewsRuntimeSynthesisCandidate {
   advanced_artifact?: StoryAdvancedArtifact;
 }
 
+export type NewsRuntimeNonFatalErrorKind =
+  | 'advanced_artifact_failed'
+  | 'synthesis_candidate_enqueue_failed'
+  | 'storyline_write_failed'
+  | 'stale_storyline_remove_failed'
+  | 'stale_story_remove_failed';
+
+export interface NewsRuntimeNonFatalErrorContext {
+  readonly kind: NewsRuntimeNonFatalErrorKind;
+  readonly reason: string;
+  readonly story_id?: string;
+  readonly storyline_id?: string;
+  readonly story_count?: number;
+  readonly work_item_count?: number;
+}
+
 export interface NewsRuntimeConfig {
   feedSources: FeedSource[];
   topicMapping: TopicMapping;
@@ -85,6 +101,7 @@ export interface NewsRuntimeConfig {
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
   onTickSummary?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   onError?: (error: unknown) => void;
+  onNonFatalError?: (error: unknown, context: NewsRuntimeNonFatalErrorContext) => void;
   orchestratorOptions?: NewsOrchestratorOptions;
   noWrite?: boolean;
   tickWatchdogMs?: number;
@@ -452,6 +469,19 @@ function summarizeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function reportNonFatalError(
+  config: NewsRuntimeConfig,
+  error: unknown,
+  context: Omit<NewsRuntimeNonFatalErrorContext, 'reason'>,
+): NewsRuntimeNonFatalErrorContext {
+  const fullContext = {
+    ...context,
+    reason: summarizeError(error),
+  };
+  config.onNonFatalError?.(error, fullContext);
+  return fullContext;
+}
+
 function logTickSummary(summary: NewsRuntimeTickSummary): void {
   const logger = summary.status === 'failed' ? console.warn : console.info;
   logger('[vh:news-runtime] tick summary', summary);
@@ -691,7 +721,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           try {
             advancedArtifact = createAdvancedArtifact(bundle);
           } catch (error) {
-            config.onError?.(error);
+            const context = reportNonFatalError(config, error, {
+              kind: 'advanced_artifact_failed',
+              story_id: bundle.story_id,
+            });
+            runtimeTrace(context.kind, { ...context });
           }
 
           if (workItems.length > 0) {
@@ -712,7 +746,12 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             } else {
               synthesisCandidateEnqueuedCount += 1;
               void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
-                config.onError?.(error);
+                const context = reportNonFatalError(config, error, {
+                  kind: 'synthesis_candidate_enqueue_failed',
+                  story_id: candidate.story_id,
+                  work_item_count: candidate.work_items.length,
+                });
+                runtimeTrace(context.kind, { ...context });
               });
             }
           }
@@ -749,7 +788,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           try {
             advancedArtifact = createAdvancedArtifact(bundle);
           } catch (error) {
-            config.onError?.(error);
+            const context = reportNonFatalError(config, error, {
+              kind: 'advanced_artifact_failed',
+              story_id: bundle.story_id,
+            });
+            runtimeTrace(context.kind, { ...context });
           }
 
           if (workItems.length > 0) {
@@ -770,7 +813,12 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             } else {
               synthesisCandidateEnqueuedCount += 1;
               void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
-                config.onError?.(error);
+                const context = reportNonFatalError(config, error, {
+                  kind: 'synthesis_candidate_enqueue_failed',
+                  story_id: candidate.story_id,
+                  work_item_count: candidate.work_items.length,
+                });
+                runtimeTrace(context.kind, { ...context });
               });
             }
           }
@@ -803,11 +851,12 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
               publishedStorylineIds.add(storyline.storyline_id);
             } catch (error) {
               storylineWriteFailedCount += 1;
-              runtimeTrace('storyline_write_failed', {
+              const context = reportNonFatalError(config, error, {
+                kind: 'storyline_write_failed',
                 storyline_id: storyline.storyline_id,
-                error: summarizeError(error),
+                story_count: storyline.story_ids.length,
               });
-              config.onError?.(error);
+              runtimeTrace(context.kind, { ...context });
             }
           }
         }
@@ -840,7 +889,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
               publishedStorylineIds.delete(staleStorylineId);
             } catch (error) {
               staleStorylineRemoveFailedCount += 1;
-              config.onError?.(error);
+              const context = reportNonFatalError(config, error, {
+                kind: 'stale_storyline_remove_failed',
+                storyline_id: staleStorylineId,
+              });
+              runtimeTrace(context.kind, { ...context });
             }
           }
         }
@@ -867,7 +920,11 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
               publishedStoryIds.delete(staleStoryId);
             } catch (error) {
               staleStoryRemoveFailedCount += 1;
-              config.onError?.(error);
+              const context = reportNonFatalError(config, error, {
+                kind: 'stale_story_remove_failed',
+                story_id: staleStoryId,
+              });
+              runtimeTrace(context.kind, { ...context });
             }
           }
         }

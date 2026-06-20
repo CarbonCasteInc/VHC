@@ -415,6 +415,65 @@ describe('news daemon production wiring', () => {
     }
   });
 
+  it('keeps raw pending lifecycle write failures on the fatal runtime path', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-lifecycle-fatal-'));
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const lifecycleError = new Error('Relay REST news write failed for /vh/news/synthesis-lifecycle: 1/3 succeeded; required=2');
+    mocks.startNewsRuntime.mockReturnValue(runtimeHandle);
+    mocks.writeNewsSynthesisLifecycleStatus.mockRejectedValue(lifecycleError);
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+
+    try {
+      const handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
+        onError?: (error: unknown) => void;
+        writeStoryBundle?: (client: unknown, bundle: unknown) => Promise<unknown>;
+      };
+      const bundle = {
+        schemaVersion: 'story-bundle-v0',
+        story_id: 'story-lifecycle-fails',
+        topic_id: '308ac348f442396b471a6ca99b1d2ec2c61f8dff417a9d7fdfbc73d9bf5081b7',
+        headline: 'Lifecycle fails',
+        cluster_window_start: 100,
+        cluster_window_end: 123,
+        sources: [{
+          source_id: 'src-1',
+          publisher: 'Publisher',
+          url: 'https://example.com/lifecycle-fails',
+          url_hash: 'hash-lifecycle-fails',
+          title: 'Lifecycle fails',
+        }],
+        cluster_features: {
+          entity_keys: ['lifecycle'],
+          time_bucket: '2026-05-30T12',
+          semantic_signature: 'sig-lifecycle',
+        },
+        provenance_hash: 'prov-lifecycle',
+        created_at: 100,
+      };
+
+      await expect(runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, bundle)).rejects.toThrow(
+        '/vh/news/synthesis-lifecycle',
+      );
+      runtimeConfig.onError?.(lifecycleError);
+
+      await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
+      await expect(
+        runtimeConfig.writeStoryBundle?.({ id: 'mock-client' }, { story_id: 'story-after-lifecycle-error' }),
+      ).rejects.toThrow('news daemon runtime writes stopped after runtime error');
+
+      await handle.stop();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not downgrade accepted synthesis lifecycle when republishing an unchanged source set', async () => {
     primeHealthyEnv();
     vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));

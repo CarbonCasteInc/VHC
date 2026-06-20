@@ -132,6 +132,7 @@ describe('newsRuntime storylines', () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));
 
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
     const writeStorylineGroup = vi.fn().mockRejectedValue(storylineError);
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
 
@@ -140,6 +141,7 @@ describe('newsRuntime storylines', () => {
       writeStoryBundle,
       writeStorylineGroup,
       onError,
+      onNonFatalError,
       runOnStart: true,
       pollIntervalMs: 10,
     });
@@ -148,8 +150,63 @@ describe('newsRuntime storylines', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY);
     expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
-    expect(onError).toHaveBeenCalledWith(storylineError);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      storylineError,
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+        story_count: STORYLINE.story_ids.length,
+      }),
+    );
     expect(handle.lastRun()).toBeInstanceOf(Date);
+
+    handle.stop();
+  });
+
+  it('keeps publishing future raw bundles after optional storyline write rejection', async () => {
+    const nextStory = {
+      ...STORY,
+      story_id: 'story-2',
+      headline: 'Second headline',
+      provenance_hash: 'provhash-2',
+      created_at: STORY.created_at + 1,
+    };
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce(batch([STORY], [STORYLINE]))
+      .mockResolvedValueOnce(batch([nextStory], []));
+
+    const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const writeStorylineGroup = vi
+      .fn()
+      .mockRejectedValue(new Error('daemon write lane stopped after failure: storyline'));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      onError,
+      onNonFatalError,
+      runOnStart: true,
+      pollIntervalMs: 10,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, nextStory);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+      }),
+    );
 
     handle.stop();
   });

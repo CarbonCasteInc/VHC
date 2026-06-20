@@ -274,16 +274,21 @@ immediately after that completed summary. Set it to `false` only when first-tick
 caps, synthesis throughput, relay fanout, and the watchdog window have been
 recalibrated together.
 
-Current Phase 5 public-news MVP scope is **B**: accepted synthesis and frame
-tables on newest cards are launch-required. Raw-fresh, v4-signed, product-visible
-cards with `synthesis_pending` prove the raw publication path but do not satisfy
-the final "done" gate. The attended run must observe synthesis lifecycle advance
-from pending to accepted and accepted synthesis/frame-table rows write to the
-configured relay REST quorum before launch is complete.
+Current Phase 5 Scope A is raw-fresh, v4-signed, product-visible news cards.
+Raw bundle publication and the publish-time pending lifecycle row
+(`synthesis_pending` / `frame_table_pending`) are critical and fail-closed
+because they ride the relay REST write-through path with the configured 2-of-3
+quorum. Accepted synthesis, frame tables, storyline overlays, and stale storyline
+cleanup are post-launch enrichment for Scope A. Their failures must be counted in
+tick summaries and logged with safe identifiers and reasons, but they must not
+halt raw publication.
 
 Live mode also fail-closes runtime errors by default through
-`VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR=true`. A runtime error, including a
-partial relay REST quorum write, blocks further runtime writes, stops the
+`VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR=true`, but runtime write criticality
+is an explicit allow-list. Only raw bundle publication and the raw pending
+lifecycle write route to the fatal runtime `onError` path. Future write surfaces
+default to non-fatal telemetry unless they are deliberately added to that
+critical set. A critical runtime error blocks further runtime writes, stops the
 daemon loop, shuts down the process handle, and leaves systemd to report the
 service stopped instead of allowing the write lane to drain more public stories.
 Do not set it to `false` in production unless the incident commander has chosen
@@ -358,8 +363,8 @@ and synthesis lifecycle rows with the public news system writer, but it submits
 those records to the relay REST write-through routes before attempting any
 direct Gun publication.
 
-Phase 5 production policy is explicit 2-of-3 relay REST quorum for both raw
-public-news rows and bundle synthesis rows:
+Phase 5 production policy is explicit 2-of-3 relay REST quorum for raw
+public-news rows, the raw pending lifecycle row, and bundle synthesis rows:
 
 ```bash
 VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=2
@@ -385,6 +390,15 @@ contract where that route provides one; plain HTTP acceptance is not enough.
 The preflight and write logs report `endpoint_count`, `required_success_count`,
 `relay_required_success_count`, and failed relay origin labels without printing
 tokens, pins, or key material.
+
+For Scope A launch gating, fail-closed only applies to the quorum-durable raw
+path: `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and the
+pending `/vh/news/synthesis-lifecycle` write created during raw publication.
+Storyline writes/removes still use direct Gun durability/readback and are
+therefore optional telemetry in this phase. Accepted synthesis writes keep their
+ledger, dead-letter, and audit behavior, but accepted synthesis availability is
+not a Scope A raw-feed gate. Migrating storyline persistence to relay REST quorum
+is a separate post-launch durability task.
 
 When relays have different daemon tokens, set `VH_NEWS_RELAY_REST_WRITE_TOKENS`
 to a JSON object mapping each relay origin to its token, for example:
@@ -618,13 +632,14 @@ Abort or stop the service if any of these occur:
 - source-health liveness preflight fails;
 - OpenAI preflight is not `pass`;
 - StoryCluster health check fails;
-- raw news or synthesis relay REST write fanout is below the configured
-  quorum target;
+- raw news or raw pending lifecycle relay REST write fanout is below the
+  configured quorum target;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.
 
 After an approved start, release evidence still requires
-`pnpm check:news-sources:health`, fresh content advance, synthesis
-lifecycle/publication evidence, public canary, and soak. The service starting
-successfully is not a release-ready claim.
+`pnpm check:news-sources:health`, fresh content advance, pending lifecycle
+evidence, public canary, and soak. Accepted synthesis and storyline enrichment
+evidence remain post-launch quality checks, not Scope A raw-feed start gates. The
+service starting successfully is not a release-ready claim.

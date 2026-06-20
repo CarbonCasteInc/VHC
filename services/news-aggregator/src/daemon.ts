@@ -14,6 +14,7 @@ import {
   type FeedSource,
   type NewsRuntimeConfig,
   type NewsRuntimeHandle,
+  type NewsRuntimeNonFatalErrorContext,
   type NewsRuntimeTickSummary,
   type TopicMapping,
 } from '@vh/ai-engine';
@@ -89,6 +90,25 @@ function hasReadableMesh(client: VennClient): boolean {
 
 const DEFAULT_PRODUCT_FEED_RECONCILE_INTERVAL_MS = 10 * 60 * 1000;
 const DEFAULT_SYNTHESIS_CATCHUP_INTERVAL_MS = 5 * 60 * 1000;
+const FAIL_CLOSED_RUNTIME_WRITE_CLASSES = new Set([
+  'news_bundle',
+  'news_synthesis_lifecycle',
+]);
+
+function shouldStopFailClosedRuntimeWriteClass(writeClass: string): boolean {
+  return FAIL_CLOSED_RUNTIME_WRITE_CLASSES.has(writeClass);
+}
+
+function nonFatalRuntimeErrorFields(context: NewsRuntimeNonFatalErrorContext): Record<string, unknown> {
+  return {
+    kind: context.kind,
+    reason: context.reason,
+    story_id: context.story_id ?? null,
+    storyline_id: context.storyline_id ?? null,
+    story_count: context.story_count ?? null,
+    work_item_count: context.work_item_count ?? null,
+  };
+}
 
 function normalizePositiveIntervalMs(value: unknown, fallback: number): number {
   const parsed = Number(value);
@@ -168,7 +188,9 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({
     logger,
     now: nowFn,
-    stopClassOnFailure: failClosedOnRuntimeError && !noWrite,
+    stopClassOnFailure: failClosedOnRuntimeError && !noWrite
+      ? shouldStopFailClosedRuntimeWriteClass
+      : false,
   });
   const queue = createAsyncEnrichmentQueue(
     config.enrichmentWorker ?? (() => undefined),
@@ -418,6 +440,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         logger.info('[vh:news-daemon] enrichment candidate enqueued', {
           story_id: candidate.story_id,
           ...queue.snapshot(),
+        });
+      },
+      onNonFatalError(_error, context) {
+        logger.warn('[vh:news-daemon] runtime non-fatal enrichment failure', {
+          holder_id: holderId,
+          ...nonFatalRuntimeErrorFields(context),
         });
       },
       onError(error) {
@@ -912,7 +940,12 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   if (typeof gunFile === 'string') {
     mkdirSync(path.dirname(gunFile), { recursive: true });
   }
-  const writeLanes = createDaemonWriteLaneRegistry({ logger: console });
+  const writeLanes = createDaemonWriteLaneRegistry({
+    logger: console,
+    stopClassOnFailure: failClosedOnRuntimeError && !noWrite
+      ? shouldStopFailClosedRuntimeWriteClass
+      : false,
+  });
   let client: VennClient | null = null;
   let processHandle: NewsAggregatorDaemonProcessHandle | null = null;
   let diagnosticStopRequested = false;
