@@ -8,6 +8,7 @@ import { useNewsStore } from '../../store/news';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useSynthesisStore } from '../../store/synthesis';
 import { NewsCard } from './NewsCard';
+import { resetExpandedCardStore } from './expandedCardStore';
 
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
@@ -92,6 +93,7 @@ describe('NewsCard related coverage', () => {
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
   });
 
@@ -101,6 +103,7 @@ describe('NewsCard related coverage', () => {
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
   });
 
   it('renders related coverage from the storyline separately from canonical sources', async () => {
@@ -145,6 +148,28 @@ describe('NewsCard related coverage', () => {
 
     expect(useDiscoveryStore.getState().selectedStorylineId).toBe('storyline-transit');
     expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
+  });
+
+  it('renders normally when a raw card has a dangling storyline id', async () => {
+    useNewsStore.getState().setStories([makeStory()]);
+    useNewsStore.getState().setStorylines([]);
+
+    render(<NewsCard item={makeItem()} />);
+
+    expect(screen.getByTestId('news-card-news-1')).toHaveAttribute(
+      'data-storyline-id',
+      'storyline-transit',
+    );
+    expect(screen.getByTestId('news-card-front-news-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-storyline-news-1')).not.toBeInTheDocument();
+    expect(useDiscoveryStore.getState().selectedStorylineId).toBeNull();
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-storyline-headline-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-related-coverage-news-1')).not.toBeInTheDocument();
+    expect(useDiscoveryStore.getState().selectedStorylineId).toBeNull();
   });
 
   it('opens from the card shell and closes with Escape without changing canonical source links', async () => {

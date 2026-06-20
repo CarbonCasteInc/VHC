@@ -121,4 +121,47 @@ describe('daemonWriteLane', () => {
       }),
     );
   });
+
+  it('uses predicate stop policy so optional classes keep accepting writes after failures', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const lane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 1,
+      stopClassOnFailure: (writeClass) => writeClass === 'news_bundle',
+    });
+
+    await expect(
+      lane.run('storyline', { storyline_id: 'storyline-1' }, async () => {
+        throw new Error('storyline write timed out');
+      }),
+    ).rejects.toThrow('storyline write timed out');
+    await expect(
+      lane.run('storyline', { storyline_id: 'storyline-2' }, async () => 'optional-later'),
+    ).resolves.toBe('optional-later');
+
+    await expect(
+      lane.run('news_bundle', { story_id: 'story-1' }, async () => {
+        throw new Error('relay quorum failed');
+      }),
+    ).rejects.toThrow('relay quorum failed');
+    await expect(
+      lane.run('news_bundle', { story_id: 'story-2' }, async () => 'blocked'),
+    ).rejects.toThrow('daemon write lane stopped after failure: news_bundle');
+
+    expect(lane.snapshot()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          write_class: 'storyline',
+          stopped: false,
+          failed_count: 1,
+          completed_count: 1,
+        }),
+        expect.objectContaining({
+          write_class: 'news_bundle',
+          stopped: true,
+          failed_count: 1,
+        }),
+      ]),
+    );
+  });
 });

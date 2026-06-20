@@ -17,6 +17,7 @@ vi.mock('@vh/gun-client', async () => {
 });
 
 import { createNewsAggregatorDaemon } from './daemon';
+import type { DaemonWriteLaneRegistry } from './daemonWriteLane';
 
 const FEED_SOURCES = [
   {
@@ -121,6 +122,220 @@ describe('news daemon storyline adapters', () => {
     expect(gunMocks.removeNewsStoryline).toHaveBeenCalledWith(
       { id: 'client-storyline' },
       STORYLINE.storyline_id,
+    );
+
+    await daemon.stop();
+  });
+
+  it('keeps fail-closed state open after runtime reports a storyline write failure as non-fatal', async () => {
+    const logger = makeLogger();
+    const timers = makeTimerControls();
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const storylineError = new Error('storyline write timed out and readback did not confirm persistence');
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(makeLease());
+    const writeLease = vi.fn().mockResolvedValue(makeLease());
+    const writeBundle = vi.fn(async (_client: VennClient, bundle: unknown) => bundle);
+    gunMocks.writeNewsStoryline.mockRejectedValue(storylineError);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-storyline-nonfatal' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      now: () => 1_700_000_000_000,
+      random: () => 0.42,
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await expect(runtimeConfig.writeStorylineGroup?.({ id: 'client-storyline-nonfatal' }, STORYLINE))
+      .rejects.toThrow('storyline write timed out');
+    runtimeConfig.onNonFatalError?.(storylineError, {
+      kind: 'storyline_write_failed',
+      reason: storylineError.message,
+      storyline_id: STORYLINE.storyline_id,
+      story_count: STORYLINE.story_ids.length,
+    });
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-storyline-nonfatal' }, { story_id: 'story-after-storyline' } as any),
+    ).resolves.toEqual({ story_id: 'story-after-storyline' });
+
+    expect(daemon.isRunning()).toBe(true);
+    expect(runtimeHandle.stop).not.toHaveBeenCalled();
+    expect(writeBundle).toHaveBeenCalledWith(
+      { id: 'client-storyline-nonfatal' },
+      { story_id: 'story-after-storyline' },
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+        story_count: STORYLINE.story_ids.length,
+        reason: storylineError.message,
+      }),
+    );
+    expect(logger.error).not.toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime error triggered fail-closed stop',
+      expect.anything(),
+    );
+
+    await daemon.stop();
+  });
+
+  it('keeps storyline remove failures non-fatal and allows later raw writes', async () => {
+    const logger = makeLogger();
+    const timers = makeTimerControls();
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const removeError = new Error('storyline clear timed out and readback did not confirm removal');
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(makeLease());
+    const writeLease = vi.fn().mockResolvedValue(makeLease());
+    const writeBundle = vi.fn(async (_client: VennClient, bundle: unknown) => bundle);
+    gunMocks.removeNewsStoryline.mockRejectedValue(removeError);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-storyline-remove' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      now: () => 1_700_000_000_000,
+      random: () => 0.42,
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await expect(runtimeConfig.removeStorylineGroup?.({ id: 'client-storyline-remove' }, STORYLINE.storyline_id))
+      .rejects.toThrow('storyline clear timed out');
+    runtimeConfig.onNonFatalError?.(removeError, {
+      kind: 'stale_storyline_remove_failed',
+      reason: removeError.message,
+      storyline_id: STORYLINE.storyline_id,
+    });
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-storyline-remove' }, { story_id: 'story-after-remove' } as any),
+    ).resolves.toEqual({ story_id: 'story-after-remove' });
+
+    expect(daemon.isRunning()).toBe(true);
+    expect(runtimeHandle.stop).not.toHaveBeenCalled();
+    expect(writeBundle).toHaveBeenCalledWith(
+      { id: 'client-storyline-remove' },
+      { story_id: 'story-after-remove' },
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      expect.objectContaining({
+        kind: 'stale_storyline_remove_failed',
+        storyline_id: STORYLINE.storyline_id,
+        reason: removeError.message,
+      }),
+    );
+
+    await daemon.stop();
+  });
+
+  it('treats stopped storyline lane rejections as optional telemetry', async () => {
+    const logger = makeLogger();
+    const timers = makeTimerControls();
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+    const laneStoppedError = new Error('daemon write lane stopped after failure: storyline');
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(makeLease());
+    const writeLease = vi.fn().mockResolvedValue(makeLease());
+    const writeBundle = vi.fn(async (_client: VennClient, bundle: unknown) => bundle);
+    const writeLanes: DaemonWriteLaneRegistry = {
+      run: vi.fn(async <T,>(writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<T>) => {
+        if (writeClass === 'storyline') {
+          throw laneStoppedError;
+        }
+        return task();
+      }),
+      snapshot: vi.fn(() => []),
+      stop: vi.fn(),
+    };
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-storyline-stopped' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      writeLanes,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      now: () => 1_700_000_000_000,
+      random: () => 0.42,
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await expect(runtimeConfig.writeStorylineGroup?.({ id: 'client-storyline-stopped' }, STORYLINE))
+      .rejects.toThrow('daemon write lane stopped after failure: storyline');
+    runtimeConfig.onNonFatalError?.(laneStoppedError, {
+      kind: 'storyline_write_failed',
+      reason: laneStoppedError.message,
+      storyline_id: STORYLINE.storyline_id,
+      story_count: STORYLINE.story_ids.length,
+    });
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-storyline-stopped' }, { story_id: 'story-after-stopped-lane' } as any),
+    ).resolves.toEqual({ story_id: 'story-after-stopped-lane' });
+
+    expect(runtimeHandle.stop).not.toHaveBeenCalled();
+    expect(writeBundle).toHaveBeenCalledWith(
+      { id: 'client-storyline-stopped' },
+      { story_id: 'story-after-stopped-lane' },
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+        reason: laneStoppedError.message,
+      }),
     );
 
     await daemon.stop();

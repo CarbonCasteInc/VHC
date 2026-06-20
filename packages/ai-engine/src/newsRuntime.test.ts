@@ -504,7 +504,7 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
-  it('continues concurrent raw publishing after a failed write and reports async enrichment errors', async () => {
+  it('continues concurrent raw publishing after a failed write and reports async enrichment as non-fatal', async () => {
     const failed = storyBundle('write-fails', { sourceCount: 2, clusterWindowEnd: 200 });
     const succeeds = storyBundle('write-succeeds', { sourceCount: 1, clusterWindowEnd: 100 });
     const writeError = new Error('relay quorum failed');
@@ -518,12 +518,14 @@ describe('newsRuntime', () => {
       }
     });
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
     const onSynthesisCandidate = vi.fn().mockRejectedValue(enrichmentError);
     const onTickSummary = vi.fn();
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       onError,
+      onNonFatalError,
       onSynthesisCandidate,
       onTickSummary,
       createAdvancedArtifact: () => {
@@ -538,7 +540,14 @@ describe('newsRuntime', () => {
       expect(onTickSummary).toHaveBeenCalled();
     });
     await vi.waitFor(() => {
-      expect(onError).toHaveBeenCalledWith(enrichmentError);
+      expect(onNonFatalError).toHaveBeenCalledWith(
+        enrichmentError,
+        expect.objectContaining({
+          kind: 'synthesis_candidate_enqueue_failed',
+          story_id: 'write-succeeds',
+          work_item_count: 2,
+        }),
+      );
     });
 
     expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
@@ -546,7 +555,14 @@ describe('newsRuntime', () => {
       'write-succeeds',
     ]);
     expect(onError).toHaveBeenCalledWith(writeError);
-    expect(onError).toHaveBeenCalledWith(artifactError);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      artifactError,
+      expect.objectContaining({
+        kind: 'advanced_artifact_failed',
+        story_id: 'write-succeeds',
+      }),
+    );
     expect(onSynthesisCandidate).toHaveBeenCalledTimes(1);
     expect(onSynthesisCandidate).toHaveBeenCalledWith(expect.objectContaining({
       story_id: 'write-succeeds',
@@ -902,7 +918,7 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
-  it('reports stale story and storyline cleanup failures without failing the tick', async () => {
+  it('reports stale story and storyline cleanup failures as non-fatal telemetry without failing the tick', async () => {
     const storyTwo = storyBundle('story-2', { sourceCount: 2, clusterWindowEnd: 200 });
     const storylineTwo = storylineGroup('storyline-2', ['story-2']);
     const removeStoryError = new Error('story remove failed');
@@ -922,6 +938,7 @@ describe('newsRuntime', () => {
     const removeStoryBundle = vi.fn().mockRejectedValue(removeStoryError);
     const removeStorylineGroup = vi.fn().mockRejectedValue(removeStorylineError);
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
     const onTickSummary = vi.fn();
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
@@ -930,6 +947,7 @@ describe('newsRuntime', () => {
       removeStoryBundle,
       removeStorylineGroup,
       onError,
+      onNonFatalError,
       onTickSummary,
       pruneStaleBundles: true,
       pollIntervalMs: 10,
@@ -945,9 +963,23 @@ describe('newsRuntime', () => {
 
     expect(removeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'storyline-2');
     expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
-    expect(onError).toHaveBeenCalledWith(removeStorylineError);
-    expect(onError).toHaveBeenCalledWith(removeStoryError);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      removeStorylineError,
+      expect.objectContaining({
+        kind: 'stale_storyline_remove_failed',
+        storyline_id: 'storyline-2',
+      }),
+    );
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      removeStoryError,
+      expect.objectContaining({
+        kind: 'stale_story_remove_failed',
+        story_id: 'story-2',
+      }),
+    );
     expect(onTickSummary.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      status: 'completed',
       stale_storyline_remove_attempted_count: 1,
       stale_storyline_remove_failed_count: 1,
       stale_story_remove_attempted_count: 1,
@@ -1018,17 +1050,22 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
-  it('reports storyline write failures and continues the tick', async () => {
+  it('reports storyline write failures as non-fatal telemetry and continues the tick', async () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
 
+    const storylineError = new Error('storyline write failed');
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
-    const writeStorylineGroup = vi.fn().mockRejectedValue(new Error('storyline write failed'));
+    const writeStorylineGroup = vi.fn().mockRejectedValue(storylineError);
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const onTickSummary = vi.fn();
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       writeStorylineGroup,
       onError,
+      onNonFatalError,
+      onTickSummary,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1036,7 +1073,23 @@ describe('newsRuntime', () => {
     await flushTasks();
 
     expect(writeStorylineGroup).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORYLINE);
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'storyline write failed' }));
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      storylineError,
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+        story_count: STORYLINE.story_ids.length,
+        reason: 'storyline write failed',
+      }),
+    );
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      raw_wrote_count: 1,
+      storyline_write_attempted_count: 1,
+      storyline_wrote_count: 0,
+      storyline_write_failed_count: 1,
+    }));
     expect(handle.lastRun()).toBeInstanceOf(Date);
 
     handle.stop();
@@ -1048,6 +1101,7 @@ describe('newsRuntime', () => {
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const writeStorylineGroup = vi.fn().mockRejectedValue('storyline string failure');
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
     const traceSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
     const handle = startNewsRuntime({
@@ -1055,6 +1109,7 @@ describe('newsRuntime', () => {
       writeStoryBundle,
       writeStorylineGroup,
       onError,
+      onNonFatalError,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1062,10 +1117,20 @@ describe('newsRuntime', () => {
     await flushTasks();
 
     expect(traceSpy).toHaveBeenCalledWith('[vh:news-runtime] storyline_write_failed', {
+      kind: 'storyline_write_failed',
       storyline_id: STORYLINE.storyline_id,
-      error: 'storyline string failure',
+      story_count: STORYLINE.story_ids.length,
+      reason: 'storyline string failure',
     });
-    expect(onError).toHaveBeenCalledWith('storyline string failure');
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      'storyline string failure',
+      expect.objectContaining({
+        kind: 'storyline_write_failed',
+        storyline_id: STORYLINE.storyline_id,
+        reason: 'storyline string failure',
+      }),
+    );
 
     handle.stop();
   });
@@ -1107,6 +1172,38 @@ describe('newsRuntime', () => {
     expect(onError).toHaveBeenCalledWith(runtimeError);
     expect(handle.lastRun()).toBeNull();
     handle.stop();
+    handle.stop();
+  });
+
+  it('treats raw pending lifecycle adapter failures as fatal raw write failures', async () => {
+    const lifecycleError = new Error('raw pending synthesis lifecycle quorum failed');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
+
+    const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const writeStoryBundle = vi.fn().mockRejectedValue(lifecycleError);
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onNonFatalError,
+      onTickSummary,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(onError).toHaveBeenCalledWith(lifecycleError);
+    expect(onNonFatalError).not.toHaveBeenCalled();
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      raw_write_failed_count: 0,
+      error: expect.stringContaining('failed to publish any selected bundles'),
+    }));
+
     handle.stop();
   });
 
@@ -1577,12 +1674,14 @@ describe('newsRuntime', () => {
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
     const onSynthesisCandidate = vi.fn();
 
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       onError,
+      onNonFatalError,
       onSynthesisCandidate,
       createAdvancedArtifact: () => {
         throw new Error('advanced artifact failed');
@@ -1595,8 +1694,15 @@ describe('newsRuntime', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
     expect(handle.lastRun()).toBeInstanceOf(Date);
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
-    expect(String(onError.mock.calls[0]?.[0])).toContain('advanced artifact failed');
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        kind: 'advanced_artifact_failed',
+        story_id: STORY_BUNDLE.story_id,
+        reason: 'advanced artifact failed',
+      }),
+    );
     expect(onSynthesisCandidate).toHaveBeenCalledWith(
       expect.objectContaining({
         story_id: 'story-1',
@@ -1612,12 +1718,15 @@ describe('newsRuntime', () => {
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const onError = vi.fn();
-    const onSynthesisCandidate = vi.fn().mockRejectedValue(new Error('enrichment timeout'));
+    const onNonFatalError = vi.fn();
+    const enrichmentError = new Error('enrichment timeout');
+    const onSynthesisCandidate = vi.fn().mockRejectedValue(enrichmentError);
 
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       onError,
+      onNonFatalError,
       onSynthesisCandidate,
       runOnStart: true,
       pollIntervalMs: 30,
@@ -1628,8 +1737,15 @@ describe('newsRuntime', () => {
 
     expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
     expect(handle.lastRun()).toBeInstanceOf(Date);
-    expect(onError).toHaveBeenCalledWith(expect.any(Error));
-    expect(String(onError.mock.calls[0]?.[0])).toContain('enrichment timeout');
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      enrichmentError,
+      expect.objectContaining({
+        kind: 'synthesis_candidate_enqueue_failed',
+        story_id: STORY_BUNDLE.story_id,
+        reason: 'enrichment timeout',
+      }),
+    );
 
     handle.stop();
   });

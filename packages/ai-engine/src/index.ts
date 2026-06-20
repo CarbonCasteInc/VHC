@@ -29,6 +29,8 @@ export type {
   NewsRuntimeConfig,
   NewsRuntimeEnrichmentWorkItem,
   NewsRuntimeHandle,
+  NewsRuntimeNonFatalErrorContext,
+  NewsRuntimeNonFatalErrorKind,
   NewsRuntimeSynthesisCandidate,
   NewsRuntimeTickStage,
   NewsRuntimeTickSummary,
