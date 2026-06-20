@@ -59,6 +59,19 @@ test('news aggregator installer still gates publisher start on explicit approval
   assert.match(source, /systemctl --user enable --now vh-news-aggregator\.service/);
 });
 
+test('news aggregator publisher unit keeps deliberate fail-closed exits stopped and bounds crash loops', () => {
+  for (const source of [
+    readScript('install-news-aggregator-production-service.sh'),
+    readInfraUnit('vh-news-aggregator.service'),
+  ]) {
+    assert.match(source, /StartLimitIntervalSec=10min/);
+    assert.match(source, /StartLimitBurst=3/);
+    assert.match(source, /Restart=on-failure/);
+    assert.match(source, /RestartPreventExitStatus=78/);
+    assert.match(source, /RestartSec=30/);
+  }
+});
+
 test('news aggregator user unit orders publisher after StoryCluster', () => {
   for (const source of [
     readScript('install-news-aggregator-production-service.sh'),

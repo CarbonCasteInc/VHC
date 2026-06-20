@@ -62,6 +62,8 @@ Description=VHC News Aggregator Publisher Daemon
 Documentation=file:${REPO_ROOT}/docs/ops/news-aggregator-production-service.md
 After=network-online.target vh-storycluster-engine.service
 Wants=network-online.target vh-storycluster-engine.service
+StartLimitIntervalSec=10min
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -70,7 +72,8 @@ Environment=VH_NEWS_DAEMON_ENV_FILE=${ENV_FILE}
 Environment=PATH=${SERVICE_PATH}
 WorkingDirectory=${REPO_ROOT}
 ExecStart=/usr/bin/env bash ${REPO_ROOT}/tools/scripts/start-news-aggregator-daemon-production.sh
-Restart=always
+Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=30
 KillSignal=SIGTERM
 TimeoutStopSec=30

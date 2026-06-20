@@ -215,6 +215,33 @@ SIGKILL, and fails closed if the process still remains. The daemon also acquires
 creating the mesh client; a direct `pnpm --filter @vh/news-aggregator daemon`
 launch refuses to start while another daemon process owns that pidfile.
 
+The publisher unit must not turn a deliberate write-safety fail-close into an
+unattended restart loop. The daemon exits with code `78` after a critical
+runtime write violation, and `vh-news-aggregator.service` uses
+`Restart=on-failure` plus `RestartPreventExitStatus=78` so that state stays down
+for operator inspection. The unit also sets `StartLimitIntervalSec=10min` and
+`StartLimitBurst=3` as a backstop for genuine process crashes or unexpected
+non-78 failures. Verify the installed unit before an attended start:
+
+```bash
+systemctl --user show vh-news-aggregator.service \
+  -p Restart -p RestartPreventExitStatus -p RestartSecUSec \
+  -p StartLimitIntervalUSec -p StartLimitBurst -p NRestarts \
+  --no-pager
+```
+
+During the attended Scope A start, `active (running)` alone is not sufficient
+evidence. `NRestarts` must remain `0`, and journals must not show repeated
+`runtime error triggered fail-closed stop` lines. If `NRestarts` climbs, the unit
+hits a start limit, or a fail-close line appears, stop and disable the publisher
+before inspecting evidence:
+
+```bash
+systemctl --user stop vh-news-aggregator.service
+systemctl --user disable vh-news-aggregator.service
+journalctl --user -u vh-news-aggregator.service -n 200 --no-pager
+```
+
 The production wrapper applies bounded feed/StoryCluster workload defaults
 unless the env file explicitly overrides them:
 
@@ -634,6 +661,8 @@ Abort or stop the service if any of these occur:
 - StoryCluster health check fails;
 - raw news or raw pending lifecycle relay REST write fanout is below the
   configured quorum target;
+- `NRestarts` increments, systemd reports a start-limit hit, or the journal shows
+  `runtime error triggered fail-closed stop`;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.
