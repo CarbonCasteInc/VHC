@@ -256,8 +256,9 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     if (!runtimeHandle) {
       return;
     }
-    runtimeHandle.stop();
+    const handle = runtimeHandle;
     runtimeHandle = null;
+    handle.stop();
   };
   const assertRuntimeWritesAllowed = () => {
     if (runtimeWritesBlocked) {
@@ -451,16 +452,22 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       onError(error) {
         logger.warn('[vh:news-daemon] runtime tick failed', error);
         if (failClosedOnRuntimeError && !noWrite) {
+          const wasRuntimeWritesBlocked = runtimeWritesBlocked;
           runtimeWritesBlocked = true;
           logger.error('[vh:news-daemon] runtime error triggered fail-closed stop', {
             holder_id: holderId,
             error,
           });
-          void stopInternal('runtime_error')
-            .then(() => config.onFailClosedRuntimeError?.(error))
-            .catch((stopError) => {
-              logger.error('[vh:news-daemon] fail-closed stop after runtime error failed', stopError);
+          if (!wasRuntimeWritesBlocked) {
+            void (async () => {
+              await config.onFailClosedRuntimeError?.(error);
+            })().catch((callbackError) => {
+              logger.error('[vh:news-daemon] fail-closed process shutdown callback failed', callbackError);
             });
+          }
+          void stopInternal('runtime_error').catch((stopError) => {
+            logger.error('[vh:news-daemon] fail-closed stop after runtime error failed', stopError);
+          });
         }
       },
       orchestratorOptions,
@@ -640,13 +647,29 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     }
     stopPromise = (async () => {
       let stopError: unknown;
+      const recordStopError = (stage: string, error: unknown) => {
+        stopError ??= error;
+        logger.warn(`[vh:news-daemon] ${stage} failed during stop`, {
+          holder_id: holderId,
+          reason,
+          error,
+        });
+      };
       running = false;
       if (leaseHeartbeatTimer) {
         clearIntervalFn(leaseHeartbeatTimer);
         leaseHeartbeatTimer = null;
       }
-      queue.stop();
-      stopRuntime();
+      try {
+        queue.stop();
+      } catch (error) {
+        recordStopError('enrichment queue stop', error);
+      }
+      try {
+        stopRuntime();
+      } catch (error) {
+        recordStopError('runtime stop', error);
+      }
       try {
         await releaseLease();
       } catch (error) {
@@ -657,7 +680,11 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           error,
         });
       } finally {
-        writeLanes.stop();
+        try {
+          writeLanes.stop();
+        } catch (error) {
+          recordStopError('write lane stop', error);
+        }
         logger.info('[vh:news-daemon] stopped', { holder_id: holderId, reason });
       }
       if (stopError && reason !== 'runtime_error') {
@@ -710,7 +737,7 @@ export interface NewsAggregatorDaemonProcessHandle {
   daemon: NewsAggregatorDaemonHandle;
   client: VennClient;
   readonly closed: Promise<void>;
-  closeExitCode?(): number;
+  closeExitCode?(): number | undefined;
   stop(): Promise<void>;
 }
 
@@ -950,7 +977,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   let client: VennClient | null = null;
   let processHandle: NewsAggregatorDaemonProcessHandle | null = null;
   let diagnosticStopRequested = false;
-  let closeExitCode = 0;
+  let closeExitCode: number | undefined;
   let resolveClosed: (() => void) | null = null;
   let rejectClosed: ((error: unknown) => void) | null = null;
   const closed = new Promise<void>((resolve, reject) => {

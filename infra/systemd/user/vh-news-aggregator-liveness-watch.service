@@ -1,0 +1,12 @@
+[Unit]
+Description=VHC News Aggregator Publisher Liveness Watch
+Documentation=file:/home/humble/VHC/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_NEWS_DAEMON_ENV_FILE=%h/.config/vhc/news-aggregator.env
+Environment=VH_NEWS_PUBLISHER_LIVENESS_OUTPUT_FILE=%h/.local/state/vhc/news-aggregator/publisher-liveness/latest.json
+Environment=PATH=/home/humble/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env bash -c 'set -a; source "%h/.config/vhc/news-aggregator.env"; set +a; exec node "/home/humble/VHC/tools/scripts/news-aggregator-publisher-liveness-watch.mjs"'

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run VHC news aggregator publisher liveness watch every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+Unit=vh-news-aggregator-liveness-watch.service
+
+[Install]
+WantedBy=timers.target

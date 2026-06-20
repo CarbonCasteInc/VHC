@@ -33,6 +33,8 @@ Templates:
 - `infra/systemd/user/vh-news-aggregator.service`
 - `infra/systemd/user/vh-relay-snapshot-freshness-watch.service`
 - `infra/systemd/user/vh-relay-snapshot-freshness-watch.timer`
+- `infra/systemd/user/vh-news-aggregator-liveness-watch.service`
+- `infra/systemd/user/vh-news-aggregator-liveness-watch.timer`
 
 Installer:
 
@@ -106,6 +108,18 @@ Read-only relay snapshot watch timer:
 systemctl --user status vh-relay-snapshot-freshness-watch.timer --no-pager
 journalctl --user -u vh-relay-snapshot-freshness-watch.service -n 100 --no-pager
 ```
+
+Publisher liveness watch timer:
+
+```bash
+./tools/scripts/install-news-aggregator-production-service.sh --enable-publisher-liveness-watch
+systemctl --user status vh-news-aggregator-liveness-watch.timer --no-pager
+journalctl --user -u vh-news-aggregator-liveness-watch.service -n 100 --no-pager
+```
+
+Enable this only after the attended start has produced current runtime
+diagnostics. It checks the publisher unit state, `NRestarts`, the current
+per-start run marker, and the freshness of the runtime diagnostic artifact.
 
 Approved publisher start packet:
 
@@ -230,6 +244,12 @@ systemctl --user show vh-news-aggregator.service \
   --no-pager
 ```
 
+Exit code `78` is also used by the production wrapper for guard refusals, such
+as missing start approval. Both classes must remain stopped rather than
+restarted. Distinguish them by journal text: fail-closed runtime errors include
+`fail-closed runtime error` / `runtime error triggered fail-closed stop`, while
+approval guards include the wrapper refusal line.
+
 During the attended Scope A start, `active (running)` alone is not sufficient
 evidence. `NRestarts` must remain `0`, and journals must not show repeated
 `runtime error triggered fail-closed stop` lines. If `NRestarts` climbs, the unit
@@ -292,6 +312,15 @@ Every daemon tick writes an always-on diagnostic artifact at
 outside `VH_NEWS_RUNTIME_TRACE`; use those fields for first-publish evidence.
 Set `VH_NEWS_RUNTIME_TICK_WATCHDOG_MS` to emit an in-flight warning with elapsed
 time and last known stage if a tick exceeds the threshold.
+
+The production wrapper generates `VH_DAEMON_FEED_RUN_ID` when the env file does
+not set it, writes the preflight-passed run marker to
+`$VH_NEWS_DAEMON_CURRENT_RUN_FILE` or
+`$VH_NEWS_DAEMON_STATE_DIR/current-run.json`, and exports that run id into the
+runtime diagnostics. `tools/scripts/news-aggregator-publisher-liveness-watch.mjs`
+requires the diagnostic `runId` to match the current run marker once the startup
+grace expires. If no current run marker exists, it falls back to requiring the
+diagnostic `generatedAt` to be after the unit active-enter timestamp.
 
 Production starts defer publish-time bundle synthesis until the first completed
 runtime tick by default. `VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE`
@@ -663,6 +692,8 @@ Abort or stop the service if any of these occur:
   configured quorum target;
 - `NRestarts` increments, systemd reports a start-limit hit, or the journal shows
   `runtime error triggered fail-closed stop`;
+- `news-aggregator-publisher-liveness-watch.mjs` reports a failed unit state,
+  increased `NRestarts`, stale diagnostics, or a diagnostic run id mismatch;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.

@@ -7,7 +7,7 @@ export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
 export interface CliDaemonProcessHandle {
   stop(): Promise<void>;
   readonly closed?: Promise<void>;
-  closeExitCode?(): number;
+  closeExitCode?(): number | undefined;
 }
 
 export function isDirectExecution(metaUrl: string): boolean {
