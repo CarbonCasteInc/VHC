@@ -77,6 +77,10 @@ describe('news daemon coverage guards', () => {
     vi.restoreAllMocks();
   });
 
+  it('pins the deliberate fail-closed exit code used by systemd RestartPreventExitStatus', () => {
+    expect(__internal.NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE).toBe(78);
+  });
+
   it('handles runtime not-started path and start/stop idempotence', async () => {
     const logger = makeLogger();
     const timers = makeTimerControls();
@@ -345,6 +349,38 @@ describe('news daemon coverage guards', () => {
     expect(lifecycle.exit).toHaveBeenCalledWith(0);
   });
 
+  it('executes SIGINT shutdown and exits cleanly', async () => {
+    const stop = vi.fn(async () => undefined);
+    const startFromEnv = vi.fn(async () => ({
+      daemon: {} as any,
+      client: {} as any,
+      stop,
+    }));
+
+    const handlers = new Map<string, () => void>();
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn((signal: string, handler: () => void) => {
+        handlers.set(signal, handler);
+        return lifecycle as any;
+      }) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    handlers.get('SIGINT')?.();
+    await flushMicrotasks();
+
+    expect(logger.info).toHaveBeenCalledWith('[vh:news-daemon] received SIGINT; shutting down');
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(0);
+  });
+
   it('exits the CLI when a bounded diagnostic handle closes without a signal', async () => {
     const closed = createDeferred<void>();
     const stop = vi.fn(async () => undefined);
@@ -409,6 +445,32 @@ describe('news daemon coverage guards', () => {
       error: vi.fn(),
     };
     const error = new Error('diagnostic stop failed');
+
+    await __internal.runFromCli(startFromEnv, lifecycle, logger);
+    closed.reject(error);
+    await flushMicrotasks();
+
+    expect(logger.error).toHaveBeenCalledWith('[vh:news-daemon] daemon process closed with error', error);
+    expect(lifecycle.exit).toHaveBeenCalledTimes(1);
+    expect(lifecycle.exit).toHaveBeenCalledWith(1);
+  });
+
+  it('uses the rejected-close fallback when no fail-closed exit override is committed', async () => {
+    const closed = createDeferred<void>();
+    const startFromEnv = vi.fn(async () => ({
+      stop: vi.fn(async () => undefined),
+      closed: closed.promise,
+      closeExitCode: () => undefined,
+    }));
+    const lifecycle: Pick<typeof process, 'once' | 'exit'> = {
+      once: vi.fn(() => lifecycle as any) as any,
+      exit: vi.fn(() => undefined as never),
+    };
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+    const error = new Error('unexpected daemon close');
 
     await __internal.runFromCli(startFromEnv, lifecycle, logger);
     closed.reject(error);

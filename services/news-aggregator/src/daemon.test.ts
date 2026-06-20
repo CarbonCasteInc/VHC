@@ -886,6 +886,112 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('commits fail-closed shutdown when runtime teardown throws', async () => {
+    const logger = makeLogger();
+    const runtimeStopError = new Error('runtime stop failed');
+    const runtimeHandle = makeRuntimeHandle();
+    runtimeHandle.stop.mockImplementation(() => {
+      throw runtimeStopError;
+    });
+    const timers = makeTimerControls();
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn().mockImplementation(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const onFailClosedRuntimeError = vi.fn();
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-runtime-error-runtime-stop-fail' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      failClosedOnRuntimeError: true,
+      onFailClosedRuntimeError,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    const runtimeError = new Error('raw relay quorum failed');
+    runtimeConfig.onError?.(runtimeError);
+
+    await vi.waitFor(() => expect(onFailClosedRuntimeError).toHaveBeenCalledWith(runtimeError));
+    await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime stop failed during stop',
+      expect.objectContaining({
+        holder_id: 'vh-news-daemon:test',
+        reason: 'runtime_error',
+        error: runtimeStopError,
+      }),
+    ));
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-runtime-error-runtime-stop-fail' }, { story_id: 'story-after-error' } as any),
+    ).rejects.toThrow('news daemon runtime writes stopped after runtime error');
+
+    expect(daemon.isRunning()).toBe(false);
+    await expect(daemon.stop()).resolves.toBeUndefined();
+  });
+
+  it('commits fail-closed shutdown when write-lane teardown throws', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const writeLaneStopError = new Error('write lane stop failed');
+    const writeLanes = {
+      run: vi.fn(async (_writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<unknown>) => task()),
+      snapshot: vi.fn(() => []),
+      stop: vi.fn(() => {
+        throw writeLaneStopError;
+      }),
+    };
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn().mockImplementation(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const onFailClosedRuntimeError = vi.fn();
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-runtime-error-write-lane-stop-fail' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeLanes: writeLanes as any,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      failClosedOnRuntimeError: true,
+      onFailClosedRuntimeError,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    const runtimeError = new Error('raw lifecycle write failed');
+    runtimeConfig.onError?.(runtimeError);
+
+    await vi.waitFor(() => expect(onFailClosedRuntimeError).toHaveBeenCalledWith(runtimeError));
+    await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] write lane stop failed during stop',
+      expect.objectContaining({
+        holder_id: 'vh-news-daemon:test',
+        reason: 'runtime_error',
+        error: writeLaneStopError,
+      }),
+    ));
+
+    expect(daemon.isRunning()).toBe(false);
+    await expect(daemon.stop()).resolves.toBeUndefined();
+  });
+
   it('renews lease on heartbeat ticks while running', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();

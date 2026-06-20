@@ -112,6 +112,8 @@ export VH_NEWS_DAEMON_STATE_DIR="${VH_NEWS_DAEMON_STATE_DIR:-${STATE_DIR}}"
 export VH_DAEMON_FEED_ARTIFACT_ROOT="${VH_DAEMON_FEED_ARTIFACT_ROOT:-${ARTIFACT_ROOT}}"
 export VH_BUNDLE_SYNTHESIS_QUEUE_DIR="${VH_BUNDLE_SYNTHESIS_QUEUE_DIR:-${VH_NEWS_DAEMON_STATE_DIR}/bundle-synthesis-queue}"
 export VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER="${VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER:-${VH_BUNDLE_SYNTHESIS_QUEUE_DIR}/synthesis-lifecycle.jsonl}"
+export VH_DAEMON_FEED_RUN_ID="${VH_DAEMON_FEED_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+export VH_NEWS_DAEMON_CURRENT_RUN_FILE="${VH_NEWS_DAEMON_CURRENT_RUN_FILE:-${VH_NEWS_DAEMON_STATE_DIR}/current-run.json}"
 export VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE="${VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE:-8}"
 export VH_NEWS_FEED_MAX_ITEMS_TOTAL="${VH_NEWS_FEED_MAX_ITEMS_TOTAL:-96}"
 export VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST="${VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST:-24}"
@@ -219,16 +221,33 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const filePath = process.env.LAST_SUCCESS_FILE;
+const currentRunFilePath = process.env.VH_NEWS_DAEMON_CURRENT_RUN_FILE;
+const generatedAt = new Date().toISOString();
+const currentRun = {
+  schemaVersion: 'vh-news-daemon-current-run-v1',
+  generatedAt,
+  status: 'preflight_passed',
+  runId: process.env.VH_DAEMON_FEED_RUN_ID,
+  stateDir: process.env.VH_NEWS_DAEMON_STATE_DIR,
+  artifactRoot: process.env.VH_DAEMON_FEED_ARTIFACT_ROOT,
+  queueDir: process.env.VH_BUNDLE_SYNTHESIS_QUEUE_DIR,
+  lifecycleLedger: process.env.VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER,
+};
 await mkdir(path.dirname(filePath), { recursive: true });
 await writeFile(filePath, `${JSON.stringify({
   schemaVersion: 'vh-news-daemon-production-start-v1',
-  generatedAt: new Date().toISOString(),
+  generatedAt,
   status: 'preflight_passed',
+  runId: process.env.VH_DAEMON_FEED_RUN_ID,
   stateDir: process.env.VH_NEWS_DAEMON_STATE_DIR,
   artifactRoot: process.env.VH_DAEMON_FEED_ARTIFACT_ROOT,
   queueDir: process.env.VH_BUNDLE_SYNTHESIS_QUEUE_DIR,
   lifecycleLedger: process.env.VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER,
 }, null, 2)}\n`, 'utf8');
+if (currentRunFilePath) {
+  await mkdir(path.dirname(currentRunFilePath), { recursive: true });
+  await writeFile(currentRunFilePath, `${JSON.stringify(currentRun, null, 2)}\n`, 'utf8');
+}
 NODE
 
 echo "[vh:news-daemon:prod] preflights passed; starting canonical @vh/news-aggregator daemon"

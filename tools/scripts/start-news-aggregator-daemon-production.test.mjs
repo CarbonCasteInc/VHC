@@ -416,6 +416,14 @@ test('production daemon start applies bounded clustering defaults before preflig
   }
 });
 
+test('production daemon start records a per-start run id for liveness correlation', () => {
+  const source = readFileSync(SCRIPT_PATH, 'utf8');
+  assert.match(source, /export VH_DAEMON_FEED_RUN_ID="\$\{VH_DAEMON_FEED_RUN_ID:-\$\(date -u \+%Y%m%dT%H%M%SZ\)-\$\$\}"/);
+  assert.match(source, /export VH_NEWS_DAEMON_CURRENT_RUN_FILE="\$\{VH_NEWS_DAEMON_CURRENT_RUN_FILE:-\$\{VH_NEWS_DAEMON_STATE_DIR\}\/current-run\.json\}"/);
+  assert.match(source, /vh-news-daemon-current-run-v1/);
+  assert.match(source, /runId: process\.env\.VH_DAEMON_FEED_RUN_ID/);
+});
+
 test('production daemon start preserves explicit clustering budget overrides', () => {
   const harness = makeHarness({
     approved: true,
