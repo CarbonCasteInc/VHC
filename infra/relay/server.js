@@ -207,6 +207,15 @@ function criticalWriteReadbacksAreActive() {
     && boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_PAUSE_DURING_WRITE_READBACK', true);
 }
 
+function forceCriticalWriteReadbackFailure(route) {
+  if (process.env.NODE_ENV !== 'test') return false;
+  const configuredRoutes = String(process.env.VH_RELAY_TEST_FORCE_CRITICAL_WRITE_READBACK_FAILURE_ROUTES || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return configuredRoutes.includes('*') || configuredRoutes.includes(route);
+}
+
 function cappedBackgroundConcurrency({
   operation,
   envName,
@@ -243,6 +252,13 @@ async function runCriticalWriteReadback(route, storyId, readback) {
   incMap(metrics.criticalWriteReadbacksStarted, route);
   activeCriticalWriteReadbacks += 1;
   try {
+    if (forceCriticalWriteReadbackFailure(route)) {
+      logEvent('warn', 'critical_write_readback_test_forced_failure', {
+        route,
+        story_id: storyId,
+      });
+      return null;
+    }
     const testDelayMs = numberEnv('VH_RELAY_TEST_CRITICAL_WRITE_READBACK_DELAY_MS', 0);
     if (testDelayMs > 0) {
       logEvent('info', 'critical_write_readback_test_delay', {

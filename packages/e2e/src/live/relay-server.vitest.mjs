@@ -1543,6 +1543,36 @@ describe('infra relay server', () => {
         statusCode: 200,
         body: expect.objectContaining({ ok: true, story_id: testCase.story.story_id }),
       });
+
+      const resumedLatest = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=2&scan_limit=2`);
+      expect(resumedLatest).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          consistency: expect.objectContaining({
+            snapshot_story_body_readback: expect.objectContaining({
+              enabled: true,
+              requested_concurrency: 12,
+              effective_concurrency: 2,
+              max_concurrency: 2,
+              concurrency_capped: true,
+              verified_count: expect.any(Number),
+            }),
+            snapshot_story_state_refresh: expect.objectContaining({
+              enabled: true,
+              requested_concurrency: 12,
+              effective_concurrency: 1,
+              max_concurrency: 1,
+              concurrency_capped: true,
+            }),
+          }),
+        }),
+      });
+      const resumedBodyReadback = resumedLatest.body.consistency.snapshot_story_body_readback;
+      const resumedStateRefresh = resumedLatest.body.consistency.snapshot_story_state_refresh;
+      expect(resumedBodyReadback).not.toHaveProperty('paused_due_to_critical_write_readback');
+      expect(resumedStateRefresh).not.toHaveProperty('paused_due_to_critical_write_readback');
+      expect(resumedBodyReadback.verified_count).toBeGreaterThan(0);
     }
 
     const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
@@ -1558,6 +1588,104 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_snapshot_background_concurrency_caps_total{operation="story_state_refresh"}');
     expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
   }, 20_000);
+
+  it('keeps critical public-news write readback failures fatal to the route', async () => {
+    const routes = [
+      {
+        route: '/vh/news/story',
+        expectedError: 'news-story-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-story', 1778993101000, [
+          {
+            source_id: 'source-forced-readback-failure-story',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-story',
+            url_hash: 'forced-readback-failure-story',
+            published_at: 1778993101000,
+            title: 'Forced readback failure story write',
+          },
+        ]),
+        body: (story) => ({
+          record: {
+            __story_bundle_json: JSON.stringify(story),
+            story_id: story.story_id,
+            created_at: story.created_at,
+            schemaVersion: story.schemaVersion,
+          },
+        }),
+      },
+      {
+        route: '/vh/news/latest-index',
+        expectedError: 'news-latest-index-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-latest', 1778993102000, [
+          {
+            source_id: 'source-forced-readback-failure-latest',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-latest',
+            url_hash: 'forced-readback-failure-latest',
+            published_at: 1778993102000,
+            title: 'Forced readback failure latest-index write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelayLatestIndexRecord(story) }),
+      },
+      {
+        route: '/vh/news/hot-index',
+        expectedError: 'news-hot-index-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-hot', 1778993103000, [
+          {
+            source_id: 'source-forced-readback-failure-hot',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-hot',
+            url_hash: 'forced-readback-failure-hot',
+            published_at: 1778993103000,
+            title: 'Forced readback failure hot-index write',
+          },
+        ]),
+        body: (story) => ({ record: { story_id: story.story_id, hotness: 0.9 } }),
+      },
+      {
+        route: '/vh/news/synthesis-lifecycle',
+        expectedError: 'news-synthesis-lifecycle-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-lifecycle', 1778993104000, [
+          {
+            source_id: 'source-forced-readback-failure-lifecycle',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-lifecycle',
+            url_hash: 'forced-readback-failure-lifecycle',
+            published_at: 1778993104000,
+            title: 'Forced readback failure lifecycle write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778993104500 }) }),
+      },
+    ];
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_TEST_FORCE_CRITICAL_WRITE_READBACK_FAILURE_ROUTES: routes.map((entry) => entry.route).join(','),
+    });
+
+    for (const testCase of routes) {
+      await expect(requestJson(`http://127.0.0.1:${port}${testCase.route}`, {
+        method: 'POST',
+        body: testCase.body(testCase.story),
+      })).resolves.toMatchObject({
+        statusCode: 500,
+        body: expect.objectContaining({
+          ok: false,
+          error: testCase.expectedError,
+        }),
+      });
+    }
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.statusCode).toBe(200);
+    for (const testCase of routes) {
+      expect(metrics.body).toContain(`vh_relay_write_failures_total{route="${testCase.route}"} 1`);
+      expect(metrics.body).toContain(
+        `vh_relay_critical_write_readbacks_started_total{route="${testCase.route}"} 1`,
+      );
+    }
+    expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
+  });
 
   it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {
     const { port } = await startRelay(children, tempDirs, {
