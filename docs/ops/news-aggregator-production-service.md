@@ -447,6 +447,26 @@ The preflight and write logs report `endpoint_count`, `required_success_count`,
 `relay_required_success_count`, and failed relay origin labels without printing
 tokens, pins, or key material.
 
+Relay write readback is intentionally stricter than public latest-index serving.
+The critical write routes (`/vh/news/story`, `/vh/news/latest-index`,
+`/vh/news/hot-index`, and `/vh/news/synthesis-lifecycle`) must confirm the
+write through their live relay readback path. A latest-index snapshot is
+downstream read-through evidence and must not be treated as proof that the
+in-flight write durably landed. Snapshot body verification and story-state
+refresh are optional maintenance work: they are concurrency-capped and pause
+while a critical write readback is active so they cannot starve the single relay
+event loop and turn a locally landed write into a false readback timeout.
+The current safety caps default to
+`VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_MAX_CONCURRENCY=2` and
+`VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_MAX_CONCURRENCY=1`; leave
+`VH_RELAY_NEWS_INDEX_SNAPSHOT_PAUSE_DURING_WRITE_READBACK=true` unless an
+attended rollback explicitly needs the old behavior for diagnosis.
+Operators should watch `/metrics` counters
+`vh_relay_critical_write_readbacks_started_total`,
+`vh_relay_snapshot_background_pauses_total`, and
+`vh_relay_snapshot_background_concurrency_caps_total` during any post-merge
+soak.
+
 For Scope A launch gating, fail-closed only applies to the quorum-durable raw
 path: `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and the
 pending `/vh/news/synthesis-lifecycle` write created during raw publication.
