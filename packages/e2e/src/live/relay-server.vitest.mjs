@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,6 +88,10 @@ function requestJson(url, { method = 'GET', headers = {}, body = undefined } = {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function websocketUpgradeStatus(port, pathname = '/gun') {
@@ -253,6 +257,71 @@ function makeRelayNewsStory(storyId, latestActivityAt, sources) {
     provenance_hash: `prov-${storyId}`,
     created_at: latestActivityAt - 20,
   };
+}
+
+function makeRelayLatestIndexRecord(story, latestActivityAt = story.cluster_window_end) {
+  return {
+    story_id: story.story_id,
+    latest_activity_at: latestActivityAt,
+    product_state_schema_version: 'vh-news-product-feed-index-v1',
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+    canonical_source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+    story_created_at: story.created_at,
+    cluster_window_start: story.cluster_window_start,
+  };
+}
+
+function makeRelaySynthesisLifecycleRecord(story, {
+  status = 'pending',
+  frameTableState = 'frame_table_pending',
+  updatedAt = Date.now(),
+  synthesisId = null,
+} = {}) {
+  return {
+    schemaVersion: 'vh-news-synthesis-lifecycle-v1',
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    source_set_revision: story.provenance_hash,
+    source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+    canonical_source_count: Array.isArray(story.sources) ? story.sources.length : 0,
+    status,
+    frame_table_state: frameTableState,
+    retryable: status === 'retryable_failure',
+    ...(synthesisId ? { synthesis_id: synthesisId, epoch: 0 } : {}),
+    updated_at: updatedAt,
+  };
+}
+
+function writeLatestIndexSnapshotFile(snapshotFile, story) {
+  const record = makeRelayLatestIndexRecord(story);
+  writeFileSync(
+    snapshotFile,
+    `${JSON.stringify({
+      schema_version: 'vh-news-latest-index-relay-snapshot-v1',
+      snapshot_key: JSON.stringify({ consistencyFilter: true }),
+      cached_at: Date.now(),
+      source_key_count: 1,
+      scanned_key_count: 1,
+      consistency: {},
+      repaired_records: [],
+      entries: [{
+        story_id: story.story_id,
+        record,
+        story,
+        story_state: {
+          synthesis_state: 'synthesis_pending',
+          frame_table_state: 'frame_table_pending',
+          lifecycle_status: 'pending',
+          lifecycle_source_set_revision: story.provenance_hash,
+          lifecycle_updated_at: Date.now(),
+          terminal_unavailable_reason: null,
+          retryable: false,
+        },
+      }],
+    })}\n`,
+  );
 }
 
 async function writeRelayNewsStory(port, story) {
@@ -1334,6 +1403,288 @@ describe('infra relay server', () => {
           }),
         }),
       });
+  });
+
+  it('pauses snapshot maintenance while critical public-news write readbacks are active', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-critical-readback-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const seedStory = makeRelayNewsStory('story-critical-readback-seed', 1778993000000, [
+      {
+        source_id: 'source-critical-readback-seed',
+        publisher: 'Example News',
+        url: 'https://example.com/critical-readback-seed',
+        url_hash: 'critical-readback-seed',
+        published_at: 1778993000000,
+        title: 'Critical readback seed story',
+      },
+    ]);
+    writeLatestIndexSnapshotFile(snapshotFile, seedStory);
+
+    const { port, child } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CONCURRENCY: '12',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_CONCURRENCY: '12',
+      VH_RELAY_TEST_CRITICAL_WRITE_READBACK_DELAY_MS: '1200',
+      VH_RELAY_TEST_SNAPSHOT_BACKGROUND_READ_DELAY_MS: '25',
+    });
+
+    const cases = [
+      {
+        route: '/vh/news/story',
+        story: makeRelayNewsStory('story-critical-readback-story', 1778993001000, [
+          {
+            source_id: 'source-critical-readback-story',
+            publisher: 'Example News',
+            url: 'https://example.com/critical-readback-story',
+            url_hash: 'critical-readback-story',
+            published_at: 1778993001000,
+            title: 'Critical readback story write',
+          },
+        ]),
+        body: (story) => ({
+          record: {
+            __story_bundle_json: JSON.stringify(story),
+            story_id: story.story_id,
+            created_at: story.created_at,
+            schemaVersion: story.schemaVersion,
+          },
+        }),
+      },
+      {
+        route: '/vh/news/latest-index',
+        story: makeRelayNewsStory('story-critical-readback-latest', 1778993002000, [
+          {
+            source_id: 'source-critical-readback-latest',
+            publisher: 'Example News',
+            url: 'https://example.com/critical-readback-latest',
+            url_hash: 'critical-readback-latest',
+            published_at: 1778993002000,
+            title: 'Critical readback latest-index write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelayLatestIndexRecord(story) }),
+      },
+      {
+        route: '/vh/news/hot-index',
+        story: makeRelayNewsStory('story-critical-readback-hot', 1778993003000, [
+          {
+            source_id: 'source-critical-readback-hot',
+            publisher: 'Example News',
+            url: 'https://example.com/critical-readback-hot',
+            url_hash: 'critical-readback-hot',
+            published_at: 1778993003000,
+            title: 'Critical readback hot-index write',
+          },
+        ]),
+        body: (story) => ({ record: { story_id: story.story_id, hotness: 0.9 } }),
+      },
+      {
+        route: '/vh/news/synthesis-lifecycle',
+        story: makeRelayNewsStory('story-critical-readback-lifecycle', 1778993004000, [
+          {
+            source_id: 'source-critical-readback-lifecycle',
+            publisher: 'Example News',
+            url: 'https://example.com/critical-readback-lifecycle',
+            url_hash: 'critical-readback-lifecycle',
+            published_at: 1778993004000,
+            title: 'Critical readback lifecycle write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778993004500 }) }),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const write = requestJson(`http://127.0.0.1:${port}${testCase.route}`, {
+        method: 'POST',
+        body: testCase.body(testCase.story),
+      });
+      await waitForOutput(
+        child,
+        new RegExp(`critical_write_readback_test_delay.*${escapeRegExp(testCase.route)}.*${testCase.story.story_id}`),
+        5_000,
+      );
+
+      const latest = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=2&scan_limit=2`);
+      expect(latest).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          consistency: expect.objectContaining({
+            snapshot_story_body_readback: expect.objectContaining({
+              enabled: true,
+              paused_due_to_critical_write_readback: true,
+              requested_concurrency: 12,
+              effective_concurrency: 0,
+              max_concurrency: 2,
+              concurrency_capped: true,
+              dropped_count: 0,
+              skipped_count: expect.any(Number),
+            }),
+            snapshot_story_state_refresh: expect.objectContaining({
+              enabled: true,
+              paused_due_to_critical_write_readback: true,
+              requested_concurrency: 12,
+              effective_concurrency: 0,
+              max_concurrency: 1,
+              concurrency_capped: true,
+              refreshed_count: 0,
+              skipped_count: expect.any(Number),
+            }),
+          }),
+        }),
+      });
+
+      await expect(write).resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({ ok: true, story_id: testCase.story.story_id }),
+      });
+
+      const resumedLatest = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=2&scan_limit=2`);
+      expect(resumedLatest).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          consistency: expect.objectContaining({
+            snapshot_story_body_readback: expect.objectContaining({
+              enabled: true,
+              requested_concurrency: 12,
+              effective_concurrency: 2,
+              max_concurrency: 2,
+              concurrency_capped: true,
+              verified_count: expect.any(Number),
+            }),
+            snapshot_story_state_refresh: expect.objectContaining({
+              enabled: true,
+              requested_concurrency: 12,
+              effective_concurrency: 1,
+              max_concurrency: 1,
+              concurrency_capped: true,
+            }),
+          }),
+        }),
+      });
+      const resumedBodyReadback = resumedLatest.body.consistency.snapshot_story_body_readback;
+      const resumedStateRefresh = resumedLatest.body.consistency.snapshot_story_state_refresh;
+      expect(resumedBodyReadback).not.toHaveProperty('paused_due_to_critical_write_readback');
+      expect(resumedStateRefresh).not.toHaveProperty('paused_due_to_critical_write_readback');
+      expect(resumedBodyReadback.verified_count).toBeGreaterThan(0);
+    }
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.statusCode).toBe(200);
+    for (const testCase of cases) {
+      expect(metrics.body).toContain(
+        `vh_relay_critical_write_readbacks_started_total{route="${testCase.route}"} 1`,
+      );
+    }
+    expect(metrics.body).toContain('vh_relay_snapshot_background_pauses_total{operation="story_body_verify"} 4');
+    expect(metrics.body).toContain('vh_relay_snapshot_background_pauses_total{operation="story_state_refresh"} 4');
+    expect(metrics.body).toContain('vh_relay_snapshot_background_concurrency_caps_total{operation="story_body_verify"}');
+    expect(metrics.body).toContain('vh_relay_snapshot_background_concurrency_caps_total{operation="story_state_refresh"}');
+    expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
+  }, 20_000);
+
+  it('keeps critical public-news write readback failures fatal to the route', async () => {
+    const routes = [
+      {
+        route: '/vh/news/story',
+        expectedError: 'news-story-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-story', 1778993101000, [
+          {
+            source_id: 'source-forced-readback-failure-story',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-story',
+            url_hash: 'forced-readback-failure-story',
+            published_at: 1778993101000,
+            title: 'Forced readback failure story write',
+          },
+        ]),
+        body: (story) => ({
+          record: {
+            __story_bundle_json: JSON.stringify(story),
+            story_id: story.story_id,
+            created_at: story.created_at,
+            schemaVersion: story.schemaVersion,
+          },
+        }),
+      },
+      {
+        route: '/vh/news/latest-index',
+        expectedError: 'news-latest-index-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-latest', 1778993102000, [
+          {
+            source_id: 'source-forced-readback-failure-latest',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-latest',
+            url_hash: 'forced-readback-failure-latest',
+            published_at: 1778993102000,
+            title: 'Forced readback failure latest-index write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelayLatestIndexRecord(story) }),
+      },
+      {
+        route: '/vh/news/hot-index',
+        expectedError: 'news-hot-index-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-hot', 1778993103000, [
+          {
+            source_id: 'source-forced-readback-failure-hot',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-hot',
+            url_hash: 'forced-readback-failure-hot',
+            published_at: 1778993103000,
+            title: 'Forced readback failure hot-index write',
+          },
+        ]),
+        body: (story) => ({ record: { story_id: story.story_id, hotness: 0.9 } }),
+      },
+      {
+        route: '/vh/news/synthesis-lifecycle',
+        expectedError: 'news-synthesis-lifecycle-readback-failed',
+        story: makeRelayNewsStory('story-forced-readback-failure-lifecycle', 1778993104000, [
+          {
+            source_id: 'source-forced-readback-failure-lifecycle',
+            publisher: 'Example News',
+            url: 'https://example.com/forced-readback-failure-lifecycle',
+            url_hash: 'forced-readback-failure-lifecycle',
+            published_at: 1778993104000,
+            title: 'Forced readback failure lifecycle write',
+          },
+        ]),
+        body: (story) => ({ record: makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778993104500 }) }),
+      },
+    ];
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_TEST_FORCE_CRITICAL_WRITE_READBACK_FAILURE_ROUTES: routes.map((entry) => entry.route).join(','),
+    });
+
+    for (const testCase of routes) {
+      await expect(requestJson(`http://127.0.0.1:${port}${testCase.route}`, {
+        method: 'POST',
+        body: testCase.body(testCase.story),
+      })).resolves.toMatchObject({
+        statusCode: 500,
+        body: expect.objectContaining({
+          ok: false,
+          error: testCase.expectedError,
+        }),
+      });
+    }
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.statusCode).toBe(200);
+    for (const testCase of routes) {
+      expect(metrics.body).toContain(`vh_relay_write_failures_total{route="${testCase.route}"} 1`);
+      expect(metrics.body).toContain(
+        `vh_relay_critical_write_readbacks_started_total{route="${testCase.route}"} 1`,
+      );
+    }
+    expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
   });
 
   it('bounds latest-index relay fallback response shape and omits the root unless requested', async () => {

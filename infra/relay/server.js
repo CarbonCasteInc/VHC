@@ -178,6 +178,9 @@ const metrics = {
   wsByteDrops: 0,
   compactionRuns: 0,
   compactionTombstones: 0,
+  criticalWriteReadbacksStarted: new Map(),
+  snapshotBackgroundPauses: new Map(),
+  snapshotBackgroundConcurrencyCaps: new Map(),
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
@@ -195,6 +198,80 @@ const PUBLIC_HTTP_RELAY_ROUTES = [
 
 function incMap(map, key, by = 1) {
   map.set(key, (map.get(key) || 0) + by);
+}
+
+let activeCriticalWriteReadbacks = 0;
+
+function criticalWriteReadbacksAreActive() {
+  return activeCriticalWriteReadbacks > 0
+    && boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_PAUSE_DURING_WRITE_READBACK', true);
+}
+
+function forceCriticalWriteReadbackFailure(route) {
+  if (process.env.NODE_ENV !== 'test') return false;
+  const configuredRoutes = String(process.env.VH_RELAY_TEST_FORCE_CRITICAL_WRITE_READBACK_FAILURE_ROUTES || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return configuredRoutes.includes('*') || configuredRoutes.includes(route);
+}
+
+function cappedBackgroundConcurrency({
+  operation,
+  envName,
+  fallback,
+  maxEnvName,
+  maxFallback,
+}) {
+  const requested = Math.max(1, numberEnv(envName, fallback));
+  const max = Math.max(1, numberEnv(maxEnvName, maxFallback));
+  const effective = Math.min(requested, max);
+  if (effective < requested) {
+    incMap(metrics.snapshotBackgroundConcurrencyCaps, operation);
+  }
+  return {
+    requested,
+    max,
+    effective,
+    capped: effective < requested,
+  };
+}
+
+function snapshotBackgroundPauseInfo(operation, selectedCount, concurrency = {}) {
+  incMap(metrics.snapshotBackgroundPauses, operation);
+  return {
+    enabled: true,
+    selected_count: selectedCount,
+    paused_due_to_critical_write_readback: true,
+    active_critical_write_readback_count: activeCriticalWriteReadbacks,
+    ...concurrency,
+  };
+}
+
+async function runCriticalWriteReadback(route, storyId, readback) {
+  incMap(metrics.criticalWriteReadbacksStarted, route);
+  activeCriticalWriteReadbacks += 1;
+  try {
+    if (forceCriticalWriteReadbackFailure(route)) {
+      logEvent('warn', 'critical_write_readback_test_forced_failure', {
+        route,
+        story_id: storyId,
+      });
+      return null;
+    }
+    const testDelayMs = numberEnv('VH_RELAY_TEST_CRITICAL_WRITE_READBACK_DELAY_MS', 0);
+    if (testDelayMs > 0) {
+      logEvent('info', 'critical_write_readback_test_delay', {
+        route,
+        story_id: storyId,
+        delay_ms: testDelayMs,
+      });
+      await new Promise((resolve) => setTimeout(resolve, testDelayMs));
+    }
+    return await readback();
+  } finally {
+    activeCriticalWriteReadbacks = Math.max(0, activeCriticalWriteReadbacks - 1);
+  }
 }
 
 function logEvent(level, event, fields = {}) {
@@ -541,6 +618,7 @@ function metricsText() {
   add('vh_relay_ws_byte_drops_total', metrics.wsByteDrops);
   add('vh_relay_compaction_runs_total', metrics.compactionRuns);
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
+  add('vh_relay_critical_write_readbacks_active', activeCriticalWriteReadbacks);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
   const memory = process.memoryUsage();
   const openFds = openFileDescriptorCount();
@@ -561,6 +639,15 @@ function metricsText() {
   }
   for (const [route, count] of metrics.writeFailures) {
     add('vh_relay_write_failures_total', count, { route });
+  }
+  for (const [route, count] of metrics.criticalWriteReadbacksStarted) {
+    add('vh_relay_critical_write_readbacks_started_total', count, { route });
+  }
+  for (const [operation, count] of metrics.snapshotBackgroundPauses) {
+    add('vh_relay_snapshot_background_pauses_total', count, { operation });
+  }
+  for (const [operation, count] of metrics.snapshotBackgroundConcurrencyCaps) {
+    add('vh_relay_snapshot_background_concurrency_caps_total', count, { operation });
   }
   return `${lines.join('\n')}\n`;
 }
@@ -2820,6 +2907,13 @@ function shouldRefreshSnapshotEntryStoryState(entry) {
 }
 
 async function verifySnapshotStoryBodies(gun, entries) {
+  const concurrency = cappedBackgroundConcurrency({
+    operation: 'story_body_verify',
+    envName: 'VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CONCURRENCY',
+    fallback: 4,
+    maxEnvName: 'VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_MAX_CONCURRENCY',
+    maxFallback: 2,
+  });
   if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES', true)) {
     return {
       entries,
@@ -2828,15 +2922,38 @@ async function verifySnapshotStoryBodies(gun, entries) {
         selected_count: entries.length,
         verified_count: 0,
         dropped_count: 0,
+        requested_concurrency: concurrency.requested,
+        effective_concurrency: 0,
+        max_concurrency: concurrency.max,
+        concurrency_capped: concurrency.capped,
       },
     };
   }
-  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CONCURRENCY', 4));
+  if (criticalWriteReadbacksAreActive()) {
+    return {
+      entries,
+      info: {
+        ...snapshotBackgroundPauseInfo('story_body_verify', entries.length, {
+          requested_concurrency: concurrency.requested,
+          effective_concurrency: 0,
+          max_concurrency: concurrency.max,
+          concurrency_capped: concurrency.capped,
+        }),
+        verified_count: 0,
+        dropped_count: 0,
+        cached_count: 0,
+        skipped_count: entries.length,
+      },
+    };
+  }
   const timeoutMs = numberEnv('VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS', 2_500);
   const cacheTtlMs = Math.max(0, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_CACHE_TTL_MS', 5 * 60_000));
-  const checked = await mapWithConcurrency(entries, concurrency, async (entry) => {
+  const checked = await mapWithConcurrency(entries, concurrency.effective, async (entry) => {
     const storyId = String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
     if (!storyId) return { entry: null, verified: false };
+    if (criticalWriteReadbacksAreActive()) {
+      return { entry, verified: false, skipped: true };
+    }
     const cached = newsLatestIndexSnapshotStoryBodyCache.get(storyId);
     if (cached && cacheTtlMs > 0 && Date.now() - cached.checked_at <= cacheTtlMs) {
       return cached.story
@@ -2849,6 +2966,13 @@ async function verifySnapshotStoryBodies(gun, entries) {
           cached: true,
         }
         : { entry: null, verified: false, cached: true };
+    }
+    const testDelayMs = numberEnv('VH_RELAY_TEST_SNAPSHOT_BACKGROUND_READ_DELAY_MS', 0);
+    if (testDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, testDelayMs));
+    }
+    if (criticalWriteReadbacksAreActive()) {
+      return { entry, verified: false, skipped: true };
     }
     const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs }).catch(() => null);
     if (!storyResult?.story) {
@@ -2877,11 +3001,23 @@ async function verifySnapshotStoryBodies(gun, entries) {
       verified_count: checked.filter((result) => result.verified).length,
       dropped_count: checked.filter((result) => !result.entry).length,
       cached_count: checked.filter((result) => result.cached).length,
+      skipped_count: checked.filter((result) => result.skipped).length,
+      requested_concurrency: concurrency.requested,
+      effective_concurrency: concurrency.effective,
+      max_concurrency: concurrency.max,
+      concurrency_capped: concurrency.capped,
     },
   };
 }
 
 async function refreshSnapshotStoryStates(gun, entries) {
+  const concurrency = cappedBackgroundConcurrency({
+    operation: 'story_state_refresh',
+    envName: 'VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_CONCURRENCY',
+    fallback: 3,
+    maxEnvName: 'VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_MAX_CONCURRENCY',
+    maxFallback: 1,
+  });
   if (!boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES', true)) {
     return {
       entries,
@@ -2889,15 +3025,38 @@ async function refreshSnapshotStoryStates(gun, entries) {
         enabled: false,
         selected_count: entries.length,
         refreshed_count: 0,
+        requested_concurrency: concurrency.requested,
+        effective_concurrency: 0,
+        max_concurrency: concurrency.max,
+        concurrency_capped: concurrency.capped,
+      },
+    };
+  }
+  if (criticalWriteReadbacksAreActive()) {
+    return {
+      entries,
+      info: {
+        ...snapshotBackgroundPauseInfo('story_state_refresh', entries.length, {
+          requested_concurrency: concurrency.requested,
+          effective_concurrency: 0,
+          max_concurrency: concurrency.max,
+          concurrency_capped: concurrency.capped,
+        }),
+        candidate_count: 0,
+        refreshed_count: 0,
+        skipped_count: entries.length,
       },
     };
   }
   const refreshCandidates = entries
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => shouldRefreshSnapshotEntryStoryState(entry));
-  const concurrency = Math.max(1, numberEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_CONCURRENCY', 3));
-  const refreshed = await mapWithConcurrency(refreshCandidates, concurrency, ({ entry }) =>
-    refreshSnapshotEntryStoryState(gun, entry));
+  const refreshed = await mapWithConcurrency(refreshCandidates, concurrency.effective, ({ entry }) => {
+    if (criticalWriteReadbacksAreActive()) {
+      return { entry, refreshed: false, skipped: true };
+    }
+    return refreshSnapshotEntryStoryState(gun, entry);
+  });
   const nextEntries = [...entries];
   for (let index = 0; index < refreshed.length; index += 1) {
     nextEntries[refreshCandidates[index].index] = refreshed[index].entry;
@@ -2909,6 +3068,11 @@ async function refreshSnapshotStoryStates(gun, entries) {
       selected_count: entries.length,
       candidate_count: refreshCandidates.length,
       refreshed_count: refreshed.filter((result) => result.refreshed).length,
+      skipped_count: refreshed.filter((result) => result.skipped).length,
+      requested_concurrency: concurrency.requested,
+      effective_concurrency: concurrency.effective,
+      max_concurrency: concurrency.max,
+      concurrency_capped: concurrency.capped,
     },
   };
 }
@@ -4199,10 +4363,14 @@ async function writeTopicSynthesisCandidate(gun, candidate) {
 async function writeNewsStoryRecord(gun, body) {
   const clean = sanitizeNewsStoryWrite(body);
   injectGraph(gun, buildNewsStoryGraph(clean));
-  const readback = await pollNewsStoryBack(
-    gun,
+  const readback = await runCriticalWriteReadback(
+    '/vh/news/story',
     clean.story_id,
-    numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    () => pollNewsStoryBack(
+      gun,
+      clean.story_id,
+      numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    ),
   );
   if (!readback) {
     throw new Error('news-story-readback-failed');
@@ -4218,10 +4386,14 @@ async function writeNewsStoryRecord(gun, body) {
 async function writeNewsLatestIndexRecord(gun, body) {
   const clean = sanitizeNewsLatestIndexWrite(body);
   injectGraph(gun, buildNewsLatestIndexGraph(clean));
-  const readback = await pollNewsLatestIndexBack(
-    gun,
+  const readback = await runCriticalWriteReadback(
+    '/vh/news/latest-index',
     clean.story_id,
-    numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    () => pollNewsLatestIndexBack(
+      gun,
+      clean.story_id,
+      numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    ),
   );
   if (!readback) {
     throw new Error('news-latest-index-readback-failed');
@@ -4237,11 +4409,15 @@ async function writeNewsLatestIndexRecord(gun, body) {
 async function writeNewsHotIndexRecord(gun, body) {
   const clean = sanitizeNewsHotIndexWrite(body);
   injectGraph(gun, buildNewsHotIndexGraph(clean));
-  const readback = await pollNewsHotIndexBack(
-    gun,
+  const readback = await runCriticalWriteReadback(
+    '/vh/news/hot-index',
     clean.story_id,
-    numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
-      numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
+    () => pollNewsHotIndexBack(
+      gun,
+      clean.story_id,
+      numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
+        numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
+    ),
   );
   if (!readback) {
     throw new Error('news-hot-index-readback-failed');
@@ -4253,11 +4429,15 @@ async function writeNewsSynthesisLifecycleRecord(gun, body) {
   const clean = sanitizeNewsSynthesisLifecycleWrite(body);
   injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
   upsertNewsSynthesisLifecycleSnapshot(clean.record);
-  const readback = await pollNewsSynthesisLifecycleBack(
-    gun,
+  const readback = await runCriticalWriteReadback(
+    '/vh/news/synthesis-lifecycle',
     clean.story_id,
-    clean.record,
-    numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    () => pollNewsSynthesisLifecycleBack(
+      gun,
+      clean.story_id,
+      clean.record,
+      numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
+    ),
   );
   if (!readback) {
     throw new Error('news-synthesis-lifecycle-readback-failed');
