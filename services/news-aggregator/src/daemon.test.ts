@@ -92,6 +92,22 @@ function makeTimerControls() {
   return { ticks, setIntervalFn, clearIntervalFn };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsRuntimeTickSummary {
   return {
     schemaVersion: 'vh-news-runtime-tick-summary-v1',
@@ -266,7 +282,7 @@ describe('news aggregator daemon', () => {
 
     expect(replayAcceptedSynthesis).toHaveBeenCalledTimes(1);
     expect(replayAcceptedSynthesis).toHaveBeenCalledWith({ id: 'client-replay' });
-    expect(replayAcceptedSynthesis.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(replayAcceptedSynthesis.mock.invocationCallOrder[0]).toBeGreaterThan(
       startRuntime.mock.invocationCallOrder[0],
     );
 
@@ -310,7 +326,7 @@ describe('news aggregator daemon', () => {
 
     expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
     expect(reconcileProductFeed).toHaveBeenCalledWith({ id: 'client-reconcile' });
-    expect(reconcileProductFeed.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(reconcileProductFeed.mock.invocationCallOrder[0]).toBeGreaterThan(
       startRuntime.mock.invocationCallOrder[0],
     );
 
@@ -420,13 +436,127 @@ describe('news aggregator daemon', () => {
       now: expect.any(Function),
       staleInProgressMs: 123_456,
     });
-    expect(collectPendingSynthesisCandidates.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(collectPendingSynthesisCandidates.mock.invocationCallOrder[0]).toBeGreaterThan(
       startRuntime.mock.invocationCallOrder[0],
     );
     await vi.waitFor(() => {
       expect(enrichmentWorker).toHaveBeenCalledWith(CANDIDATE);
     });
 
+    await daemon.stop();
+  });
+
+  it('continues renewing the lease while product feed reconciliation remains in flight', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const deferredReconcile = createDeferred<{ repaired_latest_index: number }>();
+    const reconcileProductFeed = vi.fn(() => deferredReconcile.promise);
+    let nowMs = 1_700_000_000_000;
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-reconcile-hung' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      reconcileProductFeed,
+      productFeedReconcileIntervalMs: 1_000,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => nowMs,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+    expect(writeLease).toHaveBeenCalledTimes(1);
+    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+
+    nowMs += 60_000;
+    timers.ticks[0]?.();
+    await vi.waitFor(() => {
+      expect(writeLease).toHaveBeenCalledTimes(2);
+    });
+
+    expect(writeLease).toHaveBeenCalledTimes(2);
+    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+
+    deferredReconcile.resolve({ repaired_latest_index: 0 });
+    await flushMicrotasks();
+    await daemon.stop();
+  });
+
+  it('continues renewing the lease while pending synthesis catch-up remains in flight', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const deferredCatchup = createDeferred<{
+      scanned: number;
+      enqueued: number;
+      skipped: number;
+      staleInProgress: number;
+      bootstrappedMissingLifecycle: number;
+      acceptedMissingSynthesis: number;
+      candidates: readonly [];
+    }>();
+    const reconcileProductFeed = vi.fn().mockResolvedValue({ repaired_latest_index: 0 });
+    const collectPendingSynthesisCandidates = vi.fn(() => deferredCatchup.promise);
+    const enrichmentWorker = vi.fn().mockResolvedValue(undefined);
+    let nowMs = 1_700_000_000_000;
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-catchup-hung' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      reconcileProductFeed,
+      collectPendingSynthesisCandidates,
+      enrichmentWorker,
+      synthesisCatchupIntervalMs: 1_000,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => nowMs,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+    await flushMicrotasks();
+    expect(writeLease).toHaveBeenCalledTimes(1);
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledTimes(1);
+
+    nowMs += 60_000;
+    timers.ticks[0]?.();
+    await flushMicrotasks();
+
+    expect(writeLease).toHaveBeenCalledTimes(2);
+    expect(collectPendingSynthesisCandidates).toHaveBeenCalledTimes(1);
+    expect(enrichmentWorker).not.toHaveBeenCalled();
+
+    deferredCatchup.resolve({
+      scanned: 0,
+      enqueued: 0,
+      skipped: 0,
+      staleInProgress: 0,
+      bootstrappedMissingLifecycle: 0,
+      acceptedMissingSynthesis: 0,
+      candidates: [],
+    });
+    await flushMicrotasks();
     await daemon.stop();
   });
 

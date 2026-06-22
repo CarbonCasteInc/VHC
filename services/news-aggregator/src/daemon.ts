@@ -216,6 +216,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
+  let leadershipMaintenancePromise: Promise<void> | null = null;
   let stopPromise: Promise<void> | null = null;
   let runtimeWritesBlocked = false;
   let acceptedSynthesisReplayAttempted = false;
@@ -495,6 +496,91 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     runtimeHandle = null;
     logger.warn('[vh:news-daemon] runtime did not start (disabled or rejected)');
   };
+  const runLeadershipMaintenance = async (nowMs: number): Promise<void> => {
+    if (!running || noWrite) {
+      return;
+    }
+    if (!acceptedSynthesisReplayAttempted && config.replayAcceptedSynthesis) {
+      acceptedSynthesisReplayAttempted = true;
+      try {
+        await config.replayAcceptedSynthesis(config.client);
+      } catch (error) {
+        logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
+      }
+    }
+    if (!running) {
+      return;
+    }
+    if (nowMs >= nextProductFeedReconciliationAt) {
+      nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
+      try {
+        const result = await reconcileProductFeed(config.client);
+        logger.info('[vh:news-daemon] product feed reconciliation attempted', {
+          holder_id: holderId,
+          next_reconcile_at: nextProductFeedReconciliationAt,
+          interval_ms: productFeedReconcileIntervalMs,
+          result,
+        });
+      } catch (error) {
+        logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
+      }
+    }
+    if (!running) {
+      return;
+    }
+    if (config.enrichmentWorker && nowMs >= nextSynthesisCatchupAt) {
+      nextSynthesisCatchupAt = nowMs + synthesisCatchupIntervalMs;
+      try {
+        const result = await collectPendingSynthesisCandidates(config.client, {
+          limit: synthesisCatchupSampleLimit,
+          logger,
+          now: nowFn,
+          staleInProgressMs: synthesisInProgressStaleMs,
+        });
+        if (running) {
+          for (const candidate of result.candidates) {
+            queue.enqueue(candidate.candidate);
+          }
+        }
+        logger.info('[vh:news-daemon] pending synthesis catch-up attempted', {
+          holder_id: holderId,
+          next_catchup_at: nextSynthesisCatchupAt,
+          interval_ms: synthesisCatchupIntervalMs,
+          sample_limit: synthesisCatchupSampleLimit,
+          scanned: result.scanned,
+          enqueued: result.enqueued,
+          skipped: result.skipped,
+          stale_in_progress: result.staleInProgress,
+          in_progress_stale_ms: synthesisInProgressStaleMs,
+          enrichment_queue: queue.snapshot(),
+        });
+      } catch (error) {
+        logger.warn('[vh:news-daemon] pending synthesis catch-up failed', error);
+      }
+    }
+  };
+  const scheduleLeadershipMaintenance = (nowMs: number): void => {
+    if (!running || noWrite) {
+      return;
+    }
+    if (leadershipMaintenancePromise) {
+      logger.info('[vh:news-daemon] leadership maintenance already running; skipping this heartbeat', {
+        holder_id: holderId,
+        now_ms: nowMs,
+      });
+      return;
+    }
+    const inFlight = runLeadershipMaintenance(nowMs)
+      .catch((error) => {
+        logger.warn('[vh:news-daemon] leadership maintenance failed', error);
+      })
+      .finally(() => {
+        if (leadershipMaintenancePromise === inFlight) {
+          leadershipMaintenancePromise = null;
+        }
+      });
+    leadershipMaintenancePromise = inFlight;
+  };
   const leadershipTick = async (): Promise<void> => {
     if (!running) {
       return;
@@ -549,57 +635,8 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       lease_token_present: Boolean(lease.lease_token),
       expires_at: lease.expires_at,
     });
-    if (!acceptedSynthesisReplayAttempted && config.replayAcceptedSynthesis) {
-      acceptedSynthesisReplayAttempted = true;
-      try {
-        await config.replayAcceptedSynthesis(config.client);
-      } catch (error) {
-        logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
-      }
-    }
-    if (nowMs >= nextProductFeedReconciliationAt) {
-      nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
-      try {
-        const result = await reconcileProductFeed(config.client);
-        logger.info('[vh:news-daemon] product feed reconciliation attempted', {
-          holder_id: holderId,
-          next_reconcile_at: nextProductFeedReconciliationAt,
-          interval_ms: productFeedReconcileIntervalMs,
-          result,
-        });
-      } catch (error) {
-        logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
-      }
-    }
-    if (config.enrichmentWorker && nowMs >= nextSynthesisCatchupAt) {
-      nextSynthesisCatchupAt = nowMs + synthesisCatchupIntervalMs;
-      try {
-        const result = await collectPendingSynthesisCandidates(config.client, {
-          limit: synthesisCatchupSampleLimit,
-          logger,
-          now: nowFn,
-          staleInProgressMs: synthesisInProgressStaleMs,
-        });
-        for (const candidate of result.candidates) {
-          queue.enqueue(candidate.candidate);
-        }
-        logger.info('[vh:news-daemon] pending synthesis catch-up attempted', {
-          holder_id: holderId,
-          next_catchup_at: nextSynthesisCatchupAt,
-          interval_ms: synthesisCatchupIntervalMs,
-          sample_limit: synthesisCatchupSampleLimit,
-          scanned: result.scanned,
-          enqueued: result.enqueued,
-          skipped: result.skipped,
-          stale_in_progress: result.staleInProgress,
-          in_progress_stale_ms: synthesisInProgressStaleMs,
-          enrichment_queue: queue.snapshot(),
-        });
-      } catch (error) {
-        logger.warn('[vh:news-daemon] pending synthesis catch-up failed', error);
-      }
-    }
     startRuntimeIfNeeded();
+    scheduleLeadershipMaintenance(nowMs);
   };
   const runLeadershipTick = async (): Promise<void> => {
     if (leadershipTickPromise) {
