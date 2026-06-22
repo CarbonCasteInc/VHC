@@ -565,6 +565,13 @@ write.
 The daemon writes and renews the shared `NewsIngestionLease` before starting the
 runtime. If another holder has a live lease, this daemon stops its runtime and
 waits for the next leadership tick. On shutdown it attempts to release its lease.
+Lease renewal is intentionally isolated from post-leadership maintenance:
+accepted synthesis replay, product-feed reconciliation, and pending synthesis
+catch-up run as non-overlapping background work after the heartbeat and runtime
+start. A slow or wedged maintenance pass must be skipped on later heartbeats
+rather than blocking lease renewal. Treat `news daemon lease expired` during a
+healthy relay soak as a publisher bug in that isolation contract, not as relay
+quorum loss.
 
 Recommended production holder:
 
