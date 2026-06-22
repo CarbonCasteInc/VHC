@@ -1,0 +1,14 @@
+[Unit]
+Description=VHC News Relay Liveness Watch
+Documentation=file:/home/humble/VHC/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_RELAY_LIVENESS_OUTPUT_FILE=%h/.local/state/vhc/relay-liveness/latest.json
+Environment=VH_RELAY_LIVENESS_RESTART_ON_FAIL=true
+Environment=VH_RELAY_LIVENESS_RESTART_MAX_PER_RUN=1
+Environment=VH_RELAY_LIVENESS_RESTART_MIN_INTERVAL_MS=600000
+Environment=PATH=/home/humble/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env node /home/humble/VHC/tools/scripts/news-relay-liveness-watch.mjs

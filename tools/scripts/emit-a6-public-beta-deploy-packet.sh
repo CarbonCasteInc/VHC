@@ -106,6 +106,7 @@ const analysisTarget = process.env.ANALYSIS_TARGET;
 const originName = process.env.ORIGIN_NAME;
 const relayNames = (process.env.RELAY_NAMES || '').split(',').map((name) => name.trim()).filter(Boolean);
 const includeRecreate = process.env.INCLUDE_RECREATE === 'true';
+const relayMemoryLimit = process.env.VH_RELAY_DOCKER_MEMORY_LIMIT || '2304m';
 const containers = JSON.parse(readFileSync(inspectJson, 'utf8'));
 
 function cleanName(container) {
@@ -180,7 +181,10 @@ function dataMount(container) {
   return (container?.Mounts || []).find((mount) => mount.Destination === destination) || null;
 }
 
-function restartFlag(container) {
+function restartFlag(container, options = {}) {
+  if (options.forceRelaySelfRecovery) {
+    return '--restart on-failure:5';
+  }
   const name = container?.HostConfig?.RestartPolicy?.Name;
   if (!name || name === 'no') return '';
   const maximumRetryCount = container?.HostConfig?.RestartPolicy?.MaximumRetryCount;
@@ -188,6 +192,12 @@ function restartFlag(container) {
     return `--restart on-failure:${maximumRetryCount}`;
   }
   return `--restart ${name}`;
+}
+
+function memoryFlags(options = {}) {
+  return options.forceRelaySelfRecovery
+    ? [`--memory ${relayMemoryLimit}`, `--memory-swap ${relayMemoryLimit}`]
+    : [];
 }
 
 function primaryNetworkFlag(container) {
@@ -199,17 +209,31 @@ function shellJoin(parts) {
   return parts.filter(Boolean).join(' \\\n  ');
 }
 
-function envCaptureCommand(name, rewriteAnalysisTarget = false) {
+function envEnsureLine(envPath, name, value) {
+  return `grep -q '^${name}=' ${envPath} || printf '%s\\n' '${name}=${value}' >> ${envPath}`;
+}
+
+function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
+  const relayDefaults = relay ? [
+    envEnsureLine(envPath, 'VH_RELAY_RESOURCE_WATCHDOG_ENABLED', 'true'),
+    envEnsureLine(envPath, 'VH_RELAY_DIAGNOSTIC_DIR', '/data/diagnostics'),
+    envEnsureLine(envPath, 'VH_RELAY_STARTUP_JITTER_MAX_MS', '5000'),
+    envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY', '2'),
+    envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT', '16'),
+    envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS', '1000'),
+  ] : [];
   if (!rewriteAnalysisTarget) {
     return [
       `sudo docker inspect ${name} --format '{{range .Config.Env}}{{println .}}{{end}}' > ${envPath}`,
+      ...relayDefaults,
       `chmod 600 ${envPath}`,
     ].join('\n');
   }
   return [
     `sudo docker inspect ${name} --format '{{range .Config.Env}}{{println .}}{{end}}' > ${envPath}.current`,
     `awk 'BEGIN{done=0} /^VH_PUBLIC_ORIGIN_STATIC_DIR=/{next} /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/{next} /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=/{print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"; done=1; next} {print} END{if(!done) print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"}' ${envPath}.current > ${envPath}`,
+    ...relayDefaults,
     `chmod 600 ${envPath}`,
     `rm -f ${envPath}.current`,
   ].join('\n');
@@ -229,7 +253,8 @@ function runCommandFor(name, image, forceRelayUser = false) {
   const parts = [
     'sudo docker run -d',
     `--name ${name}`,
-    restartFlag(container),
+    restartFlag(container, { forceRelaySelfRecovery: forceRelayUser }),
+    ...memoryFlags({ forceRelaySelfRecovery: forceRelayUser }),
     primaryNetworkFlag(container),
     forceRelayUser ? '--user "$(id -u humble):$(id -g humble)"' : '',
     `--env-file ${envPath}`,
@@ -339,7 +364,7 @@ lines.push('```bash');
 lines.push('set -euo pipefail');
 lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy');
 for (const name of relayNames) {
-  lines.push(envCaptureCommand(name));
+  lines.push(envCaptureCommand(name, false, true));
 }
 lines.push(envCaptureCommand(originName, true));
 lines.push('```');

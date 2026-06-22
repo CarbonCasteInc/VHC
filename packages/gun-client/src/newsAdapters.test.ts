@@ -800,6 +800,98 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('classifies relay backpressure as a failed retryable relay without counting it as quorum success', async () => {
+    expect(
+      newsAdapterInternal.classifyRelayRestHttpFailure(
+        503,
+        JSON.stringify({ ok: false, error: 'relay-critical-readback-backpressure', retryable: true }),
+      ),
+    ).toBe('relay-backpressure');
+
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          ok: false,
+          error: 'relay-critical-readback-backpressure',
+          retryable: true,
+          retry_after_seconds: 2,
+        }), {
+          status: 503,
+          headers: { 'content-type': 'application/json', 'retry-after': '2' },
+        }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: 'wrong-story' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).rejects.toThrow(/failed=https:\/\/gun-b\.example\.test:relay-backpressure/);
+      expect(mesh.writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps empty and malformed relay error bodies as failed relay outcomes', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }))
+        .mockResolvedValueOnce(new Response('', {
+          status: 503,
+          headers: { 'content-type': 'text/plain' },
+        }))
+        .mockResolvedValueOnce(new Response('not-json', {
+          status: 503,
+          headers: { 'content-type': 'text/plain' },
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).rejects.toThrow(/failed=https:\/\/gun-b\.example\.test:http-503; https:\/\/gun-c\.example\.test:http-503/);
+      expect(mesh.writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
   it('writeNewsLatestIndexEntry fails explicit 2-of-3 relay REST quorum with one validated success', async () => {
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',

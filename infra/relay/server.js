@@ -3,6 +3,8 @@ const http = require('http');
 const { createRequire } = require('module');
 const crypto = require('crypto');
 const fs = require('fs');
+const inspector = require('inspector');
+const os = require('os');
 const path = require('path');
 const { monitorEventLoopDelay } = require('perf_hooks');
 
@@ -84,6 +86,11 @@ function numberEnv(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function nonNegativeNumberEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
@@ -149,6 +156,32 @@ const newsLatestIndexSnapshotStoryBodyCache = new Map();
 let newsSynthesisLifecycleSnapshotCache = null;
 let topicSynthesisLatestSnapshotCache = null;
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
+const criticalWriteReadbackMaxConcurrency = numberEnv('VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY', 2);
+const criticalWriteReadbackQueueLimit = nonNegativeNumberEnv('VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT', 16);
+const criticalWriteReadbackQueueTimeoutMs = nonNegativeNumberEnv(
+  'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS',
+  1_000,
+);
+const criticalWriteReadbackRetryAfterSeconds = numberEnv(
+  'VH_RELAY_CRITICAL_WRITE_READBACK_RETRY_AFTER_SECONDS',
+  2,
+);
+const relayResourceWatchdogEnabled = boolEnv(
+  'VH_RELAY_RESOURCE_WATCHDOG_ENABLED',
+  process.env.NODE_ENV === 'production',
+);
+const relayResourceWatchdogIntervalMs = numberEnv('VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS', 10_000);
+const relayWatchdogMaxEventLoopLagP99Ms = numberEnv('VH_RELAY_WATCHDOG_MAX_EVENT_LOOP_LAG_P99_MS', 2_500);
+const relayWatchdogMaxRssBytes = numberEnv('VH_RELAY_WATCHDOG_MAX_RSS_BYTES', 1_800_000_000);
+const relayWatchdogMaxHeapUsedBytes = numberEnv('VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES', 1_300_000_000);
+const relayWatchdogDiagnosticDir = String(
+  process.env.VH_RELAY_DIAGNOSTIC_DIR
+  || (typeof gunFile === 'string' ? path.join(gunFile, 'diagnostics') : path.join(os.tmpdir(), 'vh-relay-diagnostics')),
+).trim();
+const relayStartupJitterMaxMs = nonNegativeNumberEnv(
+  'VH_RELAY_STARTUP_JITTER_MAX_MS',
+  process.env.NODE_ENV === 'production' ? 5_000 : 0,
+);
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
 if (!relayPeerAuthModes.has(relayPeerAuthMode)) {
@@ -179,6 +212,11 @@ const metrics = {
   compactionRuns: 0,
   compactionTombstones: 0,
   criticalWriteReadbacksStarted: new Map(),
+  criticalWriteReadbacksQueued: new Map(),
+  criticalWriteReadbackBackpressure: new Map(),
+  criticalWriteReadbackQueueTimeouts: new Map(),
+  criticalWriteReadbackMaxQueued: 0,
+  relayWatchdogTrips: new Map(),
   snapshotBackgroundPauses: new Map(),
   snapshotBackgroundConcurrencyCaps: new Map(),
 };
@@ -201,10 +239,20 @@ function incMap(map, key, by = 1) {
 }
 
 let activeCriticalWriteReadbacks = 0;
+const queuedCriticalWriteReadbacks = [];
+let relayWatchdogTripped = false;
 
 function criticalWriteReadbacksAreActive() {
-  return activeCriticalWriteReadbacks > 0
+  return (activeCriticalWriteReadbacks > 0 || queuedCriticalWriteReadbacks.length > 0)
     && boolEnv('VH_RELAY_NEWS_INDEX_SNAPSHOT_PAUSE_DURING_WRITE_READBACK', true);
+}
+
+function makeRelayBackpressureError(route, reason = 'relay-backpressure') {
+  incMap(metrics.criticalWriteReadbackBackpressure, route);
+  const error = makeHttpError(503, reason);
+  error.code = 'relay-backpressure';
+  error.retryAfterSeconds = criticalWriteReadbackRetryAfterSeconds;
+  return error;
 }
 
 function forceCriticalWriteReadbackFailure(route) {
@@ -244,13 +292,57 @@ function snapshotBackgroundPauseInfo(operation, selectedCount, concurrency = {})
     selected_count: selectedCount,
     paused_due_to_critical_write_readback: true,
     active_critical_write_readback_count: activeCriticalWriteReadbacks,
+    queued_critical_write_readback_count: queuedCriticalWriteReadbacks.length,
     ...concurrency,
   };
 }
 
+function releaseCriticalWriteReadbackSlot() {
+  activeCriticalWriteReadbacks = Math.max(0, activeCriticalWriteReadbacks - 1);
+  while (
+    activeCriticalWriteReadbacks < criticalWriteReadbackMaxConcurrency
+    && queuedCriticalWriteReadbacks.length > 0
+  ) {
+    const next = queuedCriticalWriteReadbacks.shift();
+    clearTimeout(next.timer);
+    activeCriticalWriteReadbacks += 1;
+    next.resolve(releaseCriticalWriteReadbackSlot);
+  }
+}
+
+function acquireCriticalWriteReadbackSlot(route) {
+  if (activeCriticalWriteReadbacks < criticalWriteReadbackMaxConcurrency) {
+    activeCriticalWriteReadbacks += 1;
+    return Promise.resolve(releaseCriticalWriteReadbackSlot);
+  }
+  if (queuedCriticalWriteReadbacks.length >= criticalWriteReadbackQueueLimit) {
+    throw makeRelayBackpressureError(route, 'relay-critical-readback-backpressure');
+  }
+  incMap(metrics.criticalWriteReadbacksQueued, route);
+  metrics.criticalWriteReadbackMaxQueued = Math.max(
+    metrics.criticalWriteReadbackMaxQueued,
+    queuedCriticalWriteReadbacks.length + 1,
+  );
+  return new Promise((resolve, reject) => {
+    const entry = {
+      route,
+      resolve,
+      reject,
+      timer: null,
+    };
+    entry.timer = setTimeout(() => {
+      const index = queuedCriticalWriteReadbacks.indexOf(entry);
+      if (index >= 0) queuedCriticalWriteReadbacks.splice(index, 1);
+      incMap(metrics.criticalWriteReadbackQueueTimeouts, route);
+      reject(makeRelayBackpressureError(route, 'relay-critical-readback-queue-timeout'));
+    }, criticalWriteReadbackQueueTimeoutMs);
+    queuedCriticalWriteReadbacks.push(entry);
+  });
+}
+
 async function runCriticalWriteReadback(route, storyId, readback) {
   incMap(metrics.criticalWriteReadbacksStarted, route);
-  activeCriticalWriteReadbacks += 1;
+  const release = await acquireCriticalWriteReadbackSlot(route);
   try {
     if (forceCriticalWriteReadbackFailure(route)) {
       logEvent('warn', 'critical_write_readback_test_forced_failure', {
@@ -270,7 +362,7 @@ async function runCriticalWriteReadback(route, storyId, readback) {
     }
     return await readback();
   } finally {
-    activeCriticalWriteReadbacks = Math.max(0, activeCriticalWriteReadbacks - 1);
+    release();
   }
 }
 
@@ -619,6 +711,8 @@ function metricsText() {
   add('vh_relay_compaction_runs_total', metrics.compactionRuns);
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
   add('vh_relay_critical_write_readbacks_active', activeCriticalWriteReadbacks);
+  add('vh_relay_critical_write_readbacks_queued', queuedCriticalWriteReadbacks.length);
+  add('vh_relay_critical_write_readbacks_max_queued', metrics.criticalWriteReadbackMaxQueued);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
   const memory = process.memoryUsage();
   const openFds = openFileDescriptorCount();
@@ -628,6 +722,8 @@ function metricsText() {
     add('vh_relay_process_open_fds', openFds);
   }
   add('vh_relay_event_loop_lag_p95_ms', Math.round(eventLoopDelay.percentile(95) / 1e6));
+  add('vh_relay_event_loop_lag_p99_ms', Math.round(eventLoopDelay.percentile(99) / 1e6));
+  add('vh_relay_event_loop_lag_max_ms', Math.round(eventLoopDelay.max / 1e6));
   for (const [status, count] of metrics.httpResponses) {
     add('vh_relay_http_responses_total', count, { status });
   }
@@ -643,6 +739,18 @@ function metricsText() {
   for (const [route, count] of metrics.criticalWriteReadbacksStarted) {
     add('vh_relay_critical_write_readbacks_started_total', count, { route });
   }
+  for (const [route, count] of metrics.criticalWriteReadbacksQueued) {
+    add('vh_relay_critical_write_readbacks_queued_total', count, { route });
+  }
+  for (const [route, count] of metrics.criticalWriteReadbackBackpressure) {
+    add('vh_relay_critical_write_readback_backpressure_total', count, { route });
+  }
+  for (const [route, count] of metrics.criticalWriteReadbackQueueTimeouts) {
+    add('vh_relay_critical_write_readback_queue_timeouts_total', count, { route });
+  }
+  for (const [reason, count] of metrics.relayWatchdogTrips) {
+    add('vh_relay_resource_watchdog_trips_total', count, { reason });
+  }
   for (const [operation, count] of metrics.snapshotBackgroundPauses) {
     add('vh_relay_snapshot_background_pauses_total', count, { operation });
   }
@@ -650,6 +758,224 @@ function metricsText() {
     add('vh_relay_snapshot_background_concurrency_caps_total', count, { operation });
   }
   return `${lines.join('\n')}\n`;
+}
+
+function mapToObject(map) {
+  return Object.fromEntries([...map.entries()].sort(([left], [right]) => String(left).localeCompare(String(right))));
+}
+
+function eventLoopDelaySummary() {
+  return {
+    p95_ms: Math.round(eventLoopDelay.percentile(95) / 1e6),
+    p99_ms: Math.round(eventLoopDelay.percentile(99) / 1e6),
+    max_ms: Math.round(eventLoopDelay.max / 1e6),
+    mean_ms: Number.isFinite(eventLoopDelay.mean) ? Math.round(eventLoopDelay.mean / 1e6) : null,
+  };
+}
+
+function safeDiagnosticFileSegment(value) {
+  const cleaned = String(value || 'relay')
+    .replace(/[^A-Za-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return cleaned || 'relay';
+}
+
+function relayDiagnosticSnapshot(reason, details = {}) {
+  const memory = process.memoryUsage();
+  return {
+    schema_version: 'vh-relay-self-capture-diagnostics-v1',
+    generated_at: new Date().toISOString(),
+    relay_id: relayId,
+    reason,
+    details,
+    process: {
+      pid: process.pid,
+      node: process.version,
+      uptime_ms: Math.round(process.uptime() * 1000),
+      resource_usage: process.resourceUsage?.() ?? null,
+    },
+    memory: {
+      rss: memory.rss,
+      heap_total: memory.heapTotal,
+      heap_used: memory.heapUsed,
+      external: memory.external,
+      array_buffers: memory.arrayBuffers,
+    },
+    event_loop_delay: eventLoopDelaySummary(),
+    critical_write_readbacks: {
+      active: activeCriticalWriteReadbacks,
+      queued: queuedCriticalWriteReadbacks.length,
+      max_queued: metrics.criticalWriteReadbackMaxQueued,
+      started_by_route: mapToObject(metrics.criticalWriteReadbacksStarted),
+      queued_by_route: mapToObject(metrics.criticalWriteReadbacksQueued),
+      backpressure_by_route: mapToObject(metrics.criticalWriteReadbackBackpressure),
+      queue_timeouts_by_route: mapToObject(metrics.criticalWriteReadbackQueueTimeouts),
+    },
+    write_failures_by_route: mapToObject(metrics.writeFailures),
+    write_attempts_by_route: mapToObject(metrics.writeAttempts),
+    snapshot_background_pauses_by_operation: mapToObject(metrics.snapshotBackgroundPauses),
+    config: {
+      critical_write_readback_max_concurrency: criticalWriteReadbackMaxConcurrency,
+      critical_write_readback_queue_limit: criticalWriteReadbackQueueLimit,
+      critical_write_readback_queue_timeout_ms: criticalWriteReadbackQueueTimeoutMs,
+      watchdog_max_event_loop_lag_p99_ms: relayWatchdogMaxEventLoopLagP99Ms,
+      watchdog_max_rss_bytes: relayWatchdogMaxRssBytes,
+      watchdog_max_heap_used_bytes: relayWatchdogMaxHeapUsedBytes,
+      diagnostic_dir: relayWatchdogDiagnosticDir,
+    },
+  };
+}
+
+function writeRelayDiagnosticBundle(reason, details = {}) {
+  if (!relayWatchdogDiagnosticDir) return { summary_path: null, report_path: null };
+  fs.mkdirSync(relayWatchdogDiagnosticDir, { recursive: true });
+  const base = `${new Date().toISOString().replace(/[:.]/g, '-')}-${safeDiagnosticFileSegment(relayId)}-${safeDiagnosticFileSegment(reason)}`;
+  const summaryPath = path.join(relayWatchdogDiagnosticDir, `${base}.json`);
+  const reportPath = path.join(relayWatchdogDiagnosticDir, `${base}.process-report.json`);
+  fs.writeFileSync(summaryPath, `${JSON.stringify(relayDiagnosticSnapshot(reason, details), null, 2)}\n`, 'utf8');
+  if (process.report && typeof process.report.writeReport === 'function') {
+    try {
+      if (!('excludeEnv' in process.report)) {
+        throw new Error('process.report.excludeEnv unavailable; skipping process report to avoid env leakage');
+      }
+      process.report.excludeEnv = true;
+      process.report.writeReport(reportPath);
+    } catch (error) {
+      fs.writeFileSync(
+        path.join(relayWatchdogDiagnosticDir, `${base}.process-report-error.txt`),
+        String(error instanceof Error ? error.message : error),
+        'utf8',
+      );
+    }
+  }
+  return { summary_path: summaryPath, report_path: fs.existsSync(reportPath) ? reportPath : null, base };
+}
+
+function inspectorPost(session, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    session.post(method, params, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
+async function writeBestEffortCpuProfile(base) {
+  if (!boolEnv('VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED', true) || !relayWatchdogDiagnosticDir || !base) {
+    return null;
+  }
+  const session = new inspector.Session();
+  const outputPath = path.join(relayWatchdogDiagnosticDir, `${base}.cpuprofile`);
+  try {
+    session.connect();
+    await inspectorPost(session, 'Profiler.enable');
+    await inspectorPost(session, 'Profiler.start');
+    await new Promise((resolve) => setTimeout(resolve, numberEnv('VH_RELAY_WATCHDOG_CPU_PROFILE_MS', 250)));
+    const result = await inspectorPost(session, 'Profiler.stop');
+    fs.writeFileSync(outputPath, `${JSON.stringify(result.profile)}\n`, 'utf8');
+    return outputPath;
+  } catch (error) {
+    try {
+      fs.writeFileSync(
+        path.join(relayWatchdogDiagnosticDir, `${base}.cpuprofile-error.txt`),
+        String(error instanceof Error ? error.message : error),
+        'utf8',
+      );
+    } catch {
+      // Best-effort only.
+    }
+    return null;
+  } finally {
+    try {
+      session.disconnect();
+    } catch {
+      // Best-effort only.
+    }
+  }
+}
+
+function relayWatchdogBreach() {
+  if (process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRIP', false)) {
+    return { reason: 'test_forced', observed: true, limit: true };
+  }
+  const memory = process.memoryUsage();
+  const delay = eventLoopDelaySummary();
+  if (relayWatchdogMaxEventLoopLagP99Ms > 0 && delay.p99_ms > relayWatchdogMaxEventLoopLagP99Ms) {
+    return { reason: 'event_loop_lag_p99', observed: delay.p99_ms, limit: relayWatchdogMaxEventLoopLagP99Ms };
+  }
+  if (relayWatchdogMaxRssBytes > 0 && memory.rss > relayWatchdogMaxRssBytes) {
+    return { reason: 'rss_bytes', observed: memory.rss, limit: relayWatchdogMaxRssBytes };
+  }
+  if (relayWatchdogMaxHeapUsedBytes > 0 && memory.heapUsed > relayWatchdogMaxHeapUsedBytes) {
+    return { reason: 'heap_used_bytes', observed: memory.heapUsed, limit: relayWatchdogMaxHeapUsedBytes };
+  }
+  return null;
+}
+
+function tripRelayWatchdog(breach) {
+  if (relayWatchdogTripped) return;
+  relayWatchdogTripped = true;
+  incMap(metrics.relayWatchdogTrips, breach.reason);
+  const capture = writeRelayDiagnosticBundle(`watchdog-${breach.reason}`, breach);
+  logEvent('error', 'relay_resource_watchdog_tripped', {
+    relay_id: relayId,
+    reason: breach.reason,
+    observed: breach.observed,
+    limit: breach.limit,
+    diagnostic_summary_path: capture.summary_path,
+    process_report_path: capture.report_path,
+  });
+  const forceExitTimer = setTimeout(() => process.exit(1), numberEnv('VH_RELAY_WATCHDOG_EXIT_GRACE_MS', 750));
+  forceExitTimer.unref?.();
+  writeBestEffortCpuProfile(capture.base)
+    .catch(() => null)
+    .finally(() => {
+      clearTimeout(forceExitTimer);
+      process.exit(1);
+    });
+}
+
+function startRelayResourceWatchdog() {
+  if (!relayResourceWatchdogEnabled && !(process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRIP', false))) {
+    return;
+  }
+  const interval = setInterval(() => {
+    const breach = relayWatchdogBreach();
+    if (breach) {
+      tripRelayWatchdog(breach);
+      return;
+    }
+    eventLoopDelay.reset();
+  }, relayResourceWatchdogIntervalMs);
+  interval.unref?.();
+}
+
+function installFatalCaptureHandlers() {
+  const captureAndExit = (reason, error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error && typeof error.stack === 'string'
+      ? error.stack.split('\n').slice(0, 8).join('\n')
+      : null;
+    try {
+      const capture = writeRelayDiagnosticBundle(reason, { message, stack });
+      logEvent('error', 'relay_fatal_capture_written', {
+        relay_id: relayId,
+        reason,
+        diagnostic_summary_path: capture.summary_path,
+        process_report_path: capture.report_path,
+      });
+    } catch (captureError) {
+      logEvent('error', 'relay_fatal_capture_failed', {
+        relay_id: relayId,
+        reason,
+        error: captureError instanceof Error ? captureError.message : String(captureError),
+      });
+    } finally {
+      process.exit(1);
+    }
+  };
+  process.on('uncaughtException', (error) => captureAndExit('uncaught-exception', error));
+  process.on('unhandledRejection', (error) => captureAndExit('unhandled-rejection', error));
 }
 
 function sendJson(res, status, body) {
@@ -1322,7 +1648,7 @@ async function readThreadBack(threadChain, threadId) {
   return null;
 }
 
-async function readTopicSynthesisBack(gun, topicId, synthesisId) {
+async function readTopicSynthesisBack(gun, topicId, synthesisId, options = {}) {
   const latestChain = gun.get('vh').get('topics').get(topicId).get('latest');
   const synthesisTimeoutMs = numberEnv('VH_RELAY_TOPIC_SYNTHESIS_REST_READ_TIMEOUT_MS', 1_500);
   const [directRaw, scalarRaw] = await Promise.all([
@@ -1340,6 +1666,9 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   if (scalar?.topic_id === topicId && scalar?.synthesis_id === synthesisId) {
     return scalar;
   }
+  if (options.allowSnapshotFallback === false) {
+    return null;
+  }
   const snapshot = readTopicSynthesisLatestRecordFromSnapshot(topicId);
   if (snapshot?.synthesis?.synthesis_id === synthesisId) {
     return snapshot.synthesis;
@@ -1347,11 +1676,11 @@ async function readTopicSynthesisBack(gun, topicId, synthesisId) {
   return null;
 }
 
-async function pollTopicSynthesisBack(gun, topicId, synthesisId, timeoutMs = 5_000) {
+async function pollTopicSynthesisBack(gun, topicId, synthesisId, timeoutMs = 5_000, options = {}) {
   const deadline = Date.now() + timeoutMs;
   let latest = null;
   while (Date.now() < deadline) {
-    latest = await readTopicSynthesisBack(gun, topicId, synthesisId);
+    latest = await readTopicSynthesisBack(gun, topicId, synthesisId, options);
     if (latest) return latest;
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
@@ -1668,7 +1997,10 @@ async function pollNewsSynthesisLifecycleBack(gun, storyId, expected, timeoutMs 
   const deadline = Date.now() + timeoutMs;
   let latest = null;
   while (Date.now() < deadline) {
-    latest = await readNewsSynthesisLifecycleRecord(gun, storyId, { timeoutMs: 1_500 });
+    latest = await readNewsSynthesisLifecycleRecord(gun, storyId, {
+      timeoutMs: 1_500,
+      allowSnapshotFallback: false,
+    });
     if (
       latest
       && latest.story_id === storyId
@@ -4302,17 +4634,20 @@ function sanitizeAggregatePointSnapshot(value) {
 
 async function writeForumThread(gun, thread) {
   const clean = sanitizeThread(thread);
-  const threadChain = gun.get('vh').get('forum').get('threads').get(clean.id);
-  const writes = [putWithTimeout(threadChain, clean)];
-  for (const [key, value] of Object.entries(clean)) {
-    writes.push(putWithTimeout(threadChain.get(key), value, 750));
-  }
-  await Promise.allSettled(writes);
-  let readback = await pollThreadBack(threadChain, clean.id, 2_000);
-  if (!readback) {
-    injectGraph(gun, buildThreadGraph(clean));
-    readback = await pollThreadBack(threadChain, clean.id, 5_000);
-  }
+  const readback = await runCriticalWriteReadback('/vh/forum/thread', clean.id, async () => {
+    const threadChain = gun.get('vh').get('forum').get('threads').get(clean.id);
+    const writes = [putWithTimeout(threadChain, clean)];
+    for (const [key, value] of Object.entries(clean)) {
+      writes.push(putWithTimeout(threadChain.get(key), value, 750));
+    }
+    await Promise.allSettled(writes);
+    let observed = await pollThreadBack(threadChain, clean.id, 2_000);
+    if (!observed) {
+      injectGraph(gun, buildThreadGraph(clean));
+      observed = await pollThreadBack(threadChain, clean.id, 5_000);
+    }
+    return observed;
+  });
   if (!readback) {
     throw new Error('thread-readback-failed');
   }
@@ -4321,10 +4656,12 @@ async function writeForumThread(gun, thread) {
 
 async function writeForumComment(gun, comment) {
   const clean = sanitizeComment(comment);
-  const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(clean.threadId));
-  const existingCommentIds = await readCommentIndexIds(indexRoot, clean.threadId);
-  injectGraph(gun, buildCommentGraph(clean, existingCommentIds));
-  const readback = await pollCommentBack(gun, clean.threadId, clean.id, 5_000);
+  const readback = await runCriticalWriteReadback('/vh/forum/comment', clean.id, async () => {
+    const indexRoot = gun.get('vh').get('forum').get('indexes').get('comment_ids').get(encodeURIComponent(clean.threadId));
+    const existingCommentIds = await readCommentIndexIds(indexRoot, clean.threadId);
+    injectGraph(gun, buildCommentGraph(clean, existingCommentIds));
+    return pollCommentBack(gun, clean.threadId, clean.id, 5_000);
+  });
   if (!readback) {
     throw new Error('comment-readback-failed');
   }
@@ -4333,27 +4670,37 @@ async function writeForumComment(gun, comment) {
 
 async function writeTopicSynthesis(gun, synthesis) {
   const clean = sanitizeTopicSynthesis(synthesis);
-  injectGraph(gun, buildTopicSynthesisGraph(clean));
-  upsertTopicSynthesisLatestSnapshot(clean);
-  const readback = await pollTopicSynthesisBack(gun, clean.topic_id, clean.synthesis_id, 5_000);
+  const readback = await runCriticalWriteReadback('/vh/topics/synthesis', clean.synthesis_id, async () => {
+    injectGraph(gun, buildTopicSynthesisGraph(clean));
+    return pollTopicSynthesisBack(
+      gun,
+      clean.topic_id,
+      clean.synthesis_id,
+      5_000,
+      { allowSnapshotFallback: false },
+    );
+  });
   if (!readback) {
     throw new Error('topic-synthesis-readback-failed');
   }
+  upsertTopicSynthesisLatestSnapshot(clean);
   return clean;
 }
 
 async function writeTopicSynthesisCandidate(gun, candidate) {
   const clean = sanitizeTopicSynthesisCandidate(candidate);
-  const candidateChain = gun
-    .get('vh')
-    .get('topics')
-    .get(clean.topic_id)
-    .get('epochs')
-    .get(String(clean.epoch))
-    .get('candidates')
-    .get(clean.candidate_id);
-  injectGraph(gun, buildTopicSynthesisCandidateGraph(clean));
-  const readback = stripGunMetadata(await readOnce(candidateChain, 5_000));
+  const readback = await runCriticalWriteReadback('/vh/topics/synthesis-candidate', clean.candidate_id, async () => {
+    const candidateChain = gun
+      .get('vh')
+      .get('topics')
+      .get(clean.topic_id)
+      .get('epochs')
+      .get(String(clean.epoch))
+      .get('candidates')
+      .get(clean.candidate_id);
+    injectGraph(gun, buildTopicSynthesisCandidateGraph(clean));
+    return stripGunMetadata(await readOnce(candidateChain, 5_000));
+  });
   if (!readback || readback.candidate_id !== clean.candidate_id) {
     throw new Error('topic-synthesis-candidate-readback-failed');
   }
@@ -4362,62 +4709,72 @@ async function writeTopicSynthesisCandidate(gun, candidate) {
 
 async function writeNewsStoryRecord(gun, body) {
   const clean = sanitizeNewsStoryWrite(body);
-  injectGraph(gun, buildNewsStoryGraph(clean));
   const readback = await runCriticalWriteReadback(
     '/vh/news/story',
     clean.story_id,
-    () => pollNewsStoryBack(
-      gun,
-      clean.story_id,
-      numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
-    ),
+    async () => {
+      injectGraph(gun, buildNewsStoryGraph(clean));
+      const observed = await pollNewsStoryBack(
+        gun,
+        clean.story_id,
+        numberEnv('VH_RELAY_NEWS_STORY_WRITE_READBACK_TIMEOUT_MS', 5_000),
+      );
+      if (!observed) return null;
+      await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+        storyId: clean.story_id,
+        storyRecord: clean.record,
+        reason: 'story_write',
+      });
+      return observed;
+    },
   );
   if (!readback) {
     throw new Error('news-story-readback-failed');
   }
-  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
-    storyId: clean.story_id,
-    storyRecord: clean.record,
-    reason: 'story_write',
-  });
   return clean;
 }
 
 async function writeNewsLatestIndexRecord(gun, body) {
   const clean = sanitizeNewsLatestIndexWrite(body);
-  injectGraph(gun, buildNewsLatestIndexGraph(clean));
   const readback = await runCriticalWriteReadback(
     '/vh/news/latest-index',
     clean.story_id,
-    () => pollNewsLatestIndexBack(
-      gun,
-      clean.story_id,
-      numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
-    ),
+    async () => {
+      injectGraph(gun, buildNewsLatestIndexGraph(clean));
+      const observed = await pollNewsLatestIndexBack(
+        gun,
+        clean.story_id,
+        numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000),
+      );
+      if (!observed) return null;
+      await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+        storyId: clean.story_id,
+        latestRecord: observed,
+        reason: 'latest_index_write',
+      });
+      return observed;
+    },
   );
   if (!readback) {
     throw new Error('news-latest-index-readback-failed');
   }
-  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
-    storyId: clean.story_id,
-    latestRecord: readback,
-    reason: 'latest_index_write',
-  });
   return clean;
 }
 
 async function writeNewsHotIndexRecord(gun, body) {
   const clean = sanitizeNewsHotIndexWrite(body);
-  injectGraph(gun, buildNewsHotIndexGraph(clean));
   const readback = await runCriticalWriteReadback(
     '/vh/news/hot-index',
     clean.story_id,
-    () => pollNewsHotIndexBack(
-      gun,
-      clean.story_id,
-      numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
-        numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
-    ),
+    async () => {
+      injectGraph(gun, buildNewsHotIndexGraph(clean));
+      return pollNewsHotIndexBack(
+        gun,
+        clean.story_id,
+        numberEnv('VH_RELAY_NEWS_HOT_INDEX_WRITE_READBACK_TIMEOUT_MS',
+          numberEnv('VH_RELAY_NEWS_LATEST_INDEX_WRITE_READBACK_TIMEOUT_MS', 5_000)),
+      );
+    },
   );
   if (!readback) {
     throw new Error('news-hot-index-readback-failed');
@@ -4427,26 +4784,30 @@ async function writeNewsHotIndexRecord(gun, body) {
 
 async function writeNewsSynthesisLifecycleRecord(gun, body) {
   const clean = sanitizeNewsSynthesisLifecycleWrite(body);
-  injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
-  upsertNewsSynthesisLifecycleSnapshot(clean.record);
   const readback = await runCriticalWriteReadback(
     '/vh/news/synthesis-lifecycle',
     clean.story_id,
-    () => pollNewsSynthesisLifecycleBack(
-      gun,
-      clean.story_id,
-      clean.record,
-      numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
-    ),
+    async () => {
+      injectGraph(gun, buildNewsSynthesisLifecycleGraph(clean));
+      const observed = await pollNewsSynthesisLifecycleBack(
+        gun,
+        clean.story_id,
+        clean.record,
+        numberEnv('VH_RELAY_NEWS_LIFECYCLE_WRITE_READBACK_TIMEOUT_MS', 5_000),
+      );
+      if (!observed) return null;
+      upsertNewsSynthesisLifecycleSnapshot(clean.record);
+      await upsertNewsLatestIndexSnapshotFromWrite(gun, {
+        storyId: clean.story_id,
+        lifecycleRecord: observed,
+        reason: 'synthesis_lifecycle_write',
+      });
+      return observed;
+    },
   );
   if (!readback) {
     throw new Error('news-synthesis-lifecycle-readback-failed');
   }
-  await upsertNewsLatestIndexSnapshotFromWrite(gun, {
-    storyId: clean.story_id,
-    lifecycleRecord: readback,
-    reason: 'synthesis_lifecycle_write',
-  });
   return clean;
 }
 
@@ -4504,7 +4865,9 @@ async function handleWriteRoute(req, res, pathname, kind, write) {
     const message = String(error?.message || '');
     const status = error?.statusCode
       || (/(required|invalid|mismatch|private-field)/.test(message) ? 400 : 500);
-    if (status === 401 || status === 403 || status === 503) {
+    if (error?.code === 'relay-backpressure') {
+      res.setHeader('Retry-After', String(error.retryAfterSeconds ?? criticalWriteReadbackRetryAfterSeconds));
+    } else if (status === 401 || status === 403 || status === 503) {
       metrics.authRejects += 1;
     }
     incMap(metrics.writeFailures, label);
@@ -4512,10 +4875,12 @@ async function handleWriteRoute(req, res, pathname, kind, write) {
       route: label,
       status,
       error: error instanceof Error ? error.message : String(error),
+      ...(error?.code === 'relay-backpressure' ? { retry_after_seconds: error.retryAfterSeconds ?? criticalWriteReadbackRetryAfterSeconds } : {}),
     });
     sendJson(res, status, {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      ...(error?.code === 'relay-backpressure' ? { retryable: true, retry_after_seconds: error.retryAfterSeconds ?? criticalWriteReadbackRetryAfterSeconds } : {}),
     });
   }
 }
@@ -4564,6 +4929,10 @@ const server = http.createServer((req, res) => {
       relay_peers_configured: relayPeers.length > 0,
       relay_peer_auth_mode: relayPeerAuthMode,
       active_connections: metrics.activeConnections,
+      critical_write_readbacks_active: activeCriticalWriteReadbacks,
+      critical_write_readbacks_queued: queuedCriticalWriteReadbacks.length,
+      event_loop_delay: eventLoopDelaySummary(),
+      memory: process.memoryUsage(),
       route_surface: 'vh-relay-http-v1',
       public_http_routes: PUBLIC_HTTP_RELAY_ROUTES,
     });
@@ -4585,6 +4954,10 @@ const server = http.createServer((req, res) => {
       relay_peers_configured: relayPeers.length > 0,
       relay_peer_auth_mode: relayPeerAuthMode,
       relay_peer_auth_configured: relayPeerAuthMode !== 'none',
+      critical_write_readbacks_active: activeCriticalWriteReadbacks,
+      critical_write_readbacks_queued: queuedCriticalWriteReadbacks.length,
+      event_loop_delay: eventLoopDelaySummary(),
+      memory: process.memoryUsage(),
       route_surface: 'vh-relay-http-v1',
       public_http_routes: PUBLIC_HTTP_RELAY_ROUTES,
     });
@@ -5133,9 +5506,26 @@ server.prependListener('upgrade', (req, socket) => {
   }
 });
 
-server.listen(port, host, () => {
-  // eslint-disable-next-line no-console
-  console.log(
-    `[vh:relay] Gun relay listening on ${host}:${port} relay_id=${relayId} peer_count=${relayPeers.length} peer_auth=${relayPeerAuthMode}`
-  );
-});
+installFatalCaptureHandlers();
+startRelayResourceWatchdog();
+
+function listen() {
+  server.listen(port, host, () => {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[vh:relay] Gun relay listening on ${host}:${port} relay_id=${relayId} peer_count=${relayPeers.length} peer_auth=${relayPeerAuthMode}`
+    );
+  });
+}
+
+if (relayStartupJitterMaxMs > 0) {
+  const jitterMs = Math.floor(Math.random() * relayStartupJitterMaxMs);
+  logEvent('info', 'relay_startup_jitter', {
+    relay_id: relayId,
+    jitter_ms: jitterMs,
+    max_jitter_ms: relayStartupJitterMaxMs,
+  });
+  setTimeout(listen, jitterMs);
+} else {
+  listen();
+}
