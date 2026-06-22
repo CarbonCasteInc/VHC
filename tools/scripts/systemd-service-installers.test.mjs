@@ -60,6 +60,7 @@ test('news aggregator installer still gates publisher start on explicit approval
   assert.match(source, /if \[\[ "\$\{START_PUBLISHER\}" == "true" \]\]/);
   assert.match(source, /VH_NEWS_DAEMON_START_APPROVED:-/);
   assert.match(source, /--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1/);
+  assert.match(source, /systemctl --user set-environment VH_NEWS_DAEMON_START_APPROVED=1/);
   assert.match(source, /systemctl --user enable --now vh-news-aggregator\.service/);
 });
 
@@ -99,6 +100,28 @@ test('news aggregator installer writes publisher liveness watch units without en
   assert.match(service, /source "%h\/\.config\/vhc\/news-aggregator\.env"/);
   assert.match(timer, /OnUnitActiveSec=5min/);
   assert.match(timer, /Unit=vh-news-aggregator-liveness-watch\.service/);
+});
+
+test('news aggregator installer writes relay liveness watch units without enabling them by default', () => {
+  const source = readScript('install-news-aggregator-production-service.sh');
+  const service = readInfraUnit('vh-news-relay-liveness-watch.service');
+  const timer = readInfraUnit('vh-news-relay-liveness-watch.timer');
+
+  assert.match(source, /vh-news-relay-liveness-watch\.service/);
+  assert.match(source, /vh-news-relay-liveness-watch\.timer/);
+  assert.match(source, /--enable-relay-liveness-watch/);
+  assert.match(source, /if \[\[ "\$\{ENABLE_RELAY_LIVENESS_WATCH\}" == "true" \]\]/);
+  assert.match(source, /systemctl --user enable --now vh-news-relay-liveness-watch\.timer/);
+
+  for (const unitSource of [source, service]) {
+    assert.match(unitSource, /news-relay-liveness-watch\.mjs/);
+    assert.match(unitSource, /VH_RELAY_LIVENESS_OUTPUT_FILE/);
+    assert.match(unitSource, /VH_RELAY_LIVENESS_RESTART_ON_FAIL=true/);
+    assert.match(unitSource, /VH_RELAY_LIVENESS_RESTART_MAX_PER_RUN=1/);
+    assert.match(unitSource, /VH_RELAY_LIVENESS_RESTART_MIN_INTERVAL_MS=600000/);
+  }
+  assert.match(timer, /OnUnitActiveSec=5min/);
+  assert.match(timer, /Unit=vh-news-relay-liveness-watch\.service/);
 });
 
 test('news aggregator user unit orders publisher after StoryCluster', () => {

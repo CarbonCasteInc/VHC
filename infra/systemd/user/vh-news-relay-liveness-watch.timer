@@ -1,0 +1,12 @@
+[Unit]
+Description=Run VHC news relay liveness watch every 5 minutes
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+Unit=vh-news-relay-liveness-watch.service
+
+[Install]
+WantedBy=timers.target

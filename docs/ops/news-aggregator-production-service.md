@@ -35,6 +35,8 @@ Templates:
 - `infra/systemd/user/vh-relay-snapshot-freshness-watch.timer`
 - `infra/systemd/user/vh-news-aggregator-liveness-watch.service`
 - `infra/systemd/user/vh-news-aggregator-liveness-watch.timer`
+- `infra/systemd/user/vh-news-relay-liveness-watch.service`
+- `infra/systemd/user/vh-news-relay-liveness-watch.timer`
 
 Installer:
 
@@ -121,6 +123,22 @@ Enable this only after the attended start has produced current runtime
 diagnostics. It checks the publisher unit state, `NRestarts`, the current
 per-start run marker, and the freshness of the runtime diagnostic artifact.
 
+Relay liveness watch timer:
+
+```bash
+./tools/scripts/install-news-aggregator-production-service.sh --enable-relay-liveness-watch
+systemctl --user status vh-news-relay-liveness-watch.timer --no-pager
+journalctl --user -u vh-news-relay-liveness-watch.service -n 100 --no-pager
+```
+
+Enable this only after relays are intended-live. It checks `/readyz`, `/metrics`,
+Docker restart count, watchdog trips, RSS/heap, event-loop lag, and queued
+critical readbacks. The installed timer also restarts at most one eligible
+unhealthy relay per run (`VH_RELAY_LIVENESS_RESTART_ON_FAIL=true`,
+`VH_RELAY_LIVENESS_RESTART_MAX_PER_RUN=1`) with a 10 minute per-relay cooldown
+so a fully wedged relay can recover without restarting all relays in lockstep. A
+deliberately stopped relay with the timer still enabled is an alert condition.
+
 Approved publisher start packet:
 
 ```bash
@@ -134,11 +152,17 @@ systemctl --user status vh-news-aggregator.service --no-pager
 journalctl --user -u vh-news-aggregator.service -n 200 --no-pager
 ```
 
+The installer imports `VH_NEWS_DAEMON_START_APPROVED=1` into the user systemd
+manager before `enable --now`; a shell-only variable is not enough for
+`ExecStart`. After an abort or deliberate stop, remove the approval from the
+manager too:
+
 Abort / kill switch:
 
 ```bash
 systemctl --user stop vh-news-aggregator.service
 systemctl --user disable vh-news-aggregator.service
+systemctl --user unset-environment VH_NEWS_DAEMON_START_APPROVED
 journalctl --user -u vh-news-aggregator.service -n 200 --no-pager
 ```
 
@@ -452,20 +476,58 @@ The critical write routes (`/vh/news/story`, `/vh/news/latest-index`,
 `/vh/news/hot-index`, and `/vh/news/synthesis-lifecycle`) must confirm the
 write through their live relay readback path. A latest-index snapshot is
 downstream read-through evidence and must not be treated as proof that the
-in-flight write durably landed. Snapshot body verification and story-state
-refresh are optional maintenance work: they are concurrency-capped and pause
-while a critical write readback is active so they cannot starve the single relay
-event loop and turn a locally landed write into a false readback timeout.
-The current safety caps default to
+in-flight write durably landed. The same relay-side admission discipline now
+protects every write->readback surface, including topic synthesis and forum
+writes, so optional lanes cannot stampede the single relay event loop while raw
+publication is proving durability. Topic-synthesis backpressure or readback
+failure remains optional/non-fatal to the publisher under Scope A; relay-side
+bounding does not add it to the publisher fail-closed allow-list.
+
+When the per-relay critical readback admission gate is saturated, the relay
+returns `503` with `error=relay-critical-readback-backpressure` (or
+`relay-critical-readback-queue-timeout`) and `Retry-After`. The gun client
+classifies that response as `relay-backpressure`: it is a failed relay for the
+current fanout and never counts as quorum success, but it is distinct from a
+hard readback-failed `500` for diagnostics. The 2-of-3 quorum requirement is
+unchanged.
+
+Snapshot body verification, story-state refresh, topic synthesis maintenance,
+and other optional background work are maintenance work: they are
+concurrency-capped and pause while a critical write readback is active or queued
+so they cannot starve the single relay event loop and turn a locally landed
+write into a false readback timeout. The current safety caps default to
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_VERIFY_MAX_CONCURRENCY=2` and
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_MAX_CONCURRENCY=1`; leave
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_PAUSE_DURING_WRITE_READBACK=true` unless an
 attended rollback explicitly needs the old behavior for diagnosis.
+
+Relays also run a resource watchdog in production. It uses
+`perf_hooks.monitorEventLoopDelay()`, RSS, and heap usage thresholds. On breach
+it writes a secret-safe diagnostic bundle under the relay data mount, attempts a
+short best-effort CPU profile, and exits `1` so Docker can restart that relay.
+Deploy packets should recreate relays with bounded `--restart on-failure:5`,
+`--memory 2304m --memory-swap 2304m`, `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`,
+and `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics` so repeated overload does not
+become an unbounded synchronized restart loop. The Docker memory ceiling is a
+host-protection backstop above the 1.8 GB RSS watchdog; the watchdog should
+capture and exit first, while the cgroup prevents a fast off-heap spike from
+exhausting A6 memory across all three co-located relays.
+
 Operators should watch `/metrics` counters
 `vh_relay_critical_write_readbacks_started_total`,
+`vh_relay_critical_write_readbacks_queued`,
+`vh_relay_critical_write_readback_backpressure_total`,
+`vh_relay_resource_watchdog_trips_total`,
 `vh_relay_snapshot_background_pauses_total`, and
 `vh_relay_snapshot_background_concurrency_caps_total` during any post-merge
 soak.
+
+During the post-#675 soak, a single relay returning `503`
+`relay-critical-readback-backpressure` is expected graceful load shedding when
+the other two relays satisfy quorum. It must not be counted as success, and it
+must not be treated like a readback `500`. Abort or investigate on any critical
+route `500`, any fail-close, any watchdog trip, two relays shedding at once such
+that quorum falls below 2, or queues that do not drain in idle gaps.
 
 For Scope A launch gating, fail-closed only applies to the quorum-durable raw
 path: `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and the
@@ -714,6 +776,9 @@ Abort or stop the service if any of these occur:
   `runtime error triggered fail-closed stop`;
 - `news-aggregator-publisher-liveness-watch.mjs` reports a failed unit state,
   increased `NRestarts`, stale diagnostics, or a diagnostic run id mismatch;
+- `news-relay-liveness-watch.mjs` reports a relay restart-count increase,
+  watchdog trip, hot RSS/heap/event-loop lag, or persistent queued critical
+  readbacks;
 - snapshot watch reports stale newest-entry age above 6 hours;
 - latest content does not advance after approved start and expected ingest
   cadence.

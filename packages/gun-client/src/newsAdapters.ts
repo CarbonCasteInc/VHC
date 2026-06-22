@@ -401,6 +401,16 @@ function redactRelayRestExcerpt(value: string): string {
 function classifyRelayRestHttpFailure(status: number, body: string): string {
   const lower = body.toLowerCase();
   if (
+    status === 503
+    && (
+      lower.includes('relay-backpressure')
+      || lower.includes('relay-critical-readback-backpressure')
+      || lower.includes('relay-critical-readback-queue-timeout')
+    )
+  ) {
+    return 'relay-backpressure';
+  }
+  if (
     status === 530 &&
     (lower.includes('error 1033') || lower.includes('cloudflare tunnel') || lower.includes('cloudflare'))
   ) {
@@ -2320,13 +2330,21 @@ async function writeNewsRecordViaRelayRest(input: {
         body: JSON.stringify({ record: input.record }),
         signal: controller.signal,
       });
-      const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+      const body = await response.text().catch(() => '');
+      const payload = (() => {
+        try {
+          return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+        } catch {
+          return null;
+        }
+      })();
       if (response.ok && payload && input.validate(payload)) {
         successCount += 1;
         continue;
       }
+      const classification = classifyRelayRestHttpFailure(response.status, body);
       failedEndpointLabels.push(endpointLabel);
-      failures.push(`${endpointLabel}:http_${response.status}`);
+      failures.push(`${endpointLabel}:${classification}`);
     } catch (error) {
       failedEndpointLabels.push(endpointLabel);
       failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
@@ -3335,5 +3353,6 @@ export const newsAdapterInternal = {
   resolveNewsRelayRestWriteQuorum,
   shouldRequireAllNewsRelayRestWrites,
   shouldWriteNewsViaRelayRestFirst,
+  classifyRelayRestHttpFailure,
   writeNewsRecordViaRelayRest,
 };

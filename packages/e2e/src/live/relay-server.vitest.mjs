@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -76,7 +76,7 @@ function requestJson(url, { method = 'GET', headers = {}, body = undefined } = {
               return raw;
             }
           })();
-          resolve({ statusCode: response.statusCode ?? 0, body: parsedBody, raw });
+          resolve({ statusCode: response.statusCode ?? 0, body: parsedBody, raw, headers: response.headers });
         });
       }
     );
@@ -182,6 +182,17 @@ async function waitForOutput(child, pattern, timeoutMs = 10_000) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`timed out waiting for output ${pattern}`);
+}
+
+async function waitForExit(child, timeoutMs = 10_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (child.exitCode !== null) {
+      return child.exitCode;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('timed out waiting for relay exit');
 }
 
 function readGunOnce(node, timeoutMs = 5_000) {
@@ -1589,7 +1600,118 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
   }, 20_000);
 
-  it('keeps critical public-news write readback failures fatal to the route', async () => {
+  it('returns retryable backpressure before injecting a write when critical readbacks are saturated', async () => {
+    const { port, child } = await startRelay(children, tempDirs, {
+      VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY: '1',
+      VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT: '0',
+      VH_RELAY_CRITICAL_WRITE_READBACK_RETRY_AFTER_SECONDS: '3',
+      VH_RELAY_TEST_CRITICAL_WRITE_READBACK_DELAY_MS: '1200',
+    });
+    const blockingStory = makeRelayNewsStory('story-backpressure-blocking', 1778993051000, [
+      {
+        source_id: 'source-backpressure-blocking',
+        publisher: 'Example News',
+        url: 'https://example.com/backpressure-blocking',
+        url_hash: 'backpressure-blocking',
+        published_at: 1778993051000,
+        title: 'Backpressure blocking story',
+      },
+    ]);
+    const rejectedStory = makeRelayNewsStory('story-backpressure-rejected', 1778993052000, [
+      {
+        source_id: 'source-backpressure-rejected',
+        publisher: 'Example News',
+        url: 'https://example.com/backpressure-rejected',
+        url_hash: 'backpressure-rejected',
+        published_at: 1778993052000,
+        title: 'Backpressure rejected story',
+      },
+    ]);
+
+    const blockingWrite = requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+      method: 'POST',
+      body: {
+        record: {
+          __story_bundle_json: JSON.stringify(blockingStory),
+          story_id: blockingStory.story_id,
+          created_at: blockingStory.created_at,
+          schemaVersion: blockingStory.schemaVersion,
+        },
+      },
+    });
+    await waitForOutput(
+      child,
+      new RegExp(`critical_write_readback_test_delay.*\\/vh\\/news\\/story.*${blockingStory.story_id}`),
+      5_000,
+    );
+
+    const rejected = await requestJson(`http://127.0.0.1:${port}/vh/news/latest-index`, {
+      method: 'POST',
+      body: { record: makeRelayLatestIndexRecord(rejectedStory) },
+    });
+    expect(rejected).toMatchObject({
+      statusCode: 503,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'relay-critical-readback-backpressure',
+        retryable: true,
+        retry_after_seconds: 3,
+      }),
+    });
+    expect(rejected.headers['retry-after']).toBe('3');
+    await expect(blockingWrite).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: blockingStory.story_id }),
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=5&scan_limit=5`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.not.objectContaining({
+          records: expect.objectContaining({
+            [rejectedStory.story_id]: expect.anything(),
+          }),
+        }),
+      });
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.body).toContain('vh_relay_critical_write_readback_backpressure_total{route="/vh/news/latest-index"} 1');
+    expect(metrics.body).toContain('vh_relay_write_failures_total{route="/vh/news/latest-index"} 1');
+    expect(metrics.body).toContain('vh_relay_critical_write_readbacks_active 0');
+  }, 20_000);
+
+  it('writes a self-capture diagnostic and exits on a relay watchdog trip', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-diagnostics-'));
+    tempDirs.add(diagnosticDir);
+    const { child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'true',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRIP: 'true',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    await waitForOutput(child, /relay_resource_watchdog_tripped/, 5_000);
+    await expect(waitForExit(child, 5_000)).resolves.toBe(1);
+
+    const files = readdirSync(diagnosticDir);
+    const summaryFile = files.find((file) => file.endsWith('.json') && !file.endsWith('.process-report.json'));
+    expect(summaryFile).toBeTruthy();
+    const summary = JSON.parse(readFileSync(path.join(diagnosticDir, summaryFile), 'utf8'));
+    expect(summary).toMatchObject({
+      schema_version: 'vh-relay-self-capture-diagnostics-v1',
+      relay_id: expect.any(String),
+      reason: 'watchdog-test_forced',
+      details: expect.objectContaining({ reason: 'test_forced' }),
+      critical_write_readbacks: expect.objectContaining({
+        active: expect.any(Number),
+        queued: expect.any(Number),
+      }),
+    });
+    expect(JSON.stringify(summary)).not.toContain('VH_RELAY_DAEMON_TOKEN');
+  }, 10_000);
+
+  it('keeps critical write readback failures fatal to the route', async () => {
     const routes = [
       {
         route: '/vh/news/story',
@@ -1657,6 +1779,31 @@ describe('infra relay server', () => {
           },
         ]),
         body: (story) => ({ record: makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778993104500 }) }),
+      },
+      {
+        route: '/vh/topics/synthesis',
+        expectedError: 'topic-synthesis-readback-failed',
+        body: () => ({
+          synthesis: {
+            schemaVersion: 'topic-synthesis-v2',
+            topic_id: 'topic-forced-topic-synthesis',
+            synthesis_id: 'synthesis-forced-topic-synthesis',
+            epoch: 1,
+            created_at: '2026-06-21T12:00:00.000Z',
+          },
+        }),
+      },
+      {
+        route: '/vh/topics/synthesis-candidate',
+        expectedError: 'topic-synthesis-candidate-readback-failed',
+        body: () => ({
+          candidate: {
+            candidate_id: 'candidate-forced-topic-synthesis',
+            topic_id: 'topic-forced-topic-synthesis',
+            epoch: 1,
+            created_at: 1_778_993_105_000,
+          },
+        }),
       },
     ];
     const { port } = await startRelay(children, tempDirs, {

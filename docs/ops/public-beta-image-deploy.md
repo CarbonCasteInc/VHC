@@ -34,6 +34,19 @@ re-enable monitors.
   deploy error.
 - Set `NODE_ENV=production` on relays so snapshot-first latest-index serving
   stays enabled by default.
+- Run relays with bounded self-recovery: `--restart on-failure:5`,
+  `--memory 2304m --memory-swap 2304m`,
+  `VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true`,
+  `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics`, and
+  `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`. Relay watchdog exit is intentionally
+  restartable; publisher fail-closed exit is intentionally not. The memory
+  ceiling sits above the relay's graceful RSS watchdog and below host-exhaustion
+  territory, so a fast off-heap spike is contained to one relay container.
+- Keep relay critical write/readback admission bounded. The deploy packet adds
+  `VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2`,
+  `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT=16`, and
+  `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS=1000` unless A6 has an
+  explicit reviewed override.
 - Leave relay `GUN_STATS` unset or explicitly `false`. The relay disables GUN's
   package-local stats writer by default; setting `GUN_STATS=true` makes GUN
   write `stats.<basename(GUN_FILE)>` beside `node_modules/gun`, which is not a
@@ -283,7 +296,9 @@ their values.
 2. Run the direct on-disk relay snapshot precheck for every relay.
 3. Deploy one relay at a time with the existing host data bind mount preserved.
 4. After each relay restart, prove the running image tag/digest and verify the
-   three snapshot files still exist in the relay `GUN_FILE` directory.
+   three snapshot files still exist in the relay `GUN_FILE` directory. Confirm
+   the relay env includes the watchdog/admission defaults and Docker shows
+   `RestartPolicy.Name=on-failure` with `MaximumRetryCount=5`.
 5. After all relays prove the #638 image is running, run safe latest-index
    behavior probes:
    - `persist=true` returns JSON 400.
@@ -291,12 +306,16 @@ their values.
 6. Deploy the origin image from the same `main` revision and repoint analysis to
    `http://127.0.0.1:3001`.
 7. Verify local and public `/api/analyze/health` and `/api/analyze/config`.
-8. Only after explicit operator approval, add
-   `VH_NEWS_DAEMON_START_APPROVED=1` to the publisher env file and start the
-   managed publisher.
+8. Only after explicit operator approval, run the publisher installer with
+   `VH_NEWS_DAEMON_START_APPROVED=1`; the installer imports that approval into
+   the user systemd manager before starting `vh-news-aggregator.service`.
 9. Prove latest content advances and synthesis lifecycle/publication evidence
    is fresh.
-10. Re-enable the public freshness monitor and begin soak/canary.
+10. Re-enable the relay liveness, publisher liveness, and public freshness
+   monitors in that order, then begin soak/canary. The relay liveness timer is
+   an active remediation timer once enabled: it can restart one unhealthy relay
+   per run with cooldown, so leave it disabled during intentional relay
+   maintenance.
 
 ## No-Go Criteria
 
@@ -329,3 +348,8 @@ systemctl --user stop vh-news-aggregator.service
 ```
 
 Then remove the approval flag before any restart.
+Also remove the user-manager approval if it was imported:
+
+```bash
+systemctl --user unset-environment VH_NEWS_DAEMON_START_APPROVED
+```

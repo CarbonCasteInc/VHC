@@ -7,6 +7,7 @@ ENV_FILE="${VH_NEWS_DAEMON_ENV_FILE:-${HOME}/.config/vhc/news-aggregator.env}"
 SERVICE_PATH="%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin"
 ENABLE_WATCH=false
 ENABLE_PUBLISHER_LIVENESS_WATCH=false
+ENABLE_RELAY_LIVENESS_WATCH=false
 START_PUBLISHER=false
 
 for arg in "$@"; do
@@ -16,6 +17,9 @@ for arg in "$@"; do
       ;;
     --enable-publisher-liveness-watch)
       ENABLE_PUBLISHER_LIVENESS_WATCH=true
+      ;;
+    --enable-relay-liveness-watch)
+      ENABLE_RELAY_LIVENESS_WATCH=true
       ;;
     --start-publisher)
       START_PUBLISHER=true
@@ -130,6 +134,38 @@ Unit=vh-news-aggregator-liveness-watch.service
 WantedBy=timers.target
 EOF
 
+cat >"${UNIT_DIR}/vh-news-relay-liveness-watch.service" <<EOF
+[Unit]
+Description=VHC News Relay Liveness Watch
+Documentation=file:${REPO_ROOT}/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=${REPO_ROOT}
+Environment=VH_RELAY_LIVENESS_OUTPUT_FILE=%h/.local/state/vhc/relay-liveness/latest.json
+Environment=VH_RELAY_LIVENESS_RESTART_ON_FAIL=true
+Environment=VH_RELAY_LIVENESS_RESTART_MAX_PER_RUN=1
+Environment=VH_RELAY_LIVENESS_RESTART_MIN_INTERVAL_MS=600000
+Environment=PATH=${SERVICE_PATH}
+WorkingDirectory=${REPO_ROOT}
+ExecStart=/usr/bin/env node ${REPO_ROOT}/tools/scripts/news-relay-liveness-watch.mjs
+EOF
+
+cat >"${UNIT_DIR}/vh-news-relay-liveness-watch.timer" <<'EOF'
+[Unit]
+Description=Run VHC news relay liveness watch every 5 minutes
+
+[Timer]
+OnBootSec=4min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+Unit=vh-news-relay-liveness-watch.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 cat >"${UNIT_DIR}/vh-relay-snapshot-freshness-watch.timer" <<'EOF'
 [Unit]
 Description=Run VHC relay latest-index snapshot freshness watch every 15 minutes
@@ -153,6 +189,8 @@ echo "  ${UNIT_DIR}/vh-relay-snapshot-freshness-watch.service"
 echo "  ${UNIT_DIR}/vh-relay-snapshot-freshness-watch.timer"
 echo "  ${UNIT_DIR}/vh-news-aggregator-liveness-watch.service"
 echo "  ${UNIT_DIR}/vh-news-aggregator-liveness-watch.timer"
+echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.service"
+echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.timer"
 echo "Publisher env file expected at: ${ENV_FILE}"
 
 if [[ "${ENABLE_WATCH}" == "true" ]]; then
@@ -165,13 +203,19 @@ if [[ "${ENABLE_PUBLISHER_LIVENESS_WATCH}" == "true" ]]; then
   echo "Enabled news aggregator publisher liveness timer"
 fi
 
+if [[ "${ENABLE_RELAY_LIVENESS_WATCH}" == "true" ]]; then
+  systemctl --user enable --now vh-news-relay-liveness-watch.timer
+  echo "Enabled news relay liveness timer"
+fi
+
 if [[ "${START_PUBLISHER}" == "true" ]]; then
   if [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
     echo "--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1" >&2
     exit 78
   fi
+  systemctl --user set-environment VH_NEWS_DAEMON_START_APPROVED=1
   systemctl --user enable --now vh-news-aggregator.service
-  echo "Enabled and started vh-news-aggregator.service"
+  echo "Enabled and started vh-news-aggregator.service with systemd manager approval env"
 else
   echo "Publisher service installed but not started"
 fi

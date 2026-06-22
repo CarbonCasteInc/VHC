@@ -3,6 +3,7 @@ FROM node:20.16.0-alpine3.19
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NODE_OPTIONS=--max-old-space-size=1536
 
 # Install the exact Gun version used in the monorepo
 RUN npm install gun@0.2020.1237

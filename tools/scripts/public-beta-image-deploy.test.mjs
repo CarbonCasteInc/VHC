@@ -12,6 +12,7 @@ const BUILD_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/build-public-beta-image
 const EXPORT_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/export-public-beta-image-artifacts.sh');
 const PACKET_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/emit-a6-public-beta-deploy-packet.sh');
 const RECOVER_PROVENANCE_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/recover-public-beta-origin-provenance.mjs');
+const PUBLIC_BETA_COMPOSE = path.join(REPO_ROOT, 'infra/docker/docker-compose.public-beta.yml');
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -419,6 +420,13 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.doesNotMatch(result.stdout, /entries != 15/);
     assert.match(result.stdout, /VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001/);
     assert.match(result.stdout, /vhc-public-beta-relay:new/);
+    assert.match(result.stdout, /--restart on-failure:5/);
+    assert.match(result.stdout, /--memory 2304m/);
+    assert.match(result.stdout, /--memory-swap 2304m/);
+    assert.match(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true/);
+    assert.match(result.stdout, /VH_RELAY_DIAGNOSTIC_DIR=\/data\/diagnostics/);
+    assert.match(result.stdout, /VH_RELAY_STARTUP_JITTER_MAX_MS=5000/);
+    assert.match(result.stdout, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2/);
     const originRewriteLine = result.stdout
       .split('\n')
       .find((line) => line.startsWith("awk '") && line.includes('VH_PUBLIC_ORIGIN_ANALYSIS_TARGET'));
@@ -444,6 +452,20 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.doesNotMatch(result.stdout, /http:\/\/127\.0\.0\.1:2048/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('public beta compose bounds relay restart and memory self-defense', () => {
+  const compose = readFileSync(PUBLIC_BETA_COMPOSE, 'utf8');
+  for (const relay of ['relay-a', 'relay-b', 'relay-c']) {
+    const blockMatch = compose.match(new RegExp(`  ${relay}:\\n([\\s\\S]*?)(?=\\n  (?:relay-|origin:)|\\nnetworks:)`));
+    assert.ok(blockMatch, `${relay} service missing`);
+    const block = blockMatch[1];
+    assert.match(block, /restart: on-failure:5/);
+    assert.match(block, /mem_limit: \$\{VH_PUBLIC_BETA_RELAY_MEMORY_LIMIT:-2304m\}/);
+    assert.match(block, /memswap_limit: \$\{VH_PUBLIC_BETA_RELAY_MEMORY_SWAP_LIMIT:-2304m\}/);
+    assert.match(block, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED: \$\{VH_RELAY_RESOURCE_WATCHDOG_ENABLED:-true\}/);
+    assert.match(block, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY: \$\{VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY:-2\}/);
   }
 });
 

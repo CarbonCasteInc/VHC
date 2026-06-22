@@ -143,6 +143,21 @@ function relayEndpointLabel(endpoint: string): string {
   }
 }
 
+function classifyRelayRestWriteFailure(status: number, body: string): string {
+  const lower = body.toLowerCase();
+  if (
+    status === 503
+    && (
+      lower.includes('relay-backpressure')
+      || lower.includes('relay-critical-readback-backpressure')
+      || lower.includes('relay-critical-readback-queue-timeout')
+    )
+  ) {
+    return 'relay-backpressure';
+  }
+  return `http-${status}`;
+}
+
 function relayAuthHeaders(endpoint: string): Record<string, string> {
   const headers = createRelayDaemonAuthHeadersForEndpoint(endpoint, {
     tokenMapEnvNames: RELAY_TOKEN_MAP_ENV_NAMES,
@@ -193,13 +208,20 @@ async function postJsonToRelays(input: {
         body: JSON.stringify(input.body),
         signal: controller.signal,
       });
-      const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+      const body = await response.text().catch(() => '');
+      const payload = (() => {
+        try {
+          return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+        } catch {
+          return null;
+        }
+      })();
       if (response.ok && payload && input.validate(payload)) {
         successCount += 1;
         continue;
       }
       failedEndpointLabels.push(endpointLabel);
-      failures.push(`${endpointLabel}:http_${response.status}`);
+      failures.push(`${endpointLabel}:${classifyRelayRestWriteFailure(response.status, body)}`);
     } catch (error) {
       failedEndpointLabels.push(endpointLabel);
       failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);

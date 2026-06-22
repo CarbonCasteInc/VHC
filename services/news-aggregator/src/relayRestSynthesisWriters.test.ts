@@ -115,7 +115,7 @@ const LIFECYCLE: NewsSynthesisLifecycleRecord = {
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status: init.status ?? 200,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) },
   });
 }
 
@@ -271,6 +271,38 @@ describe('relayRestSynthesisWriters', () => {
     const writers = createRelayRestSynthesisWritersFromEnv(CLIENT_3, console);
     await expect(writers.writeCandidate?.(CLIENT_3, CANDIDATE))
       .rejects.toThrow('Relay REST write failed for /vh/topics/synthesis-candidate: 1/3 succeeded; required=2');
+  });
+
+  it('classifies relay backpressure as a failed retryable relay without turning optional synthesis fatality into success', async () => {
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_RELAY_WRITE_MIN_SUCCESS', '2');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        topic_id: CANDIDATE.topic_id,
+        candidate_id: CANDIDATE.candidate_id,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: false,
+        error: 'relay-critical-readback-backpressure',
+        retryable: true,
+        retry_after_seconds: 2,
+      }, {
+        status: 503,
+        headers: { 'retry-after': '2' },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        ok: true,
+        topic_id: CANDIDATE.topic_id,
+        candidate_id: 'wrong-candidate',
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const writers = createRelayRestSynthesisWritersFromEnv(CLIENT_3, console);
+    await expect(writers.writeCandidate?.(CLIENT_3, CANDIDATE))
+      .rejects.toThrow(/failed=https:\/\/gun-b\.example\.test:relay-backpressure/);
   });
 
   it('fails before posting synthesis writes for invalid or impossible explicit quorum', async () => {
