@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDaemonWriteLaneRegistry } from './daemonWriteLane';
+import { PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY } from './productFeedReconciler';
 
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve().then(() => undefined);
@@ -162,6 +163,60 @@ describe('daemonWriteLane', () => {
           failed_count: 1,
         }),
       ]),
+    );
+  });
+
+  it('paces product-feed repair writes with dedicated concurrency-one lanes', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    let releaseFirstRepair: (() => void) | null = null;
+    const lane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 10,
+      classConcurrency: PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY,
+      stopClassOnFailure: (writeClass) => writeClass === 'news_synthesis_lifecycle',
+    });
+
+    const firstRepair = lane.run('product_feed_repair_lifecycle', { story_id: 'story-1' }, () =>
+      new Promise<string>((resolve) => {
+        releaseFirstRepair = () => resolve('first-repair');
+      }),
+    );
+    const secondRepairTask = vi.fn(async () => 'second-repair');
+    const secondRepair = lane.run('product_feed_repair_lifecycle', { story_id: 'story-2' }, secondRepairTask);
+    const rawPendingLifecycle = lane.run('news_synthesis_lifecycle', { story_id: 'raw-story' }, async () => 'raw');
+
+    await flushMicrotasks();
+
+    expect(secondRepairTask).not.toHaveBeenCalled();
+    await expect(rawPendingLifecycle).resolves.toBe('raw');
+    expect(lane.snapshot()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          write_class: 'product_feed_repair_lifecycle',
+          pending_depth: 1,
+          in_flight: 1,
+          stopped: false,
+        }),
+        expect.objectContaining({
+          write_class: 'news_synthesis_lifecycle',
+          stopped: false,
+        }),
+      ]),
+    );
+
+    releaseFirstRepair?.();
+    await expect(firstRepair).resolves.toBe('first-repair');
+    await flushMicrotasks();
+    await expect(secondRepair).resolves.toBe('second-repair');
+
+    expect(secondRepairTask).toHaveBeenCalledTimes(1);
+    expect(lane.snapshot()).toContainEqual(
+      expect.objectContaining({
+        write_class: 'product_feed_repair_lifecycle',
+        pending_depth: 0,
+        in_flight: 0,
+        completed_count: 2,
+      }),
     );
   });
 });

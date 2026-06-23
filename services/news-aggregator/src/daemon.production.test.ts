@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { NewsRuntimeTickSummary } from '@vh/ai-engine';
+import type {
+  NewsRuntimeConfig,
+  NewsRuntimeSynthesisCandidate,
+  NewsRuntimeTickSummary,
+} from '@vh/ai-engine';
 
 const mocks = vi.hoisted(() => ({
   startNewsRuntime: vi.fn(),
@@ -94,6 +98,28 @@ function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsR
     ...overrides,
   };
 }
+
+const SYNTHESIS_CANDIDATE: NewsRuntimeSynthesisCandidate = {
+  story_id: 'story-disabled-synthesis',
+  provider: {
+    provider_id: 'remote-analysis',
+    model_id: 'gpt-5-nano',
+    kind: 'remote',
+  },
+  request: {
+    prompt: 'Summary',
+    model: 'gpt-5-nano',
+    max_tokens: 2048,
+    temperature: 0.1,
+  },
+  work_items: [{
+    story_id: 'story-disabled-synthesis',
+    topic_id: 'topic-news',
+    work_type: 'full-analysis',
+    summary_hint: 'Summary',
+    requested_at: 1_700_000_000_000,
+  }],
+};
 
 function waitForScheduledStop(): Promise<void> {
   return new Promise((resolve) => {
@@ -301,6 +327,35 @@ describe('news daemon production wiring', () => {
       expect(runtimeHandle.stop).toHaveBeenCalledTimes(1);
       expect(shutdown).toHaveBeenCalledTimes(1);
     } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps accepted/topic synthesis relay writes disabled for Scope A launch config', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-synthesis-disabled-'));
+    const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }));
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_ENABLED', '0');
+    vi.stubEnv('VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST', 'true');
+    vi.stubEnv('VH_RELAY_DAEMON_TOKEN', 'relay-token');
+    vi.stubGlobal('fetch', fetchMock);
+    let handle: { stop(): Promise<void> } | null = null;
+
+    try {
+      handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+
+      runtimeConfig.onSynthesisCandidate?.(SYNTHESIS_CANDIDATE);
+      await runtimeConfig.onTickSummary?.(makeTickSummary());
+      await waitForScheduledStop();
+
+      const fetchedUrls = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(fetchedUrls).toContain('https://storycluster.example.com/health');
+      expect(fetchedUrls.some((url) => url.includes('/vh/topics/synthesis-candidate'))).toBe(false);
+      expect(fetchedUrls.some((url) => url.includes('/vh/topics/synthesis'))).toBe(false);
+    } finally {
+      await handle?.stop();
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });

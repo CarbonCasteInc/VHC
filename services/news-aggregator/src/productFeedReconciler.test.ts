@@ -93,9 +93,13 @@ describe('product feed reconciler', () => {
   it('repairs missing latest/hot indexes and missing lifecycle for eligible raw stories', async () => {
     const story = makeStory();
     const dependencies = makeDependencies(story);
+    const runWrite = vi.fn(async <T,>(_writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<T>) =>
+      task(),
+    );
 
     const result = await reconcileProductFeedFromRawStories({ id: 'client' } as VennClient, {
       dependencies,
+      runWrite,
       now: () => 1_000,
       logger: { info: vi.fn(), warn: vi.fn() },
     });
@@ -125,6 +129,11 @@ describe('product feed reconciler', () => {
         frame_table_state: 'frame_table_pending',
       }),
     );
+    expect(runWrite.mock.calls.map((call) => call[0])).toEqual([
+      'product_feed_repair_latest_index',
+      'product_feed_repair_hot_index',
+      'product_feed_repair_lifecycle',
+    ]);
   });
 
   it('preserves current lifecycle when the story source-set revision is unchanged', async () => {
