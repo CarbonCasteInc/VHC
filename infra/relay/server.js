@@ -182,6 +182,13 @@ const relayStartupJitterMaxMs = nonNegativeNumberEnv(
   'VH_RELAY_STARTUP_JITTER_MAX_MS',
   process.env.NODE_ENV === 'production' ? 5_000 : 0,
 );
+const radataBytesRefreshIntervalMs = nonNegativeNumberEnv(
+  'VH_RELAY_RADATA_BYTES_REFRESH_INTERVAL_MS',
+  30_000,
+);
+const radataBytesScanMaxEntries = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_MAX_ENTRIES', 50_000);
+const radataBytesScanMaxDepth = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_MAX_DEPTH', 32);
+const radataBytesScanTimeoutMs = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_TIMEOUT_MS', 5_000);
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
 if (!relayPeerAuthModes.has(relayPeerAuthMode)) {
@@ -219,6 +226,9 @@ const metrics = {
   relayWatchdogTrips: new Map(),
   snapshotBackgroundPauses: new Map(),
   snapshotBackgroundConcurrencyCaps: new Map(),
+  radataBytesRefreshSuccesses: 0,
+  radataBytesRefreshErrors: 0,
+  radataBytesRefreshTruncated: 0,
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
@@ -241,6 +251,15 @@ function incMap(map, key, by = 1) {
 let activeCriticalWriteReadbacks = 0;
 const queuedCriticalWriteReadbacks = [];
 let relayWatchdogTripped = false;
+let radataBytesRefreshInFlight = false;
+const radataBytesCache = {
+  bytes: 0,
+  refreshedAt: 0,
+  durationMs: 0,
+  scannedEntries: 0,
+  truncated: false,
+  lastError: '',
+};
 
 function criticalWriteReadbacksAreActive() {
   return (activeCriticalWriteReadbacks > 0 || queuedCriticalWriteReadbacks.length > 0)
@@ -661,20 +680,126 @@ async function assertRouteAuth(req, pathname, body, kind) {
   await verifyUserSignature(req, pathname, body);
 }
 
-function dirSizeBytes(target) {
-  if (!target || target === false) return 0;
-  try {
-    const stat = fs.statSync(target);
-    if (stat.isFile()) return stat.size;
-    if (!stat.isDirectory()) return 0;
-    let total = 0;
-    for (const entry of fs.readdirSync(target)) {
-      total += dirSizeBytes(path.join(target, entry));
-    }
-    return total;
-  } catch {
-    return 0;
+function yieldToEventLoop() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
+async function scanRadataBytes(target) {
+  if (!target || target === false) {
+    return { bytes: 0, scanned_entries: 0, truncated: false };
   }
+  const startedAt = Date.now();
+  let rootStat = null;
+  try {
+    rootStat = await fs.promises.stat(target);
+  } catch {
+    return { bytes: 0, scanned_entries: 0, truncated: false };
+  }
+  if (rootStat.isFile()) {
+    return { bytes: rootStat.size, scanned_entries: 1, truncated: false };
+  }
+  if (!rootStat.isDirectory()) {
+    return { bytes: 0, scanned_entries: 1, truncated: false };
+  }
+
+  let bytes = 0;
+  let scannedEntries = 0;
+  let truncated = false;
+  const stack = [{ dir: target, depth: 0 }];
+  while (stack.length > 0) {
+    if (Date.now() - startedAt > radataBytesScanTimeoutMs) {
+      truncated = true;
+      break;
+    }
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(current.dir, { withFileTypes: true });
+    } catch {
+      truncated = true;
+      continue;
+    }
+    for (const entry of entries) {
+      scannedEntries += 1;
+      if (scannedEntries > radataBytesScanMaxEntries) {
+        truncated = true;
+        stack.length = 0;
+        break;
+      }
+      const entryPath = path.join(current.dir, entry.name);
+      if (entry.isFile()) {
+        try {
+          const stat = await fs.promises.stat(entryPath);
+          bytes += stat.size;
+        } catch {
+          truncated = true;
+        }
+      } else if (entry.isDirectory()) {
+        if (current.depth + 1 <= radataBytesScanMaxDepth) {
+          stack.push({ dir: entryPath, depth: current.depth + 1 });
+        } else {
+          truncated = true;
+        }
+      }
+      if (scannedEntries % 256 === 0) {
+        await yieldToEventLoop();
+      }
+      if (Date.now() - startedAt > radataBytesScanTimeoutMs) {
+        truncated = true;
+        stack.length = 0;
+        break;
+      }
+    }
+  }
+  return { bytes, scanned_entries: scannedEntries, truncated };
+}
+
+async function refreshRadataBytesCache(reason = 'interval') {
+  if (radataBytesRefreshInFlight) return;
+  radataBytesRefreshInFlight = true;
+  const startedAt = Date.now();
+  try {
+    const result = await scanRadataBytes(gunFile);
+    radataBytesCache.bytes = result.bytes;
+    radataBytesCache.refreshedAt = Date.now();
+    radataBytesCache.durationMs = radataBytesCache.refreshedAt - startedAt;
+    radataBytesCache.scannedEntries = result.scanned_entries;
+    radataBytesCache.truncated = result.truncated;
+    radataBytesCache.lastError = '';
+    metrics.radataBytesRefreshSuccesses += 1;
+    if (result.truncated) {
+      metrics.radataBytesRefreshTruncated += 1;
+      logEvent('warn', 'radata_bytes_refresh_truncated', {
+        relay_id: relayId,
+        reason,
+        scanned_entries: result.scanned_entries,
+        max_entries: radataBytesScanMaxEntries,
+        max_depth: radataBytesScanMaxDepth,
+        timeout_ms: radataBytesScanTimeoutMs,
+      });
+    }
+  } catch (error) {
+    metrics.radataBytesRefreshErrors += 1;
+    radataBytesCache.lastError = error instanceof Error ? error.message : String(error);
+    logEvent('warn', 'radata_bytes_refresh_failed', {
+      relay_id: relayId,
+      reason,
+      error: radataBytesCache.lastError,
+    });
+  } finally {
+    radataBytesRefreshInFlight = false;
+  }
+}
+
+function startRadataBytesRefresh() {
+  if (!gunFile || radataBytesRefreshIntervalMs <= 0) return;
+  setTimeout(() => {
+    void refreshRadataBytesCache('startup');
+  }, 0).unref?.();
+  const interval = setInterval(() => {
+    void refreshRadataBytesCache('interval');
+  }, radataBytesRefreshIntervalMs);
+  interval.unref?.();
 }
 
 function openFileDescriptorCount() {
@@ -713,7 +838,16 @@ function metricsText() {
   add('vh_relay_critical_write_readbacks_active', activeCriticalWriteReadbacks);
   add('vh_relay_critical_write_readbacks_queued', queuedCriticalWriteReadbacks.length);
   add('vh_relay_critical_write_readbacks_max_queued', metrics.criticalWriteReadbackMaxQueued);
-  add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
+  add('vh_relay_radata_bytes', radataBytesCache.bytes);
+  add('vh_relay_radata_bytes_refresh_enabled', gunFile && radataBytesRefreshIntervalMs > 0 ? 1 : 0);
+  add('vh_relay_radata_bytes_refreshing', radataBytesRefreshInFlight ? 1 : 0);
+  add('vh_relay_radata_bytes_last_refresh_age_ms', radataBytesCache.refreshedAt > 0 ? Date.now() - radataBytesCache.refreshedAt : -1);
+  add('vh_relay_radata_bytes_last_refresh_duration_ms', radataBytesCache.durationMs);
+  add('vh_relay_radata_bytes_last_refresh_scanned_entries', radataBytesCache.scannedEntries);
+  add('vh_relay_radata_bytes_last_refresh_truncated', radataBytesCache.truncated ? 1 : 0);
+  add('vh_relay_radata_bytes_refresh_successes_total', metrics.radataBytesRefreshSuccesses);
+  add('vh_relay_radata_bytes_refresh_errors_total', metrics.radataBytesRefreshErrors);
+  add('vh_relay_radata_bytes_refresh_truncated_total', metrics.radataBytesRefreshTruncated);
   const memory = process.memoryUsage();
   const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
@@ -5508,6 +5642,7 @@ server.prependListener('upgrade', (req, socket) => {
 
 installFatalCaptureHandlers();
 startRelayResourceWatchdog();
+startRadataBytesRefresh();
 
 function listen() {
   server.listen(port, host, () => {
