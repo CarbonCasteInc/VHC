@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-15
+> Last Reviewed: 2026-06-23
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -354,6 +354,25 @@ immediately after that completed summary. Set it to `false` only when first-tick
 caps, synthesis throughput, relay fanout, and the watchdog window have been
 recalibrated together.
 
+The first product-feed repair pass is also deferred until after the first
+completed raw runtime tick. This is production default behavior and does not
+depend on accepted synthesis being enabled or on the synthesis-defer flag. The
+daemon logs one safe `first_runtime_tick_pending` skip with the holder id while
+that first tick is still pending, leaves the repair timer eligible, and runs
+product-feed reconciliation on the next maintenance pass after a completed tick.
+This prevents startup product-feed repair from colliding with the first raw
+bundle plus raw pending lifecycle writes.
+
+Product-feed repair writes are paced separately from raw publication. Story-body,
+latest-index, hot-index, and repair lifecycle maintenance writes use dedicated
+`product_feed_repair_*` write lanes with concurrency 1. Those lanes preserve the
+configured relay REST quorum for each write, but their failures are maintenance
+telemetry: they are logged and counted by the repair result and must not call the
+fatal runtime `onError` path, stop raw publication, or set the daemon's
+runtime-write block. The startup deferral and the paced repair lanes solve
+different windows: deferral removes the startup write collision, while pacing
+protects steady-state repair runs from becoming a maintenance burst.
+
 Current Phase 5 Scope A is raw-fresh, v4-signed, product-visible news cards.
 Raw bundle publication and the publish-time pending lifecycle row
 (`synthesis_pending` / `frame_table_pending`) are critical and fail-closed
@@ -374,6 +393,21 @@ service stopped instead of allowing the write lane to drain more public stories.
 Do not set it to `false` in production unless the incident commander has chosen
 an attended degraded-write experiment and the public-feed rollback plan is
 already active.
+
+For the next post-#679 launch soak after a clean StoryCluster reset, use:
+
+```bash
+VH_BUNDLE_SYNTHESIS_ENABLED=0
+VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
+VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8
+```
+
+`VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch-soak value, not a
+permanent ceiling. Raise it deliberately only after paced repair has soaked
+cleanly. Scope A launch config keeps accepted synthesis disabled: the raw runtime
+may still enqueue local synthesis candidates and log an inactive local queue, but
+`VH_BUNDLE_SYNTHESIS_ENABLED=0` must not publish accepted/topic synthesis relay
+writes to `/vh/topics/synthesis-candidate` or `/vh/topics/synthesis`.
 
 ## Env File Surface
 
@@ -425,9 +459,12 @@ VH_NEWS_RUNTIME_DIAGNOSTIC_FILE
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE
 VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR
+VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS
+VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
+VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_SYSTEM_WRITER_ID
 VH_NEWS_SYSTEM_WRITER_PIN_JSON
@@ -568,10 +605,11 @@ waits for the next leadership tick. On shutdown it attempts to release its lease
 Lease renewal is intentionally isolated from post-leadership maintenance:
 accepted synthesis replay, product-feed reconciliation, and pending synthesis
 catch-up run as non-overlapping background work after the heartbeat and runtime
-start. A slow or wedged maintenance pass must be skipped on later heartbeats
-rather than blocking lease renewal. Treat `news daemon lease expired` during a
-healthy relay soak as a publisher bug in that isolation contract, not as relay
-quorum loss.
+start. Product-feed reconciliation additionally skips until the first completed
+runtime tick so startup maintenance cannot race the first raw publish tick. A
+slow or wedged maintenance pass must be skipped on later heartbeats rather than
+blocking lease renewal. Treat `news daemon lease expired` during a healthy relay
+soak as a publisher bug in that isolation contract, not as relay quorum loss.
 
 Recommended production holder:
 

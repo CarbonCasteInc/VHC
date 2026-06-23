@@ -26,6 +26,18 @@ const INCOMPLETE_LIFECYCLE_STATUSES = new Set<NewsSynthesisLifecycleRecord['stat
   'pending',
   'retryable_failure',
 ]);
+export const PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY = {
+  product_feed_repair_story: 1,
+  product_feed_repair_latest_index: 1,
+  product_feed_repair_hot_index: 1,
+  product_feed_repair_lifecycle: 1,
+} as const;
+export type ProductFeedRepairWriteClass = keyof typeof PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY;
+export type ProductFeedRepairRunWrite = <T>(
+  writeClass: ProductFeedRepairWriteClass,
+  attributes: Record<string, unknown>,
+  task: () => Promise<T>,
+) => Promise<T>;
 
 export interface ProductFeedReconciliationFailure {
   readonly story_id: string;
@@ -66,6 +78,7 @@ export interface ProductFeedReconcilerOptions {
   readonly now?: () => number;
   readonly logger?: LoggerLike;
   readonly dependencies?: ProductFeedReconcilerDependencies;
+  readonly runWrite?: ProductFeedRepairRunWrite;
 }
 
 function normalizeSampleLimit(value: unknown): number {
@@ -155,6 +168,7 @@ export async function reconcileProductFeedFromRawStories(
   const writeHotIndex = dependencies.writeHotIndexEntry ?? writeNewsHotIndexEntry;
   const writeLifecycle = dependencies.writeLifecycle ?? writeNewsSynthesisLifecycleStatus;
   const computeHotness = dependencies.computeHotness ?? computeStoryHotness;
+  const runWrite: ProductFeedRepairRunWrite = options.runWrite ?? ((_writeClass, _attributes, task) => task());
   const now = options.now ?? Date.now;
   const logger = options.logger ?? console;
   const sampleLimit = normalizeSampleLimit(options.sampleLimit);
@@ -186,7 +200,11 @@ export async function reconcileProductFeedFromRawStories(
           skippedInvalidStory += 1;
           continue;
         }
-        const rewritten = await writeStory(client, repairCandidate);
+        const rewritten = await runWrite(
+          'product_feed_repair_story',
+          { story_id: storyId, operation: 'repair_story_body' },
+          () => writeStory(client, repairCandidate),
+        );
         story = isEligibleRawStory(rewritten) ? rewritten : repairCandidate;
         repairedStoryBody += 1;
       }
@@ -199,33 +217,49 @@ export async function reconcileProductFeedFromRawStories(
 
       const latestIndexRecord = await readLatestIndexEntry(client, story.story_id).catch(() => null);
       if (latestIndexNeedsRepair(latestIndexRecord, story)) {
-        await writeLatestIndex(client, story.story_id, story.cluster_window_end, story);
+        await runWrite(
+          'product_feed_repair_latest_index',
+          { story_id: story.story_id, topic_id: story.topic_id },
+          () => writeLatestIndex(client, story.story_id, story.cluster_window_end, story),
+        );
         repairedLatestIndex += 1;
       }
 
       // Refresh hot rows even when a legacy scalar exists so story-backed
       // product metadata stays in parity with the latest index.
-      await writeHotIndex(client, story.story_id, computeHotness(story, now()), story);
+      await runWrite(
+        'product_feed_repair_hot_index',
+        { story_id: story.story_id, topic_id: story.topic_id },
+        () => writeHotIndex(client, story.story_id, computeHotness(story, now()), story),
+      );
       repairedHotIndex += 1;
 
       const lifecycle = await readLifecycle(client, story.story_id).catch(() => null);
       if (lifecycleNeedsPendingRepair(lifecycle, story)) {
-        await writeLifecycle(client, buildNewsSynthesisLifecycleRecord({
-          story,
-          status: 'pending',
-          frameTableState: 'frame_table_pending',
-          updatedAt: now(),
-        }));
+        await runWrite(
+          'product_feed_repair_lifecycle',
+          { story_id: story.story_id, status: 'pending' },
+          () => writeLifecycle(client, buildNewsSynthesisLifecycleRecord({
+            story,
+            status: 'pending',
+            frameTableState: 'frame_table_pending',
+            updatedAt: now(),
+          })),
+        );
         repairedLifecycle += 1;
       } else if (lifecycle && lifecycleNeedsIncompleteRefresh(lifecycle, story, now(), incompleteLifecycleRefreshMs)) {
-        await writeLifecycle(client, buildNewsSynthesisLifecycleRecord({
-          story,
-          status: lifecycle.status,
-          frameTableState: lifecycle.frame_table_state,
-          retryable: lifecycle.retryable,
-          reason: lifecycle.reason ?? 'product_feed_reconciled_incomplete_lifecycle',
-          updatedAt: now(),
-        }));
+        await runWrite(
+          'product_feed_repair_lifecycle',
+          { story_id: story.story_id, status: lifecycle.status },
+          () => writeLifecycle(client, buildNewsSynthesisLifecycleRecord({
+            story,
+            status: lifecycle.status,
+            frameTableState: lifecycle.frame_table_state,
+            retryable: lifecycle.retryable,
+            reason: lifecycle.reason ?? 'product_feed_reconciled_incomplete_lifecycle',
+            updatedAt: now(),
+          })),
+        );
         refreshedIncompleteLifecycle += 1;
       } else {
         preservedLifecycle += 1;

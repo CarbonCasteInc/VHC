@@ -296,7 +296,7 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
-  it('reconciles raw stories into product feed indexes after acquiring leadership', async () => {
+  it('defers product feed reconciliation until after the first completed runtime tick', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
     const timers = makeTimerControls();
@@ -323,19 +323,31 @@ describe('news aggregator daemon', () => {
     });
 
     await daemon.start();
+    await flushMicrotasks();
+
+    expect(reconcileProductFeed).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      '[vh:news-daemon] product feed reconciliation deferred until first runtime tick completes',
+      {
+        holder_id: 'vh-news-daemon:test',
+        reason: 'first_runtime_tick_pending',
+      },
+    );
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await runtimeConfig.onTickSummary?.(makeTickSummary());
+
+    const heartbeatTick = timers.ticks[0];
+    heartbeatTick?.();
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    });
 
     expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
     expect(reconcileProductFeed).toHaveBeenCalledWith({ id: 'client-reconcile' });
     expect(reconcileProductFeed.mock.invocationCallOrder[0]).toBeGreaterThan(
       startRuntime.mock.invocationCallOrder[0],
     );
-
-    const heartbeatTick = timers.ticks[0];
-    heartbeatTick?.();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
 
     await daemon.stop();
   });
@@ -369,15 +381,133 @@ describe('news aggregator daemon', () => {
     });
 
     await daemon.start();
-    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    await flushMicrotasks();
+    expect(reconcileProductFeed).not.toHaveBeenCalled();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await runtimeConfig.onTickSummary?.(makeTickSummary());
 
     const heartbeatTick = timers.ticks[0];
+    heartbeatTick?.();
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    });
+
     nowMs += 1_001;
     heartbeatTick?.();
     await vi.waitFor(() => {
       expect(reconcileProductFeed).toHaveBeenCalledTimes(2);
     });
     expect(reconcileProductFeed).toHaveBeenLastCalledWith({ id: 'client-reconcile-periodic' });
+
+    await daemon.stop();
+  });
+
+  it('defers product feed reconciliation independently of the enrichment-defer flag', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const reconcileProductFeed = vi.fn().mockResolvedValue({ repaired_latest_index: 1 });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-reconcile-no-enrichment-defer' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      reconcileProductFeed,
+      deferEnrichmentUntilFirstTickComplete: false,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+    await flushMicrotasks();
+
+    expect(reconcileProductFeed).not.toHaveBeenCalled();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await runtimeConfig.onTickSummary?.(makeTickSummary());
+    timers.ticks[0]?.();
+
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    });
+    expect(reconcileProductFeed).toHaveBeenCalledWith({ id: 'client-reconcile-no-enrichment-defer' });
+
+    await daemon.stop();
+  });
+
+  it('keeps product feed repair failure non-fatal and leaves raw runtime writes enabled', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const repairError = new Error('product-feed repair lifecycle readback failed');
+    const reconcileProductFeed = vi.fn().mockRejectedValue(repairError);
+    const onFailClosedRuntimeError = vi.fn();
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const writeBundle = vi.fn().mockResolvedValue({ story_id: 'story-after-repair-error' });
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-repair-nonfatal' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      reconcileProductFeed,
+      failClosedOnRuntimeError: true,
+      onFailClosedRuntimeError,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+    await flushMicrotasks();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await runtimeConfig.onTickSummary?.(makeTickSummary());
+    timers.ticks[0]?.();
+
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] product feed reconciliation failed',
+      {
+        holder_id: 'vh-news-daemon:test',
+        error: repairError,
+      },
+    );
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.(
+        { id: 'client-repair-nonfatal' },
+        { story_id: 'story-after-repair-error' } as any,
+      ),
+    ).resolves.toEqual({ story_id: 'story-after-repair-error' });
+
+    expect(onFailClosedRuntimeError).not.toHaveBeenCalled();
+    expect(runtimeHandle.stop).not.toHaveBeenCalled();
+    expect(daemon.isRunning()).toBe(true);
+    expect(writeBundle).toHaveBeenCalledTimes(1);
 
     await daemon.stop();
   });
@@ -477,15 +607,23 @@ describe('news aggregator daemon', () => {
 
     await daemon.start();
     expect(writeLease).toHaveBeenCalledTimes(1);
-    expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    expect(reconcileProductFeed).not.toHaveBeenCalled();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await runtimeConfig.onTickSummary?.(makeTickSummary());
+    timers.ticks[0]?.();
+    await vi.waitFor(() => {
+      expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
+    });
+    expect(writeLease).toHaveBeenCalledTimes(2);
 
     nowMs += 60_000;
     timers.ticks[0]?.();
     await vi.waitFor(() => {
-      expect(writeLease).toHaveBeenCalledTimes(2);
+      expect(writeLease).toHaveBeenCalledTimes(3);
     });
 
-    expect(writeLease).toHaveBeenCalledTimes(2);
+    expect(writeLease).toHaveBeenCalledTimes(3);
     expect(reconcileProductFeed).toHaveBeenCalledTimes(1);
 
     deferredReconcile.resolve({ repaired_latest_index: 0 });

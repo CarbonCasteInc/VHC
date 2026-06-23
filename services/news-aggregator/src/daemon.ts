@@ -70,7 +70,10 @@ import {
   replayAcceptedAnalysisEvalSyntheses,
   resolveAnalysisEvalReplayArtifactDirFromEnv,
 } from './analysisEvalReplay';
-import { reconcileProductFeedFromRawStories } from './productFeedReconciler';
+import {
+  PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY,
+  reconcileProductFeedFromRawStories,
+} from './productFeedReconciler';
 import {
   DEFAULT_SYNTHESIS_IN_PROGRESS_STALE_MS,
   collectPendingSynthesisCatchupCandidates,
@@ -188,6 +191,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({
     logger,
     now: nowFn,
+    classConcurrency: PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY,
     stopClassOnFailure: failClosedOnRuntimeError && !noWrite
       ? shouldStopFailClosedRuntimeWriteClass
       : false,
@@ -212,6 +216,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let runtimeTickLimitReached = false;
   let firstRuntimeTickCompleted = false;
   let enrichmentQueueDeferredLogged = false;
+  let productFeedReconciliationDeferredLogged = false;
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -249,6 +254,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       ? reconcileProductFeedFromRawStories(client, {
           logger,
           now: nowFn,
+          runWrite: writeLanes.run,
           sampleLimit: parseOptionalPositiveInt(readEnvVar('VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT')),
         })
       : Promise.resolve({ skipped: 'mesh_unavailable' }));
@@ -318,20 +324,24 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
             logger.warn('[vh:news-daemon] runtime tick limit stop callback failed', error);
           });
         }
-        if (
-          deferEnrichmentUntilFirstTickComplete
-          && !firstRuntimeTickCompleted
-          && summary.status === 'completed'
-        ) {
+        if (!firstRuntimeTickCompleted && summary.status === 'completed') {
           firstRuntimeTickCompleted = true;
-          queue.start();
-          logger.info('[vh:news-daemon] enrichment queue started after first runtime tick', {
+          logger.info('[vh:news-daemon] first runtime tick completed', {
             holder_id: holderId,
             tick_sequence: summary.tick_sequence,
             raw_wrote_count: summary.raw_wrote_count,
             selected_bundle_count: summary.selected_bundle_count,
-            enrichment_queue: queue.snapshot(),
           });
+          if (deferEnrichmentUntilFirstTickComplete) {
+            queue.start();
+            logger.info('[vh:news-daemon] enrichment queue started after first runtime tick', {
+              holder_id: holderId,
+              tick_sequence: summary.tick_sequence,
+              raw_wrote_count: summary.raw_wrote_count,
+              selected_bundle_count: summary.selected_bundle_count,
+              enrichment_queue: queue.snapshot(),
+            });
+          }
         }
       },
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
@@ -512,17 +522,30 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       return;
     }
     if (nowMs >= nextProductFeedReconciliationAt) {
-      nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
-      try {
-        const result = await reconcileProductFeed(config.client);
-        logger.info('[vh:news-daemon] product feed reconciliation attempted', {
-          holder_id: holderId,
-          next_reconcile_at: nextProductFeedReconciliationAt,
-          interval_ms: productFeedReconcileIntervalMs,
-          result,
-        });
-      } catch (error) {
-        logger.warn('[vh:news-daemon] product feed reconciliation failed', error);
+      if (!firstRuntimeTickCompleted) {
+        if (!productFeedReconciliationDeferredLogged) {
+          productFeedReconciliationDeferredLogged = true;
+          logger.info('[vh:news-daemon] product feed reconciliation deferred until first runtime tick completes', {
+            holder_id: holderId,
+            reason: 'first_runtime_tick_pending',
+          });
+        }
+      } else {
+        nextProductFeedReconciliationAt = nowMs + productFeedReconcileIntervalMs;
+        try {
+          const result = await reconcileProductFeed(config.client);
+          logger.info('[vh:news-daemon] product feed reconciliation attempted', {
+            holder_id: holderId,
+            next_reconcile_at: nextProductFeedReconciliationAt,
+            interval_ms: productFeedReconcileIntervalMs,
+            result,
+          });
+        } catch (error) {
+          logger.warn('[vh:news-daemon] product feed reconciliation failed', {
+            holder_id: holderId,
+            error,
+          });
+        }
       }
     }
     if (!running) {
@@ -1007,6 +1030,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   }
   const writeLanes = createDaemonWriteLaneRegistry({
     logger: console,
+    classConcurrency: PRODUCT_FEED_REPAIR_WRITE_LANE_CONCURRENCY,
     stopClassOnFailure: failClosedOnRuntimeError && !noWrite
       ? shouldStopFailClosedRuntimeWriteClass
       : false,
