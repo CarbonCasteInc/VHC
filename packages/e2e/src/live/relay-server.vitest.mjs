@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -473,6 +473,27 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
     expect(metrics.body).toMatch(/vh_relay_process_open_fds \d+/);
+  });
+
+  it('serves radata byte metrics from a cached background refresh, not a request-path walk', async () => {
+    const gunDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-radata-metrics-test-'));
+    tempDirs.add(gunDir);
+    const gunFile = path.join(gunDir, 'data');
+    const nestedDir = path.join(gunFile, 'nested');
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(path.join(gunFile, 'root.bin'), Buffer.alloc(1024));
+    writeFileSync(path.join(nestedDir, 'child.bin'), Buffer.alloc(2048));
+
+    const { port } = await startRelay(children, tempDirs, {
+      GUN_FILE: gunFile,
+      VH_RELAY_RADATA_BYTES_REFRESH_INTERVAL_MS: '0',
+    });
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.statusCode).toBe(200);
+    expect(metrics.body).toContain('vh_relay_radata_bytes 0');
+    expect(metrics.body).toContain('vh_relay_radata_bytes_refresh_enabled 0');
+    expect(metrics.body).toContain('vh_relay_radata_bytes_refresh_successes_total 0');
   });
 
   it('keeps GUN package stats file writes disabled by default', async () => {

@@ -47,6 +47,13 @@ re-enable monitors.
   `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT=16`, and
   `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS=1000` unless A6 has an
   explicit reviewed override.
+- Treat `vh_relay_radata_bytes` as a cached gauge. The relay refreshes it off
+  the `/metrics` request path with `VH_RELAY_RADATA_BYTES_REFRESH_INTERVAL_MS`
+  (default 30s), bounded by `VH_RELAY_RADATA_BYTES_SCAN_MAX_ENTRIES`,
+  `VH_RELAY_RADATA_BYTES_SCAN_MAX_DEPTH`, and
+  `VH_RELAY_RADATA_BYTES_SCAN_TIMEOUT_MS`. During soak, scrape the companion
+  refresh age/error/truncation counters; a metrics scrape must not recursively
+  walk the radata tree.
 - Leave relay `GUN_STATS` unset or explicitly `false`. The relay disables GUN's
   package-local stats writer by default; setting `GUN_STATS=true` makes GUN
   write `stats.<basename(GUN_FILE)>` beside `node_modules/gun`, which is not a
