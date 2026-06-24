@@ -394,20 +394,31 @@ Do not set it to `false` in production unless the incident commander has chosen
 an attended degraded-write experiment and the public-feed rollback plan is
 already active.
 
-For the next post-#679 launch soak after a clean StoryCluster reset, use:
+For the next capped raw-only Scope A launch soak after a clean StoryCluster reset,
+use:
 
 ```bash
 VH_BUNDLE_SYNTHESIS_ENABLED=0
+VH_ANALYSIS_EVAL_REPLAY_ON_START=0
+VH_NEWS_STORYLINES_ENABLED=0
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
+VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=8
+VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=8
 VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8
+VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS=86400000
 ```
 
 `VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch-soak value, not a
 permanent ceiling. Raise it deliberately only after paced repair has soaked
 cleanly. Scope A launch config keeps accepted synthesis disabled: the raw runtime
 may still enqueue local synthesis candidates and log an inactive local queue, but
-`VH_BUNDLE_SYNTHESIS_ENABLED=0` must not publish accepted/topic synthesis relay
-writes to `/vh/topics/synthesis-candidate` or `/vh/topics/synthesis`.
+`VH_BUNDLE_SYNTHESIS_ENABLED=0` and `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` must not
+publish accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate`
+or `/vh/topics/synthesis`. `VH_NEWS_STORYLINES_ENABLED=0` omits the direct-Gun
+storyline overlay adapters for the raw-only soak; the runtime counts generated
+storylines as suppressed in tick summaries, and stale storyline cleanup remains
+parked until storyline overlays are deliberately re-enabled and soaked as
+post-launch enrichment.
 
 ## Env File Surface
 
@@ -435,6 +446,8 @@ VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
 OPENAI_API_KEY
 VH_BUNDLE_SYNTHESIS_ENABLED
+VH_ANALYSIS_EVAL_REPLAY_ON_START
+VH_NEWS_STORYLINES_ENABLED
 VH_NEWS_RELAY_REST_WRITE_FIRST
 VH_NEWS_RELAY_REST_WRITE_ORIGINS
 VH_NEWS_RELAY_REST_WRITE_TOKENS
@@ -464,6 +477,7 @@ VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT
 VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE
 VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
+VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_SYSTEM_WRITER_ID

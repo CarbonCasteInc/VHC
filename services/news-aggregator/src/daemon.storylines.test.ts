@@ -127,6 +127,60 @@ describe('news daemon storyline adapters', () => {
     await daemon.stop();
   });
 
+  it('omits storyline adapters when storyline writes are disabled', async () => {
+    const logger = makeLogger();
+    const timers = makeTimerControls();
+    const runtimeHandle = {
+      stop: vi.fn(),
+      isRunning: vi.fn(() => true),
+      lastRun: vi.fn(() => null),
+    };
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(makeLease());
+    const writeLease = vi.fn().mockResolvedValue(makeLease());
+    const writeBundle = vi.fn(async (_client: VennClient, bundle: unknown) => bundle);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-storyline-disabled' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      now: () => 1_700_000_000_000,
+      random: () => 0.42,
+      storylineWritesEnabled: false,
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    expect(runtimeConfig.writeStorylineGroup).toBeUndefined();
+    expect(runtimeConfig.removeStorylineGroup).toBeUndefined();
+    await expect(
+      runtimeConfig.writeStoryBundle?.(
+        { id: 'client-storyline-disabled' },
+        { story_id: 'story-raw-after-storyline-disabled' } as any,
+      ),
+    ).resolves.toEqual({ story_id: 'story-raw-after-storyline-disabled' });
+
+    expect(gunMocks.writeNewsStoryline).not.toHaveBeenCalled();
+    expect(gunMocks.removeNewsStoryline).not.toHaveBeenCalled();
+    expect(writeBundle).toHaveBeenCalledWith(
+      { id: 'client-storyline-disabled' },
+      { story_id: 'story-raw-after-storyline-disabled' },
+    );
+
+    await daemon.stop();
+  });
+
   it('keeps fail-closed state open after runtime reports a storyline write failure as non-fatal', async () => {
     const logger = makeLogger();
     const timers = makeTimerControls();
