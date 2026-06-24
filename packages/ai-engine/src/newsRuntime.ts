@@ -860,11 +860,13 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             }
           }
         }
-      } else if (noWrite) {
+      } else if (storylines.length > 0) {
         storylineWriteSuppressedCount = storylines.length;
-        for (const storyline of storylines) {
-          nextPublishedStorylineIds.add(storyline.storyline_id);
-          publishedStorylineIds.add(storyline.storyline_id);
+        if (noWrite) {
+          for (const storyline of storylines) {
+            nextPublishedStorylineIds.add(storyline.storyline_id);
+            publishedStorylineIds.add(storyline.storyline_id);
+          }
         }
       }
 

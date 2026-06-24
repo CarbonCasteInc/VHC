@@ -152,6 +152,7 @@ export interface NewsAggregatorDaemonConfig {
   onRuntimeTickLimitReached?: (summary: NewsRuntimeTickSummary) => void | Promise<void>;
   runtimeTickWatchdogMs?: number;
   deferEnrichmentUntilFirstTickComplete?: boolean;
+  storylineWritesEnabled?: boolean;
   failClosedOnRuntimeError?: boolean;
   onFailClosedRuntimeError?: (error: unknown) => void | Promise<void>;
   now?: () => number;
@@ -188,6 +189,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
   const noWrite = config.noWrite === true;
   const failClosedOnRuntimeError = config.failClosedOnRuntimeError ?? !noWrite;
+  const storylineWritesEnabled = config.storylineWritesEnabled ?? true;
   const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({
     logger,
     now: nowFn,
@@ -403,36 +405,40 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
           return removeBundle(runtimeClient as VennClient, storyId);
         });
       },
-      writeStorylineGroup: async (runtimeClient: unknown, storyline: unknown) => {
-        const storylineId =
-          typeof storyline === 'object' && storyline !== null
-            ? (storyline as { storyline_id?: unknown }).storyline_id
-            : null;
-        if (noWrite) {
-          logger.info('[vh:news-daemon] no-write storyline write suppressed', {
-            storyline_id: storylineId ?? null,
-          });
-          return storyline;
-        }
-        assertRuntimeWritesAllowed();
-        await leaseGuard.assertHeld(nowFn());
-        return writeLanes.run('storyline', { storyline_id: storylineId ?? null }, async () => {
-          return writeNewsStoryline(runtimeClient as VennClient, storyline);
-        });
-      },
-      removeStorylineGroup: async (runtimeClient: unknown, storylineId: string) => {
-        if (noWrite) {
-          logger.info('[vh:news-daemon] no-write storyline remove suppressed', {
-            storyline_id: storylineId,
-          });
-          return undefined;
-        }
-        assertRuntimeWritesAllowed();
-        await leaseGuard.assertHeld(nowFn());
-        return writeLanes.run('storyline_remove', { storyline_id: storylineId }, async () => {
-          return removeNewsStoryline(runtimeClient as VennClient, storylineId);
-        });
-      },
+      ...(storylineWritesEnabled
+        ? {
+            writeStorylineGroup: async (runtimeClient: unknown, storyline: unknown) => {
+              const storylineId =
+                typeof storyline === 'object' && storyline !== null
+                  ? (storyline as { storyline_id?: unknown }).storyline_id
+                  : null;
+              if (noWrite) {
+                logger.info('[vh:news-daemon] no-write storyline write suppressed', {
+                  storyline_id: storylineId ?? null,
+                });
+                return storyline;
+              }
+              assertRuntimeWritesAllowed();
+              await leaseGuard.assertHeld(nowFn());
+              return writeLanes.run('storyline', { storyline_id: storylineId ?? null }, async () => {
+                return writeNewsStoryline(runtimeClient as VennClient, storyline);
+              });
+            },
+            removeStorylineGroup: async (runtimeClient: unknown, storylineId: string) => {
+              if (noWrite) {
+                logger.info('[vh:news-daemon] no-write storyline remove suppressed', {
+                  storyline_id: storylineId,
+                });
+                return undefined;
+              }
+              assertRuntimeWritesAllowed();
+              await leaseGuard.assertHeld(nowFn());
+              return writeLanes.run('storyline_remove', { storyline_id: storylineId }, async () => {
+                return removeNewsStoryline(runtimeClient as VennClient, storylineId);
+              });
+            },
+          }
+        : {}),
       onSynthesisCandidate(candidate) {
         if (noWrite) {
           logger.info('[vh:news-daemon] no-write synthesis candidate suppressed', {
@@ -1007,6 +1013,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   const deferEnrichmentUntilFirstTickComplete = !isDisabledFlag(
     readEnvVar('VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE'),
   );
+  const storylineWritesEnabled = !isDisabledFlag(readEnvVar('VH_NEWS_STORYLINES_ENABLED'));
   const failClosedOnRuntimeError = noWrite
     ? false
     : !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR'));
@@ -1108,6 +1115,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       onRuntimeTickLimitReached: diagnosticMaxTicks ? requestDiagnosticStop : undefined,
       runtimeTickWatchdogMs,
       deferEnrichmentUntilFirstTickComplete: !noWrite && deferEnrichmentUntilFirstTickComplete,
+      storylineWritesEnabled,
       failClosedOnRuntimeError,
       onFailClosedRuntimeError: (error) => {
         console.error('[vh:news-daemon] fail-closed runtime error shutting down process', error);

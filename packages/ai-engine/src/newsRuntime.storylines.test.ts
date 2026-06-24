@@ -127,6 +127,36 @@ describe('newsRuntime storylines', () => {
     handle.stop();
   });
 
+  it('counts storylines as suppressed when adapters are intentionally omitted', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onTickSummary = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onTickSummary,
+      runOnStart: true,
+      pollIntervalMs: 10,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY);
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      raw_write_attempted_count: 1,
+      raw_wrote_count: 1,
+      storyline_write_attempted_count: 0,
+      storyline_write_suppressed_count: 1,
+      storyline_wrote_count: 0,
+      storyline_write_failed_count: 0,
+    }));
+
+    handle.stop();
+  });
+
   it('does not let storyline write failures block bundle publication', async () => {
     const storylineError = new Error('storyline write failed');
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));

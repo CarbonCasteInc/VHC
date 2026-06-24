@@ -360,6 +360,27 @@ describe('news daemon production wiring', () => {
     }
   });
 
+  it('omits storyline adapters for the raw-only Scope A launch config', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-storylines-disabled-'));
+    primeHealthyEnv();
+    vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
+    vi.stubEnv('VH_NEWS_STORYLINES_ENABLED', '0');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
+    let handle: { stop(): Promise<void> } | null = null;
+
+    try {
+      handle = await startNewsAggregatorDaemonFromEnv();
+      const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+
+      expect(runtimeConfig.writeStorylineGroup).toBeUndefined();
+      expect(runtimeConfig.removeStorylineGroup).toBeUndefined();
+      expect(runtimeConfig.writeStoryBundle).toBeTypeOf('function');
+    } finally {
+      await handle?.stop();
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('honors an explicit no-write diagnostic tick limit before self-stopping', async () => {
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-bounded-diagnostic-'));
     const runtimeHandle = {
