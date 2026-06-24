@@ -2,16 +2,22 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-12
+> Last Reviewed: 2026-06-24
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
 
 The MVP release gates are point-in-time evidence. This monitor is the continuous
 backstop for the deployed public feed after launch: it fails if the newest
-accepted story visible through the public latest-index is older than the
+product-visible row returned through the public latest-index is older than the
 configured freshness budget, or if the deployed origin/relay health surfaces
 stop responding.
+
+Phase 5 Scope A deliberately serves raw public-news cards whose synthesis state
+is `synthesis_pending` / `frame_table_pending`. This monitor therefore measures
+latest-index recency and public read-surface health, not accepted synthesis
+availability. Accepted synthesis freshness is a separate post-launch enrichment
+gate.
 
 ## Scheduled Alert Path
 
@@ -63,8 +69,8 @@ served snapshot as a side effect of monitoring.
 
 The stale publisher/feed incident remains separate from this monitor. A passing
 freshness monitor proves the public latest-index read surface is current enough
-at the sampled origins; it does not prove publisher recovery, source ingest
-health, or release readiness.
+at the sampled origins; it does not prove accepted synthesis, source ingest
+health, publisher liveness by itself, or broader release readiness.
 
 ## Configuration
 

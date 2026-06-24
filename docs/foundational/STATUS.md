@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-05-11
+> Last Reviewed: 2026-06-24
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-05-28
-**Version:** 0.9.2 (public feed analysis/frame reliability gate added)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta only when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public feed composition/freshness, latest-index/story-body/synthesis/frame reliability, lifecycle-accountability, pagination/refresh, and stance-aggregate/decay coverage, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`, a consolidated MVP closeout packet at `.tmp/mvp-closeout/latest/mvp-closeout-report.json`, service-backed five-user local engagement lane coverage, and a LUMA public-beta MVP readiness gate for the beta-local identity/signed-write layer. Live corroborated headlines remain beta-gated by production-readiness evidence; public feed composition/freshness and analysis/frame reliability, LUMA production-attestation/Silver, public WSS mesh `release_ready`, production app canary pass, full production app readiness, and test-group readiness remain separate downstream gates; legal/commercial approval remains outside repo automation.
+**Last Updated:** 2026-06-24
+**Version:** 0.9.3 (Phase 5 Scope A raw public-news launch recorded)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A live. The A6 public-news publisher is running a capped raw-only Scope A profile: raw-fresh, v4-signed, product-visible news cards, relay REST 2-of-3 quorum, and raw pending lifecycle rows (`synthesis_pending` / `frame_table_pending`). The launch closeout is recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`. This proves the raw public-news path and its operational monitors, not the broader public-beta umbrella. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain separate downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, scout-backed source growth, and unified production-readiness; live public headline-soak density and broader overlap-ready source breadth remain active | ⚠️ Partial |
+| **News Aggregator** | 🟢 Phase 5 Scope A live: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, and bounded relay heap/readback defenses. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A live; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -38,11 +38,15 @@
 ## Active Program — Production Hardening
 
 Current policy state:
-- Production rollout remains blocked until hard reliability gates pass.
+- Phase 5 Scope A raw public-news rollout is live on A6 under the capped raw-only
+  profile recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
+- Broader production/beta claims remain blocked until the relevant downstream
+  gates pass; do not promote Scope A raw-feed proof into accepted synthesis,
+  full product, mesh release, native, or identity-assurance claims.
 - Transitional proof shims are dev/staging only and must be removed before ship.
 - Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
-- StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; the active blocker has moved to live public headline-soak recovery and overlap-ready source breadth.
+- StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; after the Phase 5 Scope A launch, remaining blockers are overlap-ready source breadth, accepted synthesis/storyline enrichment, and broader release evidence beyond the raw feed.
 - Blocking feed-release evidence now comes from fixture-backed daemon-first gates:
   - `pnpm test:storycluster:correctness`
   - `pnpm test:storycluster:gates`
@@ -70,6 +74,18 @@ Current policy state:
 - Production-grade feed claims now depend more on source-readability discipline than on additional StoryCluster corpus growth:
   - only onboarded readable, accessible, extraction-safe sources count toward the feed promise;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
+- Phase 5 Scope A launch evidence:
+  - closeout report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`;
+  - launched commit: `b3da27a09f683b7933f169bdd77c03f101681663`;
+  - relay image: `vhc-public-beta-relay:20260624-main-vb3da27a0-amd64`;
+  - launch profile: synthesis disabled, replay disabled, storylines disabled,
+    raw cap `8`, raw concurrency `1`, repair sample `8`, repair interval
+    `86400000`, prune disabled, relay min-success `2`;
+  - attended soak result: 8 tick summaries, 0 aborts, 0 fail-closes, 0
+    readback-500s, 0 relay backpressure-503s, 0 watchdog trips, and relay
+    restarts `0/0/0`;
+  - public feed state: `record_count=20`, all `pending_synthesis`, no accepted
+    synthesis available.
 - Web PWA public-beta support/compliance minimums are implemented and gated:
   - route surface: `/compliance`, `/beta`, `/privacy`, `/terms`, `/moderation`, `/support`, `/data-deletion`, `/telemetry`, `/copyright`;
   - support/contact path: VHC public beta GitHub Issue Form linked from `/support`;
@@ -154,7 +170,8 @@ Current policy state:
   - the scheduled headline-soak trend is still telemetry/review evidence, but the unified production-readiness rule now requires its latest trend artifact to remain fresh and pass over the recent run window.
 - Beta distribution posture is now explicit:
   - the integrated VENN/HERMES/AGORA application may be distributed in constrained beta on current `main`;
-  - live corroborated headlines remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
+  - live raw public-news headlines are live under the Phase 5 Scope A profile;
+  - live corroborated/accepted-synthesis headline claims remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
   - public-beta policy/support minimums are gated by `pnpm check:public-beta-compliance` and represented in the MVP gate report;
   - public-beta launch closeout is gated by `pnpm check:public-beta-launch-closeout` and recorded in `docs/ops/public-beta-launch-readiness-closeout.md`;
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
@@ -164,6 +181,14 @@ Current policy state:
 
 Current truth for the news bundler and feed hardening lane:
 
+- Phase 5 Scope A is live on A6 as of 2026-06-24:
+  - raw publication is capped at 8 bundles per tick with raw write concurrency 1;
+  - raw story, latest-index, hot-index, and pending lifecycle writes use relay
+    REST 2-of-3 quorum;
+  - accepted synthesis, topic synthesis, and storyline overlays are outside the
+    launched path and remain post-launch enrichment;
+  - publisher liveness, relay liveness, and relay snapshot freshness monitors
+    are operating monitors for the intended-live service.
 - StoryCluster is no longer treated as a generic topic clusterer; the active program is `EventCluster`-first and precision-biased.
 - Canonical bundle membership is limited to same-incident / same-developing-episode coverage.
 - Canonical source projection is publisher-normalized:
@@ -221,7 +246,8 @@ Current truth for the news bundler and feed hardening lane:
   - explicit promotion-readiness assessment with blocking reasons;
   - denser diagnostic artifacts for insufficient-bundle public runs.
 - The correctness-gate sufficiency lane is complete and in force on `main`.
-- The current active work is live public headline-soak recovery, source-surface density growth, and release-evidence accumulation:
+- The current active post-launch work is source-surface density growth, sustained
+  monitor operation, and release-evidence accumulation beyond raw Scope A:
   - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
   - require the daemon-first semantic gate as the served-stack confirmation of that proof;
   - keep public semantic runs smoke-only unless they independently earn promotion beyond telemetry;
@@ -243,6 +269,15 @@ Current truth for the news bundler and feed hardening lane:
 
 ### StoryCluster Next Steps (Active)
 
+0. Protect the live raw Scope A posture:
+   - keep raw publication, pending lifecycle, and relay REST quorum evidence
+     separate from accepted synthesis or storyline enrichment claims;
+   - treat monitor regressions, relay watchdog trips, readback 500s, fail-closed
+     publisher stops, and stale latest-index snapshots as live-operation
+     incidents, not launch-soak curiosities;
+   - do not re-enable accepted synthesis, topic synthesis, storyline writes,
+     verify/refresh, higher raw caps, or pruning without a separate attended
+     soak and an updated runbook entry.
 1. Keep the deterministic corpus/replay gate and daemon-first semantic gate explicit in release/readiness artifacts:
    - primary correctness proof must name the authoritative corpus, replay, and served semantic-gate inputs;
    - public semantic soak must remain labeled as secondary distribution telemetry.

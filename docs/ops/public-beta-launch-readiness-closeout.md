@@ -2,13 +2,21 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-09
+> Last Reviewed: 2026-06-24
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
 Version: 0.9
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
+
+2026-06-24 Scope A update: Phase 5 raw public-news Scope A is live under the
+controlled profile recorded in
+`docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`. That launch proves
+raw-fresh, signed, product-visible latest-index cards with pending lifecycle
+state and relay REST quorum. It does not satisfy the broader public-beta gates
+below for accepted synthesis, full app readiness, mesh `release_ready`, LUMA
+production assurance, or legal/commercial launch claims.
 
 ## 1. Closeout Verdict
 

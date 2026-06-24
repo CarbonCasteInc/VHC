@@ -2,14 +2,14 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-04-16
+> Last Reviewed: 2026-06-24
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-04-16
+**Last updated:** 2026-06-24
 
 > Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
@@ -168,7 +168,7 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
-    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force; public semantic soak is still smoke-only; live public headline-soak density and broader overlap-ready source breadth remain the active blocker
+    - **News Aggregator / StoryCluster** 🟢/🟡 - daemon-first bundling is real and Phase 5 Scope A is live on A6 as a capped raw-only public-news feed with relay REST 2-of-3 quorum, pending lifecycle rows, and host-local liveness/freshness monitors; fixture-backed browser gates, source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force. Accepted synthesis, topic synthesis, storyline overlays, verify/refresh re-enable, higher caps, broader source-density claims, and full public-beta umbrella readiness remain post-launch tracks.
     - **Discovery feed / storyline UX** 🟡 - compact one-feed shell, first-use orientation, source-strip/story-media cards, storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
