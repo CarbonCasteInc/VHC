@@ -355,8 +355,10 @@ export async function runNewsAggregatorPublisherPreflight({
     failures.push('relay_read_health_urls:missing');
   }
 
-  const synthesisEnabled = truthy(env.VH_BUNDLE_SYNTHESIS_ENABLED)
-    || Boolean(firstNonEmpty(env.VH_BUNDLE_SYNTHESIS_API_KEY, env.ANALYSIS_RELAY_API_KEY, env.OPENAI_API_KEY));
+  const synthesisEnabled = explicitlyFalse(env.VH_BUNDLE_SYNTHESIS_ENABLED)
+    ? false
+    : truthy(env.VH_BUNDLE_SYNTHESIS_ENABLED)
+      || Boolean(firstNonEmpty(env.VH_BUNDLE_SYNTHESIS_API_KEY, env.ANALYSIS_RELAY_API_KEY, env.OPENAI_API_KEY));
   const relayRestOrigins = parseDelimited(env.VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS);
   const relayRestWriteRequested = truthy(env.VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST)
     || relayRestOrigins.length > 0;
