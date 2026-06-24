@@ -56,6 +56,43 @@ test('publisher preflight fails closed when synthesis is enabled without relay R
   assert.match(result.failures.join('\n'), /relay_rest_synthesis_token:missing/);
 });
 
+test('publisher preflight honors explicit synthesis disable even when an API key is present', async () => {
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_BUNDLE_SYNTHESIS_ENABLED: '0',
+      OPENAI_API_KEY: 'openai-key-redacted',
+      VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST: '',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS: '',
+      VH_RELAY_DAEMON_TOKEN: '',
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'relay-a-redacted',
+        'https://gun-b.example.test': 'relay-b-redacted',
+      }),
+    }),
+    fetchFn: async (input, init) => {
+      if (init.method === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'news-story-record-required' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.status, 'pass');
+  assert.equal(result.synthesis_enabled, false);
+  assert.equal(result.relay_rest_synthesis.endpoint_count, 0);
+  assert.equal(result.relay_rest_synthesis.required_success_count, 0);
+  assert.equal(result.failures.some((failure) => failure.startsWith('relay_rest_synthesis')), false);
+  assert.equal(JSON.stringify(result).includes('openai-key-redacted'), false);
+});
+
 test('publisher preflight fails closed when news relay REST write-first lacks daemon token', async () => {
   const result = await runNewsAggregatorPublisherPreflight({
     env: baseEnv({
