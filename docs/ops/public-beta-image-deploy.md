@@ -37,11 +37,27 @@ re-enable monitors.
 - Run relays with bounded self-recovery: `--restart on-failure:5`,
   `--memory 2304m --memory-swap 2304m`,
   `VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true`,
+  `VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000`,
+  `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000`,
+  `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
+  `VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
   `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics`, and
   `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`. Relay watchdog exit is intentionally
   restartable; publisher fail-closed exit is intentionally not. The memory
   ceiling sits above the relay's graceful RSS watchdog and below host-exhaustion
   territory, so a fast off-heap spike is contained to one relay container.
+  `VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true` is useful during attended soaks,
+  but its `.heapsnapshot` files are host-private diagnostic artifacts, not
+  shareable release evidence. The generated A6 deploy packet includes a safe
+  relay-diagnostics evidence capture block that excludes `*.heapsnapshot` and
+  `*.heapprofile`, then fails closed if either appears in the tar manifest; use
+  that path for shareable diagnostics unless a separate secret-review approval
+  authorizes raw heap artifacts.
+- For Scope A capped raw-only relays, keep snapshot verify/refresh disabled with
+  `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
+  `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The latest-index
+  snapshot and story-body caches are bounded in code; verify/refresh can be
+  re-enabled deliberately after a separate relay-memory soak.
 - Keep relay critical write/readback admission bounded. The deploy packet adds
   `VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2`,
   `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT=16`, and

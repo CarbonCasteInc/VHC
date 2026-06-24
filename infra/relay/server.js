@@ -6,6 +6,7 @@ const fs = require('fs');
 const inspector = require('inspector');
 const os = require('os');
 const path = require('path');
+const v8 = require('v8');
 const { monitorEventLoopDelay } = require('perf_hooks');
 
 function resolveGun() {
@@ -174,10 +175,26 @@ const relayResourceWatchdogIntervalMs = numberEnv('VH_RELAY_RESOURCE_WATCHDOG_IN
 const relayWatchdogMaxEventLoopLagP99Ms = numberEnv('VH_RELAY_WATCHDOG_MAX_EVENT_LOOP_LAG_P99_MS', 2_500);
 const relayWatchdogMaxRssBytes = numberEnv('VH_RELAY_WATCHDOG_MAX_RSS_BYTES', 1_800_000_000);
 const relayWatchdogMaxHeapUsedBytes = numberEnv('VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES', 1_300_000_000);
+const relayWatchdogMaxRssGrowthBytes = nonNegativeNumberEnv('VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES', 0);
+const relayWatchdogMaxHeapGrowthBytes = nonNegativeNumberEnv('VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES', 0);
+const relayWatchdogHeapSnapshotEnabled = boolEnv('VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED', false);
 const relayWatchdogDiagnosticDir = String(
   process.env.VH_RELAY_DIAGNOSTIC_DIR
   || (typeof gunFile === 'string' ? path.join(gunFile, 'diagnostics') : path.join(os.tmpdir(), 'vh-relay-diagnostics')),
 ).trim();
+const newsLatestIndexRestMaxRecords = numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80);
+const newsLatestIndexSnapshotCacheEntryTail = nonNegativeNumberEnv(
+  'VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_ENTRY_TAIL',
+  40,
+);
+const newsLatestIndexSnapshotMaxEntries = numberEnv(
+  'VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_MAX_ENTRIES',
+  newsLatestIndexRestMaxRecords + newsLatestIndexSnapshotCacheEntryTail,
+);
+const newsLatestIndexSnapshotStoryBodyCacheMaxEntries = numberEnv(
+  'VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_BODY_CACHE_MAX_ENTRIES',
+  newsLatestIndexSnapshotMaxEntries,
+);
 const relayStartupJitterMaxMs = nonNegativeNumberEnv(
   'VH_RELAY_STARTUP_JITTER_MAX_MS',
   process.env.NODE_ENV === 'production' ? 5_000 : 0,
@@ -226,12 +243,15 @@ const metrics = {
   relayWatchdogTrips: new Map(),
   snapshotBackgroundPauses: new Map(),
   snapshotBackgroundConcurrencyCaps: new Map(),
+  newsLatestIndexSnapshotEntryEvictions: 0,
+  newsLatestIndexSnapshotStoryBodyCacheEvictions: 0,
   radataBytesRefreshSuccesses: 0,
   radataBytesRefreshErrors: 0,
   radataBytesRefreshTruncated: 0,
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
+let lastRelayWatchdogSample = null;
 
 const httpBuckets = new Map();
 const seenUserNonces = new Map();
@@ -246,6 +266,135 @@ const PUBLIC_HTTP_RELAY_ROUTES = [
 
 function incMap(map, key, by = 1) {
   map.set(key, (map.get(key) || 0) + by);
+}
+
+function storyIdFromSnapshotEntry(entry) {
+  return String(entry?.entry?.[0] ?? entry?.story?.story_id ?? '').trim();
+}
+
+function snapshotEntryTimestamp(entry) {
+  return latestIndexRecordTimestamp(entry?.entry?.[1])
+    ?? Number(entry?.story?.cluster_window_end)
+    ?? Number(entry?.story?.created_at)
+    ?? 0;
+}
+
+function approximateJsonBytes(value) {
+  if (value === null || value === undefined) return 0;
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8');
+  } catch {
+    return 0;
+  }
+}
+
+function boundNewsLatestIndexSnapshot(snapshot, { countEvictions = true } = {}) {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const entries = Array.isArray(snapshot.entries) ? snapshot.entries.filter(Boolean) : [];
+  if (newsLatestIndexSnapshotMaxEntries <= 0 || entries.length <= newsLatestIndexSnapshotMaxEntries) {
+    return {
+      ...snapshot,
+      entries,
+    };
+  }
+  const seenStoryIds = new Set();
+  const boundedEntries = entries
+    .map((entry, originalIndex) => ({ entry, originalIndex }))
+    .sort((left, right) => {
+      const rightTimestamp = snapshotEntryTimestamp(right.entry);
+      const leftTimestamp = snapshotEntryTimestamp(left.entry);
+      return rightTimestamp - leftTimestamp
+        || storyIdFromSnapshotEntry(left.entry).localeCompare(storyIdFromSnapshotEntry(right.entry))
+        || left.originalIndex - right.originalIndex;
+    })
+    .filter(({ entry }) => {
+      const storyId = storyIdFromSnapshotEntry(entry);
+      if (!storyId) return false;
+      if (seenStoryIds.has(storyId)) return false;
+      seenStoryIds.add(storyId);
+      return true;
+    })
+    .slice(0, newsLatestIndexSnapshotMaxEntries)
+    .map(({ entry }) => entry);
+  if (countEvictions) {
+    metrics.newsLatestIndexSnapshotEntryEvictions += Math.max(0, entries.length - boundedEntries.length);
+  }
+  return {
+    ...snapshot,
+    entries: boundedEntries,
+  };
+}
+
+function setNewsLatestIndexSnapshotCache(snapshotKey, snapshot, options = {}) {
+  const bounded = boundNewsLatestIndexSnapshot(snapshot, options);
+  newsLatestIndexSnapshotCache.set(snapshotKey, bounded);
+  return bounded;
+}
+
+function snapshotStoryBodyCacheBytes() {
+  let bytes = 0;
+  for (const entry of newsLatestIndexSnapshotStoryBodyCache.values()) {
+    bytes += Number(entry?.approx_bytes) || 0;
+  }
+  return bytes;
+}
+
+function evictSnapshotStoryBodyCache({ now = Date.now(), ttlMs = 0 } = {}) {
+  let evicted = 0;
+  if (ttlMs > 0) {
+    for (const [storyId, cached] of newsLatestIndexSnapshotStoryBodyCache.entries()) {
+      if (!cached || now - Number(cached.checked_at ?? 0) > ttlMs) {
+        newsLatestIndexSnapshotStoryBodyCache.delete(storyId);
+        evicted += 1;
+      }
+    }
+  }
+  if (
+    newsLatestIndexSnapshotStoryBodyCacheMaxEntries > 0
+    && newsLatestIndexSnapshotStoryBodyCache.size > newsLatestIndexSnapshotStoryBodyCacheMaxEntries
+  ) {
+    const sorted = [...newsLatestIndexSnapshotStoryBodyCache.entries()]
+      .sort(([, left], [, right]) => (Number(left?.last_accessed_at ?? left?.checked_at ?? 0)
+        - Number(right?.last_accessed_at ?? right?.checked_at ?? 0)));
+    const removeCount = newsLatestIndexSnapshotStoryBodyCache.size - newsLatestIndexSnapshotStoryBodyCacheMaxEntries;
+    for (const [storyId] of sorted.slice(0, removeCount)) {
+      if (newsLatestIndexSnapshotStoryBodyCache.delete(storyId)) {
+        evicted += 1;
+      }
+    }
+  }
+  if (evicted > 0) {
+    metrics.newsLatestIndexSnapshotStoryBodyCacheEvictions += evicted;
+  }
+  return evicted;
+}
+
+function setSnapshotStoryBodyCache(storyId, story, checkedAt = Date.now()) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId || newsLatestIndexSnapshotStoryBodyCacheMaxEntries <= 0) return;
+  newsLatestIndexSnapshotStoryBodyCache.set(normalizedStoryId, {
+    checked_at: checkedAt,
+    last_accessed_at: checkedAt,
+    story: story ?? null,
+    approx_bytes: approximateJsonBytes(story),
+  });
+  evictSnapshotStoryBodyCache({ now: checkedAt });
+}
+
+function getSnapshotStoryBodyCache(storyId, ttlMs = 0) {
+  const normalizedStoryId = typeof storyId === 'string' ? storyId.trim() : '';
+  if (!normalizedStoryId) return null;
+  const cached = newsLatestIndexSnapshotStoryBodyCache.get(normalizedStoryId);
+  if (!cached) return null;
+  const now = Date.now();
+  if (ttlMs > 0 && now - Number(cached.checked_at ?? 0) > ttlMs) {
+    if (newsLatestIndexSnapshotStoryBodyCache.delete(normalizedStoryId)) {
+      metrics.newsLatestIndexSnapshotStoryBodyCacheEvictions += 1;
+    }
+    return null;
+  }
+  cached.last_accessed_at = now;
+  return cached;
 }
 
 let activeCriticalWriteReadbacks = 0;
@@ -852,6 +1001,14 @@ function metricsText() {
   const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
   add('vh_relay_process_heap_used_bytes', memory.heapUsed);
+  add('vh_relay_news_latest_index_snapshot_cache_entries', [...newsLatestIndexSnapshotCache.values()]
+    .reduce((total, snapshot) => total + (Array.isArray(snapshot?.entries) ? snapshot.entries.length : 0), 0));
+  add('vh_relay_news_latest_index_snapshot_cache_max_entries', newsLatestIndexSnapshotMaxEntries);
+  add('vh_relay_news_latest_index_snapshot_entry_evictions_total', metrics.newsLatestIndexSnapshotEntryEvictions);
+  add('vh_relay_news_latest_index_story_body_cache_entries', newsLatestIndexSnapshotStoryBodyCache.size);
+  add('vh_relay_news_latest_index_story_body_cache_max_entries', newsLatestIndexSnapshotStoryBodyCacheMaxEntries);
+  add('vh_relay_news_latest_index_story_body_cache_bytes', snapshotStoryBodyCacheBytes());
+  add('vh_relay_news_latest_index_story_body_cache_evictions_total', metrics.newsLatestIndexSnapshotStoryBodyCacheEvictions);
   if (Number.isFinite(openFds)) {
     add('vh_relay_process_open_fds', openFds);
   }
@@ -914,6 +1071,36 @@ function safeDiagnosticFileSegment(value) {
   return cleaned || 'relay';
 }
 
+function writePrivateJsonFile(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best-effort on filesystems that do not support chmod.
+  }
+}
+
+function isSensitiveDiagnosticKey(key) {
+  return /(env|environment|token|secret|password|passwd|credential|authorization|cookie|pin|private|signature|api[_-]?key|bearer)/i
+    .test(String(key || ''));
+}
+
+function redactDiagnosticValue(value, key = '', depth = 0) {
+  if (isSensitiveDiagnosticKey(key)) return '[redacted]';
+  if (value === null || value === undefined) return value;
+  if (depth > 8) return '[truncated]';
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactDiagnosticValue(entry, key, depth + 1));
+  }
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      redactDiagnosticValue(entryValue, entryKey, depth + 1),
+    ]));
+  }
+  return value;
+}
+
 function relayDiagnosticSnapshot(reason, details = {}) {
   const memory = process.memoryUsage();
   return {
@@ -948,41 +1135,121 @@ function relayDiagnosticSnapshot(reason, details = {}) {
     write_failures_by_route: mapToObject(metrics.writeFailures),
     write_attempts_by_route: mapToObject(metrics.writeAttempts),
     snapshot_background_pauses_by_operation: mapToObject(metrics.snapshotBackgroundPauses),
+    snapshot_cache: {
+      latest_index_snapshot_entries: [...newsLatestIndexSnapshotCache.values()]
+        .reduce((total, snapshot) => total + (Array.isArray(snapshot?.entries) ? snapshot.entries.length : 0), 0),
+      latest_index_snapshot_max_entries: newsLatestIndexSnapshotMaxEntries,
+      latest_index_snapshot_entry_evictions: metrics.newsLatestIndexSnapshotEntryEvictions,
+      story_body_cache_entries: newsLatestIndexSnapshotStoryBodyCache.size,
+      story_body_cache_max_entries: newsLatestIndexSnapshotStoryBodyCacheMaxEntries,
+      story_body_cache_bytes: snapshotStoryBodyCacheBytes(),
+      story_body_cache_evictions: metrics.newsLatestIndexSnapshotStoryBodyCacheEvictions,
+    },
     config: {
       critical_write_readback_max_concurrency: criticalWriteReadbackMaxConcurrency,
       critical_write_readback_queue_limit: criticalWriteReadbackQueueLimit,
       critical_write_readback_queue_timeout_ms: criticalWriteReadbackQueueTimeoutMs,
+      watchdog_interval_ms: relayResourceWatchdogIntervalMs,
       watchdog_max_event_loop_lag_p99_ms: relayWatchdogMaxEventLoopLagP99Ms,
       watchdog_max_rss_bytes: relayWatchdogMaxRssBytes,
       watchdog_max_heap_used_bytes: relayWatchdogMaxHeapUsedBytes,
+      watchdog_max_rss_growth_bytes: relayWatchdogMaxRssGrowthBytes,
+      watchdog_max_heap_growth_bytes: relayWatchdogMaxHeapGrowthBytes,
+      watchdog_heap_snapshot_enabled: relayWatchdogHeapSnapshotEnabled,
       diagnostic_dir: relayWatchdogDiagnosticDir,
     },
   };
 }
 
+function writeRedactedProcessReport(reportPath) {
+  if (!process.report || typeof process.report.getReport !== 'function') return null;
+  const report = redactDiagnosticValue(process.report.getReport());
+  writePrivateJsonFile(reportPath, report);
+  return reportPath;
+}
+
+function shouldWriteHeapSnapshotForDiagnostic(reason, details = {}) {
+  if (!relayWatchdogHeapSnapshotEnabled) return false;
+  const diagnosticReason = `${reason} ${details?.reason ?? ''}`;
+  return /(heap|rss)/i.test(diagnosticReason);
+}
+
+function writeBestEffortHeapSnapshot(base, reason, details = {}) {
+  if (!relayWatchdogDiagnosticDir || !base || !shouldWriteHeapSnapshotForDiagnostic(reason, details)) {
+    return { heap_snapshot_path: null, heap_summary_path: null };
+  }
+  const heapSnapshotPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot`);
+  const heapSummaryPath = path.join(relayWatchdogDiagnosticDir, `${base}.heap-summary.json`);
+  const summary = {
+    schema_version: 'vh-relay-heap-summary-v1',
+    generated_at: new Date().toISOString(),
+    relay_id: relayId,
+    reason,
+    details,
+    memory: process.memoryUsage(),
+    heap_statistics: v8.getHeapStatistics(),
+    heap_space_statistics: v8.getHeapSpaceStatistics(),
+    note: 'Heap snapshot is host-private and may contain application object strings; share only this redacted summary unless explicitly approved.',
+  };
+  try {
+    v8.writeHeapSnapshot(heapSnapshotPath);
+    try {
+      fs.chmodSync(heapSnapshotPath, 0o600);
+    } catch {
+      // Best-effort.
+    }
+  } catch (error) {
+    writePrivateJsonFile(
+      path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot-error.json`),
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+    writePrivateJsonFile(heapSummaryPath, { ...summary, heap_snapshot_path: null });
+    return { heap_snapshot_path: null, heap_summary_path: heapSummaryPath };
+  }
+  writePrivateJsonFile(heapSummaryPath, { ...summary, heap_snapshot_path: heapSnapshotPath });
+  return { heap_snapshot_path: heapSnapshotPath, heap_summary_path: heapSummaryPath };
+}
+
 function writeRelayDiagnosticBundle(reason, details = {}) {
-  if (!relayWatchdogDiagnosticDir) return { summary_path: null, report_path: null };
-  fs.mkdirSync(relayWatchdogDiagnosticDir, { recursive: true });
+  if (!relayWatchdogDiagnosticDir) {
+    return { summary_path: null, report_path: null, heap_snapshot_path: null, heap_summary_path: null };
+  }
+  fs.mkdirSync(relayWatchdogDiagnosticDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(relayWatchdogDiagnosticDir, 0o700);
+  } catch {
+    // Best-effort.
+  }
   const base = `${new Date().toISOString().replace(/[:.]/g, '-')}-${safeDiagnosticFileSegment(relayId)}-${safeDiagnosticFileSegment(reason)}`;
   const summaryPath = path.join(relayWatchdogDiagnosticDir, `${base}.json`);
   const reportPath = path.join(relayWatchdogDiagnosticDir, `${base}.process-report.json`);
-  fs.writeFileSync(summaryPath, `${JSON.stringify(relayDiagnosticSnapshot(reason, details), null, 2)}\n`, 'utf8');
-  if (process.report && typeof process.report.writeReport === 'function') {
-    try {
-      if (!('excludeEnv' in process.report)) {
-        throw new Error('process.report.excludeEnv unavailable; skipping process report to avoid env leakage');
-      }
-      process.report.excludeEnv = true;
-      process.report.writeReport(reportPath);
-    } catch (error) {
-      fs.writeFileSync(
-        path.join(relayWatchdogDiagnosticDir, `${base}.process-report-error.txt`),
-        String(error instanceof Error ? error.message : error),
-        'utf8',
-      );
-    }
+  const artifacts = {
+    process_report_path: null,
+    heap_snapshot_path: null,
+    heap_summary_path: null,
+  };
+  try {
+    artifacts.process_report_path = writeRedactedProcessReport(reportPath);
+  } catch (error) {
+    writePrivateJsonFile(
+      path.join(relayWatchdogDiagnosticDir, `${base}.process-report-error.json`),
+      { error: error instanceof Error ? error.message : String(error) },
+    );
   }
-  return { summary_path: summaryPath, report_path: fs.existsSync(reportPath) ? reportPath : null, base };
+  const heapArtifacts = writeBestEffortHeapSnapshot(base, reason, details);
+  artifacts.heap_snapshot_path = heapArtifacts.heap_snapshot_path;
+  artifacts.heap_summary_path = heapArtifacts.heap_summary_path;
+  writePrivateJsonFile(summaryPath, {
+    ...relayDiagnosticSnapshot(reason, details),
+    artifacts,
+  });
+  return {
+    summary_path: summaryPath,
+    report_path: artifacts.process_report_path,
+    heap_snapshot_path: artifacts.heap_snapshot_path,
+    heap_summary_path: artifacts.heap_summary_path,
+    base,
+  };
 }
 
 function inspectorPost(session, method, params = {}) {
@@ -1030,12 +1297,45 @@ async function writeBestEffortCpuProfile(base) {
 
 function relayWatchdogBreach() {
   if (process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRIP', false)) {
-    return { reason: 'test_forced', observed: true, limit: true };
+    const forcedReason = String(process.env.VH_RELAY_TEST_FORCE_WATCHDOG_TRIP_REASON || 'test_forced').trim() || 'test_forced';
+    return { reason: forcedReason, observed: true, limit: true };
   }
   const memory = process.memoryUsage();
   const delay = eventLoopDelaySummary();
+  const now = Date.now();
+  const previous = lastRelayWatchdogSample;
+  lastRelayWatchdogSample = {
+    sampled_at: now,
+    rss: memory.rss,
+    heap_used: memory.heapUsed,
+  };
   if (relayWatchdogMaxEventLoopLagP99Ms > 0 && delay.p99_ms > relayWatchdogMaxEventLoopLagP99Ms) {
     return { reason: 'event_loop_lag_p99', observed: delay.p99_ms, limit: relayWatchdogMaxEventLoopLagP99Ms };
+  }
+  if (previous) {
+    const elapsedMs = Math.max(1, now - previous.sampled_at);
+    const heapGrowth = memory.heapUsed - previous.heap_used;
+    const rssGrowth = memory.rss - previous.rss;
+    if (relayWatchdogMaxHeapGrowthBytes > 0 && heapGrowth > relayWatchdogMaxHeapGrowthBytes) {
+      return {
+        reason: 'heap_used_growth_bytes',
+        observed: heapGrowth,
+        limit: relayWatchdogMaxHeapGrowthBytes,
+        elapsed_ms: elapsedMs,
+        current: memory.heapUsed,
+        previous: previous.heap_used,
+      };
+    }
+    if (relayWatchdogMaxRssGrowthBytes > 0 && rssGrowth > relayWatchdogMaxRssGrowthBytes) {
+      return {
+        reason: 'rss_growth_bytes',
+        observed: rssGrowth,
+        limit: relayWatchdogMaxRssGrowthBytes,
+        elapsed_ms: elapsedMs,
+        current: memory.rss,
+        previous: previous.rss,
+      };
+    }
   }
   if (relayWatchdogMaxRssBytes > 0 && memory.rss > relayWatchdogMaxRssBytes) {
     return { reason: 'rss_bytes', observed: memory.rss, limit: relayWatchdogMaxRssBytes };
@@ -1058,6 +1358,8 @@ function tripRelayWatchdog(breach) {
     limit: breach.limit,
     diagnostic_summary_path: capture.summary_path,
     process_report_path: capture.report_path,
+    heap_snapshot_path: capture.heap_snapshot_path,
+    heap_summary_path: capture.heap_summary_path,
   });
   const forceExitTimer = setTimeout(() => process.exit(1), numberEnv('VH_RELAY_WATCHDOG_EXIT_GRACE_MS', 750));
   forceExitTimer.unref?.();
@@ -1097,6 +1399,8 @@ function installFatalCaptureHandlers() {
         reason,
         diagnostic_summary_path: capture.summary_path,
         process_report_path: capture.report_path,
+        heap_snapshot_path: capture.heap_snapshot_path,
+        heap_summary_path: capture.heap_summary_path,
       });
     } catch (captureError) {
       logEvent('error', 'relay_fatal_capture_failed', {
@@ -3073,11 +3377,12 @@ function deserializeNewsLatestIndexSnapshot(value) {
 function persistNewsLatestIndexSnapshot(snapshotKey, snapshot) {
   if (!newsLatestIndexSnapshotFile) return;
   try {
+    const boundedSnapshot = boundNewsLatestIndexSnapshot(snapshot, { countEvictions: false });
     fs.mkdirSync(path.dirname(newsLatestIndexSnapshotFile), { recursive: true });
     const tmpFile = `${newsLatestIndexSnapshotFile}.tmp`;
     fs.writeFileSync(
       tmpFile,
-      `${JSON.stringify(serializeNewsLatestIndexSnapshot(snapshotKey, snapshot))}\n`,
+      `${JSON.stringify(serializeNewsLatestIndexSnapshot(snapshotKey, boundedSnapshot))}\n`,
     );
     fs.renameSync(tmpFile, newsLatestIndexSnapshotFile);
   } catch (error) {
@@ -3096,8 +3401,7 @@ function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
     );
     if (!parsed || parsed.snapshotKey !== snapshotKey) return null;
     if (cacheTtlMs > 0 && Date.now() - parsed.snapshot.cached_at > cacheTtlMs) return null;
-    newsLatestIndexSnapshotCache.set(snapshotKey, parsed.snapshot);
-    return parsed.snapshot;
+    return setNewsLatestIndexSnapshotCache(snapshotKey, parsed.snapshot, { countEvictions: false });
   } catch (error) {
     logEvent('warn', 'news_latest_index_snapshot_read_failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -3233,15 +3537,12 @@ async function upsertNewsLatestIndexSnapshotFromWrite(gun, {
         ? existingSnapshot.repairedRecords
         : [],
     };
-    newsLatestIndexSnapshotCache.set(snapshotKey, snapshot);
+    const boundedSnapshot = setNewsLatestIndexSnapshotCache(snapshotKey, snapshot);
     if (nextStory) {
-      newsLatestIndexSnapshotStoryBodyCache.set(normalizedStoryId, {
-        checked_at: now,
-        story: nextStory,
-      });
+      setSnapshotStoryBodyCache(normalizedStoryId, nextStory, now);
     }
     newsLatestIndexRestCache.clear();
-    persistNewsLatestIndexSnapshot(snapshotKey, snapshot);
+    persistNewsLatestIndexSnapshot(snapshotKey, boundedSnapshot);
     return true;
   } catch (error) {
     logEvent('warn', 'news_latest_index_snapshot_write_through_failed', {
@@ -3420,7 +3721,7 @@ async function verifySnapshotStoryBodies(gun, entries) {
     if (criticalWriteReadbacksAreActive()) {
       return { entry, verified: false, skipped: true };
     }
-    const cached = newsLatestIndexSnapshotStoryBodyCache.get(storyId);
+    const cached = getSnapshotStoryBodyCache(storyId, cacheTtlMs);
     if (cached && cacheTtlMs > 0 && Date.now() - cached.checked_at <= cacheTtlMs) {
       return cached.story
         ? {
@@ -3443,12 +3744,12 @@ async function verifySnapshotStoryBodies(gun, entries) {
     const storyResult = await readNewsStoryRecord(gun, storyId, { timeoutMs }).catch(() => null);
     if (!storyResult?.story) {
       if (cacheTtlMs > 0) {
-        newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: null });
+        setSnapshotStoryBodyCache(storyId, null);
       }
       return { entry: null, verified: false, cached: false };
     }
     if (cacheTtlMs > 0) {
-      newsLatestIndexSnapshotStoryBodyCache.set(storyId, { checked_at: Date.now(), story: storyResult.story });
+      setSnapshotStoryBodyCache(storyId, storyResult.story);
     }
     return {
       entry: {
@@ -3576,8 +3877,8 @@ function persistRefreshedLatestIndexSnapshotEntries(snapshot, options, refreshed
       },
     },
   };
-  newsLatestIndexSnapshotCache.set(snapshotKey, nextSnapshot);
-  persistNewsLatestIndexSnapshot(snapshotKey, nextSnapshot);
+  const boundedSnapshot = setNewsLatestIndexSnapshotCache(snapshotKey, nextSnapshot);
+  persistNewsLatestIndexSnapshot(snapshotKey, boundedSnapshot);
 }
 
 async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {}, cacheInfo = {}) {
@@ -3746,8 +4047,8 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
           consistency: result.consistency,
           repairedRecords: result.repairedRecords,
         };
-        newsLatestIndexSnapshotCache.set(snapshotCacheKey, snapshot);
-        persistNewsLatestIndexSnapshot(snapshotCacheKey, snapshot);
+        const boundedSnapshot = setNewsLatestIndexSnapshotCache(snapshotCacheKey, snapshot);
+        persistNewsLatestIndexSnapshot(snapshotCacheKey, boundedSnapshot);
       }
       if (!hasRecords && cacheKey && cacheTtlMs > 0) {
         const cached = newsLatestIndexRestCache.get(cacheKey);
