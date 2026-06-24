@@ -424,9 +424,22 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /--memory 2304m/);
     assert.match(result.stdout, /--memory-swap 2304m/);
     assert.match(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true/);
+    assert.match(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000/);
     assert.match(result.stdout, /VH_RELAY_DIAGNOSTIC_DIR=\/data\/diagnostics/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000/);
     assert.match(result.stdout, /VH_RELAY_STARTUP_JITTER_MAX_MS=5000/);
     assert.match(result.stdout, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2/);
+    assert.match(result.stdout, /VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false/);
+    assert.match(result.stdout, /VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false/);
+    assert.match(result.stdout, /Safe Relay Diagnostics Evidence Capture/);
+    assert.match(result.stdout, /--exclude='\*\.heapsnapshot'/);
+    assert.match(result.stdout, /--exclude='\*\.heapprofile'/);
+    assert.match(result.stdout, /grep -E '\\\.\(heapsnapshot\|heapprofile\)\$'/);
+    assert.match(result.stdout, /forbidden heap artifact included in vhc-relay-a diagnostics evidence tar/);
     const originRewriteLine = result.stdout
       .split('\n')
       .find((line) => line.startsWith("awk '") && line.includes('VH_PUBLIC_ORIGIN_ANALYSIS_TARGET'));
@@ -465,7 +478,17 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
     assert.match(block, /mem_limit: \$\{VH_PUBLIC_BETA_RELAY_MEMORY_LIMIT:-2304m\}/);
     assert.match(block, /memswap_limit: \$\{VH_PUBLIC_BETA_RELAY_MEMORY_SWAP_LIMIT:-2304m\}/);
     assert.match(block, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED: \$\{VH_RELAY_RESOURCE_WATCHDOG_ENABLED:-true\}/);
+    assert.match(block, /VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: \$\{VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS:-2000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES:-1100000000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES:-150000000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES:-250000000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED:-true\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS: \$\{VH_RELAY_WATCHDOG_EXIT_GRACE_MS:-30000\}/);
     assert.match(block, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY: \$\{VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY:-2\}/);
+    assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES:-false\}/);
+    assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES:-false\}/);
+    assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_MAX_ENTRIES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_MAX_ENTRIES:-120\}/);
+    assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_BODY_CACHE_MAX_ENTRIES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_BODY_CACHE_MAX_ENTRIES:-120\}/);
   }
 });
 

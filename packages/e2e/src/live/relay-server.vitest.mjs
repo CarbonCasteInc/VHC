@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -1710,6 +1710,7 @@ describe('infra relay server', () => {
       VH_RELAY_TEST_FORCE_WATCHDOG_TRIP: 'true',
       VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
       VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+      VH_RELAY_DAEMON_TOKEN: 'super-secret-daemon-token',
     });
 
     await waitForOutput(child, /relay_resource_watchdog_tripped/, 5_000);
@@ -1730,7 +1731,60 @@ describe('infra relay server', () => {
       }),
     });
     expect(JSON.stringify(summary)).not.toContain('VH_RELAY_DAEMON_TOKEN');
+    expect(JSON.stringify(summary)).not.toContain('super-secret-daemon-token');
+    const reportFile = files.find((file) => file.endsWith('.process-report.json'));
+    expect(reportFile).toBeTruthy();
+    const reportText = readFileSync(path.join(diagnosticDir, reportFile), 'utf8');
+    expect(reportText).not.toContain('VH_RELAY_DAEMON_TOKEN');
+    expect(reportText).not.toContain('super-secret-daemon-token');
+    expect(reportText).toContain('[redacted]');
   }, 10_000);
+
+  it('writes private heap artifacts on a heap watchdog growth trip when enabled', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-heap-diagnostics-'));
+    tempDirs.add(diagnosticDir);
+    const { child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'true',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRIP: 'true',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRIP_REASON: 'heap_used_growth_bytes',
+      VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EXIT_GRACE_MS: '5000',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    await waitForOutput(child, /relay_resource_watchdog_tripped/, 10_000);
+    await expect(waitForExit(child, 10_000)).resolves.toBe(1);
+
+    const files = readdirSync(diagnosticDir);
+    const heapSnapshotFile = files.find((file) => file.endsWith('.heapsnapshot'));
+    const heapSummaryFile = files.find((file) => file.endsWith('.heap-summary.json'));
+    const summaryFile = files.find((file) => file.endsWith('.json')
+      && !file.endsWith('.process-report.json')
+      && !file.endsWith('.heap-summary.json'));
+    expect(heapSnapshotFile).toBeTruthy();
+    expect(heapSummaryFile).toBeTruthy();
+    expect(summaryFile).toBeTruthy();
+    expect(statSync(path.join(diagnosticDir, heapSnapshotFile)).mode & 0o777).toBe(0o600);
+    const summary = JSON.parse(readFileSync(path.join(diagnosticDir, summaryFile), 'utf8'));
+    expect(summary).toMatchObject({
+      reason: 'watchdog-heap_used_growth_bytes',
+      details: expect.objectContaining({ reason: 'heap_used_growth_bytes' }),
+      artifacts: expect.objectContaining({
+        heap_snapshot_path: expect.stringContaining('.heapsnapshot'),
+        heap_summary_path: expect.stringContaining('.heap-summary.json'),
+      }),
+    });
+    const heapSummary = JSON.parse(readFileSync(path.join(diagnosticDir, heapSummaryFile), 'utf8'));
+    expect(heapSummary).toMatchObject({
+      schema_version: 'vh-relay-heap-summary-v1',
+      reason: 'watchdog-heap_used_growth_bytes',
+      heap_statistics: expect.any(Object),
+      heap_space_statistics: expect.any(Array),
+    });
+    expect(JSON.stringify(heapSummary)).not.toContain('VH_RELAY_DAEMON_TOKEN');
+  }, 20_000);
 
   it('keeps critical write readback failures fatal to the route', async () => {
     const routes = [
@@ -3283,6 +3337,101 @@ describe('infra relay server', () => {
           },
         }),
       });
+  }, 30_000);
+
+  it('bounds write-through latest-index snapshots and story body cache entries', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-bounded-snapshot-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '2',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_MAX_ENTRIES: '2',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_BODY_CACHE_MAX_ENTRIES: '2',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'false',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'false',
+    });
+    const stories = Array.from({ length: 4 }, (_, index) => makeRelayNewsStory(
+      `story-bounded-snapshot-${index}`,
+      1778994000000 + index,
+      [{
+        source_id: `source-bounded-snapshot-${index}`,
+        publisher: 'Bounded Snapshot Source',
+        url: `https://example.com/bounded-snapshot-${index}`,
+        url_hash: `hash-bounded-snapshot-${index}`,
+        published_at: 1778994000000 + index,
+        title: `Bounded snapshot story ${index}`,
+      }],
+    ));
+
+    for (const story of stories) {
+      await writeRelayNewsStory(port, story);
+      await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    }
+
+    const persisted = JSON.parse(readFileSync(snapshotFile, 'utf8'));
+    expect(persisted.entries.map((entry) => entry.story_id)).toEqual([
+      'story-bounded-snapshot-3',
+      'story-bounded-snapshot-2',
+    ]);
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.body).toContain('vh_relay_news_latest_index_snapshot_cache_entries 2');
+    expect(metrics.body).toContain('vh_relay_news_latest_index_snapshot_cache_max_entries 2');
+    expect(metrics.body).toContain('vh_relay_news_latest_index_story_body_cache_entries 2');
+    expect(metrics.body).toContain('vh_relay_news_latest_index_story_body_cache_max_entries 2');
+    expect(metrics.body).toMatch(/vh_relay_news_latest_index_snapshot_entry_evictions_total [1-9]\d*/);
+    expect(metrics.body).toMatch(/vh_relay_news_latest_index_story_body_cache_evictions_total [1-9]\d*/);
+  }, 30_000);
+
+  it('keeps snapshot verify story body caching bounded while serving a preferred snapshot', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-bounded-verify-cache-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_CACHE_MAX_ENTRIES: '5',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_STORY_BODY_CACHE_MAX_ENTRIES: '1',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'false',
+    });
+    const stories = Array.from({ length: 3 }, (_, index) => makeRelayNewsStory(
+      `story-bounded-verify-${index}`,
+      1778994100000 + index,
+      [{
+        source_id: `source-bounded-verify-${index}`,
+        publisher: 'Bounded Verify Source',
+        url: `https://example.com/bounded-verify-${index}`,
+        url_hash: `hash-bounded-verify-${index}`,
+        published_at: 1778994100000 + index,
+        title: `Bounded verify story ${index}`,
+      }],
+    ));
+
+    for (const story of stories) {
+      await writeRelayNewsStory(port, story);
+      await writeRelayLatestIndexRecord(port, story.story_id, story.cluster_window_end);
+    }
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          record_count: 3,
+          consistency: expect.objectContaining({
+            snapshot_story_body_readback: expect.objectContaining({
+              enabled: true,
+              selected_count: 3,
+            }),
+          }),
+        }),
+      });
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.body).toContain('vh_relay_news_latest_index_story_body_cache_entries 1');
+    expect(metrics.body).toContain('vh_relay_news_latest_index_story_body_cache_max_entries 1');
+    expect(metrics.body).toMatch(/vh_relay_news_latest_index_story_body_cache_evictions_total [1-9]\d*/);
   }, 30_000);
 
   it('filters stale incomplete lifecycle rows when serving a preferred latest-index snapshot', async () => {

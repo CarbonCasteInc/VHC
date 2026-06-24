@@ -558,11 +558,30 @@ it writes a secret-safe diagnostic bundle under the relay data mount, attempts a
 short best-effort CPU profile, and exits `1` so Docker can restart that relay.
 Deploy packets should recreate relays with bounded `--restart on-failure:5`,
 `--memory 2304m --memory-swap 2304m`, `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`,
-and `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics` so repeated overload does not
-become an unbounded synchronized restart loop. The Docker memory ceiling is a
-host-protection backstop above the 1.8 GB RSS watchdog; the watchdog should
-capture and exit first, while the cgroup prevents a fast off-heap spike from
-exhausting A6 memory across all three co-located relays.
+`VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics`,
+`VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000`,
+`VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000`,
+`VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
+`VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`, and
+`VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become an
+unbounded synchronized restart loop. The Docker memory ceiling is a
+host-protection backstop above the 1.8 GB RSS watchdog; the lower heap threshold
+plus faster polling and growth-rate trips should capture and exit before V8
+reaches its heap ceiling, while the cgroup prevents a fast off-heap spike from
+exhausting A6 memory across all three co-located relays. If
+`VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true`,
+heap snapshots are written as host-private `0600` artifacts only; do not attach
+or publish `.heapsnapshot` files without explicit secret-review approval.
+
+For the capped raw-only Scope A soak, run all three relays with
+`VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
+`VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The relay still
+serves write-through latest-index snapshots and story bodies, but avoids the
+verify/refresh heap path that reads and retains full story bodies. The relay
+also bounds its latest-index snapshot entry cache and story-body cache; watch
+`vh_relay_news_latest_index_snapshot_cache_entries`,
+`vh_relay_news_latest_index_story_body_cache_entries`, and their eviction
+counters during the next soak.
 
 Operators should watch `/metrics` counters
 `vh_relay_critical_write_readbacks_started_total`,
@@ -570,8 +589,10 @@ Operators should watch `/metrics` counters
 `vh_relay_critical_write_readback_backpressure_total`,
 `vh_relay_resource_watchdog_trips_total`,
 `vh_relay_snapshot_background_pauses_total`, and
-`vh_relay_snapshot_background_concurrency_caps_total` during any post-merge
-soak.
+`vh_relay_snapshot_background_concurrency_caps_total`, plus
+`vh_relay_news_latest_index_snapshot_entry_evictions_total` and
+`vh_relay_news_latest_index_story_body_cache_evictions_total`, during any
+post-merge soak.
 
 During the post-#675 soak, a single relay returning `503`
 `relay-critical-readback-backpressure` is expected graceful load shedding when

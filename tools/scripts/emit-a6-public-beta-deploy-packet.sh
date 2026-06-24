@@ -217,11 +217,19 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
   const relayDefaults = relay ? [
     envEnsureLine(envPath, 'VH_RELAY_RESOURCE_WATCHDOG_ENABLED', 'true'),
+    envEnsureLine(envPath, 'VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS', '2000'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES', '1100000000'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES', '150000000'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES', '250000000'),
     envEnsureLine(envPath, 'VH_RELAY_DIAGNOSTIC_DIR', '/data/diagnostics'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED', 'true'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EXIT_GRACE_MS', '30000'),
     envEnsureLine(envPath, 'VH_RELAY_STARTUP_JITTER_MAX_MS', '5000'),
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY', '2'),
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT', '16'),
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS', '1000'),
+    envEnsureLine(envPath, 'VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES', 'false'),
+    envEnsureLine(envPath, 'VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES', 'false'),
   ] : [];
   if (!rewriteAnalysisTarget) {
     return [
@@ -245,6 +253,25 @@ function escapeExtendedRegex(value) {
 
 function shellSingleQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function relayDiagnosticEvidenceCommand(name) {
+  const container = byName.get(name);
+  const mount = dataMount(container);
+  const source = mount?.Source;
+  if (!source) return `echo "skip ${name}: no relay data mount captured" >&2`;
+  const diagnosticsDir = `${source.replace(/\/+$/, '')}/diagnostics`;
+  const outDir = '/tmp/vhc-public-beta-deploy/relay-diagnostics-evidence';
+  const tarPath = `${outDir}/${name}-diagnostics-safe.tar`;
+  return [
+    `if sudo test -d ${shellSingleQuote(diagnosticsDir)}; then`,
+    `  sudo tar --exclude='*.heapsnapshot' --exclude='*.heapprofile' -C ${shellSingleQuote(diagnosticsDir)} -cf ${shellSingleQuote(tarPath)} .`,
+    `  if sudo tar -tf ${shellSingleQuote(tarPath)} | grep -E '\\.(heapsnapshot|heapprofile)$'; then`,
+    `    echo "forbidden heap artifact included in ${name} diagnostics evidence tar" >&2`,
+    '    exit 78',
+    '  fi',
+    `else echo "skip ${name}: diagnostics dir not present"; fi`,
+  ].join('\n');
 }
 
 function runCommandFor(name, image, forceRelayUser = false) {
@@ -356,6 +383,19 @@ lines.push('PY');
 lines.push('```');
 lines.push('');
 lines.push('Abort if any relay data dir is empty, not a bind mount, not writable by `humble`, has a missing snapshot, has a schema mismatch, or has an empty/non-list latest-index entries array.');
+lines.push('');
+
+lines.push('## Safe Relay Diagnostics Evidence Capture');
+lines.push('');
+lines.push('Relay `.heapsnapshot` and `.heapprofile` artifacts are host-private and may contain heap object strings. Use this command when collecting shareable diagnostics; it excludes heap artifacts and fails closed if any appear in the tar manifest. Share `.heap-summary.json` and redacted summaries only unless a separate secret-review approval authorizes raw heap artifacts.');
+lines.push('');
+lines.push('```bash');
+lines.push('set -euo pipefail');
+lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy/relay-diagnostics-evidence');
+for (const name of relayNames) {
+  lines.push(relayDiagnosticEvidenceCommand(name));
+}
+lines.push('```');
 lines.push('');
 
 lines.push('## Env Capture');
