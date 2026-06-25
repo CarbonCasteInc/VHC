@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-23
+> Last Reviewed: 2026-06-24
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -16,13 +16,43 @@ an interval, keeps product-feed reconciliation and pending synthesis catch-up on
 their own intervals, and exits only when the process receives SIGINT/SIGTERM or
 startup fails closed.
 
+## Current Launch State
+
+Phase 5 Scope A is live on A6 as of 2026-06-24. The controlling closeout is
+`docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
+
+Current intended-live posture:
+
+- `vh-news-aggregator.service` is expected to be active/running, enabled, and at
+  `NRestarts=0`.
+- Relays run `vhc-public-beta-relay:20260624-main-vb3da27a0-amd64` with Docker
+  `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs, and bounded
+  latest-index/story-body caches.
+- Raw story, latest-index, hot-index, and pending synthesis-lifecycle writes use
+  relay REST quorum with required success count 2.
+- Accepted bundle synthesis, replay synthesis, topic synthesis, storyline writes,
+  and stale storyline cleanup are disabled for the launched raw Scope A profile.
+- Product-feed repair is deferred until after the first completed runtime tick
+  and then paced through dedicated non-fatal maintenance lanes.
+- Relay verify/refresh body maintenance is disabled for the launch profile;
+  re-enabling it requires a separate attended soak and updated evidence.
+- Publisher liveness, relay liveness, and relay snapshot freshness timers are
+  intended to stay enabled during live operation.
+
+This launch state proves raw-fresh, v4-signed, product-visible cards with
+pending lifecycle rows. It does not prove accepted synthesis, frame tables,
+storyline overlays, topic synthesis, full public-beta readiness, mesh
+`release_ready`, production app canary readiness, or legal/commercial approval.
+
 ## Hard Boundaries
 
 - Do not start production publisher writes without explicit operator approval.
-- Do not run public latest-index HTTP reads until the #638 relay code is proven
-  deployed on the host.
-- Keep public-feed monitors disabled until relay deploy proof, safe validation,
-  analysis health/config, publisher freshness, and canary/soak gates are green.
+- Public latest-index HTTP monitors must remain nonmutating (`persist=false` /
+  safe relay GET path). Do not add a monitor or browser smoke that can refresh or
+  rewrite relay snapshots as a side effect of reading.
+- Keep public-feed monitors enabled during intended-live operation. Disable them
+  only during an attended maintenance window or deliberate publisher stop, and
+  record that suppression in the incident/runbook notes.
 - Store secrets only in host env files outside git. Record env var names, host,
   port, and artifact paths only.
 
@@ -394,8 +424,7 @@ Do not set it to `false` in production unless the incident commander has chosen
 an attended degraded-write experiment and the public-feed rollback plan is
 already active.
 
-For the next capped raw-only Scope A launch soak after a clean StoryCluster reset,
-use:
+The launched capped raw-only Scope A operating profile is:
 
 ```bash
 VH_BUNDLE_SYNTHESIS_ENABLED=0
@@ -408,14 +437,14 @@ VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8
 VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS=86400000
 ```
 
-`VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch-soak value, not a
+`VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch operating value, not a
 permanent ceiling. Raise it deliberately only after paced repair has soaked
-cleanly. Scope A launch config keeps accepted synthesis disabled: the raw runtime
+cleanly. Scope A live config keeps accepted synthesis disabled: the raw runtime
 may still enqueue local synthesis candidates and log an inactive local queue, but
 `VH_BUNDLE_SYNTHESIS_ENABLED=0` and `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` must not
 publish accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate`
 or `/vh/topics/synthesis`. `VH_NEWS_STORYLINES_ENABLED=0` omits the direct-Gun
-storyline overlay adapters for the raw-only soak; the runtime counts generated
+storyline overlay adapters for the raw-only profile; the runtime counts generated
 storylines as suppressed in tick summaries, and stale storyline cleanup remains
 parked until storyline overlays are deliberately re-enabled and soaked as
 post-launch enrichment.
@@ -573,7 +602,7 @@ exhausting A6 memory across all three co-located relays. If
 heap snapshots are written as host-private `0600` artifacts only; do not attach
 or publish `.heapsnapshot` files without explicit secret-review approval.
 
-For the capped raw-only Scope A soak, run all three relays with
+For the capped raw-only Scope A operating profile, run all three relays with
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The relay still
 serves write-through latest-index snapshots and story bodies, but avoids the
@@ -581,7 +610,8 @@ verify/refresh heap path that reads and retains full story bodies. The relay
 also bounds its latest-index snapshot entry cache and story-body cache; watch
 `vh_relay_news_latest_index_snapshot_cache_entries`,
 `vh_relay_news_latest_index_story_body_cache_entries`, and their eviction
-counters during the next soak.
+counters during sustained operation and any future verify/refresh re-enable
+soak.
 
 Operators should watch `/metrics` counters
 `vh_relay_critical_write_readbacks_started_total`,
@@ -863,8 +893,10 @@ Abort or stop the service if any of these occur:
 - latest content does not advance after approved start and expected ingest
   cadence.
 
-After an approved start, release evidence still requires
-`pnpm check:news-sources:health`, fresh content advance, pending lifecycle
-evidence, public canary, and soak. Accepted synthesis and storyline enrichment
-evidence remain post-launch quality checks, not Scope A raw-feed start gates. The
-service starting successfully is not a release-ready claim.
+After an approved start, Scope A live evidence requires fresh content advance,
+pending lifecycle evidence, public latest-index/story-body readability, an
+attended soak, and enabled liveness/freshness monitors. The 2026-06-24 closeout
+records the first completed proof for that raw Scope A launch. Accepted
+synthesis and storyline enrichment evidence remain post-launch quality checks,
+not Scope A raw-feed gates. The service starting successfully by itself is never
+a release-ready claim.
