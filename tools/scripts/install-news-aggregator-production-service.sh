@@ -8,6 +8,7 @@ SERVICE_PATH="%h/.local/bin:%h/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin"
 ENABLE_WATCH=false
 ENABLE_PUBLISHER_LIVENESS_WATCH=false
 ENABLE_RELAY_LIVENESS_WATCH=false
+ENABLE_SOAK_ARCHIVE=false
 START_PUBLISHER=false
 
 for arg in "$@"; do
@@ -20,6 +21,9 @@ for arg in "$@"; do
       ;;
     --enable-relay-liveness-watch)
       ENABLE_RELAY_LIVENESS_WATCH=true
+      ;;
+    --enable-soak-archive)
+      ENABLE_SOAK_ARCHIVE=true
       ;;
     --start-publisher)
       START_PUBLISHER=true
@@ -181,6 +185,36 @@ Unit=vh-relay-snapshot-freshness-watch.service
 WantedBy=timers.target
 EOF
 
+cat >"${UNIT_DIR}/vh-phase5-scope-a-soak-archive.service" <<EOF
+[Unit]
+Description=VHC Phase 5 Scope A Soak Evidence Archive
+Documentation=file:${REPO_ROOT}/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=${REPO_ROOT}
+Environment=VH_PHASE5_SCOPE_A_SOAK_ARCHIVE_ROOT=%h/.local/state/vhc/phase5-scope-a-soak
+Environment=VH_PHASE5_SCOPE_A_SOAK_RUN_PUBLIC_MONITOR=true
+Environment=PATH=${SERVICE_PATH}
+WorkingDirectory=${REPO_ROOT}
+ExecStart=/usr/bin/env node ${REPO_ROOT}/tools/scripts/archive-phase5-scope-a-soak-sample.mjs
+EOF
+
+cat >"${UNIT_DIR}/vh-phase5-scope-a-soak-archive.timer" <<'EOF'
+[Unit]
+Description=Archive VHC Phase 5 Scope A soak evidence every hour
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=1h
+AccuracySec=5min
+Persistent=true
+Unit=vh-phase5-scope-a-soak-archive.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl --user daemon-reload
 
 echo "Installed user units:"
@@ -191,6 +225,8 @@ echo "  ${UNIT_DIR}/vh-news-aggregator-liveness-watch.service"
 echo "  ${UNIT_DIR}/vh-news-aggregator-liveness-watch.timer"
 echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.service"
 echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.timer"
+echo "  ${UNIT_DIR}/vh-phase5-scope-a-soak-archive.service"
+echo "  ${UNIT_DIR}/vh-phase5-scope-a-soak-archive.timer"
 echo "Publisher env file expected at: ${ENV_FILE}"
 
 if [[ "${ENABLE_WATCH}" == "true" ]]; then
@@ -206,6 +242,11 @@ fi
 if [[ "${ENABLE_RELAY_LIVENESS_WATCH}" == "true" ]]; then
   systemctl --user enable --now vh-news-relay-liveness-watch.timer
   echo "Enabled news relay liveness timer"
+fi
+
+if [[ "${ENABLE_SOAK_ARCHIVE}" == "true" ]]; then
+  systemctl --user enable --now vh-phase5-scope-a-soak-archive.timer
+  echo "Enabled Phase 5 Scope A soak archive timer"
 fi
 
 if [[ "${START_PUBLISHER}" == "true" ]]; then

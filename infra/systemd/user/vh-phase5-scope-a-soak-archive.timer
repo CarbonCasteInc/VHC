@@ -1,0 +1,12 @@
+[Unit]
+Description=Archive VHC Phase 5 Scope A soak evidence every hour
+
+[Timer]
+OnBootSec=8min
+OnUnitActiveSec=1h
+AccuracySec=5min
+Persistent=true
+Unit=vh-phase5-scope-a-soak-archive.service
+
+[Install]
+WantedBy=timers.target

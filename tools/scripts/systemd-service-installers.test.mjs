@@ -124,6 +124,26 @@ test('news aggregator installer writes relay liveness watch units without enabli
   assert.match(timer, /Unit=vh-news-relay-liveness-watch\.service/);
 });
 
+test('news aggregator installer writes Phase 5 soak archive units without enabling them by default', () => {
+  const source = readScript('install-news-aggregator-production-service.sh');
+  const service = readInfraUnit('vh-phase5-scope-a-soak-archive.service');
+  const timer = readInfraUnit('vh-phase5-scope-a-soak-archive.timer');
+
+  assert.match(source, /vh-phase5-scope-a-soak-archive\.service/);
+  assert.match(source, /vh-phase5-scope-a-soak-archive\.timer/);
+  assert.match(source, /--enable-soak-archive/);
+  assert.match(source, /if \[\[ "\$\{ENABLE_SOAK_ARCHIVE\}" == "true" \]\]/);
+  assert.match(source, /systemctl --user enable --now vh-phase5-scope-a-soak-archive\.timer/);
+
+  for (const unitSource of [source, service]) {
+    assert.match(unitSource, /archive-phase5-scope-a-soak-sample\.mjs/);
+    assert.match(unitSource, /VH_PHASE5_SCOPE_A_SOAK_ARCHIVE_ROOT=%h\/\.local\/state\/vhc\/phase5-scope-a-soak/);
+    assert.match(unitSource, /VH_PHASE5_SCOPE_A_SOAK_RUN_PUBLIC_MONITOR=true/);
+  }
+  assert.match(timer, /OnUnitActiveSec=1h/);
+  assert.match(timer, /Unit=vh-phase5-scope-a-soak-archive\.service/);
+});
+
 test('news aggregator user unit orders publisher after StoryCluster', () => {
   for (const source of [
     readScript('install-news-aggregator-production-service.sh'),
