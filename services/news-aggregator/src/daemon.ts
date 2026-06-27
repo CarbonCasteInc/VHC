@@ -110,6 +110,9 @@ function nonFatalRuntimeErrorFields(context: NewsRuntimeNonFatalErrorContext): R
     storyline_id: context.storyline_id ?? null,
     story_count: context.story_count ?? null,
     work_item_count: context.work_item_count ?? null,
+    failed_stage: context.failed_stage ?? null,
+    tick_sequence: context.tick_sequence ?? null,
+    first_tick: context.first_tick ?? null,
   };
 }
 
@@ -461,7 +464,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         });
       },
       onNonFatalError(_error, context) {
-        logger.warn('[vh:news-daemon] runtime non-fatal enrichment failure', {
+        logger.warn('[vh:news-daemon] runtime non-fatal failure', {
           holder_id: holderId,
           ...nonFatalRuntimeErrorFields(context),
         });
