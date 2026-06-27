@@ -29,11 +29,15 @@ re-enable monitors.
   `vh-news-latest-index-relay-snapshot-v1`, or has an empty/non-list `entries`
   array. Do not scrub or rewrite a valid latest-index snapshot solely because
   its preserved entry count differs from an older runbook example.
+- A non-empty latest-index snapshot is the public latest-index stale-serving
+  fallback after an empty live read. Do not delete a structurally valid snapshot
+  solely because it is older than the freshness SLO; deploy validation should
+  report the stale age, then let fresh publisher ticks move it forward.
 - Run relays with a UID/GID that can write the existing host data dirs.
   Snapshot persistence can otherwise fail without surfacing as a user-facing
   deploy error.
 - Set `NODE_ENV=production` on relays so snapshot-first latest-index serving
-  stays enabled by default.
+  and stale-on-empty latest-index serving stay enabled by default.
 - Run relays with bounded self-recovery: `--restart on-failure:5`,
   `--memory 2304m --memory-swap 2304m`,
   `VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true`,
