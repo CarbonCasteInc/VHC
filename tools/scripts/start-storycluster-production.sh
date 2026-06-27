@@ -17,6 +17,13 @@ set -a
 source "${ENV_FILE}"
 set +a
 
+failure_artifacts_enabled() {
+  case "${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACTS_ENABLED:-1}" in
+    0|[fF][aA][lL][sS][eE]|[nN][oO]|[nN]|[oO][fF][fF]) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 if [[ -z "${OPENAI_API_KEY:-}" ]]; then
   echo "[vh:storycluster:prod] OPENAI_API_KEY is required" >&2
   exit 78
@@ -37,12 +44,32 @@ fi
 export VH_STORYCLUSTER_SERVER_HOST="${VH_STORYCLUSTER_SERVER_HOST:-127.0.0.1}"
 export VH_STORYCLUSTER_SERVER_PORT="${VH_STORYCLUSTER_SERVER_PORT:-4310}"
 export VH_STORYCLUSTER_STATE_DIR="${VH_STORYCLUSTER_STATE_DIR:-${STATE_DIR}}"
+if [[ "${VH_STORYCLUSTER_STATE_DIR}" != /* ]]; then
+  echo "[vh:storycluster:prod] refusing non-absolute VH_STORYCLUSTER_STATE_DIR: ${VH_STORYCLUSTER_STATE_DIR}" >&2
+  exit 78
+fi
+export VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR="${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR:-${VH_STORYCLUSTER_STATE_DIR}/openai-failures}"
 QDRANT_HTTP_PORT="${VH_STORYCLUSTER_QDRANT_HTTP_PORT:-6333}"
 export VH_STORYCLUSTER_QDRANT_URL="${VH_STORYCLUSTER_QDRANT_URL:-http://127.0.0.1:${QDRANT_HTTP_PORT}}"
 export VH_STORYCLUSTER_QDRANT_COLLECTION="${VH_STORYCLUSTER_QDRANT_COLLECTION:-storycluster_coarse_vectors}"
 export VH_STORYCLUSTER_QDRANT_TIMEOUT_MS="${VH_STORYCLUSTER_QDRANT_TIMEOUT_MS:-20000}"
 
 mkdir -p "${VH_STORYCLUSTER_STATE_DIR}"
+if failure_artifacts_enabled; then
+  if [[ "${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}" != /* ]]; then
+    echo "[vh:storycluster:prod] refusing non-absolute VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR: ${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}" >&2
+    exit 78
+  fi
+  mkdir -p "${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}"
+  chmod 750 "${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}"
+  artifact_probe="${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}/.write-test.$$"
+  if ! (umask 077 && : > "${artifact_probe}") 2>/dev/null; then
+    echo "[vh:storycluster:prod] OpenAI failure artifact directory is not writable: ${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}" >&2
+    exit 78
+  fi
+  rm -f "${artifact_probe}"
+  echo "[vh:storycluster:prod] OpenAI failure artifacts enabled at ${VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR}"
+fi
 
 echo "[vh:storycluster:prod] Qdrant readiness preflight starting"
 node --input-type=module <<'NODE'

@@ -110,6 +110,7 @@ test('storycluster production env examples use qdrant and authenticated ready en
   assert.match(storyclusterEnv, /NODE_ENV=production/);
   assert.match(storyclusterEnv, /VH_STORYCLUSTER_VECTOR_BACKEND=qdrant/);
   assert.match(storyclusterEnv, /VH_STORYCLUSTER_QDRANT_URL=http:\/\/127\.0\.0\.1:6333/);
+  assert.match(storyclusterEnv, /VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR=\/home\/humble\/\.local\/state\/vhc\/storycluster-engine\/openai-failures/);
   assert.doesNotMatch(storyclusterEnv, /VECTOR_BACKEND=memory/);
 
   const publisherEnv = readFileSync(path.join(REPO_ROOT, 'docs/ops/news-aggregator.env.example'), 'utf8');

@@ -157,6 +157,13 @@ VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR=/absolute/path
 VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACTS_ENABLED=0
 ```
 
+The production start wrapper exports
+`VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR` to
+`$VH_STORYCLUSTER_STATE_DIR/openai-failures` when it is not set, creates the
+directory, and verifies it is writable before starting StoryCluster. The path
+must be absolute and writable by the `humble` user. This prevents a root-owned
+repo `.tmp` fallback from silently swallowing the only rerank failure artifact.
+
 Each artifact includes stage, provider, model, chunk index, pair count, pair
 IDs, request hash/byte length, response hash/byte length, bounded response
 preview, parse error, and OpenAI `finish_reason`. It does not persist full
