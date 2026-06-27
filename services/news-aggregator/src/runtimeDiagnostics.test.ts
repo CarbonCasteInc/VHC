@@ -11,6 +11,7 @@ function summary(tickSequence: number): NewsRuntimeTickSummary {
     tick_sequence: tickSequence,
     first_tick: tickSequence === 1,
     status: 'completed',
+    skipped: false,
     no_write: true,
     started_at: new Date(1_700_000_000_000 + tickSequence).toISOString(),
     completed_at: new Date(1_700_000_001_000 + tickSequence).toISOString(),
@@ -44,6 +45,7 @@ function summary(tickSequence: number): NewsRuntimeTickSummary {
     stale_storyline_remove_failed_count: 0,
     synthesis_candidate_enqueued_count: 0,
     synthesis_candidate_suppressed_count: 1,
+    nonfatal_prewrite_failure_count: 0,
     last_stage: 'completed',
     first_selected_story_ids: ['story-1'],
   };

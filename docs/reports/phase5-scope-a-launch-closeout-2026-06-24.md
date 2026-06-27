@@ -109,10 +109,13 @@ The launched path proves the Scope A contract:
 1. current RSS content can pass through source health, StoryCluster, raw bundle
    publication, latest/hot indexes, and pending lifecycle rows;
 2. critical raw writes remain fail-closed and quorum-durable;
-3. optional enrichment is not allowed to poison raw publication;
-4. relay readback latency and relay heap growth are bounded enough for the
+3. pre-publication compute/orchestration failures skip the current tick
+   non-fatally and retry on the next interval, while critical raw bundle writes
+   and pending lifecycle writes remain fail-closed;
+4. optional enrichment is not allowed to poison raw publication;
+5. relay readback latency and relay heap growth are bounded enough for the
    capped raw-only operating profile;
-5. host-local monitors are enabled after a successful attended run and can alert
+6. host-local monitors are enabled after a successful attended run and can alert
    on publisher liveness, relay liveness, and latest-index snapshot freshness.
 
 ## What This Does Not Prove
@@ -146,6 +149,14 @@ For the first 24-72 hours, the operational bar is:
 - public latest-index newest-entry age remains under the 6-hour SLO;
 - public composition remains honest raw pending state until enrichment is
   deliberately re-enabled.
+
+A failed skipped tick with `failed_stage=orchestrating` and
+`nonfatal_prewrite_failure_count=1` means the runtime stopped before raw
+publication began and should retry on the next interval. Treat missing
+write-adapter/configuration failures, raw bundle write failures, raw pending
+lifecycle failures, or any failure after `writing_raw_bundles` begins as
+fail-closed publisher stops; those remain operator-inspection events, not
+automatic restart loops.
 
 If a relay watchdog trips, collect the host-private diagnostic bundle and share
 only redacted summaries unless secret review explicitly approves raw heap

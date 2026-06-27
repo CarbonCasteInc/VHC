@@ -304,6 +304,22 @@ restarted. Distinguish them by journal text: fail-closed runtime errors include
 `fail-closed runtime error` / `runtime error triggered fail-closed stop`, while
 approval guards include the wrapper refusal line.
 
+Pre-publication compute/orchestration failures are not write-safety failures by
+themselves. If the runtime fails while the tick is still in the `orchestrating`
+stage, before raw bundle publication begins, it emits a failed skipped tick
+summary with `skipped=true`, `failed_stage=orchestrating`, and
+`nonfatal_prewrite_failure_count=1`, reports the error through
+`onNonFatalError`, and retries on the next interval. This covers transient
+StoryCluster remote-stage failures without re-enabling heuristic fallback or
+weakening relay quorum.
+
+Critical publication-boundary failures remain fail-closed. Missing write
+adapters/configuration after clustering, raw bundle publication failures, raw
+pending lifecycle failures, and any error once the raw write stage has begun
+must still flow through `onError`; in the production daemon that path blocks
+later writes, stops the publisher, and parks the unit with exit code `78` for
+operator inspection.
+
 During the attended Scope A start, `active (running)` alone is not sufficient
 evidence. `NRestarts` must remain `0`, and journals must not show repeated
 `runtime error triggered fail-closed stop` lines. If `NRestarts` climbs, the unit

@@ -67,6 +67,7 @@ export interface NewsRuntimeSynthesisCandidate {
 
 export type NewsRuntimeNonFatalErrorKind =
   | 'advanced_artifact_failed'
+  | 'pre_publication_compute_failed'
   | 'synthesis_candidate_enqueue_failed'
   | 'storyline_write_failed'
   | 'stale_storyline_remove_failed'
@@ -79,6 +80,9 @@ export interface NewsRuntimeNonFatalErrorContext {
   readonly storyline_id?: string;
   readonly story_count?: number;
   readonly work_item_count?: number;
+  readonly failed_stage?: NewsRuntimeTickStage;
+  readonly tick_sequence?: number;
+  readonly first_tick?: boolean;
 }
 
 export interface NewsRuntimeConfig {
@@ -129,6 +133,7 @@ export interface NewsRuntimeTickSummary {
   readonly tick_sequence: number;
   readonly first_tick: boolean;
   readonly status: 'completed' | 'failed';
+  readonly skipped: boolean;
   readonly no_write: boolean;
   readonly started_at: string;
   readonly completed_at: string;
@@ -163,7 +168,9 @@ export interface NewsRuntimeTickSummary {
   readonly stale_storyline_remove_failed_count: number;
   readonly synthesis_candidate_enqueued_count: number;
   readonly synthesis_candidate_suppressed_count: number;
+  readonly nonfatal_prewrite_failure_count: number;
   readonly last_stage: NewsRuntimeTickStage;
+  readonly failed_stage?: NewsRuntimeTickStage;
   readonly first_selected_story_ids: readonly string[];
   readonly error?: string;
 }
@@ -482,6 +489,10 @@ function reportNonFatalError(
   return fullContext;
 }
 
+function isPrePublicationFailureStage(stage: NewsRuntimeTickStage): boolean {
+  return stage === 'orchestrating';
+}
+
 function logTickSummary(summary: NewsRuntimeTickSummary): void {
   const logger = summary.status === 'failed' ? console.warn : console.info;
   logger('[vh:news-runtime] tick summary', summary);
@@ -588,6 +599,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       schemaVersion: 'vh-news-runtime-tick-summary-v1',
       tick_sequence: currentTickSequence,
       first_tick: firstTick,
+      skipped: false,
       no_write: noWrite,
       started_at: new Date(startedAt).toISOString(),
       poll_interval_ms: pollIntervalMs,
@@ -620,6 +632,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       stale_storyline_remove_failed_count: 0,
       synthesis_candidate_enqueued_count: 0,
       synthesis_candidate_suppressed_count: 0,
+      nonfatal_prewrite_failure_count: 0,
       first_selected_story_ids: [],
     });
 
@@ -980,20 +993,37 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         last_stage: lastStage,
       }, config.onTickSummary);
     } catch (error) {
+      const failedStage = lastStage;
+      const prePublicationFailure = isPrePublicationFailureStage(failedStage);
       lastStage = 'failed';
       runtimeTrace('tick_failed', {
         duration_ms: Math.max(0, Date.now() - startedAt),
+        failed_stage: failedStage,
+        skipped: prePublicationFailure,
         error: summarizeError(error),
       });
       await emitTickSummary({
         ...baseSummary(),
         status: 'failed',
+        skipped: prePublicationFailure,
         completed_at: new Date().toISOString(),
         duration_ms: Math.max(0, Date.now() - startedAt),
+        nonfatal_prewrite_failure_count: prePublicationFailure ? 1 : 0,
         last_stage: lastStage,
+        failed_stage: failedStage,
         error: summarizeError(error),
       }, config.onTickSummary);
-      config.onError?.(error);
+      if (prePublicationFailure) {
+        const context = reportNonFatalError(config, error, {
+          kind: 'pre_publication_compute_failed',
+          failed_stage: failedStage,
+          tick_sequence: currentTickSequence,
+          first_tick: firstTick,
+        });
+        runtimeTrace(context.kind, { ...context });
+      } else {
+        config.onError?.(error);
+      }
     } finally {
       if (watchdogTimer !== null) {
         clearTimeout(watchdogTimer);
