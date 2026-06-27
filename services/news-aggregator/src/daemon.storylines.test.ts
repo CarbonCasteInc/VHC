@@ -237,7 +237,7 @@ describe('news daemon storyline adapters', () => {
       { story_id: 'story-after-storyline' },
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      '[vh:news-daemon] runtime non-fatal failure',
       expect.objectContaining({
         kind: 'storyline_write_failed',
         storyline_id: STORYLINE.storyline_id,
@@ -308,7 +308,7 @@ describe('news daemon storyline adapters', () => {
       { story_id: 'story-after-remove' },
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      '[vh:news-daemon] runtime non-fatal failure',
       expect.objectContaining({
         kind: 'stale_storyline_remove_failed',
         storyline_id: STORYLINE.storyline_id,
@@ -384,7 +384,7 @@ describe('news daemon storyline adapters', () => {
       { story_id: 'story-after-stopped-lane' },
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      '[vh:news-daemon] runtime non-fatal enrichment failure',
+      '[vh:news-daemon] runtime non-fatal failure',
       expect.objectContaining({
         kind: 'storyline_write_failed',
         storyline_id: STORYLINE.storyline_id,

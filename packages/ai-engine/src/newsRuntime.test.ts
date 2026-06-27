@@ -1139,9 +1139,13 @@ describe('newsRuntime', () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const onTickSummary = vi.fn();
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       onError,
+      onNonFatalError,
+      onTickSummary,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1149,7 +1153,17 @@ describe('newsRuntime', () => {
     await flushTasks();
 
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(onNonFatalError).not.toHaveBeenCalled();
     expect(String(onError.mock.calls[0]?.[0])).toContain('writeStoryBundle adapter is required');
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      skipped: false,
+      failed_stage: 'clustered',
+      last_stage: 'failed',
+      nonfatal_prewrite_failure_count: 0,
+      raw_write_attempted_count: 0,
+      error: 'writeStoryBundle adapter is required',
+    }));
     handle.stop();
   });
 
@@ -1158,11 +1172,15 @@ describe('newsRuntime', () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const onTickSummary = vi.fn();
     const writeStoryBundle = vi.fn().mockRejectedValue(runtimeError);
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       onError,
+      onNonFatalError,
+      onTickSummary,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1170,6 +1188,15 @@ describe('newsRuntime', () => {
     await flushTasks();
 
     expect(onError).toHaveBeenCalledWith(runtimeError);
+    expect(onNonFatalError).not.toHaveBeenCalled();
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      skipped: false,
+      failed_stage: 'writing_raw_bundles',
+      last_stage: 'failed',
+      nonfatal_prewrite_failure_count: 0,
+      error: expect.stringContaining('failed to publish any selected bundles'),
+    }));
     expect(handle.lastRun()).toBeNull();
     handle.stop();
     handle.stop();
@@ -1200,9 +1227,81 @@ describe('newsRuntime', () => {
     expect(onNonFatalError).not.toHaveBeenCalled();
     expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
       status: 'failed',
+      skipped: false,
+      failed_stage: 'writing_raw_bundles',
+      last_stage: 'failed',
+      nonfatal_prewrite_failure_count: 0,
       raw_write_failed_count: 0,
       error: expect.stringContaining('failed to publish any selected bundles'),
     }));
+
+    handle.stop();
+  });
+
+  it('skips pre-publication orchestrator failures non-fatally and retries on the next tick', async () => {
+    const orchestratorError = new Error(
+      "storycluster stage cross_encoder_rerank failed: Expected ',' or ']' after array element",
+    );
+    orchestrateNewsPipelineMock
+      .mockRejectedValueOnce(orchestratorError)
+      .mockResolvedValueOnce(batch([STORY_BUNDLE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    const onNonFatalError = vi.fn();
+    const onTickSummary = vi.fn();
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onNonFatalError,
+      onTickSummary,
+      pollIntervalMs: 10,
+      runOnStart: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onNonFatalError).toHaveBeenCalledWith(
+      orchestratorError,
+      expect.objectContaining({
+        kind: 'pre_publication_compute_failed',
+        failed_stage: 'orchestrating',
+        tick_sequence: 1,
+        first_tick: true,
+        reason: orchestratorError.message,
+      }),
+    );
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      skipped: true,
+      failed_stage: 'orchestrating',
+      last_stage: 'failed',
+      nonfatal_prewrite_failure_count: 1,
+      raw_write_attempted_count: 0,
+      raw_wrote_count: 0,
+      error: orchestratorError.message,
+    }));
+    expect(handle.lastRun()).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenCalledTimes(2);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onTickSummary.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      status: 'completed',
+      skipped: false,
+      last_stage: 'completed',
+      nonfatal_prewrite_failure_count: 0,
+      raw_write_attempted_count: 1,
+      raw_wrote_count: 1,
+    }));
+    expect(handle.lastRun()).toBeInstanceOf(Date);
 
     handle.stop();
   });
@@ -1529,14 +1628,16 @@ describe('newsRuntime', () => {
 
   it('logs non-Error failures through tick_failed trace output', async () => {
     vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
-    orchestrateNewsPipelineMock.mockRejectedValue('string failure');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     const onError = vi.fn();
+    const onNonFatalError = vi.fn();
 
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
-      writeStoryBundle: vi.fn().mockResolvedValue(undefined),
+      writeStoryBundle: vi.fn().mockRejectedValue('string failure'),
       onError,
+      onNonFatalError,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1544,9 +1645,14 @@ describe('newsRuntime', () => {
     await flushTasks();
 
     expect(onError).toHaveBeenCalledWith('string failure');
+    expect(onNonFatalError).not.toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:news-runtime] tick_failed',
-      expect.objectContaining({ error: 'string failure' }),
+      expect.objectContaining({
+        failed_stage: 'writing_raw_bundles',
+        skipped: false,
+        error: expect.stringContaining('failed to publish any selected bundles'),
+      }),
     );
 
     handle.stop();

@@ -114,6 +114,7 @@ function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsR
     tick_sequence: 1,
     first_tick: true,
     status: 'completed',
+    skipped: false,
     no_write: false,
     started_at: new Date(1_700_000_000_000).toISOString(),
     completed_at: new Date(1_700_000_001_000).toISOString(),
@@ -147,6 +148,7 @@ function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsR
     stale_storyline_remove_failed_count: 0,
     synthesis_candidate_enqueued_count: 1,
     synthesis_candidate_suppressed_count: 0,
+    nonfatal_prewrite_failure_count: 0,
     last_stage: 'completed',
     first_selected_story_ids: ['story-1'],
     ...overrides,
@@ -1043,6 +1045,70 @@ describe('news aggregator daemon', () => {
       active: false,
       pending_depth: 1,
     });
+
+    await daemon.stop();
+  });
+
+  it('keeps pre-publication runtime failures non-fatal and leaves raw writes open', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const prewriteError = new Error('storycluster stage cross_encoder_rerank failed');
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(makeLease());
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+    const writeBundle = vi.fn().mockResolvedValue({ story_id: 'story-after-prewrite-skip' });
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-prewrite-nonfatal' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onNonFatalError?.(prewriteError, {
+      kind: 'pre_publication_compute_failed',
+      reason: prewriteError.message,
+      failed_stage: 'orchestrating',
+      tick_sequence: 1,
+      first_tick: true,
+    });
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.(
+        { id: 'client-prewrite-nonfatal' },
+        { story_id: 'story-after-prewrite-skip' } as any,
+      ),
+    ).resolves.toEqual({ story_id: 'story-after-prewrite-skip' });
+
+    expect(daemon.isRunning()).toBe(true);
+    expect(runtimeHandle.stop).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime non-fatal failure',
+      expect.objectContaining({
+        kind: 'pre_publication_compute_failed',
+        reason: prewriteError.message,
+        failed_stage: 'orchestrating',
+        tick_sequence: 1,
+        first_tick: true,
+      }),
+    );
+    expect(logger.error).not.toHaveBeenCalledWith(
+      '[vh:news-daemon] runtime error triggered fail-closed stop',
+      expect.anything(),
+    );
 
     await daemon.stop();
   });
