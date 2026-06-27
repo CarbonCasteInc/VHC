@@ -611,6 +611,18 @@ publication is proving durability. Topic-synthesis backpressure or readback
 failure remains optional/non-fatal to the publisher under Scope A; relay-side
 bounding does not add it to the publisher fail-closed allow-list.
 
+Public latest-index serving is allowed to degrade stale-but-present. In
+production, `VH_RELAY_NEWS_INDEX_SERVE_STALE_SNAPSHOT_ON_EMPTY` defaults on: if
+the live latest-index read is empty and the relay has a non-empty persisted
+latest-index snapshot, the relay may serve that stale snapshot even when it is
+older than `VH_RELAY_NEWS_INDEX_SNAPSHOT_MAX_AGE_MS`. The response is annotated
+with `consistency.empty_read_cache.served_from="stale_latest_index_snapshot"`,
+`stale=true`, `cached_at`, `age_ms`, and `snapshot_max_age_ms`. This fallback is
+read-only; it does not refresh, rewrite, or prove a critical write, and it exists
+only to keep a launched feed stale-present instead of blank after relay restart
+or local graph hydration gaps. Critical write readbacks still use the live
+readback contract above.
+
 When the per-relay critical readback admission gate is saturated, the relay
 returns `503` with `error=relay-critical-readback-backpressure` (or
 `relay-critical-readback-queue-timeout`) and `Retry-After`. The gun client
@@ -653,9 +665,10 @@ or publish `.heapsnapshot` files without explicit secret-review approval.
 For the capped raw-only Scope A operating profile, run all three relays with
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The relay still
-serves write-through latest-index snapshots and story bodies, but avoids the
-verify/refresh heap path that reads and retains full story bodies. The relay
-also bounds its latest-index snapshot entry cache and story-body cache; watch
+serves write-through latest-index snapshots, stale latest-index empty-read
+fallbacks, and snapshot-backed story bodies, but avoids the verify/refresh heap
+path that reads and retains full story bodies. The relay also bounds its
+latest-index snapshot entry cache and story-body cache; watch
 `vh_relay_news_latest_index_snapshot_cache_entries`,
 `vh_relay_news_latest_index_story_body_cache_entries`, and their eviction
 counters during sustained operation and any future verify/refresh re-enable

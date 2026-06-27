@@ -3410,6 +3410,29 @@ function readPersistedNewsLatestIndexSnapshot(snapshotKey, cacheTtlMs) {
   }
 }
 
+function newsLatestIndexSnapshotAgeMs(snapshot) {
+  const cachedAt = Number(snapshot?.cached_at);
+  if (!Number.isFinite(cachedAt) || cachedAt <= 0) return null;
+  return Math.max(0, Date.now() - cachedAt);
+}
+
+function newsLatestIndexSnapshotHasEntries(snapshot) {
+  return Array.isArray(snapshot?.entries) && snapshot.entries.length > 0;
+}
+
+function newsLatestIndexSnapshotIsFresh(snapshot, maxAgeMs) {
+  if (!newsLatestIndexSnapshotHasEntries(snapshot)) return false;
+  if (maxAgeMs <= 0) return true;
+  const ageMs = newsLatestIndexSnapshotAgeMs(snapshot);
+  return Number.isFinite(ageMs) && ageMs <= maxAgeMs;
+}
+
+function newsLatestIndexSnapshotIsStale(snapshot, maxAgeMs) {
+  if (!newsLatestIndexSnapshotHasEntries(snapshot) || maxAgeMs <= 0) return false;
+  const ageMs = newsLatestIndexSnapshotAgeMs(snapshot);
+  return Number.isFinite(ageMs) && ageMs > maxAgeMs;
+}
+
 function emptyNewsLatestIndexSnapshot() {
   return {
     cached_at: 0,
@@ -3882,6 +3905,9 @@ function persistRefreshedLatestIndexSnapshotEntries(snapshot, options, refreshed
 }
 
 async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {}, cacheInfo = {}) {
+  const allowSnapshotStoryFallback = cacheInfo.allow_snapshot_story_fallback === true;
+  const publicCacheInfo = { ...cacheInfo };
+  delete publicCacheInfo.allow_snapshot_story_fallback;
   const maxRecords = Math.min(
     numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80),
     positiveInteger(options.limit, numberEnv('VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS', 80)),
@@ -3933,8 +3959,40 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
       });
     }
   }
-  const bodyReadbackResult = await verifySnapshotStoryBodies(gun, selectedEntries);
+  const selectedEntriesBeforeBodyReadback = [...selectedEntries];
+  let bodyReadbackResult = await verifySnapshotStoryBodies(gun, selectedEntries);
   selectedEntries = bodyReadbackResult.entries;
+  if (allowSnapshotStoryFallback) {
+    const selectedByStoryId = new Map(selectedEntries.map((entry) => [String(entry?.entry?.[0] ?? ''), entry]));
+    let fallbackCount = 0;
+    const restoredEntries = selectedEntriesBeforeBodyReadback
+      .map((entry) => {
+        const storyId = String(entry?.entry?.[0] ?? '').trim();
+        if (!storyId) return null;
+        const selected = selectedByStoryId.get(storyId);
+        if (selected) return selected;
+        const snapshotStory = parseStoryBundleEnvelope(JSON.stringify(entry?.story ?? null));
+        if (!snapshotStory || snapshotStory.story_id !== storyId) return null;
+        fallbackCount += 1;
+        return {
+          ...entry,
+          story: snapshotStory,
+        };
+      })
+      .filter(Boolean);
+    if (fallbackCount > 0) {
+      selectedEntries = restoredEntries;
+    }
+    bodyReadbackResult = {
+      ...bodyReadbackResult,
+      info: {
+        ...(bodyReadbackResult.info ?? {}),
+        snapshot_story_fallback_enabled: true,
+        snapshot_story_fallback_count: fallbackCount,
+        degraded_to_snapshot_stories: fallbackCount > 0,
+      },
+    };
+  }
   const refreshResult = await refreshSnapshotStoryStates(gun, selectedEntries);
   selectedEntries = refreshResult.entries;
   if (options.persistSnapshotOnRead === true) {
@@ -3966,7 +4024,7 @@ async function buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options = {
     nextCursor: latestIndexPageNextCursor(chronologicalPageEntries, truncated),
     consistency: {
       ...(snapshot.consistency ?? {}),
-      empty_read_cache: cacheInfo,
+      empty_read_cache: publicCacheInfo,
       snapshot_story_body_readback: bodyReadbackResult.info,
       snapshot_story_state_refresh: refreshResult.info,
       excluded_count: excludedRecords.length,
@@ -4003,19 +4061,18 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
   );
   const cacheKey = latestIndexRestCacheKey(options);
   const snapshotCacheKey = latestIndexSnapshotCacheKey(options);
+  const serveStaleSnapshotOnEmpty = boolEnv(
+    'VH_RELAY_NEWS_INDEX_SERVE_STALE_SNAPSHOT_ON_EMPTY',
+    process.env.NODE_ENV === 'production',
+  );
   if (boolEnv('VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT', process.env.NODE_ENV === 'production')) {
     const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
       ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, snapshotMaxAgeMs);
-    if (
-      snapshot
-      && Array.isArray(snapshot.entries)
-      && snapshot.entries.length > 0
-      && (snapshotMaxAgeMs <= 0 || Date.now() - snapshot.cached_at <= snapshotMaxAgeMs)
-    ) {
+    if (newsLatestIndexSnapshotIsFresh(snapshot, snapshotMaxAgeMs)) {
       return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
         served_from: 'preferred_latest_index_snapshot',
         cached_at: snapshot.cached_at,
-        age_ms: Date.now() - snapshot.cached_at,
+        age_ms: newsLatestIndexSnapshotAgeMs(snapshot),
         snapshot_max_age_ms: snapshotMaxAgeMs,
       });
     }
@@ -4067,13 +4124,27 @@ async function readNewsLatestIndexRecordsWithEmptyRetry(gun, options = {}) {
         }
         const snapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
           ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, snapshotMaxAgeMs);
-        if (snapshot && (snapshotMaxAgeMs <= 0 || Date.now() - snapshot.cached_at <= snapshotMaxAgeMs)) {
+        if (newsLatestIndexSnapshotIsFresh(snapshot, snapshotMaxAgeMs)) {
           return buildNewsLatestIndexResultFromSnapshot(gun, snapshot, options, {
             served_from: 'last_non_empty_latest_index_snapshot',
             cached_at: snapshot.cached_at,
-            age_ms: Date.now() - snapshot.cached_at,
+            age_ms: newsLatestIndexSnapshotAgeMs(snapshot),
             snapshot_max_age_ms: snapshotMaxAgeMs,
           });
+        }
+        if (serveStaleSnapshotOnEmpty) {
+          const staleSnapshot = newsLatestIndexSnapshotCache.get(snapshotCacheKey)
+            ?? readPersistedNewsLatestIndexSnapshot(snapshotCacheKey, 0);
+          if (newsLatestIndexSnapshotIsStale(staleSnapshot, snapshotMaxAgeMs)) {
+            return buildNewsLatestIndexResultFromSnapshot(gun, staleSnapshot, options, {
+              served_from: 'stale_latest_index_snapshot',
+              cached_at: staleSnapshot.cached_at,
+              age_ms: newsLatestIndexSnapshotAgeMs(staleSnapshot),
+              snapshot_max_age_ms: snapshotMaxAgeMs,
+              stale: true,
+              allow_snapshot_story_fallback: true,
+            });
+          }
         }
       }
       return result;
