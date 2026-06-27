@@ -1,10 +1,14 @@
+import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { type DocumentAnalysisWorkItem, type DocumentAnalysisWorkResult, type EmbeddingWorkItem, type EmbeddingWorkResult, type PairJudgementWorkItem, type PairJudgementWorkResult, type PairRerankWorkResult, type StoryClusterModelProvider, type SummaryWorkItem, type SummaryWorkResult, type TranslationWorkItem, type TranslationWorkResult } from './modelProvider';
-import { OpenAIClient, type OpenAIClientOptions } from './openaiClient';
+import { OpenAIChatJsonParseError, OpenAIClient, type OpenAIClientOptions } from './openaiClient';
 import { normalizeDocumentType } from './contentSignals';
 import { ensureSentence, normalizeText } from './textSignals';
 export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
   textModel?: string;
   embeddingModel?: string;
+  failureArtifactDir?: string;
 }
 export const OPENAI_STORYCLUSTER_PROVIDER_ID = 'openai-storycluster';
 export const DEFAULT_TEXT_MODEL = 'gpt-4o-mini';
@@ -19,6 +23,7 @@ const ENTITY_LIST_MAX_ITEMS = 24;
 const TRIGGER_LIST_MAX_ITEMS = 12;
 const PAYLOAD_PREVIEW_MAX_LENGTH = 400;
 const DEFAULT_CHUNK_CONCURRENCY = 3;
+const RERANK_FAILURE_SCHEMA_VERSION = 'storycluster-openai-rerank-parse-failure-v1';
 
 interface PayloadSanitizationStats {
   sanitizedFieldCount: number;
@@ -47,7 +52,7 @@ function resolveChunkConcurrency(): number {
 }
 async function collectChunksWithConcurrency<TRequest, TResult>(
   chunks: readonly TRequest[][],
-  worker: (chunk: readonly TRequest[]) => Promise<TResult[]>,
+  worker: (chunk: readonly TRequest[], index: number) => Promise<TResult[]>,
   concurrency = resolveChunkConcurrency(),
 ): Promise<TResult[]> {
   if (chunks.length === 0) {
@@ -60,10 +65,47 @@ async function collectChunksWithConcurrency<TRequest, TResult>(
     while (nextIndex < chunks.length) {
       const index = nextIndex;
       nextIndex += 1;
-      results[index] = await worker(chunks[index]!);
+      results[index] = await worker(chunks[index]!, index);
     }
   }));
   return results.flat();
+}
+function sha256Hex(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+function utf8Length(input: string): number {
+  return new TextEncoder().encode(input).length;
+}
+function sampleIdFromDate(date = new Date()): string {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+function normalizeArtifactPath(value: string, repoRoot = process.cwd()): string {
+  return path.isAbsolute(value) ? value : path.resolve(repoRoot, value);
+}
+function truthyFlag(value: string | undefined, fallback = true): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+function resolveFailureArtifactDir(explicit: string | undefined): string | null {
+  if (!truthyFlag(process.env.VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACTS_ENABLED, true)) {
+    return null;
+  }
+  const configured = explicit?.trim() || process.env.VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR?.trim();
+  if (configured) {
+    return normalizeArtifactPath(configured);
+  }
+  const stateDir = process.env.VH_STORYCLUSTER_STATE_DIR?.trim();
+  if (stateDir) {
+    return path.join(normalizeArtifactPath(stateDir), 'openai-failures');
+  }
+  const home = process.env.HOME?.trim();
+  if (home) {
+    return path.join(home, '.local/state/vhc/storycluster-engine/openai-failures');
+  }
+  return path.resolve(process.cwd(), '.tmp/storycluster-openai-failures');
 }
 function trimSummary(summary: string): string {
   return summary.replace(/\s+/g, ' ').trim();
@@ -252,10 +294,12 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
   private readonly client: OpenAIClient;
   private readonly textModel: string;
   private readonly embeddingModel: string;
+  private readonly failureArtifactDir: string | null;
   constructor(options: OpenAIStoryClusterProviderOptions) {
     this.client = new OpenAIClient(options);
     this.textModel = options.textModel?.trim() || DEFAULT_TEXT_MODEL;
     this.embeddingModel = options.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
+    this.failureArtifactDir = resolveFailureArtifactDir(options.failureArtifactDir);
   }
   async translate(items: TranslationWorkItem[]): Promise<TranslationWorkResult[]> {
     if (items.length === 0) {
@@ -357,17 +401,28 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    return collectChunksWithConcurrency(chunks, (chunk) =>
+    return collectChunksWithConcurrency(chunks, (chunk, chunkIndex) =>
       collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
         chunk,
         async (pending) => {
-          const response = await this.client.chatJson<{ reranks?: Array<{ pair_id: string; score: number }> }>({
-            model: this.textModel,
-            system: ['You rerank document-to-cluster candidate pairs for same-event news clustering.', 'Return strict JSON: {"reranks":[{"pair_id":"...","score":0.0}]}.', 'score must be a calibrated 0..1 same-event similarity score.', 'Do not make final acceptance decisions here. Use the score only for ordering and margin comparison.'].join(' '),
-            user: JSON.stringify({ rerank_pairs: pending }),
-            temperature: 0,
-            maxTokens: 4_000,
-          });
+          const user = JSON.stringify({ rerank_pairs: pending });
+          let response;
+          try {
+            response = await this.client.chatJson<{ reranks?: Array<{ pair_id: string; score: number }> }>({
+              model: this.textModel,
+              system: ['You rerank document-to-cluster candidate pairs for same-event news clustering.', 'Return strict JSON: {"reranks":[{"pair_id":"...","score":0.0}]}.', 'score must be a calibrated 0..1 same-event similarity score.', 'Do not make final acceptance decisions here. Use the score only for ordering and margin comparison.'].join(' '),
+              user,
+              temperature: 0,
+              maxTokens: 4_000,
+            });
+          } catch (error) {
+            await this.captureRerankParseFailure(error, {
+              chunkIndex,
+              pending,
+              user,
+            });
+            throw error;
+          }
           return (response.reranks ?? []).map((item) => ({
             pair_id: item.pair_id,
             score: clampScore(item.score),
@@ -381,6 +436,73 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         }),
       ),
     );
+  }
+
+  private async captureRerankParseFailure(
+    error: unknown,
+    context: {
+      chunkIndex: number;
+      pending: readonly PairJudgementWorkItem[];
+      user: string;
+    },
+  ): Promise<void> {
+    if (!(error instanceof OpenAIChatJsonParseError) || !this.failureArtifactDir) {
+      return;
+    }
+    const requestSha256 = sha256Hex(context.user);
+    const generatedAt = new Date();
+    const artifact = {
+      schema_version: RERANK_FAILURE_SCHEMA_VERSION,
+      generated_at: generatedAt.toISOString(),
+      stage: 'cross_encoder_rerank',
+      provider_id: this.providerId,
+      model: this.textModel,
+      chunk_index: context.chunkIndex,
+      pair_count: context.pending.length,
+      pair_ids: context.pending.map((item) =>
+        redactOpenAIProviderMessage(item.pair_id).slice(0, PAIR_ID_MAX_LENGTH)),
+      request: {
+        sha256: requestSha256,
+        length_bytes: utf8Length(context.user),
+      },
+      response: {
+        finish_reason: error.details.finishReason,
+        content_sha256: error.details.responseContentSha256,
+        content_length_bytes: error.details.responseContentLengthBytes,
+        content_preview: error.details.responseContentPreview,
+        extracted_json_length_bytes: error.details.extractedJsonLengthBytes,
+        parse_error: redactOpenAIProviderMessage(error.details.parseError),
+      },
+      error: {
+        name: error.name,
+        message: redactOpenAIProviderMessage(error.message),
+      },
+    };
+    const artifactPath = path.join(
+      this.failureArtifactDir,
+      `${sampleIdFromDate(generatedAt)}-cross-encoder-rerank-${requestSha256.slice(0, 12)}.json`,
+    );
+    try {
+      await mkdir(this.failureArtifactDir, { recursive: true, mode: 0o750 });
+      await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      console.warn('[vh:storycluster] cross_encoder_rerank parse failure captured', {
+        artifactPath,
+        chunkIndex: context.chunkIndex,
+        pairCount: context.pending.length,
+        finishReason: error.details.finishReason,
+        responseContentLengthBytes: error.details.responseContentLengthBytes,
+        requestLengthBytes: utf8Length(context.user),
+      });
+    } catch (writeError) {
+      console.warn('[vh:storycluster] cross_encoder_rerank parse failure capture failed', {
+        reason: redactOpenAIProviderMessage(writeError instanceof Error ? writeError.message : writeError),
+        chunkIndex: context.chunkIndex,
+        pairCount: context.pending.length,
+      });
+    }
   }
   async adjudicatePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
     if (items.length === 0) {

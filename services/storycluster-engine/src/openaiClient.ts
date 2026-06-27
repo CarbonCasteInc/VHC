@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 interface ChatJsonOptions {
   model: string;
   system: string;
@@ -24,6 +26,26 @@ const DEFAULT_MAX_RETRIES = 2;
 const CHAT_COMPLETIONS_PATH = '/chat/completions';
 const EMBEDDINGS_PATH = '/embeddings';
 const API_KEY_TOKEN_PATTERN = /sk-[A-Za-z0-9_*=\\-]{8,}/g;
+export const OPENAI_CHAT_PARSE_PREVIEW_MAX_LENGTH = 400;
+
+export interface OpenAIChatJsonParseFailureDetails {
+  readonly finishReason: string | null;
+  readonly responseContentLengthBytes: number;
+  readonly responseContentSha256: string;
+  readonly responseContentPreview: string;
+  readonly extractedJsonLengthBytes: number | null;
+  readonly parseError: string | null;
+}
+
+export class OpenAIChatJsonParseError extends Error {
+  readonly details: OpenAIChatJsonParseFailureDetails;
+
+  constructor(message: string, details: OpenAIChatJsonParseFailureDetails) {
+    super(message);
+    this.name = 'OpenAIChatJsonParseError';
+    this.details = details;
+  }
+}
 
 function normalizeBaseUrl(baseUrl: string | undefined): string {
   const trimmed = (baseUrl ?? 'https://api.openai.com/v1').trim();
@@ -43,6 +65,14 @@ function normalizeApiKey(apiKey: string): string {
 
 function redactSensitiveText(input: string): string {
   return input.replace(API_KEY_TOKEN_PATTERN, 'sk-[REDACTED]');
+}
+
+function sha256Hex(input: string): string {
+  return createHash('sha256').update(input).digest('hex');
+}
+
+function utf8Length(input: string): number {
+  return new TextEncoder().encode(input).length;
 }
 
 function normalizeTimeoutMs(timeoutMs: number | undefined): number {
@@ -92,17 +122,47 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
+function parseFailureDetails(
+  payload: unknown,
+  content: string,
+  extractedJson: string | null,
+  parseError: string | null,
+): OpenAIChatJsonParseFailureDetails {
+  const choice = (payload as { choices?: Array<{ finish_reason?: unknown }> })?.choices?.[0];
+  const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : null;
+  const redactedContent = redactSensitiveText(content);
+  return {
+    finishReason,
+    responseContentLengthBytes: utf8Length(content),
+    responseContentSha256: sha256Hex(content),
+    responseContentPreview: redactedContent.slice(0, OPENAI_CHAT_PARSE_PREVIEW_MAX_LENGTH),
+    extractedJsonLengthBytes: extractedJson === null ? null : utf8Length(extractedJson),
+    parseError,
+  };
+}
+
 function extractJsonContent(payload: unknown): unknown {
-  const record = payload as { choices?: Array<{ message?: { content?: unknown } }> };
+  const record = payload as { choices?: Array<{ finish_reason?: unknown; message?: { content?: unknown } }> };
   const content = record?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') {
     throw new Error('OpenAI chat response missing content');
   }
   const match = content.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new Error(`OpenAI chat response missing JSON object: ${redactSensitiveText(content).slice(0, 240)}`);
+    throw new OpenAIChatJsonParseError(
+      `OpenAI chat response missing JSON object: ${redactSensitiveText(content).slice(0, 240)}`,
+      parseFailureDetails(payload, content, null, 'missing_json_object'),
+    );
   }
-  return JSON.parse(match[0]) as unknown;
+  try {
+    return JSON.parse(match[0]) as unknown;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new OpenAIChatJsonParseError(
+      message,
+      parseFailureDetails(payload, content, match[0], message),
+    );
+  }
 }
 
 export class OpenAIClient {

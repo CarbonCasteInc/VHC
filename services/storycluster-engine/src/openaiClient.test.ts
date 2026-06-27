@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OpenAIClient } from './openaiClient';
+import { OpenAIChatJsonParseError, OpenAIClient } from './openaiClient';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -152,6 +152,40 @@ describe('OpenAIClient', () => {
       system: 'sys',
       user: 'usr',
     })).rejects.toBe('chat-string-error');
+  });
+
+  it('attaches finish reason and bounded response details to chat JSON parse failures', async () => {
+    const content = '{"reranks":[{"pair_id":"pair-1","score":0.9} {"pair_id":"pair-2","score":0.1}]}';
+    const client = new OpenAIClient({
+      apiKey: 'key',
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          finish_reason: 'length',
+          message: { content },
+        }],
+      }),
+    });
+
+    try {
+      await client.chatJson({
+        model: 'gpt-4o-mini',
+        system: 'sys',
+        user: 'usr',
+      });
+      throw new Error('expected chatJson to fail');
+    } catch (error) {
+      expect(error).toBeInstanceOf(OpenAIChatJsonParseError);
+      const parseError = error as OpenAIChatJsonParseError;
+      expect(parseError.message).toContain('Expected');
+      expect(parseError.details).toMatchObject({
+        finishReason: 'length',
+        responseContentLengthBytes: content.length,
+        extractedJsonLengthBytes: content.length,
+      });
+      expect(parseError.details.responseContentSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(parseError.details.responseContentPreview).toBe(content);
+      expect(parseError.details.parseError).toContain('Expected');
+    }
   });
 
   it('retries transient chat failures before succeeding', async () => {
