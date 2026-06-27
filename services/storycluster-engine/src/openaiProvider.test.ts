@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   OpenAIStoryClusterProvider,
   createOpenAIStoryClusterProviderFromEnv,
@@ -14,9 +17,20 @@ function jsonResponse(payload: unknown): Response {
 }
 
 describe('OpenAIStoryClusterProvider', () => {
+  const tempDirs: string[] = [];
+
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    const dirs = tempDirs.splice(0);
+    return Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })));
   });
+
+  async function makeTempDir(prefix: string): Promise<string> {
+    const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  }
 
   it('chunks translation requests and trims summaries', async () => {
     const chunkSizes: number[] = [];
@@ -602,6 +616,87 @@ describe('OpenAIStoryClusterProvider', () => {
     expect(warnSpy.mock.calls[0]?.[1]).toHaveProperty('payloadLengthBytes');
     expect(warnSpy.mock.calls[0]?.[1]).toHaveProperty('payloadPreview');
     expect((warnSpy.mock.calls[0]?.[1] as { payloadPreview: string }).payloadPreview).toContain('adjudication_pairs');
+  });
+
+  it('captures bounded rerank parse-failure artifacts with finish reason and pair context', async () => {
+    const artifactDir = await makeTempDir('vh-rerank-failure-');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const responseContent = '{"reranks":[{"pair_id":"pair-1","score":0.91} {"pair_id":"pair-2","score":0.12}]}';
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      failureArtifactDir: artifactDir,
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          finish_reason: 'length',
+          message: { content: responseContent },
+        }],
+      }),
+    });
+
+    await expect(provider.rerankPairs([{
+      pair_id: 'pair-1',
+      document_title: 'Doc',
+      document_text: 'Sensitive story text that must not be persisted in the artifact',
+      document_entities: ['entity'],
+      document_trigger: 'attack',
+      cluster_headline: 'Headline',
+      cluster_summary: 'Summary',
+      cluster_entities: ['entity'],
+      cluster_triggers: ['attack'],
+    }])).rejects.toThrow('Expected');
+
+    const files = await readdir(artifactDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain('cross-encoder-rerank');
+    const artifact = JSON.parse(await readFile(path.join(artifactDir, files[0]!), 'utf8')) as {
+      schema_version: string;
+      stage: string;
+      model: string;
+      chunk_index: number;
+      pair_count: number;
+      pair_ids: string[];
+      request: { sha256: string; length_bytes: number };
+      response: {
+        finish_reason: string | null;
+        content_sha256: string;
+        content_length_bytes: number;
+        content_preview: string;
+        extracted_json_length_bytes: number | null;
+        parse_error: string;
+      };
+      error: { name: string; message: string };
+    };
+    expect(artifact).toMatchObject({
+      schema_version: 'storycluster-openai-rerank-parse-failure-v1',
+      stage: 'cross_encoder_rerank',
+      model: 'gpt-4o-mini',
+      chunk_index: 0,
+      pair_count: 1,
+      pair_ids: ['pair-1'],
+      response: {
+        finish_reason: 'length',
+        content_length_bytes: responseContent.length,
+        content_preview: responseContent,
+      },
+      error: {
+        name: 'OpenAIChatJsonParseError',
+      },
+    });
+    expect(artifact.request.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(artifact.request.length_bytes).toBeGreaterThan(0);
+    expect(artifact.response.content_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(artifact.response.extracted_json_length_bytes).toBe(responseContent.length);
+    expect(artifact.response.parse_error).toContain('Expected');
+    expect(JSON.stringify(artifact)).not.toContain('Sensitive story text');
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:storycluster] cross_encoder_rerank parse failure captured',
+      expect.objectContaining({
+        artifactPath: expect.stringContaining(artifactDir),
+        chunkIndex: 0,
+        pairCount: 1,
+        finishReason: 'length',
+      }),
+    );
   });
 
   it('creates a provider from environment and rejects missing api keys', async () => {

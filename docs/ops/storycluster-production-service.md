@@ -131,6 +131,45 @@ VH_STORYCLUSTER_REMOTE_AUTH_SCHEME=Bearer
 The publisher start wrapper still runs the StoryCluster OpenAI preflight, and
 the daemon still verifies StoryCluster health before creating the Gun client.
 
+## Rerank Failure Capture
+
+The OpenAI provider writes a local diagnostic artifact when the
+`cross_encoder_rerank` stage receives malformed chat JSON from OpenAI. This is
+capture-only: the stage still fails and the caller decides whether that failure
+is fatal or non-fatal.
+
+Default artifact directory:
+
+```bash
+$VH_STORYCLUSTER_STATE_DIR/openai-failures
+```
+
+If `VH_STORYCLUSTER_STATE_DIR` is unset, the provider falls back to:
+
+```bash
+~/.local/state/vhc/storycluster-engine/openai-failures
+```
+
+Override or disable:
+
+```bash
+VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR=/absolute/path
+VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACTS_ENABLED=0
+```
+
+The production start wrapper exports
+`VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR` to
+`$VH_STORYCLUSTER_STATE_DIR/openai-failures` when it is not set, creates the
+directory, and verifies it is writable before starting StoryCluster. The path
+must be absolute and writable by the `humble` user. This prevents a root-owned
+repo `.tmp` fallback from silently swallowing the only rerank failure artifact.
+
+Each artifact includes stage, provider, model, chunk index, pair count, pair
+IDs, request hash/byte length, response hash/byte length, bounded response
+preview, parse error, and OpenAI `finish_reason`. It does not persist full
+rerank pair text or API credentials. Artifact writes are best-effort and must
+not replace the original provider error.
+
 ## Reset Persistent State
 
 StoryCluster persists derived topic state in `VH_STORYCLUSTER_STATE_DIR` and

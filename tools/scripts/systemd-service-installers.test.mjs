@@ -49,6 +49,10 @@ test('storycluster production starter refuses non-qdrant service mode', () => {
   assert.match(source, /export NODE_ENV=production/);
   assert.match(source, /VH_STORYCLUSTER_VECTOR_BACKEND="\$\{VH_STORYCLUSTER_VECTOR_BACKEND:-qdrant\}"/);
   assert.match(source, /refusing non-qdrant vector backend in production/);
+  assert.match(source, /VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR="\$\{VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR:-\$\{VH_STORYCLUSTER_STATE_DIR\}\/openai-failures\}"/);
+  assert.match(source, /refusing non-absolute VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACT_DIR/);
+  assert.match(source, /OpenAI failure artifact directory is not writable/);
+  assert.match(source, /OpenAI failure artifacts enabled at/);
   assert.match(source, /Qdrant readiness preflight starting/);
   assert.match(source, /stage: 'storycluster_qdrant_readiness'/);
   assert.match(source, /preflightOpenAIStoryClusterProviderFromEnv/);
