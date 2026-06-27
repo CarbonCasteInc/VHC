@@ -305,32 +305,37 @@ function makeRelaySynthesisLifecycleRecord(story, {
   };
 }
 
-function writeLatestIndexSnapshotFile(snapshotFile, story) {
+function writeLatestIndexSnapshotFile(snapshotFile, story, overrides = {}) {
   const record = makeRelayLatestIndexRecord(story);
+  const now = Date.now();
+  const storyState = {
+    synthesis_state: 'synthesis_pending',
+    frame_table_state: 'frame_table_pending',
+    lifecycle_status: 'pending',
+    lifecycle_source_set_revision: story.provenance_hash,
+    lifecycle_updated_at: overrides.lifecycleUpdatedAt ?? now,
+    terminal_unavailable_reason: null,
+    retryable: false,
+    ...(overrides.storyState ?? {}),
+  };
+  const entries = overrides.entries ?? [{
+    story_id: story.story_id,
+    record,
+    story,
+    story_state: storyState,
+  }];
   writeFileSync(
     snapshotFile,
     `${JSON.stringify({
       schema_version: 'vh-news-latest-index-relay-snapshot-v1',
       snapshot_key: JSON.stringify({ consistencyFilter: true }),
-      cached_at: Date.now(),
-      source_key_count: 1,
-      scanned_key_count: 1,
+      cached_at: overrides.cachedAt ?? now,
+      source_key_count: overrides.sourceKeyCount ?? entries.length,
+      scanned_key_count: overrides.scannedKeyCount ?? entries.length,
       consistency: {},
       repaired_records: [],
-      entries: [{
-        story_id: story.story_id,
-        record,
-        story,
-        story_state: {
-          synthesis_state: 'synthesis_pending',
-          frame_table_state: 'frame_table_pending',
-          lifecycle_status: 'pending',
-          lifecycle_source_set_revision: story.provenance_hash,
-          lifecycle_updated_at: Date.now(),
-          terminal_unavailable_reason: null,
-          retryable: false,
-        },
-      }],
+      entries,
+      ...(overrides.snapshot ?? {}),
     })}\n`,
   );
 }
@@ -3585,6 +3590,85 @@ describe('infra relay server', () => {
           },
         }),
       });
+  }, 30_000);
+
+  it('serves a stale latest-index snapshot after restart when live latest-index state is empty', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-stale-latest-index-fallback-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'latest-index-snapshot.json');
+    const now = Date.now();
+    const cachedAt = now - 120_000;
+    const story = makeRelayNewsStory('story-stale-latest-index-fallback', now - 1_000, [
+      {
+        source_id: 'source-stale-latest-index-fallback',
+        publisher: 'Stale Latest Index Source',
+        url: 'https://example.com/stale-latest-index-fallback',
+        url_hash: 'hash-stale-latest-index-fallback',
+        published_at: now - 2_000,
+        title: 'Stale latest-index fallback story',
+      },
+    ]);
+    writeLatestIndexSnapshotFile(snapshotFile, story, {
+      cachedAt,
+      lifecycleUpdatedAt: now,
+    });
+    const snapshotBefore = readFileSync(snapshotFile, 'utf8');
+
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_STORY_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_ATTEMPTS: '1',
+      VH_RELAY_NEWS_INDEX_REST_EMPTY_RETRY_DELAY_MS: '1',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_MAX_AGE_MS: '1000',
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SERVE_STALE_SNAPSHOT_ON_EMPTY: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: 'true',
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES: 'false',
+    });
+    const latest = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/latest-index?limit=3&scan_limit=3`,
+    );
+    expect(latest).toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        record_count: 1,
+        source_key_count: 1,
+        records: {
+          [story.story_id]: expect.objectContaining({
+            story_id: story.story_id,
+          }),
+        },
+        stories: {
+          [story.story_id]: expect.objectContaining({
+            story_id: story.story_id,
+            headline: story.headline,
+          }),
+        },
+        consistency: expect.objectContaining({
+          empty_read_cache: expect.objectContaining({
+            served_from: 'stale_latest_index_snapshot',
+            cached_at: cachedAt,
+            snapshot_max_age_ms: 1000,
+            stale: true,
+          }),
+          snapshot_story_body_readback: expect.objectContaining({
+            enabled: true,
+            selected_count: 1,
+            verified_count: 1,
+            dropped_count: 0,
+            snapshot_story_fallback_enabled: true,
+            snapshot_story_fallback_count: 0,
+            degraded_to_snapshot_stories: false,
+          }),
+        }),
+      }),
+    });
+    expect(latest.body.consistency.empty_read_cache.age_ms).toBeGreaterThan(1000);
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBefore);
   }, 30_000);
 
   it('serves scalar-only news story records without waiting for a missing parent node', async () => {
