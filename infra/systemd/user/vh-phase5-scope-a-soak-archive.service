@@ -1,0 +1,12 @@
+[Unit]
+Description=VHC Phase 5 Scope A Soak Evidence Archive
+Documentation=file:/home/humble/VHC/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_PHASE5_SCOPE_A_SOAK_ARCHIVE_ROOT=%h/.local/state/vhc/phase5-scope-a-soak
+Environment=VH_PHASE5_SCOPE_A_SOAK_RUN_PUBLIC_MONITOR=true
+Environment=PATH=/home/humble/.local/bin:/home/humble/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env node /home/humble/VHC/tools/scripts/archive-phase5-scope-a-soak-sample.mjs
