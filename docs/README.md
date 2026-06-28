@@ -50,14 +50,27 @@ CI enforces this via docs governance checks.
 4. `docs/foundational/STATUS.md`
 5. `docs/CANON_MAP.md`
 6. `docs/specs/topic-synthesis-v2.md`
-7. `docs/specs/spec-civic-sentiment.md`
+7. `docs/specs/spec-news-aggregator-v0.md`
+8. `docs/specs/spec-civic-sentiment.md`
 
 ## Local Development and Operations
 
 - `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
 - `docs/ops/ANALYSIS_EVAL_ARTIFACTS.md`
 - `docs/ops/analysis-backend-3001.md`
+- `docs/ops/storycluster-production-service.md`
 - `docs/ops/news-aggregator-production-service.md`
+- `docs/ops/public-feed-freshness-monitor.md`
 - `docs/ops/public-beta-image-deploy.md`
 - `docs/ops/public-beta-compliance-minimums.md`
 - `docs/feature-flags.md`
+
+## Current Scope A Status Pointer
+
+For the live public-news Scope A state, read these together:
+
+- `docs/foundational/STATUS.md`
+- `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`
+- `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`
+- `docs/ops/news-aggregator-production-service.md`
+- `docs/ops/storycluster-production-service.md`

@@ -1,17 +1,28 @@
 # Venn Public Beta Copy
 
-Status: approved bounded copy for the Web PWA public-beta packet.
+Status: bounded copy for the current Web PWA / Scope A public-news packet.
 
-Venn is a Web PWA MVP public beta for news, context, and conversation in one feed.
+Venn is a Web PWA beta for news, context, and conversation in one feed.
 
-The current launch-control status is `go_for_public_beta_launch` for the implemented Web PWA scope. The public app is served at `https://venn.carboncaste.io`, StoryCluster release readiness is green, public feed browser smoke passes, Mesh release readiness is green for the fallback peers `gun-a/b/c.carboncaste.io`, and the production app canary passes with real downstream observations.
+The public app is served at `https://venn.carboncaste.io`. Phase 5 Scope A is
+live as a controlled raw public-news feed: signed, product-visible latest-index
+cards with pending synthesis lifecycle state and relay REST 2-of-3 quorum. The
+post-#687 stability bake recorded the first extended clean window for that raw
+path: 42 clean post-overlap publisher ticks, 336/336 raw writes, zero new
+StoryCluster truncation artifacts, zero rerank degeneracy warnings, and a
+passing hourly archive.
 
-Singleton stories can appear in the feed when they are genuinely one-off coverage. They remain eligible to become bundled later when matching coverage arrives. The launch evidence proves that overlapping stories are bundled when overlap exists.
+Singleton stories can appear in the feed when they are genuinely one-off
+coverage. They remain eligible to become bundled later when matching coverage
+arrives.
 
 Support intake: GitHub issue form in `CarbonCasteInc/VHC`.
 
-Private escalation: Venn Core; none, single-developer project.
+Private escalation: Venn Core; single-developer project.
 
-Rollback disposition: not required for this fresh launch because there is no release version, userbase, or migration.
-
-Do not claim legal approval, commercial approval, LUMA Silver, verified-human identity, one-human-one-vote, Sybil resistance, native App Store/TestFlight readiness, nested `gun-a/b/c.venn.carboncaste.io` peer TLS validity, or a private support desk/SLA from this copy.
+Do not claim legal approval, commercial approval, production-grade live headline
+freshness, accepted synthesis readiness, Mesh `release_ready`, production app
+canary pass, full app readiness, LUMA Silver, verified-human identity,
+one-human-one-vote, Sybil resistance, native App Store/TestFlight readiness,
+nested `gun-a/b/c.venn.carboncaste.io` peer TLS validity, or a private support
+desk/SLA from this copy.

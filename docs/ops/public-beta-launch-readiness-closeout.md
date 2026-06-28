@@ -2,7 +2,7 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-24
+> Last Reviewed: 2026-06-28
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
 Version: 0.9
@@ -17,6 +17,13 @@ raw-fresh, signed, product-visible latest-index cards with pending lifecycle
 state and relay REST quorum. It does not satisfy the broader public-beta gates
 below for accepted synthesis, full app readiness, mesh `release_ready`, LUMA
 production assurance, or legal/commercial launch claims.
+
+2026-06-28 Scope A stability update: the StoryCluster rerank truncation track is
+closed for the launched raw path after #687. The stability bake in
+`docs/reports/phase5-scope-a-stability-bake-2026-06-28.md` recorded 42 clean
+post-overlap ticks, 336/336 raw writes, zero new truncation artifacts, zero
+rerank degeneracy warnings, and a passing hourly archive. This strengthens the
+controlled raw Scope A claim but still does not satisfy the broader gates below.
 
 ## 1. Closeout Verdict
 
