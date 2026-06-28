@@ -945,7 +945,7 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
-  it('dead-letters optional enrichment failures without blocking raw publication', async () => {
+  it('dead-letters optional enrichment worker-body failures without blocking raw publication', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
     const timers = makeTimerControls();

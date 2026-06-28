@@ -20,8 +20,9 @@ not closed yet.
 | Relay memory slope | `not_extrapolation_safe_yet` | relays B/C project to heap/RSS limits before the 7-day trend horizon if the current slope persists |
 
 The packet therefore supports: **Scope A is still healthy in the current bake
-window.** It does not yet support: **24h closed**, **48h proven-sustained**, or
-**multi-day memory trend safe**.
+window.** It does not yet support: **24h closed**, **48h proven-sustained**,
+**multi-day memory trend safe**, **single-host A6 topology resilience**,
+**weekly-cycle stability**, or **Scope B enrichment readiness**.
 
 ## Window Boundary
 
@@ -99,6 +100,11 @@ The watch closes only when both are true:
    StoryCluster, archive, relay, and public freshness signals clean;
 2. relay heap/RSS slope is flat or extrapolation-safe across the closure
    horizon.
+
+The closure packet proves only raw Scope A publication health for the observed
+clean window. It does not prove single-host A6 topology resilience, a full
+weekly traffic cycle, or Scope B accepted/topic synthesis and storyline
+readiness.
 
 Until then, the correct state is **healthy bake in progress**, not
 **proven-sustained**.

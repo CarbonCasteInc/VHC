@@ -362,7 +362,7 @@ describe('news daemon production wiring', () => {
     }
   });
 
-  it('keeps configured synthesis inert until the Scope B master flag is enabled', async () => {
+  it('keeps configured synthesis worker wiring inert until the Scope B master flag is enabled', async () => {
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-synthesis-scope-b-disabled-'));
     const fetchMock = vi.fn(async () => new Response('ok', { status: 200 }));
     primeHealthyEnv();

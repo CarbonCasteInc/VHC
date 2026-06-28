@@ -10,6 +10,18 @@ const SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-v1';
 const DEFAULT_HEAP_LIMIT_BYTES = 1_300_000_000;
 const DEFAULT_RSS_LIMIT_BYTES = 1_800_000_000;
 const DEFAULT_MIN_TREND_HORIZON_HOURS = 7 * 24;
+const CLAIM_BOUNDARY = Object.freeze({
+  proves: [
+    'raw Scope A publication health for the observed clean window',
+    'StoryCluster truncation/degeneracy absence within the observed clean window',
+    'relay quorum/freshness/liveness behavior within the observed clean window',
+  ],
+  doesNotProve: [
+    'single-host A6 topology resilience',
+    'full weekly traffic cycle stability',
+    'Scope B accepted/topic synthesis or storyline enrichment readiness',
+  ],
+});
 
 function firstNonEmpty(...values) {
   for (const value of values) {
@@ -462,6 +474,7 @@ export function buildPhase5ScopeAWatchClosurePacket({
       degeneracyWarningCount,
     },
     relayMemory,
+    claimBoundary: CLAIM_BOUNDARY,
   };
 }
 

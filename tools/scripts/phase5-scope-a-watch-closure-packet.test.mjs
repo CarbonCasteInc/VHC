@@ -136,6 +136,11 @@ test('passes the 48h threshold when archive, runtime, StoryCluster, and relay tr
   assert.equal(packet.thresholds.twentyFourHour.status, 'pass');
   assert.equal(packet.thresholds.fortyEightHour.status, 'pass');
   assert.equal(packet.status, 'pass');
+  assert.deepEqual(packet.claimBoundary.doesNotProve, [
+    'single-host A6 topology resilience',
+    'full weekly traffic cycle stability',
+    'Scope B accepted/topic synthesis or storyline enrichment readiness',
+  ]);
 });
 
 test('blocks the 48h threshold when relay heap trend projects below the safe horizon', () => {

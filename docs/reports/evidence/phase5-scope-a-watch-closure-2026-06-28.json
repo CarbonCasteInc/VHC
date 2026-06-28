@@ -162,5 +162,17 @@
       }
     ],
     "status": "fail"
+  },
+  "claimBoundary": {
+    "proves": [
+      "raw Scope A publication health for the observed clean window",
+      "StoryCluster truncation/degeneracy absence within the observed clean window",
+      "relay quorum/freshness/liveness behavior within the observed clean window"
+    ],
+    "doesNotProve": [
+      "single-host A6 topology resilience",
+      "full weekly traffic cycle stability",
+      "Scope B accepted/topic synthesis or storyline enrichment readiness"
+    ]
   }
 }
