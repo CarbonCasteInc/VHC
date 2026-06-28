@@ -6,11 +6,11 @@ Venn is a Web PWA beta for news, context, and conversation in one feed.
 
 The public app is served at `https://venn.carboncaste.io`. Phase 5 Scope A is
 live as a controlled raw public-news feed: signed, product-visible latest-index
-cards with pending synthesis lifecycle state and relay REST 2-of-3 quorum. The
-post-#687 stability bake recorded the first extended clean window for that raw
-path: 42 clean post-overlap publisher ticks, 336/336 raw writes, zero new
-StoryCluster truncation artifacts, zero rerank degeneracy warnings, and a
-passing hourly archive.
+cards with pending synthesis lifecycle state. The post-#687 stability bake
+recorded the first extended clean window for that raw path: 42 clean
+post-overlap publisher ticks, 336/336 raw writes, zero new StoryCluster
+truncation artifacts, zero rerank degeneracy warnings, and a passing hourly
+archive.
 
 Singleton stories can appear in the feed when they are genuinely one-off
 coverage. They remain eligible to become bundled later when matching coverage
