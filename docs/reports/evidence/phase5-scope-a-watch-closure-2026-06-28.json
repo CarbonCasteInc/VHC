@@ -1,0 +1,166 @@
+{
+  "schemaVersion": "vh-phase5-scope-a-watch-closure-v1",
+  "generatedAt": "2026-06-28T14:09:30.000Z",
+  "status": "in_progress",
+  "window": {
+    "startAt": "2026-06-27T22:30:00.000Z",
+    "cleanStartAt": "2026-06-28T01:22:24.000Z",
+    "hoursObserved": 12.785
+  },
+  "thresholds": {
+    "twentyFourHour": {
+      "thresholdHours": 24,
+      "status": "not_ready",
+      "blockers": [
+        "window_short:12.79/24"
+      ]
+    },
+    "fortyEightHour": {
+      "thresholdHours": 48,
+      "status": "not_ready",
+      "blockers": [
+        "window_short:12.79/48"
+      ]
+    }
+  },
+  "archive": {
+    "sampleCount": 12,
+    "firstSampleAt": "2026-06-28T01:54:59.953Z",
+    "latestSampleAt": "2026-06-28T13:08:59.948Z",
+    "passCount": 12,
+    "failCount": 0,
+    "blockers": [],
+    "latestPublisher": {
+      "status": "pass",
+      "blockers": [],
+      "nRestarts": 0,
+      "activeState": "active",
+      "subState": "running",
+      "execMainStatus": "0",
+      "failureClass": "none",
+      "diagnostic": {
+        "file": "/home/humble/.local/state/vhc/news-aggregator/artifacts/news-runtime-diagnostics.json",
+        "exists": true,
+        "schemaVersion": "vh-news-runtime-diagnostics-v1",
+        "generatedAt": "2026-06-28T12:58:41.535Z",
+        "generatedAtMs": 1782651521535,
+        "ageMs": 378403,
+        "runId": "20260627T124025Z-1679130",
+        "latestTickSequence": 146,
+        "status": "pass",
+        "error": null
+      }
+    },
+    "latestRelay": {
+      "status": "pass",
+      "blockers": []
+    },
+    "latestRelaySnapshot": {
+      "status": "pass",
+      "blockers": [],
+      "newestEntryAgeMs": [
+        8534951,
+        8534951,
+        8534951
+      ]
+    },
+    "latestPublicFreshness": {
+      "status": "pass",
+      "blockers": [],
+      "generatedAt": "2026-06-28T13:09:00.461Z"
+    }
+  },
+  "runtime": {
+    "journalSummary": {
+      "tickCount": 76,
+      "failedTickCount": 0,
+      "skippedTickCount": 0,
+      "rawWriteAttemptedCount": 608,
+      "rawWroteCount": 608,
+      "rawWriteFailedCount": 0,
+      "nonfatalPrewriteFailureCount": 0,
+      "firstTickSequence": 78,
+      "latestTickSequence": 153
+    },
+    "diagnostics": {
+      "generatedAt": "2026-06-28T14:08:58.990Z",
+      "runId": "20260627T124025Z-1679130",
+      "retainedSummaryCount": 50,
+      "latestTickSequence": 153,
+      "latestStatus": "completed",
+      "latestSkipped": false,
+      "latestRawWriteAttemptedCount": 8,
+      "latestRawWroteCount": 8,
+      "latestRawWriteFailedCount": 0,
+      "latestNonfatalPrewriteFailureCount": 0
+    }
+  },
+  "storyCluster": {
+    "failureArtifactDir": "/home/humble/.local/state/vhc/storycluster-engine/openai-failures",
+    "failureArtifactCount": 0,
+    "failureArtifactCountSource": "override",
+    "degeneracyWarningCount": 0
+  },
+  "relayMemory": {
+    "heapLimitBytes": 1300000000,
+    "rssLimitBytes": 1800000000,
+    "minTrendHorizonHours": 168,
+    "relays": [
+      {
+        "name": "vhc-relay-a",
+        "sampleCount": 12,
+        "restartCountMin": 0,
+        "restartCountMax": 0,
+        "watchdogTripsMin": 0,
+        "watchdogTripsMax": 0,
+        "rssFirstBytes": 326107136,
+        "rssLatestBytes": 470261760,
+        "rssSlopeBytesPerHour": 13210394.92845164,
+        "rssHoursToLimit": 100.65847744915644,
+        "heapFirstBytes": 241174776,
+        "heapLatestBytes": 404351200,
+        "heapSlopeBytesPerHour": 14406486.22081473,
+        "heapHoursToLimit": 62.16983005237959,
+        "shortestProjectedLimitHours": 62.16983005237959,
+        "trendStatus": "warn"
+      },
+      {
+        "name": "vhc-relay-b",
+        "sampleCount": 12,
+        "restartCountMin": 1,
+        "restartCountMax": 1,
+        "watchdogTripsMin": 0,
+        "watchdogTripsMax": 0,
+        "rssFirstBytes": 283820032,
+        "rssLatestBytes": 597315584,
+        "rssSlopeBytesPerHour": 23961479.202533133,
+        "rssHoursToLimit": 50.1924111543521,
+        "heapFirstBytes": 222668792,
+        "heapLatestBytes": 509125328,
+        "heapSlopeBytesPerHour": 22203489.225328874,
+        "heapHoursToLimit": 35.61938684383899,
+        "shortestProjectedLimitHours": 35.61938684383899,
+        "trendStatus": "fail"
+      },
+      {
+        "name": "vhc-relay-c",
+        "sampleCount": 12,
+        "restartCountMin": 1,
+        "restartCountMax": 1,
+        "watchdogTripsMin": 0,
+        "watchdogTripsMax": 0,
+        "rssFirstBytes": 282329088,
+        "rssLatestBytes": 570253312,
+        "rssSlopeBytesPerHour": 27384882.325927056,
+        "rssHoursToLimit": 44.9060424421002,
+        "heapFirstBytes": 222111864,
+        "heapLatestBytes": 502642992,
+        "heapSlopeBytesPerHour": 25277313.486141007,
+        "heapHoursToLimit": 31.544373116912652,
+        "shortestProjectedLimitHours": 31.544373116912652,
+        "trendStatus": "fail"
+      }
+    ],
+    "status": "fail"
+  }
+}

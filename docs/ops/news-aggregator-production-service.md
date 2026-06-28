@@ -507,6 +507,7 @@ The launched capped raw-only Scope A operating profile is:
 
 ```bash
 VH_BUNDLE_SYNTHESIS_ENABLED=0
+VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=0
 VH_ANALYSIS_EVAL_REPLAY_ON_START=0
 VH_NEWS_STORYLINES_ENABLED=0
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
@@ -518,15 +519,16 @@ VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS=86400000
 
 `VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch operating value, not a
 permanent ceiling. Raise it deliberately only after paced repair has soaked
-cleanly. Scope A live config keeps accepted synthesis disabled: the raw runtime
-may still enqueue local synthesis candidates and log an inactive local queue, but
-`VH_BUNDLE_SYNTHESIS_ENABLED=0` and `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` must not
-publish accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate`
-or `/vh/topics/synthesis`. `VH_NEWS_STORYLINES_ENABLED=0` omits the direct-Gun
-storyline overlay adapters for the raw-only profile; the runtime counts generated
-storylines as suppressed in tick summaries, and stale storyline cleanup remains
-parked until storyline overlays are deliberately re-enabled and soaked as
-post-launch enrichment.
+cleanly. Scope A live config keeps accepted synthesis disabled:
+`VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=0` is the daemon-level master gate, so model
+credentials or `VH_BUNDLE_SYNTHESIS_ENABLED=1` alone must not publish
+accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate` or
+`/vh/topics/synthesis`. `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` keeps accepted
+artifact replay out of the raw lane. `VH_NEWS_STORYLINES_ENABLED=0` omits the
+direct-Gun storyline overlay adapters for the raw-only profile; the runtime
+counts generated storylines as suppressed in tick summaries, and stale storyline
+cleanup remains parked until storyline overlays are deliberately re-enabled and
+soaked as post-launch enrichment.
 
 ## Env File Surface
 
@@ -553,6 +555,7 @@ VH_STORYCLUSTER_REMOTE_URL
 VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
 OPENAI_API_KEY
+VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED
 VH_BUNDLE_SYNTHESIS_ENABLED
 VH_ANALYSIS_EVAL_REPLAY_ON_START
 VH_NEWS_STORYLINES_ENABLED
@@ -603,7 +606,8 @@ those records to the relay REST write-through routes before attempting any
 direct Gun publication.
 
 Phase 5 production policy is explicit 2-of-3 relay REST quorum for raw
-public-news rows, the raw pending lifecycle row, and bundle synthesis rows:
+public-news rows, the raw pending lifecycle row, and bundle synthesis rows when
+the Scope B enrichment gate is deliberately enabled:
 
 ```bash
 VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=2
