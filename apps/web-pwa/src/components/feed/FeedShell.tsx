@@ -598,6 +598,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
           loadingMore={loadingMore || meshLoadingMore}
           loadMore={handleLoadMore}
           emptyState={feedEmptyState}
+          errorActionLabel="Retry"
+          onErrorAction={() => void handleRefresh()}
         />
       </div>
     </div>

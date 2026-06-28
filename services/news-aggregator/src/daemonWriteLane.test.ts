@@ -166,6 +166,33 @@ describe('daemonWriteLane', () => {
     );
   });
 
+  it('documents Scope B accepted lifecycle writes sharing the fatal raw pending class until lane split', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const lane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 1,
+      stopClassOnFailure: (writeClass) => writeClass === 'news_synthesis_lifecycle',
+    });
+
+    await expect(
+      lane.run('news_synthesis_lifecycle', { story_id: 'accepted-story', caller: 'accepted_synthesis' }, async () => {
+        throw new Error('accepted lifecycle quorum failed');
+      }),
+    ).rejects.toThrow('accepted lifecycle quorum failed');
+
+    await expect(
+      lane.run('news_synthesis_lifecycle', { story_id: 'raw-story', caller: 'raw_pending_lifecycle' }, async () => 'raw'),
+    ).rejects.toThrow('daemon write lane stopped after failure: news_synthesis_lifecycle');
+
+    expect(lane.snapshot()).toContainEqual(
+      expect.objectContaining({
+        write_class: 'news_synthesis_lifecycle',
+        stopped: true,
+        failed_count: 1,
+      }),
+    );
+  });
+
   it('paces product-feed repair writes with dedicated concurrency-one lanes', async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     let releaseFirstRepair: (() => void) | null = null;

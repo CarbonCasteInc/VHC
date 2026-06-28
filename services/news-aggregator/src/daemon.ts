@@ -59,6 +59,7 @@ import { createRuntimeDiagnosticRecorder } from './runtimeDiagnostics';
 import {
   createBundleSynthesisEnrichmentFromEnv,
   isTruthyFlag,
+  shouldEnableBundleSynthesisFromEnv,
 } from './bundleSynthesisDaemonConfig';
 import { NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE, isDirectExecution, runFromCli } from './daemonCli';
 import {
@@ -830,6 +831,10 @@ function isEnabledFlag(value: string | undefined): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function isScopeBEnrichmentEnabledFromEnv(): boolean {
+  return isEnabledFlag(readEnvVar('VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED'));
+}
+
 function safePathToken(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'default';
 }
@@ -1016,7 +1021,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   const deferEnrichmentUntilFirstTickComplete = !isDisabledFlag(
     readEnvVar('VH_NEWS_DAEMON_DEFER_SYNTHESIS_UNTIL_FIRST_TICK_COMPLETE'),
   );
-  const storylineWritesEnabled = !isDisabledFlag(readEnvVar('VH_NEWS_STORYLINES_ENABLED'));
+  const scopeBEnrichmentEnabled = isScopeBEnrichmentEnabledFromEnv();
+  const storylineWritesEnabled =
+    scopeBEnrichmentEnabled && !isDisabledFlag(readEnvVar('VH_NEWS_STORYLINES_ENABLED'));
   const failClosedOnRuntimeError = noWrite
     ? false
     : !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR'));
@@ -1074,7 +1081,8 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       ...(leaseScope ? { newsIngestionLeaseScope: leaseScope } : {}),
       ...systemWriterConfig,
     });
-    const bundleSynthesisEnrichment = noWrite
+    const bundleSynthesisConfigured = shouldEnableBundleSynthesisFromEnv();
+    const bundleSynthesisEnrichment = noWrite || !scopeBEnrichmentEnabled
       ? {}
       : createBundleSynthesisEnrichmentFromEnv(client, console, {
           runWrite: writeLanes.run,
@@ -1082,6 +1090,11 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     if (noWrite) {
       console.warn('[vh:news-daemon] no-write diagnostic mode enabled; all mesh mutations are suppressed', {
         diagnostic_max_ticks: diagnosticMaxTicks ?? null,
+      });
+    } else if (!scopeBEnrichmentEnabled && bundleSynthesisConfigured) {
+      console.info('[vh:news-daemon] Scope B enrichment config present but disabled by master flag', {
+        scope_b_enrichment_enabled: false,
+        bundle_synthesis_configured: true,
       });
     }
     const replayArtifactDir = resolveAnalysisEvalReplayArtifactDirFromEnv();
@@ -1129,7 +1142,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
           });
         }, 0);
       },
-      replayAcceptedSynthesis: !noWrite && replayArtifactDir
+      replayAcceptedSynthesis: !noWrite && scopeBEnrichmentEnabled && replayArtifactDir
         ? (runtimeClient) =>
             replayAcceptedAnalysisEvalSyntheses({
               client: runtimeClient,
@@ -1216,4 +1229,5 @@ export const __internal = {
   verifyStoryClusterHealth,
   isTruthyFlag,
   isEnabledFlag,
+  isScopeBEnrichmentEnabledFromEnv,
 };

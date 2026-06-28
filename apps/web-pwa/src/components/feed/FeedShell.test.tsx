@@ -375,7 +375,7 @@ describe('FeedShell', () => {
   it('shows loading state when loading is true', () => {
     render(<FeedShell feedResult={makeFeedResult({ loading: true })} />);
     expect(screen.getByTestId('feed-loading')).toBeInTheDocument();
-    expect(screen.getByText('Loading feed…')).toBeInTheDocument();
+    expect(screen.getByText('Loading feed...')).toBeInTheDocument();
   });
 
   it('keeps the feed in loading state while public news is still hydrating', () => {

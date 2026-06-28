@@ -14,6 +14,7 @@ function baseEnv(overrides = {}) {
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: 'http://127.0.0.1:4310/ready',
     VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: 'storycluster-token-redacted',
     VH_GUN_PEERS: 'wss://gun-a.example.test/gun,wss://gun-b.example.test/gun',
+    VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED: '1',
     VH_BUNDLE_SYNTHESIS_ENABLED: '1',
     VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST: '1',
     VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
@@ -90,6 +91,48 @@ test('publisher preflight honors explicit synthesis disable even when an API key
   assert.equal(result.relay_rest_synthesis.endpoint_count, 0);
   assert.equal(result.relay_rest_synthesis.required_success_count, 0);
   assert.equal(result.failures.some((failure) => failure.startsWith('relay_rest_synthesis')), false);
+  assert.equal(JSON.stringify(result).includes('openai-key-redacted'), false);
+});
+
+test('publisher preflight keeps configured synthesis outside raw readiness unless Scope B is enabled', async () => {
+  const calls = [];
+  const result = await runNewsAggregatorPublisherPreflight({
+    env: baseEnv({
+      VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED: '',
+      VH_BUNDLE_SYNTHESIS_ENABLED: '1',
+      OPENAI_API_KEY: 'openai-key-redacted',
+      VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST: '',
+      VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS: '',
+      VH_RELAY_DAEMON_TOKEN: '',
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: 'https://gun-a.example.test,https://gun-b.example.test',
+      VH_NEWS_RELAY_REST_WRITE_TOKENS: JSON.stringify({
+        'https://gun-a.example.test': 'relay-a-redacted',
+        'https://gun-b.example.test': 'relay-b-redacted',
+      }),
+    }),
+    fetchFn: async (input, init) => {
+      calls.push({ origin: input.origin, pathname: input.pathname, method: init.method });
+      if (init.method === 'POST') {
+        return new Response(JSON.stringify({ ok: false, error: 'news-story-record-required' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.equal(result.status, 'pass');
+  assert.equal(result.scope_b_enrichment_enabled, false);
+  assert.equal(result.synthesis_configured, true);
+  assert.equal(result.synthesis_enabled, false);
+  assert.equal(result.storylines_enabled, false);
+  assert.equal(result.failures.some((failure) => failure.startsWith('relay_rest_synthesis')), false);
+  assert.equal(calls.some(({ pathname }) => pathname === '/vh/topics/synthesis'), false);
   assert.equal(JSON.stringify(result).includes('openai-key-redacted'), false);
 });
 

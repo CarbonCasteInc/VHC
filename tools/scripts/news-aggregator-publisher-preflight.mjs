@@ -355,10 +355,13 @@ export async function runNewsAggregatorPublisherPreflight({
     failures.push('relay_read_health_urls:missing');
   }
 
-  const synthesisEnabled = explicitlyFalse(env.VH_BUNDLE_SYNTHESIS_ENABLED)
+  const scopeBEnrichmentEnabled = truthy(env.VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED);
+  const synthesisConfigured = explicitlyFalse(env.VH_BUNDLE_SYNTHESIS_ENABLED)
     ? false
     : truthy(env.VH_BUNDLE_SYNTHESIS_ENABLED)
       || Boolean(firstNonEmpty(env.VH_BUNDLE_SYNTHESIS_API_KEY, env.ANALYSIS_RELAY_API_KEY, env.OPENAI_API_KEY));
+  const synthesisEnabled = scopeBEnrichmentEnabled && synthesisConfigured;
+  const storylinesEnabled = scopeBEnrichmentEnabled && !explicitlyFalse(env.VH_NEWS_STORYLINES_ENABLED);
   const relayRestOrigins = parseDelimited(env.VH_BUNDLE_SYNTHESIS_RELAY_WRITE_ORIGINS);
   const relayRestWriteRequested = truthy(env.VH_BUNDLE_SYNTHESIS_WRITE_RELAY_REST)
     || relayRestOrigins.length > 0;
@@ -528,7 +531,10 @@ export async function runNewsAggregatorPublisherPreflight({
       health: Boolean(firstNonEmpty(env.VH_STORYCLUSTER_REMOTE_HEALTH_URL)),
       auth_token: Boolean(firstNonEmpty(env.VH_STORYCLUSTER_REMOTE_AUTH_TOKEN)),
     },
+    scope_b_enrichment_enabled: scopeBEnrichmentEnabled,
+    synthesis_configured: synthesisConfigured,
     synthesis_enabled: synthesisEnabled,
+    storylines_enabled: storylinesEnabled,
     relay_rest_synthesis: {
       requested: relayRestWriteRequested,
       origin_count: relayRestOrigins.length,

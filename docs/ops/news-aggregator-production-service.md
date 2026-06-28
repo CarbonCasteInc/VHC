@@ -493,12 +493,17 @@ halt raw publication.
 
 Live mode also fail-closes runtime errors by default through
 `VH_NEWS_DAEMON_FAIL_CLOSED_ON_RUNTIME_ERROR=true`, but runtime write criticality
-is an explicit allow-list. Only raw bundle publication and the raw pending
-lifecycle write route to the fatal runtime `onError` path. Future write surfaces
-default to non-fatal telemetry unless they are deliberately added to that
-critical set. A critical runtime error blocks further runtime writes, stops the
-daemon loop, shuts down the process handle, and leaves systemd to report the
-service stopped instead of allowing the write lane to drain more public stories.
+follows the write-lane class string. `news_bundle` and
+`news_synthesis_lifecycle` are currently fatal classes. Raw pending lifecycle
+writes use `news_synthesis_lifecycle`; the prepared accepted-synthesis worker
+and accepted replay path also use that same class until the Scope B lifecycle
+lane split lands. Therefore the Scope B master gate is default-off wiring
+control, not proof that accepted synthesis is safe to enable. Do not enable
+Scope B in production until accepted lifecycle writes are moved to a non-fatal
+lane and the product-index update semantics are verified. A critical runtime
+error blocks further runtime writes, stops the daemon loop, shuts down the
+process handle, and leaves systemd to report the service stopped instead of
+allowing the write lane to drain more public stories.
 Do not set it to `false` in production unless the incident commander has chosen
 an attended degraded-write experiment and the public-feed rollback plan is
 already active.
@@ -507,6 +512,7 @@ The launched capped raw-only Scope A operating profile is:
 
 ```bash
 VH_BUNDLE_SYNTHESIS_ENABLED=0
+VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=0
 VH_ANALYSIS_EVAL_REPLAY_ON_START=0
 VH_NEWS_STORYLINES_ENABLED=0
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
@@ -518,15 +524,23 @@ VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS=86400000
 
 `VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8` is a launch operating value, not a
 permanent ceiling. Raise it deliberately only after paced repair has soaked
-cleanly. Scope A live config keeps accepted synthesis disabled: the raw runtime
-may still enqueue local synthesis candidates and log an inactive local queue, but
-`VH_BUNDLE_SYNTHESIS_ENABLED=0` and `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` must not
-publish accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate`
-or `/vh/topics/synthesis`. `VH_NEWS_STORYLINES_ENABLED=0` omits the direct-Gun
-storyline overlay adapters for the raw-only profile; the runtime counts generated
-storylines as suppressed in tick summaries, and stale storyline cleanup remains
-parked until storyline overlays are deliberately re-enabled and soaked as
-post-launch enrichment.
+cleanly. Scope A live config keeps accepted synthesis disabled:
+`VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=0` is the daemon-level master gate, so model
+credentials or `VH_BUNDLE_SYNTHESIS_ENABLED=1` alone must not publish
+accepted/topic synthesis relay writes to `/vh/topics/synthesis-candidate` or
+`/vh/topics/synthesis`. `VH_ANALYSIS_EVAL_REPLAY_ON_START=0` keeps accepted
+artifact replay out of the raw lane. `VH_NEWS_STORYLINES_ENABLED=0` omits the
+direct-Gun storyline overlay adapters for the raw-only profile; the runtime
+counts generated storylines as suppressed in tick summaries, and stale storyline
+cleanup remains parked until storyline overlays are deliberately re-enabled and
+soaked as post-launch enrichment.
+
+Do not treat `VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=1` as a readiness signal. It
+wires accepted synthesis, accepted replay/catch-up, product-index refresh, and
+storyline overlay adapters behind one master switch. Scope B enablement requires
+the accepted lifecycle lane split, explicit product-index safety tests proving
+accepted publication cannot corrupt raw latest/hot ordering or staleness
+semantics, bounded enrichment write rates, and relay memory-slope headroom.
 
 ## Env File Surface
 
@@ -553,6 +567,7 @@ VH_STORYCLUSTER_REMOTE_URL
 VH_STORYCLUSTER_REMOTE_AUTH_TOKEN
 VH_STORYCLUSTER_REMOTE_HEALTH_URL
 OPENAI_API_KEY
+VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED
 VH_BUNDLE_SYNTHESIS_ENABLED
 VH_ANALYSIS_EVAL_REPLAY_ON_START
 VH_NEWS_STORYLINES_ENABLED
@@ -603,7 +618,9 @@ those records to the relay REST write-through routes before attempting any
 direct Gun publication.
 
 Phase 5 production policy is explicit 2-of-3 relay REST quorum for raw
-public-news rows, the raw pending lifecycle row, and bundle synthesis rows:
+public-news rows, the raw pending lifecycle row, and bundle synthesis rows when
+the Scope B enrichment gate is deliberately enabled after the lane-split,
+product-index safety, rate-limit, and relay-capacity prerequisites are met:
 
 ```bash
 VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS=2

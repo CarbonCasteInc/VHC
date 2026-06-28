@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { FeedContent } from './FeedContent';
 
@@ -21,6 +21,10 @@ function renderEmptyFeed(overrides: Partial<React.ComponentProps<typeof FeedCont
 }
 
 describe('FeedContent', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it('renders the default empty state when no override is provided', () => {
     renderEmptyFeed();
 
@@ -44,5 +48,28 @@ describe('FeedContent', () => {
     expect(screen.getByText('Reconnect before refreshing.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders an actionable error state without losing the error detail', () => {
+    const onRetry = vi.fn();
+
+    renderEmptyFeed({
+      error: 'Public feed request timed out.',
+      errorActionLabel: 'Retry',
+      onErrorAction: onRetry,
+    });
+
+    expect(screen.getByTestId('feed-error')).toHaveTextContent('Feed unavailable');
+    expect(screen.getByTestId('feed-error')).toHaveTextContent('Public feed request timed out.');
+    fireEvent.click(screen.getByTestId('feed-error-action'));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders stable loading skeleton rows while the feed is loading', () => {
+    renderEmptyFeed({ loading: true });
+
+    expect(screen.getByTestId('feed-loading')).toHaveTextContent('Loading feed...');
+    expect(screen.getByTestId('feed-loading')).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('feed-loading-skeleton').children).toHaveLength(3);
   });
 });

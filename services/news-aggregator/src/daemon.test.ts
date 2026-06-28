@@ -945,6 +945,61 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('dead-letters optional enrichment worker-body failures without blocking raw publication', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const enrichmentWorker = vi.fn().mockRejectedValue(new Error('scope b failed'));
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(heldLease);
+    const writeLease = vi.fn(async () => heldLease);
+    const writeBundle = vi.fn().mockResolvedValue(undefined);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-scope-b-failure' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      enrichmentWorker,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      failClosedOnRuntimeError: true,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onSynthesisCandidate?.(CANDIDATE);
+
+    await vi.waitFor(() => expect(enrichmentWorker).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(daemon.enrichmentQueueDeadLetterCount()).toBe(1));
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] enrichment worker failed',
+      expect.objectContaining({ message: 'scope b failed' }),
+    );
+
+    await expect(
+      runtimeConfig.writeStoryBundle?.(
+        { id: 'client-scope-b-failure' },
+        { story_id: 'story-after-scope-b-failure' } as any,
+      ),
+    ).resolves.toBeUndefined();
+    expect(writeBundle).toHaveBeenCalledTimes(1);
+    expect(daemon.isRunning()).toBe(true);
+
+    await daemon.stop();
+  });
+
   it('defers enrichment queue work until the first runtime tick completes', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();

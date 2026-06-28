@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TopicEngagementActorNode } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
 import {
@@ -269,6 +269,12 @@ async function createSignedSummaryFixture(): Promise<{
 }
 
 describe('topicEngagementAdapters', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('materializes public aggregate weights from topic-scoped actor nodes', () => {
     const aggregate = materializeTopicEngagementAggregate({
       topicId: 'topic-1',
@@ -667,45 +673,47 @@ describe('topicEngagementAdapters', () => {
 
   it('uses map fallback when actor collection cannot be read as a record', async () => {
     vi.useFakeTimers();
-    const mesh = createFakeMesh();
-    mesh.setRead('aggregates/topics/topic-1/engagement/actors', {});
-    mesh.setMapEntries(
-      'aggregates/topics/topic-1/engagement/actors',
-      [
-        ['_', OTHER_ACTOR],
-        ['   ', OTHER_ACTOR],
-        [undefined, OTHER_ACTOR],
-        ['actor-invalid', { invalid: true }],
-        ['actor-other', OTHER_ACTOR],
-        ['actor-me', {
-          schema_version: 'topic-engagement-actor-v1',
-          topic_id: 'topic-1',
-          eye_weight: 1,
-          lightbulb_weight: 1,
-          updated_at: '2026-02-18T23:00:00.000Z',
-        }],
-      ],
-      { offThrows: true },
-    );
-    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-    const client = createClient(mesh, guard);
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('aggregates/topics/topic-1/engagement/actors', {});
+      mesh.setMapEntries(
+        'aggregates/topics/topic-1/engagement/actors',
+        [
+          ['_', OTHER_ACTOR],
+          ['   ', OTHER_ACTOR],
+          [undefined, OTHER_ACTOR],
+          ['actor-invalid', { invalid: true }],
+          ['actor-other', OTHER_ACTOR],
+          ['actor-me', {
+            schema_version: 'topic-engagement-actor-v1',
+            topic_id: 'topic-1',
+            eye_weight: 1,
+            lightbulb_weight: 1,
+            updated_at: '2026-02-18T23:00:00.000Z',
+          }],
+        ],
+        { offThrows: true },
+      );
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
 
-    const aggregatePromise = writeTopicEngagementActorNode(client, 'topic-1', 'actor-me', {
-      eyeWeight: 1,
-      lightbulbWeight: 1,
-      updatedAt: '2026-02-18T23:00:00.000Z',
-    });
-    await vi.advanceTimersByTimeAsync(250);
+      const aggregatePromise = writeTopicEngagementActorNode(client, 'topic-1', 'actor-me', {
+        eyeWeight: 1,
+        lightbulbWeight: 1,
+        updatedAt: '2026-02-18T23:00:00.000Z',
+      });
+      await vi.advanceTimersByTimeAsync(250);
 
-    await expect(aggregatePromise).resolves.toMatchObject({
-      topic_id: 'topic-1',
-      eye_weight: 2.285,
-      lightbulb_weight: 1,
-      readers: 2,
-      engagers: 1,
-    });
-
-    vi.useRealTimers();
+      await expect(aggregatePromise).resolves.toMatchObject({
+        topic_id: 'topic-1',
+        eye_weight: 2.285,
+        lightbulb_weight: 1,
+        readers: 2,
+        engagers: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('falls back to the just-written actor when no actor map API is available', async () => {
@@ -749,7 +757,6 @@ describe('topicEngagementAdapters', () => {
   });
 
   it('treats missing put acknowledgements as timeout telemetry but keeps materializing', async () => {
-    const hooks = await createRealSystemWriterHooks();
     vi.useFakeTimers();
     try {
       const mesh = createFakeMesh();
@@ -763,8 +770,8 @@ describe('topicEngagementAdapters', () => {
       });
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, {
-        systemWriterPin: hooks.pin,
-        systemWriterSign: hooks.sign,
+        systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
+        systemWriterSign: defaultSystemWriterSign,
         systemWriterVerify: () => true,
       });
 
@@ -773,20 +780,8 @@ describe('topicEngagementAdapters', () => {
         lightbulbWeight: 1,
         updatedAt: '2026-02-18T23:01:00.000Z',
       });
-      let settled = false;
-      aggregatePromise.then(
-        () => {
-          settled = true;
-        },
-        () => {
-          settled = true;
-        },
-      );
+      await vi.runAllTimersAsync();
 
-      for (let pass = 0; pass < 6 && !settled; pass += 1) {
-        await vi.advanceTimersByTimeAsync(1_100);
-        await Promise.resolve();
-      }
       await expect(aggregatePromise).resolves.toMatchObject({
         topic_id: 'topic-1',
         eye_weight: 2.285,
@@ -799,27 +794,29 @@ describe('topicEngagementAdapters', () => {
 
   it('times out reads and ignores late read callbacks', async () => {
     vi.useFakeTimers();
-    const mesh = createFakeMesh();
-    mesh.setOnceHandler((_path, cb) => {
-      setTimeout(() => cb?.({
-        schema_version: 'topic-engagement-aggregate-v1',
-        topic_id: 'topic-late',
-        eye_weight: 1,
-        lightbulb_weight: 1,
-        readers: 1,
-        engagers: 1,
-        version: 1,
-        computed_at: 1,
-      }), 2_600);
-    });
-    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-    const client = createClient(mesh, guard);
+    try {
+      const mesh = createFakeMesh();
+      mesh.setOnceHandler((_path, cb) => {
+        setTimeout(() => cb?.({
+          schema_version: 'topic-engagement-aggregate-v1',
+          topic_id: 'topic-late',
+          eye_weight: 1,
+          lightbulb_weight: 1,
+          readers: 1,
+          engagers: 1,
+          version: 1,
+          computed_at: 1,
+        }), 2_600);
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
 
-    const summaryPromise = readTopicEngagementSummary(client, 'topic-late');
-    await vi.advanceTimersByTimeAsync(2_500);
-    await expect(summaryPromise).resolves.toBeNull();
-    await vi.advanceTimersByTimeAsync(100);
-
-    vi.useRealTimers();
+      const summaryPromise = readTopicEngagementSummary(client, 'topic-late');
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(summaryPromise).resolves.toBeNull();
+      await vi.advanceTimersByTimeAsync(100);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

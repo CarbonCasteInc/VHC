@@ -1,0 +1,589 @@
+{
+  "schemaVersion": "news-source-readiness-queue-v1",
+  "generatedAt": "2026-06-28T14:30:00.000Z",
+  "status": "queue_built_requires_fresh_evidence",
+  "inputs": {
+    "scoutReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json",
+    "admissionReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-admission-report.json",
+    "healthReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json",
+    "fixtureIntakePath": "/Users/bldt/Desktop/VHC/VHC/.tmp/findings-executor/latest-fixture-candidate-intake.json"
+  },
+  "summary": {
+    "scout": {
+      "generatedAt": "2026-04-09T02:44:55.639Z",
+      "ageHours": 1931.75,
+      "stale": true,
+      "candidateCount": 9,
+      "promotableCandidateIds": [
+        "bigbendsentinel-border-wall",
+        "ap-politics"
+      ],
+      "topPromotableCandidateId": "bigbendsentinel-border-wall",
+      "globalFeedStageFailure": false,
+      "recommendedAction": "prepare_promotion_pr"
+    },
+    "admission": {
+      "generatedAt": "2026-06-15T01:53:15.272Z",
+      "ageHours": 324.61,
+      "stale": true,
+      "evaluationMode": "product",
+      "sourceCount": 25,
+      "admittedSourceIds": [
+        "fox-latest",
+        "washingtonexaminer-politics",
+        "guardian-us",
+        "huffpost-us",
+        "cbs-politics",
+        "abc-politics",
+        "nbc-politics",
+        "npr-news",
+        "npr-politics",
+        "pbs-politics",
+        "bbc-general",
+        "bbc-us-canada",
+        "ap-topnews",
+        "ap-politics",
+        "texastribune-main",
+        "nevadaindependent-main",
+        "latimes-california",
+        "militarytimes-news",
+        "fedsmith-news",
+        "kffhealthnews-original",
+        "canarymedia-main",
+        "aljazeera-all",
+        "globalnews-politics",
+        "dw-top"
+      ],
+      "rejectedSourceIds": [
+        "bigbendsentinel-border-wall"
+      ],
+      "inconclusiveSourceIds": []
+    },
+    "health": {
+      "generatedAt": "2026-06-15T01:53:18.084Z",
+      "ageHours": 324.61,
+      "stale": true,
+      "readinessStatus": "blocked",
+      "recommendedAction": "prune_remove_candidates",
+      "releaseEvidence": {
+        "status": "fail",
+        "recommendedAction": "hold_release_for_trend_recovery",
+        "reasons": [
+          "blocked_run_within_release_window",
+          "non_ready_runs_exceed_threshold",
+          "latest_run_not_ready"
+        ],
+        "recentWindowRunCount": 5,
+        "recentReadyRunCount": 2,
+        "recentBlockedRunCount": 3
+      },
+      "keepSourceIds": [
+        "fox-latest",
+        "washingtonexaminer-politics",
+        "guardian-us",
+        "huffpost-us",
+        "cbs-politics",
+        "abc-politics",
+        "nbc-politics",
+        "npr-news",
+        "npr-politics",
+        "pbs-politics",
+        "bbc-general",
+        "bbc-us-canada",
+        "ap-topnews",
+        "ap-politics",
+        "texastribune-main",
+        "nevadaindependent-main",
+        "latimes-california",
+        "militarytimes-news",
+        "fedsmith-news",
+        "kffhealthnews-original",
+        "canarymedia-main",
+        "aljazeera-all",
+        "globalnews-politics",
+        "dw-top"
+      ],
+      "watchSourceIds": [],
+      "removeSourceIds": [
+        "bigbendsentinel-border-wall"
+      ]
+    },
+    "fixtureReplayIntake": {
+      "generatedAt": "2026-04-14T12:26:32.641Z",
+      "ageHours": 1802.06,
+      "stale": true,
+      "candidateCount": 10,
+      "validityEnvelope": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "semanticSoakSummaryPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/semantic-soak-summary.json",
+        "summaryReadinessStatus": "not_ready",
+        "strictSoakPass": true
+      }
+    }
+  },
+  "promotionReadiness": {
+    "status": "queue_built_requires_fresh_evidence",
+    "blockers": [
+      "source_scout_stale_or_missing",
+      "source_admission_stale_or_missing",
+      "source_health_stale_or_missing",
+      "source_health_release_evidence:fail"
+    ],
+    "requiredNextEvidence": [
+      "fresh scout report with no global feed-stage failure",
+      "fresh source admission report for reviewed candidates",
+      "fresh source-health release evidence with status=pass",
+      "StoryCluster production-readiness check before any release claim"
+    ]
+  },
+  "candidateQueue": [
+    {
+      "rank": 1,
+      "lane": "promotion_candidate",
+      "sourceId": "bigbendsentinel-border-wall",
+      "sourceName": "Big Bend Sentinel Border Wall Updates",
+      "rssUrl": "https://bigbendsentinel.com/2026/04/02/border-wall-updates/",
+      "resolvedRssUrl": "https://bigbendsentinel.com/feed/",
+      "promotable": true,
+      "scoutRecommendedAction": "prepare_promotion_pr",
+      "candidateOnlyStatus": "admitted",
+      "candidateOnlyReasons": [],
+      "readableSampleRate": 1,
+      "surfaceReadinessStatus": "ready",
+      "surfaceReleaseEvidenceStatus": "pass",
+      "candidateDecision": "keep",
+      "candidateRecommendedAction": "keep_in_starter_surface",
+      "contributionStatus": "corroborated",
+      "ingestedItemCount": 10,
+      "bundleAppearanceCount": 4,
+      "corroboratedBundleCount": 2,
+      "blockingReasons": [],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/bigbendsentinel-border-wall/candidate-only/1775702763942/source-admission-report.json",
+        "starterPlusCandidateReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/bigbendsentinel-border-wall/starter-plus-candidate/1775702763942/source-health-report.json",
+        "starterPlusCandidateTrendPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/bigbendsentinel-border-wall/starter-plus-candidate/1775702763942/source-health-trend.json"
+      }
+    },
+    {
+      "rank": 2,
+      "lane": "promotion_candidate",
+      "sourceId": "ap-politics",
+      "sourceName": "Associated Press Politics",
+      "rssUrl": "https://apnews.com/politics",
+      "resolvedRssUrl": "https://apnews.com/politics",
+      "promotable": true,
+      "scoutRecommendedAction": "prepare_promotion_pr",
+      "candidateOnlyStatus": "admitted",
+      "candidateOnlyReasons": [],
+      "readableSampleRate": 1,
+      "surfaceReadinessStatus": "ready",
+      "surfaceReleaseEvidenceStatus": "pass",
+      "candidateDecision": "keep",
+      "candidateRecommendedAction": "keep_in_starter_surface",
+      "contributionStatus": "corroborated",
+      "ingestedItemCount": 80,
+      "bundleAppearanceCount": 1,
+      "corroboratedBundleCount": 1,
+      "blockingReasons": [],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/ap-politics/candidate-only/1775702697211/source-admission-report.json",
+        "starterPlusCandidateReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/ap-politics/starter-plus-candidate/1775702697211/source-health-report.json",
+        "starterPlusCandidateTrendPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/ap-politics/starter-plus-candidate/1775702697211/source-health-trend.json"
+      }
+    },
+    {
+      "rank": 3,
+      "lane": "blocked_candidate",
+      "sourceId": "cnn-politics",
+      "sourceName": "CNN Politics",
+      "rssUrl": "http://rss.cnn.com/rss/cnn_allpolitics.rss",
+      "resolvedRssUrl": null,
+      "promotable": false,
+      "scoutRecommendedAction": "hold_for_feed_access",
+      "candidateOnlyStatus": "inconclusive",
+      "candidateOnlyReasons": [
+        "feed_links_unavailable",
+        "feed_fetch_error"
+      ],
+      "readableSampleRate": null,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_inconclusive",
+        "feed_links_unavailable",
+        "feed_fetch_error"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/cnn-politics/candidate-only/1775702760887/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 4,
+      "lane": "blocked_candidate",
+      "sourceId": "nyt-us",
+      "sourceName": "New York Times US",
+      "rssUrl": "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+      "resolvedRssUrl": "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",
+      "promotable": false,
+      "scoutRecommendedAction": "skip_candidate",
+      "candidateOnlyStatus": "rejected",
+      "candidateOnlyReasons": [
+        "access-denied"
+      ],
+      "readableSampleRate": 0,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_rejected",
+        "access-denied"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/nyt-us/candidate-only/1775702761698/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 5,
+      "lane": "blocked_candidate",
+      "sourceId": "reuters-topnews",
+      "sourceName": "Reuters Top News",
+      "rssUrl": "https://feeds.reuters.com/reuters/topNews",
+      "resolvedRssUrl": null,
+      "promotable": false,
+      "scoutRecommendedAction": "hold_for_feed_access",
+      "candidateOnlyStatus": "inconclusive",
+      "candidateOnlyReasons": [
+        "feed_links_unavailable",
+        "feed_fetch_error"
+      ],
+      "readableSampleRate": null,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_inconclusive",
+        "feed_links_unavailable",
+        "feed_fetch_error"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/reuters-topnews/candidate-only/1775702696908/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 6,
+      "lane": "blocked_candidate",
+      "sourceId": "sky-world",
+      "sourceName": "Sky News World",
+      "rssUrl": "https://feeds.skynews.com/feeds/rss/world.xml",
+      "resolvedRssUrl": "https://feeds.skynews.com/feeds/rss/world.xml",
+      "promotable": false,
+      "scoutRecommendedAction": "skip_candidate",
+      "candidateOnlyStatus": "rejected",
+      "candidateOnlyReasons": [
+        "access-denied"
+      ],
+      "readableSampleRate": 0,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_rejected",
+        "access-denied"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/sky-world/candidate-only/1775702763158/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 7,
+      "lane": "blocked_candidate",
+      "sourceId": "thehill-news",
+      "sourceName": "The Hill",
+      "rssUrl": "https://thehill.com/feed/",
+      "resolvedRssUrl": "https://thehill.com/feed/?feed=partnerfeed-news-feed&format=rss",
+      "promotable": false,
+      "scoutRecommendedAction": "skip_candidate",
+      "candidateOnlyStatus": "rejected",
+      "candidateOnlyReasons": [
+        "access-denied"
+      ],
+      "readableSampleRate": 0,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_rejected",
+        "access-denied"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/thehill-news/candidate-only/1775702762303/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 8,
+      "lane": "blocked_candidate",
+      "sourceId": "washingtonpost-politics",
+      "sourceName": "The Washington Post Politics",
+      "rssUrl": "https://www.washingtonpost.com/politics/",
+      "resolvedRssUrl": "https://www.washingtonpost.com/politics/",
+      "promotable": false,
+      "scoutRecommendedAction": "hold_for_feed_access",
+      "candidateOnlyStatus": "inconclusive",
+      "candidateOnlyReasons": [
+        "feed_links_unavailable",
+        "feed_non_xml_payload"
+      ],
+      "readableSampleRate": null,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_inconclusive",
+        "feed_links_unavailable",
+        "feed_non_xml_payload"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/washingtonpost-politics/candidate-only/1775702695641/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    },
+    {
+      "rank": 9,
+      "lane": "blocked_candidate",
+      "sourceId": "wsfa-state",
+      "sourceName": "WSFA 12 News State Politics",
+      "rssUrl": "https://www.wsfa.com/politics/state/",
+      "resolvedRssUrl": "https://www.wsfa.com/politics/state/",
+      "promotable": false,
+      "scoutRecommendedAction": "hold_for_feed_access",
+      "candidateOnlyStatus": "inconclusive",
+      "candidateOnlyReasons": [
+        "feed_links_unavailable",
+        "feed_non_xml_payload"
+      ],
+      "readableSampleRate": null,
+      "surfaceReadinessStatus": null,
+      "surfaceReleaseEvidenceStatus": null,
+      "candidateDecision": null,
+      "candidateRecommendedAction": null,
+      "contributionStatus": null,
+      "ingestedItemCount": null,
+      "bundleAppearanceCount": null,
+      "corroboratedBundleCount": null,
+      "blockingReasons": [
+        "candidate_inconclusive",
+        "feed_links_unavailable",
+        "feed_non_xml_payload"
+      ],
+      "evidence": {
+        "candidateOnlyReportPath": "/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/wsfa-state/candidate-only/1775702696215/source-admission-report.json",
+        "starterPlusCandidateReportPath": null,
+        "starterPlusCandidateTrendPath": null
+      }
+    }
+  ],
+  "fixtureReplayIntake": [
+    {
+      "rank": 1,
+      "candidateId": "offline_replay_remote_mismatch:story-60d40bd8bd28",
+      "origin": "offline_replay_remote_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-60d40bd8bd28",
+      "headline": "Oil prices ease on hopes of new US-Iran peace talks",
+      "counterpartStoryId": "story-af769dd0",
+      "counterpartHeadline": "Oil Prices Rise After U.S. Says It Would Block Iranian Ports Starting Monday",
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "benchmark_or_replay_corpus",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 2,
+      "candidateId": "offline_replay_remote_mismatch:story-1806711e133d",
+      "origin": "offline_replay_remote_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-1806711e133d",
+      "headline": "Rep. Gonzales says he will ‘retire’ tomorrow after sexual misconduct accusations",
+      "counterpartStoryId": "story-56b5d68d",
+      "counterpartHeadline": "Rep. Gonzales says he will ‘retire’ tomorrow after sexual misconduct accusations",
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "benchmark_or_replay_corpus",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 3,
+      "candidateId": "offline_replay_offline_mismatch:story-3a440151",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-3a440151",
+      "headline": "Burkina Faso: Moving forward without democracy",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 4,
+      "candidateId": "offline_replay_offline_mismatch:story-7c02eb61",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-7c02eb61",
+      "headline": "Data centers are on the ballot in 2026 — and just failed the first test",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 5,
+      "candidateId": "offline_replay_offline_mismatch:story-fa0f900f",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-fa0f900f",
+      "headline": "Trump facing backlash for posting AI-generated image depicting him as Jesus Christ",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 6,
+      "candidateId": "offline_replay_offline_mismatch:story-57bf0327",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-57bf0327",
+      "headline": "‘I pray they come together’ - Americans react to Trump’s feud with Pope Leo",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 7,
+      "candidateId": "offline_replay_offline_mismatch:story-10fce039",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-10fce039",
+      "headline": "Texas congressman Tony Gonzales says he will resign from House seat – as it happened",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 8,
+      "candidateId": "offline_replay_offline_mismatch:story-1a72c82f",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-1a72c82f",
+      "headline": "4/13: The Takeout with Major Garrett",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 9,
+      "candidateId": "offline_replay_offline_mismatch:story-123bee71",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-123bee71",
+      "headline": "Bongbong Marcos fights ill-health rumours with star jumps",
+      "counterpartStoryId": null,
+      "counterpartHeadline": null,
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    },
+    {
+      "rank": 10,
+      "candidateId": "offline_replay_offline_mismatch:story-43c6f8c6",
+      "origin": "offline_replay_offline_mismatch",
+      "intakeDecision": "review_for_fixture_or_replay_promotion",
+      "storyId": "story-43c6f8c6",
+      "headline": "Oil prices ease on hopes of new US-Iran peace talks",
+      "counterpartStoryId": "story-60d40bd8bd28",
+      "counterpartHeadline": "Oil prices ease on hopes of new US-Iran peace talks",
+      "whyItMatters": "Valid live evidence found a bundle-composition mismatch between remote output and the offline heuristic. If the mismatch is semantically meaningful, it should become a deterministic fixture or replay scenario.",
+      "target": "fixture_or_validated_snapshot",
+      "sourceArtifactPaths": {
+        "semanticSoakArtifactDir": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699",
+        "offlineReplayReportPath": "/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1776140129699/offline-cluster-replay-report.json"
+      }
+    }
+  ]
+}
