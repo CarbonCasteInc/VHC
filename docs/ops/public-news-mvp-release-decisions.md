@@ -2,7 +2,7 @@
 
 > Status: Owner Decision Ledger
 > Owner: VHC Product + Launch Ops
-> Last Reviewed: 2026-06-24
+> Last Reviewed: 2026-06-28
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Status
@@ -18,6 +18,13 @@ product-visible latest-index rows with pending lifecycle state and relay REST
 2-of-3 quorum on the current A6 topology. It does not expand the allowed claims
 to accepted synthesis, storyline overlays, full public beta, mesh
 `release_ready`, or production app readiness.
+
+The 2026-06-28 stability bake recorded the first extended clean post-#687
+window for that constrained claim: 42 clean post-overlap ticks, 336/336 raw
+writes, zero new StoryCluster truncation artifacts, zero rerank degeneracy
+warnings, and a passing hourly archive. This closes launch firefighting for the
+known StoryCluster truncation class; it does not change the owner decisions
+below.
 
 ## Decisions
 

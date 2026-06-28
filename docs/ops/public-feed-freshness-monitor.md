@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-24
+> Last Reviewed: 2026-06-28
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -38,6 +38,13 @@ Host-local relay snapshot freshness is covered separately by
 `docs/ops/news-aggregator-production-service.md`. That watch reads
 `news-latest-index-snapshot.json` files directly and does not perform public
 latest-index HTTP probes.
+
+During the Phase 5 Scope A 24-72 hour watch, the host-local soak archive timer
+wraps this monitor and preserves hourly public freshness summaries under
+`~/.local/state/vhc/phase5-scope-a-soak/YYYYMMDDTHHMMSSZ/`. The archive is the
+preferred evidence packet for bake-window review because it captures this public
+freshness result together with publisher liveness, relay liveness, and relay
+snapshot freshness.
 
 ## Command
 

@@ -5,6 +5,11 @@
 > Commit: `b3da27a09f683b7933f169bdd77c03f101681663`
 > Depends On: `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-beta-image-deploy.md`, `docs/ops/public-feed-freshness-monitor.md`
 
+Post-launch stability addendum: the first extended post-#687 bake is recorded
+in `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`. That addendum
+does not change the original launch scope; it records the later StoryCluster
+rerank truncation fix and the first seven-plus-hour clean production window.
+
 ## Verdict
 
 Phase 5 Scope A is live on A6 as a controlled raw-only public news feed.
@@ -149,6 +154,10 @@ For the first 24-72 hours, the operational bar is:
 - public latest-index newest-entry age remains under the 6-hour SLO;
 - public composition remains honest raw pending state until enrichment is
   deliberately re-enabled.
+- StoryCluster OpenAI failure artifacts do not reappear under the production
+  state dir after the #687 restart;
+- StoryCluster rerank degeneracy warnings remain absent or isolated enough to
+  prove rerank is not silently degrading every nontrivial chunk.
 
 A failed skipped tick with `failed_stage=orchestrating` and
 `nonfatal_prewrite_failure_count=1` means the runtime stopped before raw
@@ -161,6 +170,34 @@ automatic restart loops.
 If a relay watchdog trips, collect the host-private diagnostic bundle and share
 only redacted summaries unless secret review explicitly approves raw heap
 artifacts.
+
+## Post-Launch StoryCluster Stability Addendum - 2026-06-28
+
+After launch, the raw Scope A path hit recurring pre-publication StoryCluster
+`cross_encoder_rerank` failures caused by OpenAI `finish_reason=length`
+truncation. The fix sequence is now recorded as part of the launch ledger:
+
+1. #684 made pre-publication StoryCluster failures non-fatal skipped ticks.
+2. #685 captured bounded OpenAI rerank artifacts and proved the truncation
+   cause.
+3. #687 fixed the failure at the source with strict fixed-key rerank structured
+   output, omit/keep-prior rerank degradation, adjudication gate-safe fallback,
+   and 5xx internal stage/model semantics.
+
+The #687 deployment landed at
+`baf1dd5f41958473c93db04e4d6007e4df7b074f`. The first extended bake showed:
+
+- 42 consecutive clean post-overlap publisher ticks;
+- 336/336 raw writes;
+- latest observed tick with `nonfatal_prewrite_failure_count=0`;
+- zero new StoryCluster OpenAI failure artifacts since the #687 restart;
+- zero rerank degeneracy warnings since the #687 restart;
+- passing hourly archive sample across publisher liveness, relay liveness,
+  relay snapshot freshness, and public feed freshness.
+
+This closes the StoryCluster truncation track for Scope A raw publication. It
+does not complete the full 24-72 hour sustained-operation watch or expand the
+launch claim beyond controlled raw Scope A.
 
 ## Post-Launch Backlog
 

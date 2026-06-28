@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-24
+> Last Reviewed: 2026-06-28
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -20,6 +20,8 @@ startup fails closed.
 
 Phase 5 Scope A is live on A6 as of 2026-06-24. The controlling closeout is
 `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
+The first extended post-#687 stability bake is recorded in
+`docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`.
 
 Current intended-live posture:
 
@@ -38,11 +40,19 @@ Current intended-live posture:
   re-enabling it requires a separate attended soak and updated evidence.
 - Publisher liveness, relay liveness, and relay snapshot freshness timers are
   intended to stay enabled during live operation.
+- The hourly Scope A soak archive timer is intended to stay enabled during the
+  24-72 hour watch so each hour preserves publisher liveness, relay liveness,
+  relay snapshot freshness, and public feed freshness evidence.
+- The StoryCluster rerank truncation class that interrupted launch is fixed at
+  source by #687 and had zero new artifacts / zero degeneracy warnings during
+  the first seven-plus-hour production bake.
 
 This launch state proves raw-fresh, v4-signed, product-visible cards with
-pending lifecycle rows. It does not prove accepted synthesis, frame tables,
-storyline overlays, topic synthesis, full public-beta readiness, mesh
-`release_ready`, production app canary readiness, or legal/commercial approval.
+pending lifecycle rows, and the post-#687 bake proves the known StoryCluster
+rerank truncation failure no longer interrupts the launched raw path. It does
+not prove accepted synthesis, frame tables, storyline overlays, topic synthesis,
+full public-beta readiness, mesh `release_ready`, production app canary
+readiness, or legal/commercial approval.
 
 ## Hard Boundaries
 
@@ -201,6 +211,19 @@ write public feed records. It exists to preserve baseline / 24h / 48h / 72h
 evidence even though the individual liveness watches overwrite their
 `latest.json` files.
 
+During the post-#687 bake, treat the archive plus StoryCluster watch as the
+Scope A health surface:
+
+- archive `manifest.json` remains `status: pass`;
+- publisher liveness, relay liveness, relay snapshot freshness, and public feed
+  freshness reports remain `pass`;
+- StoryCluster OpenAI failure artifact count since the #687 restart remains
+  zero;
+- StoryCluster rerank degeneracy warning count remains zero or isolated enough
+  to prove rerank is not degrading every nontrivial chunk;
+- publisher diagnostics continue to show completed ticks with
+  `nonfatal_prewrite_failure_count=0` outside attended maintenance overlap.
+
 Approved publisher start packet:
 
 ```bash
@@ -344,6 +367,14 @@ summary with `skipped=true`, `failed_stage=orchestrating`, and
 `onNonFatalError`, and retries on the next interval. This covers transient
 StoryCluster remote-stage failures without re-enabling heuristic fallback or
 weakening relay quorum.
+
+Stage-safe degradation must not fabricate gate-feeding values. Recoverable
+StoryCluster rerank model-output failures omit supplemental rerank results so
+the previous deterministic `rerank_score` continues into the gates. Missing or
+failed adjudication must preserve prior/no-op gate semantics. Provider,
+configuration, auth, transport, and startup errors are not recoverable
+model-output failures; they must surface as failed stage execution rather than
+quiet successful ticks.
 
 Critical publication-boundary failures remain fail-closed. Missing write
 adapters/configuration after clustering, raw bundle publication failures, raw
@@ -951,13 +982,18 @@ Abort or stop the service if any of these occur:
   watchdog trip, hot RSS/heap/event-loop lag, or persistent queued critical
   readbacks;
 - snapshot watch reports stale newest-entry age above 6 hours;
+- new StoryCluster OpenAI failure artifacts appear after the #687 restart;
+- StoryCluster rerank degeneracy warnings persist, indicating gate-safe but
+  quality-degraded rerank output;
 - latest content does not advance after approved start and expected ingest
   cadence.
 
 After an approved start, Scope A live evidence requires fresh content advance,
 pending lifecycle evidence, public latest-index/story-body readability, an
-attended soak, and enabled liveness/freshness monitors. The 2026-06-24 closeout
-records the first completed proof for that raw Scope A launch. Accepted
-synthesis and storyline enrichment evidence remain post-launch quality checks,
-not Scope A raw-feed gates. The service starting successfully by itself is never
-a release-ready claim.
+attended soak, enabled liveness/freshness monitors, hourly archive samples, and
+no recurring StoryCluster rerank truncation or degeneracy warnings. The
+2026-06-24 closeout records the first completed proof for that raw Scope A
+launch; the 2026-06-28 stability bake records the first extended clean
+post-#687 window. Accepted synthesis and storyline enrichment evidence remain
+post-launch quality checks, not Scope A raw-feed gates. The service starting
+successfully by itself is never a release-ready claim.

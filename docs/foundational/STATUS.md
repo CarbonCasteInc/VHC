@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-06-24
+> Last Reviewed: 2026-06-28
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-06-24
-**Version:** 0.9.3 (Phase 5 Scope A raw public-news launch recorded)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A live. The A6 public-news publisher is running a capped raw-only Scope A profile: raw-fresh, v4-signed, product-visible news cards, relay REST 2-of-3 quorum, and raw pending lifecycle rows (`synthesis_pending` / `frame_table_pending`). The launch closeout is recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`. This proves the raw public-news path and its operational monitors, not the broader public-beta umbrella. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain separate downstream gates or post-launch tracks.
+**Last Updated:** 2026-06-28
+**Version:** 0.9.4 (Phase 5 Scope A stability bake recorded)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A live and stable under the post-launch watch. The A6 public-news publisher is running a capped raw-only Scope A profile: raw-fresh, v4-signed, product-visible news cards, relay REST 2-of-3 quorum, and raw pending lifecycle rows (`synthesis_pending` / `frame_table_pending`). The launch closeout is recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`; the first extended post-#687 stability bake is recorded in `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`. That bake showed 42 consecutive clean post-overlap publisher ticks across more than seven hours, 336/336 raw writes, zero new StoryCluster truncation artifacts, zero rerank degeneracy warnings, and a passing hourly archive sample. This closes the StoryCluster rerank truncation track for Scope A raw publication, but the 24-72 hour sustained-operation watch and broader public-beta claims remain separate. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢 Phase 5 Scope A live: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, and bounded relay heap/readback defenses. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A live; Scope B enrichment pending |
+| **News Aggregator** | 🟢 Phase 5 Scope A live and stable under watch: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, hourly soak archive, and bounded relay heap/readback defenses. #687 closed the StoryCluster rerank truncation failure class for the launched raw path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A live; 24-72h watch in progress; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -40,6 +40,10 @@
 Current policy state:
 - Phase 5 Scope A raw public-news rollout is live on A6 under the capped raw-only
   profile recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
+  The 2026-06-28 stability bake in
+  `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md` records the
+  post-#687 production result: zero new rerank truncation artifacts, zero
+  degeneracy warnings, 42 clean post-overlap ticks, and 336/336 raw writes.
 - Broader production/beta claims remain blocked until the relevant downstream
   gates pass; do not promote Scope A raw-feed proof into accepted synthesis,
   full product, mesh release, native, or identity-assurance claims.
@@ -76,7 +80,9 @@ Current policy state:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
 - Phase 5 Scope A launch evidence:
   - closeout report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`;
+  - stability bake report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`;
   - launched commit: `b3da27a09f683b7933f169bdd77c03f101681663`;
+  - current deployed stability-fix commit: `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
   - relay image: `vhc-public-beta-relay:20260624-main-vb3da27a0-amd64`;
   - launch profile: synthesis disabled, replay disabled, storylines disabled,
     raw cap `8`, raw concurrency `1`, repair sample `8`, repair interval
@@ -86,6 +92,18 @@ Current policy state:
     restarts `0/0/0`;
   - public feed state: `record_count=20`, all `pending_synthesis`, no accepted
     synthesis available.
+- Phase 5 Scope A post-#687 stability evidence:
+  - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
+  - #685 captured bounded OpenAI rerank artifacts and proved recurring
+    `finish_reason=length` truncation;
+  - #687 prevents the rerank overproduction class with strict fixed-key object
+    output, preserves prior deterministic scores on recoverable rerank failure,
+    keeps adjudication fallback gate-safe, and returns 5xx for internal
+    StoryCluster stage/model failures;
+  - as of the 2026-06-28 bake check, the deployed system had 42 clean
+    post-overlap ticks, `nonfatal_prewrite_failure_count=0` on the latest tick,
+    336/336 raw writes, zero new OpenAI failure artifacts, zero rerank
+    degeneracy warnings, and a passing hourly archive sample.
 - Web PWA public-beta support/compliance minimums are implemented and gated:
   - route surface: `/compliance`, `/beta`, `/privacy`, `/terms`, `/moderation`, `/support`, `/data-deletion`, `/telemetry`, `/copyright`;
   - support/contact path: VHC public beta GitHub Issue Form linked from `/support`;
@@ -177,7 +195,7 @@ Current policy state:
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (2026-03-16)
+## StoryCluster Program Snapshot (reviewed 2026-06-28)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -189,6 +207,17 @@ Current truth for the news bundler and feed hardening lane:
     launched path and remain post-launch enrichment;
   - publisher liveness, relay liveness, and relay snapshot freshness monitors
     are operating monitors for the intended-live service.
+- The StoryCluster rerank truncation track is closed for the launched Scope A
+  raw path as of the 2026-06-28 stability bake:
+  - #687 is deployed at `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
+  - rerank output uses strict fixed-key object structured output instead of an
+    array/max-items shape;
+  - recoverable rerank output failures omit supplemental rerank results so the
+    deterministic prior score remains gate-feeding state;
+  - exactly-identical nontrivial rerank chunks degrade gate-safely and emit a
+    warning instead of silently becoming quality evidence;
+  - the first extended bake recorded zero new failure artifacts and zero
+    degeneracy warnings.
 - StoryCluster is no longer treated as a generic topic clusterer; the active program is `EventCluster`-first and precision-biased.
 - Canonical bundle membership is limited to same-incident / same-developing-episode coverage.
 - Canonical source projection is publisher-normalized:

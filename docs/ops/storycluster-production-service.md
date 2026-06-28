@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-15
+> Last Reviewed: 2026-06-28
 > Depends On: docs/ops/news-aggregator-production-service.md
 
 ## Purpose
@@ -20,6 +20,19 @@ This runbook installs two managed user units:
   `VH_STORYCLUSTER_VECTOR_BACKEND=qdrant`.
 
 There is no memory-vector bootstrap mode in this production path.
+
+Current deployed Scope A posture after #687:
+
+- `main` at `baf1dd5f41958473c93db04e4d6007e4df7b074f` is the first deployed
+  durable fix for the recurring `cross_encoder_rerank` truncation class;
+- rerank requests use strict fixed-key object structured output instead of an
+  array/max-items shape;
+- recoverable rerank output failures omit supplemental rerank results so the
+  deterministic prior score remains the gate-feeding value;
+- provider/config/auth/transport failures still surface as stage failures and
+  must not be converted into successful empty rerank output;
+- the first extended bake after deployment recorded zero new OpenAI failure
+  artifacts and zero rerank degeneracy warnings.
 
 ## Env File Surface
 
@@ -131,12 +144,14 @@ VH_STORYCLUSTER_REMOTE_AUTH_SCHEME=Bearer
 The publisher start wrapper still runs the StoryCluster OpenAI preflight, and
 the daemon still verifies StoryCluster health before creating the Gun client.
 
-## Rerank Failure Capture
+## Rerank Failure Capture And Watch
 
 The OpenAI provider writes a local diagnostic artifact when the
-`cross_encoder_rerank` stage receives malformed chat JSON from OpenAI. This is
-capture-only: the stage still fails and the caller decides whether that failure
-is fatal or non-fatal.
+`cross_encoder_rerank` stage receives malformed or truncated chat JSON from
+OpenAI. Since #687, the known overproduction/truncation class is prevented by a
+strict per-call fixed-key object schema. New artifacts after the #687 restart
+therefore mean a residual model-output failure or a new provider behavior, not
+the expected steady state.
 
 Default artifact directory:
 
@@ -166,9 +181,36 @@ repo `.tmp` fallback from silently swallowing the only rerank failure artifact.
 
 Each artifact includes stage, provider, model, chunk index, pair count, pair
 IDs, request hash/byte length, response hash/byte length, bounded response
-preview, parse error, and OpenAI `finish_reason`. It does not persist full
-rerank pair text or API credentials. Artifact writes are best-effort and must
-not replace the original provider error.
+preview, parse error, parse context, and OpenAI `finish_reason`. It does not
+persist full rerank pair text or API credentials. Artifact writes are
+best-effort and must not replace the original provider error.
+
+Scope A rerank failure semantics:
+
+- recoverable model-output failures, including parse/truncation, omit rerank
+  results for that chunk and keep prior deterministic `rerank_score` values;
+- missing, unknown, duplicate, or non-finite pair IDs are ignored defensively;
+- exactly-identical scores across a nontrivial successful chunk are treated as
+  degraded quality, omitted, and warned;
+- no failure path may fabricate score `0`;
+- critical provider/config/auth/transport errors must rethrow and surface as
+  StoryCluster stage/model failures.
+
+Read-only watch commands:
+
+```bash
+since="<deploy restart timestamp>"
+find "$HOME/.local/state/vhc/storycluster-engine/openai-failures" \
+  -type f -newermt "$since"
+
+journalctl --user -u vh-storycluster-engine.service --since "$since" --no-pager \
+  | grep -E "cross_encoder_rerank|degenerate|parse failure|finish_reason.?length|truncat"
+```
+
+For a healthy post-#687 bake, both checks should stay empty. A persistent
+degeneracy warning stream is gate-safe but indicates rerank quality loss and
+should be treated as a product-quality incident, not as a launch write-safety
+failure.
 
 ## Reset Persistent State
 

@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-16
+> Last Reviewed: 2026-06-28
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.4
+Version: 0.5
 Status: Canonical for Season 0
 Context: RSS ingest, normalization, clustering, and story bundle publication.
 
@@ -44,6 +44,33 @@ Season 0 production-readiness contract:
 6. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
 
 Changing the headline-soak release thresholds requires a spec update and a matching implementation change in `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-semantic-soak-report.mjs`.
+
+Season 0 Scope A live contract:
+
+1. The launched A6 Scope A profile is raw-only: raw story, latest-index,
+   hot-index, and pending synthesis-lifecycle rows are the critical publication
+   path; accepted synthesis, topic synthesis, and storyline overlays are
+   enrichment lanes outside the raw-feed gate.
+2. Pre-publication model/stage failures may skip the current tick non-fatally
+   only while the runtime is still before raw publication. Once raw story,
+   latest/hot index, or pending lifecycle writes begin, critical write failures
+   remain fail-closed.
+3. Stage-safe fallback MUST preserve prior gate-feeding state. Recoverable
+   rerank or adjudication output failures may omit supplemental results, but
+   they MUST NOT fabricate default scores, acceptance decisions, or score `0`
+   values that could silently shift clustering gates.
+4. StoryCluster model-output prevention is part of the production contract when
+   the work set is known. Rerank output uses a strict fixed-key object response
+   shape keyed by the requested pair ids rather than an array whose length can
+   overproduce. Residual parse/truncation errors must carry typed, bounded
+   diagnostics and degrade only through the stage-safe omission path above.
+5. Internal StoryCluster model/stage failures are server failures and must
+   surface as 5xx to callers. Malformed client payloads may remain 4xx.
+6. Sustained Scope A operation is proven by host-local publisher liveness,
+   relay liveness, relay snapshot freshness, public feed freshness, runtime tick
+   diagnostics, and StoryCluster model-output artifact/warning absence over the
+   watch window. A single clean tick is not enough for a sustained-operation
+   claim.
 
 ## 2. Inputs and ingest
 
