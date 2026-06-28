@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adjudicateCandidates, assignClusters, bundleClusters, rerankCandidates, retrieveCandidates } from './clusterLifecycle';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
 import { coverageRoleForDocumentType } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
+import { OpenAIStoryClusterProvider } from './openaiProvider';
 import type { PipelineState, StoredTopicState, WorkingDocument } from './stageState';
 import type { ClusterVectorBackend } from './vectorBackend';
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
 
 function makeWorkingDocument(
   docId: string,
@@ -70,6 +78,11 @@ function makeWorkingDocument(
 }
 
 describe('clusterLifecycle', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
   it('orders equal-score candidate matches deterministically by story id', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
@@ -418,6 +431,8 @@ describe('clusterLifecycle', () => {
     });
 
     expect(reranked.documents[0]?.candidate_matches[0]?.rerank_score).toBe(0.6);
+    expect(reranked.stage_metrics.cross_encoder_rerank?.rerank_results_applied).toBe(0);
+    expect(reranked.stage_metrics.cross_encoder_rerank?.rerank_results_missing).toBe(1);
 
     const lowConfidence = await adjudicateCandidates({
       topicId: 'topic-news',
@@ -433,6 +448,7 @@ describe('clusterLifecycle', () => {
           reason: 'below-threshold',
         }],
         rerank_score: 0.4,
+        adjudication: 'rejected',
       }],
       clusters: [],
       bundles: [],
@@ -462,6 +478,136 @@ describe('clusterLifecycle', () => {
 
     expect(lowConfidence.documents[0]?.adjudication).toBe('rejected');
     expect(lowConfidence.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(0);
+  });
+
+  it('preserves prior rerank scores when an OpenAI rerank chunk truncates', async () => {
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_FAILURE_ARTIFACTS_ENABLED', '0');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const existing = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    topicState.clusters = [
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(existing, existing.source_variants[0]!)], 'story-a'),
+    ];
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          finish_reason: 'length',
+          message: { content: '{"reranks":{"doc-9::story-a":0.' },
+        }],
+      }),
+    });
+
+    const next = await rerankCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [{
+        ...makeWorkingDocument('doc-9', 'Port attack update', 'port_attack', 'attack', [1, 0]),
+        candidate_matches: [{
+          story_id: 'story-a',
+          candidate_score: 0.6,
+          hybrid_score: 0.6,
+          rerank_score: 0.6,
+          adjudication: 'abstain',
+          reason: 'ambiguous-same-topic',
+        }],
+      }],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, provider);
+
+    expect(next.documents[0]?.candidate_matches[0]?.rerank_score).toBe(0.6);
+    expect(next.stage_metrics.cross_encoder_rerank?.rerank_results_received).toBe(0);
+    expect(next.stage_metrics.cross_encoder_rerank?.rerank_results_missing).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:storycluster] cross_encoder_rerank output degraded to prior scores',
+      expect.objectContaining({
+        pairCount: 1,
+      }),
+    );
+  });
+
+  it('preserves prior rerank ordering when a nontrivial OpenAI rerank chunk is degenerate', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const existingA = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    const existingB = makeWorkingDocument('doc-2', 'Port security vote follows attack', 'port_attack', 'vote', [0.9, 0.1]);
+    topicState.clusters = [
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(existingA, existingA.source_variants[0]!)], 'story-a'),
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(existingB, existingB.source_variants[0]!)], 'story-b'),
+    ];
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              reranks: {
+                'doc-9::story-a': 1,
+                'doc-9::story-b': 1,
+              },
+            }),
+          },
+        }],
+      }),
+    });
+
+    const next = await rerankCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [{
+        ...makeWorkingDocument('doc-9', 'Port attack update', 'port_attack', 'attack', [1, 0]),
+        candidate_matches: [
+          {
+            story_id: 'story-a',
+            candidate_score: 0.6,
+            hybrid_score: 0.6,
+            rerank_score: 0.6,
+            adjudication: 'abstain',
+            reason: 'ambiguous-same-topic',
+          },
+          {
+            story_id: 'story-b',
+            candidate_score: 0.55,
+            hybrid_score: 0.55,
+            rerank_score: 0.55,
+            adjudication: 'abstain',
+            reason: 'ambiguous-same-topic',
+          },
+        ],
+      }],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, provider);
+
+    expect(next.documents[0]?.candidate_matches.map((match) => [match.story_id, match.rerank_score])).toEqual([
+      ['story-a', 0.6],
+      ['story-b', 0.55],
+    ]);
+    expect(next.stage_metrics.cross_encoder_rerank?.rerank_results_applied).toBe(0);
+    expect(next.stage_metrics.cross_encoder_rerank?.rerank_results_missing).toBe(2);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:storycluster] cross_encoder_rerank degenerate score chunk degraded',
+      expect.objectContaining({
+        pairCount: 2,
+        uniquePairCount: 2,
+        score: 1,
+      }),
+    );
   });
 
   it('requires a provider for rerank/bundling and fails when rerank references a missing cluster', async () => {
@@ -527,7 +673,7 @@ describe('clusterLifecycle', () => {
     }, undefined)).rejects.toThrow('storycluster model provider is required for summarize_publish_payloads');
   });
 
-  it('falls back to rejected when no adjudication result is returned for a low-confidence match', async () => {
+  it('preserves prior adjudication when no adjudication result is returned for a low-confidence match', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
       topic_id: 'topic-news',
@@ -553,6 +699,7 @@ describe('clusterLifecycle', () => {
           reason: 'ambiguous-same-topic',
         }],
         rerank_score: 0.6,
+        adjudication: 'abstain',
       }],
       clusters: [],
       bundles: [],
@@ -580,8 +727,10 @@ describe('clusterLifecycle', () => {
       },
     });
 
-    expect(next.documents[0]?.adjudication).toBe('rejected');
-    expect(next.stage_metrics.llm_adjudication?.adjudication_rejects).toBe(1);
+    expect(next.documents[0]?.adjudication).toBe('abstain');
+    expect(next.stage_metrics.llm_adjudication?.adjudication_results_applied).toBe(0);
+    expect(next.stage_metrics.llm_adjudication?.adjudication_results_missing).toBe(1);
+    expect(next.stage_metrics.llm_adjudication?.adjudication_abstains).toBe(1);
   });
 
   it('applies returned adjudication decisions to ambiguous candidates', async () => {

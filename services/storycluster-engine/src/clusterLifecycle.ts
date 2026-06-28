@@ -1,5 +1,5 @@
 import type { ClusterBucket, PipelineState } from './stageState';
-import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
+import type { PairJudgementWorkResult, PairRerankWorkResult, StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
 import { canDocumentAttachToExistingCluster, canDocumentParticipateInCanonicalCluster } from './documentPolicy';
@@ -23,6 +23,47 @@ export function recordProviderFallbackOutcome(
     return { providerAssignedDocs: providerAssignedDocs + 1, providerRejectedDocs };
   }
   return { providerAssignedDocs, providerRejectedDocs: providerRejectedDocs + 1 };
+}
+
+function buildValidatedRerankMap(
+  requestedPairIds: ReadonlySet<string>,
+  reranks: readonly PairRerankWorkResult[],
+): { rerankById: Map<string, PairRerankWorkResult>; ignored: number } {
+  const rerankById = new Map<string, PairRerankWorkResult>();
+  let ignored = 0;
+  for (const item of reranks) {
+    if (
+      !requestedPairIds.has(item.pair_id) ||
+      rerankById.has(item.pair_id) ||
+      !Number.isFinite(item.score)
+    ) {
+      ignored += 1;
+      continue;
+    }
+    rerankById.set(item.pair_id, item);
+  }
+  return { rerankById, ignored };
+}
+
+function buildValidatedJudgementMap(
+  requestedPairIds: ReadonlySet<string>,
+  judgements: readonly PairJudgementWorkResult[],
+): { judgementById: Map<string, PairJudgementWorkResult>; ignored: number } {
+  const judgementById = new Map<string, PairJudgementWorkResult>();
+  let ignored = 0;
+  for (const item of judgements) {
+    if (
+      !requestedPairIds.has(item.pair_id) ||
+      judgementById.has(item.pair_id) ||
+      !Number.isFinite(item.score) ||
+      (item.decision !== 'accepted' && item.decision !== 'rejected' && item.decision !== 'abstain')
+    ) {
+      ignored += 1;
+      continue;
+    }
+    judgementById.set(item.pair_id, item);
+  }
+  return { judgementById, ignored };
 }
 
 export async function retrieveCandidates(state: PipelineState, vectorBackend: ClusterVectorBackend = new MemoryVectorBackend()): Promise<PipelineState> {
@@ -102,7 +143,8 @@ export async function rerankCandidates(state: PipelineState, provider: StoryClus
     }),
   );
   const reranks = await requireClusterProvider(provider, 'cross_encoder_rerank').rerankPairs(rerankItems);
-  const rerankById = new Map(reranks.map((item) => [item.pair_id, item]));
+  const requestedPairIds = new Set(rerankItems.map((item) => item.pair_id));
+  const { rerankById, ignored: ignoredRerankResults } = buildValidatedRerankMap(requestedPairIds, reranks);
   const documents = state.documents.map((document) => {
     const candidateMatches = applyPairReranks(document, document.candidate_matches, rerankById);
     return {
@@ -118,6 +160,10 @@ export async function rerankCandidates(state: PipelineState, provider: StoryClus
       ...state.stage_metrics,
       cross_encoder_rerank: {
         reranked_pairs: rerankItems.length,
+        rerank_results_received: reranks.length,
+        rerank_results_applied: rerankById.size,
+        rerank_results_ignored: ignoredRerankResults,
+        rerank_results_missing: Math.max(0, requestedPairIds.size - rerankById.size),
         accepted_after_rerank: documents.filter((document) => document.rerank_score >= clusterScoringConfig.acceptThreshold).length,
         rejected_after_rerank: documents.filter((document) => document.rerank_score < clusterScoringConfig.reviewThreshold).length,
       },
@@ -154,7 +200,8 @@ export async function adjudicateCandidates(
   const adjudications = adjudicationItems.length > 0
     ? await requireClusterProvider(provider, 'llm_adjudication').adjudicatePairs(adjudicationItems)
     : [];
-  const adjudicationById = new Map(adjudications.map((item) => [item.pair_id, item]));
+  const requestedPairIds = new Set(adjudicationItems.map((item) => item.pair_id));
+  const { judgementById: adjudicationById, ignored: ignoredAdjudications } = buildValidatedJudgementMap(requestedPairIds, adjudications);
   const documents = state.documents.map((document) => {
     const top = document.candidate_matches[0];
     if (!top) {
@@ -164,10 +211,7 @@ export async function adjudicateCandidates(
     if (adjudicated) {
       return { ...document, adjudication: adjudicated.decision };
     }
-    if (document.rerank_score >= clusterScoringConfig.acceptThreshold) {
-      return { ...document, adjudication: 'accepted' as const };
-    }
-    return { ...document, adjudication: 'rejected' as const };
+    return { ...document, adjudication: top.adjudication };
   });
   return {
     ...state,
@@ -177,6 +221,10 @@ export async function adjudicateCandidates(
       llm_adjudication: {
         ambiguity_rate: Number((documents.filter((document) => document.adjudication === 'abstain').length / Math.max(1, documents.length)).toFixed(6)),
         adjudicated_docs: adjudicationItems.length,
+        adjudication_results_received: adjudications.length,
+        adjudication_results_applied: adjudicationById.size,
+        adjudication_results_ignored: ignoredAdjudications,
+        adjudication_results_missing: Math.max(0, requestedPairIds.size - adjudicationById.size),
         adjudication_accepts: documents.filter((document) => document.adjudication === 'accepted').length,
         adjudication_rejects: documents.filter((document) => document.adjudication === 'rejected').length,
         adjudication_abstains: documents.filter((document) => document.adjudication === 'abstain').length,

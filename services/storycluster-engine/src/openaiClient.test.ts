@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OpenAIChatJsonParseError, OpenAIClient } from './openaiClient';
+import { OpenAIChatJsonParseError, OpenAIChatJsonTruncationError, OpenAIClient } from './openaiClient';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -57,6 +57,48 @@ describe('OpenAIClient', () => {
       user: 'usr',
       maxTokens: 77,
     })).resolves.toEqual({ answer: 1 });
+  });
+
+  it('sends strict JSON schema response formats when provided', async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const schema = {
+      type: 'object',
+      required: ['ok'],
+      additionalProperties: false,
+      properties: {
+        ok: { type: 'boolean' },
+      },
+    };
+    const fetchFn = vi.fn(async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return jsonResponse({
+        choices: [{ message: { content: '{"ok":true}' } }],
+      });
+    });
+
+    const client = new OpenAIClient({ apiKey: 'key', fetchFn });
+    await expect(client.chatJson<{ ok: boolean }>({
+      model: 'gpt-4o-mini',
+      system: 'sys',
+      user: 'usr',
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'strict_test',
+          strict: true,
+          schema,
+        },
+      },
+    })).resolves.toEqual({ ok: true });
+
+    expect(capturedBody?.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: {
+        name: 'strict_test',
+        strict: true,
+        schema,
+      },
+    });
   });
 
   it('uses max_tokens for non-gpt-5 chat models', async () => {
@@ -154,7 +196,7 @@ describe('OpenAIClient', () => {
     })).rejects.toBe('chat-string-error');
   });
 
-  it('attaches finish reason and bounded response details to chat JSON parse failures', async () => {
+  it('attaches finish reason and bounded response details to chat JSON truncation failures', async () => {
     const content = '{"reranks":[{"pair_id":"pair-1","score":0.9} {"pair_id":"pair-2","score":0.1}]}';
     const client = new OpenAIClient({
       apiKey: 'key',
@@ -174,13 +216,15 @@ describe('OpenAIClient', () => {
       });
       throw new Error('expected chatJson to fail');
     } catch (error) {
+      expect(error).toBeInstanceOf(OpenAIChatJsonTruncationError);
       expect(error).toBeInstanceOf(OpenAIChatJsonParseError);
-      const parseError = error as OpenAIChatJsonParseError;
-      expect(parseError.message).toContain('Expected');
+      const parseError = error as OpenAIChatJsonTruncationError;
+      expect(parseError.message).toContain('OpenAI chat response truncated');
       expect(parseError.details).toMatchObject({
         finishReason: 'length',
         responseContentLengthBytes: content.length,
         extractedJsonLengthBytes: content.length,
+        parseContext: 'finish_reason_length_invalid_json',
       });
       expect(parseError.details.responseContentSha256).toMatch(/^[a-f0-9]{64}$/);
       expect(parseError.details.responseContentPreview).toBe(content);

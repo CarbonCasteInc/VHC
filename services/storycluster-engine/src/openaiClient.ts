@@ -1,11 +1,23 @@
 import { createHash } from 'node:crypto';
 
+export interface OpenAIChatJsonSchemaResponseFormat {
+  type: 'json_schema';
+  json_schema: {
+    name: string;
+    strict: true;
+    schema: Record<string, unknown>;
+  };
+}
+
+type OpenAIChatResponseFormat = { type: 'json_object' } | OpenAIChatJsonSchemaResponseFormat;
+
 interface ChatJsonOptions {
   model: string;
   system: string;
   user: string;
   temperature?: number;
   maxTokens?: number;
+  responseFormat?: OpenAIChatResponseFormat;
 }
 
 interface EmbeddingOptions {
@@ -35,6 +47,7 @@ export interface OpenAIChatJsonParseFailureDetails {
   readonly responseContentPreview: string;
   readonly extractedJsonLengthBytes: number | null;
   readonly parseError: string | null;
+  readonly parseContext: string;
 }
 
 export class OpenAIChatJsonParseError extends Error {
@@ -44,6 +57,13 @@ export class OpenAIChatJsonParseError extends Error {
     super(message);
     this.name = 'OpenAIChatJsonParseError';
     this.details = details;
+  }
+}
+
+export class OpenAIChatJsonTruncationError extends OpenAIChatJsonParseError {
+  constructor(message: string, details: OpenAIChatJsonParseFailureDetails) {
+    super(message, details);
+    this.name = 'OpenAIChatJsonTruncationError';
   }
 }
 
@@ -127,6 +147,7 @@ function parseFailureDetails(
   content: string,
   extractedJson: string | null,
   parseError: string | null,
+  parseContext: string,
 ): OpenAIChatJsonParseFailureDetails {
   const choice = (payload as { choices?: Array<{ finish_reason?: unknown }> })?.choices?.[0];
   const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : null;
@@ -138,6 +159,7 @@ function parseFailureDetails(
     responseContentPreview: redactedContent.slice(0, OPENAI_CHAT_PARSE_PREVIEW_MAX_LENGTH),
     extractedJsonLengthBytes: extractedJson === null ? null : utf8Length(extractedJson),
     parseError,
+    parseContext,
   };
 }
 
@@ -147,11 +169,32 @@ function extractJsonContent(payload: unknown): unknown {
   if (typeof content !== 'string') {
     throw new Error('OpenAI chat response missing content');
   }
+  const finishReason = record?.choices?.[0]?.finish_reason;
+  if (finishReason === 'length') {
+    const match = content.match(/\{[\s\S]*\}/);
+    let parseError = 'finish_reason_length';
+    let parseContext = 'finish_reason_length';
+    if (!match) {
+      parseError = 'missing_json_object';
+      parseContext = 'finish_reason_length_missing_json_object';
+    } else {
+      try {
+        JSON.parse(match[0]);
+      } catch (error) {
+        parseError = error instanceof Error ? error.message : String(error);
+        parseContext = 'finish_reason_length_invalid_json';
+      }
+    }
+    throw new OpenAIChatJsonTruncationError(
+      `OpenAI chat response truncated before complete JSON: ${parseError}`,
+      parseFailureDetails(payload, content, match?.[0] ?? null, parseError, parseContext),
+    );
+  }
   const match = content.match(/\{[\s\S]*\}/);
   if (!match) {
     throw new OpenAIChatJsonParseError(
       `OpenAI chat response missing JSON object: ${redactSensitiveText(content).slice(0, 240)}`,
-      parseFailureDetails(payload, content, null, 'missing_json_object'),
+      parseFailureDetails(payload, content, null, 'missing_json_object', 'missing_json_object'),
     );
   }
   try {
@@ -160,7 +203,7 @@ function extractJsonContent(payload: unknown): unknown {
     const message = error instanceof Error ? error.message : String(error);
     throw new OpenAIChatJsonParseError(
       message,
-      parseFailureDetails(payload, content, match[0], message),
+      parseFailureDetails(payload, content, match[0], message, 'invalid_json_object'),
     );
   }
 }
@@ -199,7 +242,7 @@ export class OpenAIClient {
             ],
             temperature: options.temperature ?? 0,
             [tokenParam]: options.maxTokens ?? 2_000,
-            response_format: { type: 'json_object' },
+            response_format: options.responseFormat ?? { type: 'json_object' },
           }),
           signal: controller.signal,
         });
