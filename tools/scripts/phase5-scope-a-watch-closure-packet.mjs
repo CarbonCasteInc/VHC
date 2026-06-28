@@ -5,10 +5,9 @@ import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveRelayWatchdogLimits } from './relay-watchdog-thresholds.mjs';
 
 const SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-v1';
-const DEFAULT_HEAP_LIMIT_BYTES = 1_300_000_000;
-const DEFAULT_RSS_LIMIT_BYTES = 1_800_000_000;
 const DEFAULT_MIN_TREND_HORIZON_HOURS = 7 * 24;
 const CLAIM_BOUNDARY = Object.freeze({
   proves: [
@@ -217,8 +216,10 @@ function hoursUntilLimit(latestBytes, slopeBytesPerHour, limitBytes) {
 }
 
 function summarizeRelayMemory(samples, windowStartMs, env) {
-  const heapLimitBytes = parsePositiveInt(env.VH_PHASE5_SCOPE_A_WATCH_HEAP_LIMIT_BYTES, DEFAULT_HEAP_LIMIT_BYTES);
-  const rssLimitBytes = parsePositiveInt(env.VH_PHASE5_SCOPE_A_WATCH_RSS_LIMIT_BYTES, DEFAULT_RSS_LIMIT_BYTES);
+  const limits = resolveRelayWatchdogLimits(env, {
+    heapOverrideEnvNames: ['VH_PHASE5_SCOPE_A_WATCH_HEAP_LIMIT_BYTES'],
+    rssOverrideEnvNames: ['VH_PHASE5_SCOPE_A_WATCH_RSS_LIMIT_BYTES'],
+  });
   const minTrendHorizonHours = parsePositiveInt(
     env.VH_PHASE5_SCOPE_A_WATCH_MIN_TREND_HORIZON_HOURS,
     DEFAULT_MIN_TREND_HORIZON_HOURS,
@@ -249,8 +250,8 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
     const heapSlopeBytesPerHour = linearSlope(values.heap);
     const latestRssBytes = values.rss.at(-1)?.y ?? null;
     const latestHeapBytes = values.heap.at(-1)?.y ?? null;
-    const heapHoursToLimit = hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, heapLimitBytes);
-    const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, rssLimitBytes);
+    const heapHoursToLimit = hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, limits.heapLimitBytes);
+    const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, limits.rssLimitBytes);
     const projectedHours = [heapHoursToLimit, rssHoursToLimit].filter((value) => value !== null);
     const shortestProjectedLimitHours = projectedHours.length > 0 ? Math.min(...projectedHours) : null;
     relays.push({
@@ -278,8 +279,10 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
     });
   }
   return {
-    heapLimitBytes,
-    rssLimitBytes,
+    heapLimitBytes: limits.heapLimitBytes,
+    heapLimitSource: limits.heapLimitSource,
+    rssLimitBytes: limits.rssLimitBytes,
+    rssLimitSource: limits.rssLimitSource,
     minTrendHorizonHours,
     relays,
     status: relays.some((relay) => relay.trendStatus === 'fail')

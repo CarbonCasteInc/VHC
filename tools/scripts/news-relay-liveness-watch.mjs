@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { resolveRelayWatchdogLimits } from './relay-watchdog-thresholds.mjs';
 
 const REPORT_SCHEMA_VERSION = 'vh-news-relay-liveness-watch-v1';
 const STATE_SCHEMA_VERSION = 'vh-news-relay-liveness-watch-state-v1';
@@ -165,8 +166,10 @@ async function inspectRelay(target, {
   previous,
 }) {
   const timeoutMs = positiveInt(env.VH_RELAY_LIVENESS_FETCH_TIMEOUT_MS, 5_000);
-  const maxRssBytes = positiveInt(env.VH_RELAY_LIVENESS_MAX_RSS_BYTES, 1_800_000_000);
-  const maxHeapUsedBytes = positiveInt(env.VH_RELAY_LIVENESS_MAX_HEAP_USED_BYTES, 1_300_000_000);
+  const limits = resolveRelayWatchdogLimits(env, {
+    heapOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_HEAP_USED_BYTES'],
+    rssOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_RSS_BYTES'],
+  });
   const maxLagP99Ms = positiveInt(env.VH_RELAY_LIVENESS_MAX_EVENT_LOOP_LAG_P99_MS, 2_500);
   const maxQueuedReadbacks = Number.parseInt(String(env.VH_RELAY_LIVENESS_MAX_QUEUED_READBACKS ?? '16'), 10);
   const blockers = [];
@@ -211,8 +214,8 @@ async function inspectRelay(target, {
       criticalReadbacksQueued: metricNumber(text, 'vh_relay_critical_write_readbacks_queued', 0),
       watchdogTrips,
     };
-    if (metrics.rssBytes !== null && metrics.rssBytes > maxRssBytes) blockers.push(`rss_hot:${metrics.rssBytes}/${maxRssBytes}`);
-    if (metrics.heapUsedBytes !== null && metrics.heapUsedBytes > maxHeapUsedBytes) blockers.push(`heap_hot:${metrics.heapUsedBytes}/${maxHeapUsedBytes}`);
+    if (metrics.rssBytes !== null && metrics.rssBytes > limits.rssLimitBytes) blockers.push(`rss_hot:${metrics.rssBytes}/${limits.rssLimitBytes}`);
+    if (metrics.heapUsedBytes !== null && metrics.heapUsedBytes > limits.heapLimitBytes) blockers.push(`heap_hot:${metrics.heapUsedBytes}/${limits.heapLimitBytes}`);
     if (metrics.eventLoopLagP99Ms !== null && metrics.eventLoopLagP99Ms > maxLagP99Ms) blockers.push(`event_loop_lag_hot:${metrics.eventLoopLagP99Ms}/${maxLagP99Ms}`);
     if (Number.isFinite(maxQueuedReadbacks) && metrics.criticalReadbacksQueued > maxQueuedReadbacks) {
       blockers.push(`critical_readbacks_queued:${metrics.criticalReadbacksQueued}/${maxQueuedReadbacks}`);
@@ -316,6 +319,10 @@ export async function runNewsRelayLivenessWatch({
   readTextFile = readFileSync,
 } = {}) {
   const targets = parseTargets(env.VH_RELAY_LIVENESS_TARGETS);
+  const limits = resolveRelayWatchdogLimits(env, {
+    heapOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_HEAP_USED_BYTES'],
+    rssOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_RSS_BYTES'],
+  });
   const stateFile = resolveStateFile(env);
   const outputFile = firstNonEmpty(env.VH_RELAY_LIVENESS_OUTPUT_FILE);
   const previousState = parseJsonFile(stateFile, readTextFile);
@@ -356,6 +363,10 @@ export async function runNewsRelayLivenessWatch({
       restartOnFail: boolEnv(env.VH_RELAY_LIVENESS_RESTART_ON_FAIL, false),
       restartMaxPerRun: positiveInt(env.VH_RELAY_LIVENESS_RESTART_MAX_PER_RUN, 1),
       restartMinIntervalMs: nonNegativeInt(env.VH_RELAY_LIVENESS_RESTART_MIN_INTERVAL_MS, 10 * 60_000),
+      maxHeapUsedBytes: limits.heapLimitBytes,
+      maxHeapUsedBytesSource: limits.heapLimitSource,
+      maxRssBytes: limits.rssLimitBytes,
+      maxRssBytesSource: limits.rssLimitSource,
     },
   };
 

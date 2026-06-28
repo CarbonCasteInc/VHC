@@ -722,6 +722,22 @@ latest-index snapshot entry cache and story-body cache; watch
 counters during sustained operation and any future verify/refresh re-enable
 soak.
 
+The 24h/48h watch tools must project relay heap/RSS slope against the same
+watchdog ceiling. Export the deployed `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES`
+and `VH_RELAY_WATCHDOG_MAX_RSS_BYTES` into the watch environment if A6 overrides
+the compose defaults; otherwise the tools intentionally fall back to the
+public-beta compose heap default (`1100000000`) and relay server RSS default
+(`1800000000`).
+
+The latest-index snapshot and story-body REST caches are bounded, but they do
+not prove the relay process heap is bounded. Public-news writes still create
+distinct Gun graph souls for stories, latest/hot index rows, and lifecycle rows;
+RADISK persists them, while Gun also keeps active graph state in process memory.
+Do not treat pruning/tombstone writes as heap reclamation proof, and do not load
+`gun/lib/evict` in production without a separate relay-memory soak proving
+latest-index freshness, readback quorum, RADISK reload behavior, and no
+watchdog churn.
+
 Operators should watch `/metrics` counters
 `vh_relay_critical_write_readbacks_started_total`,
 `vh_relay_critical_write_readbacks_queued`,

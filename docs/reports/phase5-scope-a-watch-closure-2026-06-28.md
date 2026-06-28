@@ -83,14 +83,16 @@ watchdog counters did not increase within the archived packet window.
 
 | Relay | Restart counter | Watchdog trips | Latest heap | Heap slope | Heap limit projection | Latest RSS | RSS slope | RSS limit projection |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `vhc-relay-a` | `0 -> 0` | `0 -> 0` | 385.6 MiB | 13.74 MiB/h | 62.2h | 448.5 MiB | 12.60 MiB/h | 100.7h |
-| `vhc-relay-b` | `1 -> 1` | `0 -> 0` | 485.5 MiB | 21.17 MiB/h | 35.6h | 569.6 MiB | 22.85 MiB/h | 50.2h |
-| `vhc-relay-c` | `1 -> 1` | `0 -> 0` | 479.4 MiB | 24.11 MiB/h | 31.5h | 543.8 MiB | 26.12 MiB/h | 44.9h |
+| `vhc-relay-a` | `0 -> 0` | `0 -> 0` | 385.6 MiB | 13.74 MiB/h | 48.3h | 448.5 MiB | 12.60 MiB/h | 100.7h |
+| `vhc-relay-b` | `1 -> 1` | `0 -> 0` | 485.5 MiB | 21.17 MiB/h | 26.6h | 569.6 MiB | 22.85 MiB/h | 50.2h |
+| `vhc-relay-c` | `1 -> 1` | `0 -> 0` | 479.4 MiB | 24.11 MiB/h | 23.6h | 543.8 MiB | 26.12 MiB/h | 44.9h |
 
-Interpretation: current relay memory is below threshold, but the trend is still
-positive enough that the 48h closure packet must keep the memory slope open.
-This is not a Scope A raw-path failure; it is the exact long-window signal the
-48h watch was meant to measure.
+Interpretation: current relay memory is below threshold, but the heap projection
+must be read against the production watchdog ceiling (`1.1 GB` by default in the
+public-beta relay compose), not the older `1.3 GB` watch-tool default. The
+corrected projection is a clean-window risk, not a raw Scope A availability
+failure: a watchdog trip gracefully restarts one relay and quorum should absorb
+it, but the restart aborts the 48h proven-sustained claim.
 
 ## Closure Rule
 

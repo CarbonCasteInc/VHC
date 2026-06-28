@@ -127,6 +127,58 @@ test('relay liveness fails hot metrics even when readyz is healthy', async () =>
   }
 });
 
+test('relay liveness defaults heap threshold to the public-beta watchdog ceiling', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({ heap: 1_200_000_000 })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics()],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn(),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.match(summary.blockers.join('\n'), /vhc-relay-a:heap_hot:1200000000\/1100000000/);
+    assert.equal(summary.config.maxHeapUsedBytes, 1_100_000_000);
+    assert.equal(summary.config.maxHeapUsedBytesSource, 'default:public-beta-compose');
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness uses deployed watchdog threshold env before its default ceiling', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({ heap: 1_200_000_000 })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics()],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: {
+        ...baseEnv(paths),
+        VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: '1300000000',
+      },
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn(),
+    });
+
+    assert.equal(summary.status, 'pass');
+    assert.equal(summary.config.maxHeapUsedBytes, 1_300_000_000);
+    assert.equal(summary.config.maxHeapUsedBytesSource, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES');
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
 test('relay liveness fails restart and watchdog-trip increases from baseline', async () => {
   const paths = makeTempState();
   try {
