@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { type DocumentAnalysisWorkItem, type DocumentAnalysisWorkResult, type EmbeddingWorkItem, type EmbeddingWorkResult, type PairJudgementWorkItem, type PairJudgementWorkResult, type PairRerankWorkResult, type StoryClusterModelProvider, type SummaryWorkItem, type SummaryWorkResult, type TranslationWorkItem, type TranslationWorkResult } from './modelProvider';
-import { OpenAIChatJsonParseError, OpenAIClient, type OpenAIClientOptions } from './openaiClient';
+import { OpenAIChatJsonParseError, OpenAIClient, type OpenAIChatJsonSchemaResponseFormat, type OpenAIClientOptions } from './openaiClient';
 import { normalizeDocumentType } from './contentSignals';
 import { ensureSentence, normalizeText } from './textSignals';
 export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
@@ -256,7 +256,7 @@ async function collectWithRetry<TRequest, TResult>(
   request: (items: readonly TRequest[]) => Promise<TResult[]>,
   requestId: (item: TRequest) => string,
   resultId: (item: TResult) => string,
-  fallback: (item: TRequest) => TResult,
+  fallback: (item: TRequest) => TResult | null,
 ): Promise<TResult[]> {
   const firstPass = await request(chunk);
   const resultsById = new Map(firstPass.map((item) => [resultId(item), item]));
@@ -267,7 +267,14 @@ async function collectWithRetry<TRequest, TResult>(
       resultsById.set(resultId(item), item);
     });
   }
-  return chunk.map((item) => resultsById.get(requestId(item)) ?? fallback(item));
+  const results: TResult[] = [];
+  for (const item of chunk) {
+    const result = resultsById.get(requestId(item)) ?? fallback(item);
+    if (result !== null) {
+      results.push(result);
+    }
+  }
+  return results;
 }
 function defaultAnalysisResult(item: DocumentAnalysisWorkItem): DocumentAnalysisWorkResult {
   const entityHints = normalizeKeyList(item.entity_hints);
@@ -289,6 +296,84 @@ function defaultAnalysisResult(item: DocumentAnalysisWorkItem): DocumentAnalysis
     },
   };
 }
+
+function plainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function modelOutputFailureCanDegrade(error: unknown): boolean {
+  return error instanceof OpenAIChatJsonParseError;
+}
+
+class RerankDegenerateScoresError extends Error {
+  constructor() {
+    super('cross_encoder_rerank returned identical scores for every requested pair');
+    this.name = 'RerankDegenerateScoresError';
+  }
+}
+
+function uniquePairIds(items: readonly PairJudgementWorkItem[]): string[] {
+  return [...new Set(items.map((item) => item.pair_id).filter(Boolean))];
+}
+
+function fixedKeyRerankResponseFormat(pairIds: readonly string[]): OpenAIChatJsonSchemaResponseFormat {
+  const scoreProperties = Object.fromEntries(pairIds.map((pairId) => [pairId, { type: 'number' }]));
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'storycluster_pair_rerank',
+      strict: true,
+      schema: {
+        type: 'object',
+        required: ['reranks'],
+        additionalProperties: false,
+        properties: {
+          reranks: {
+            type: 'object',
+            required: pairIds,
+            additionalProperties: false,
+            properties: scoreProperties,
+          },
+        },
+      },
+    },
+  };
+}
+
+function normalizeFixedKeyReranks(
+  value: unknown,
+  pairIds: readonly string[],
+): PairRerankWorkResult[] {
+  if (!plainRecord(value)) {
+    return [];
+  }
+  const requested = new Set(pairIds);
+  const seen = new Set<string>();
+  const results: PairRerankWorkResult[] = [];
+  for (const [pairId, rawScore] of Object.entries(value)) {
+    if (!requested.has(pairId) || seen.has(pairId) || typeof rawScore !== 'number' || !Number.isFinite(rawScore)) {
+      continue;
+    }
+    seen.add(pairId);
+    results.push({
+      pair_id: pairId,
+      score: clampScore(rawScore),
+    });
+  }
+  return results;
+}
+
+function hasDegenerateRerankScores(
+  results: readonly PairRerankWorkResult[],
+  requestedPairCount: number,
+): boolean {
+  if (requestedPairCount < 2 || results.length < requestedPairCount) {
+    return false;
+  }
+  const first = results[0]?.score;
+  return typeof first === 'number' && results.every((item) => item.score === first);
+}
+
 export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
   readonly providerId = OPENAI_STORYCLUSTER_PROVIDER_ID;
   private readonly client: OpenAIClient;
@@ -306,8 +391,9 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    return collectChunksWithConcurrency(chunks, (chunk) =>
-      collectWithRetry(
+    return collectChunksWithConcurrency(chunks, async (chunk, chunkIndex) => {
+      try {
+        return await collectWithRetry(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{ translations?: TranslationWorkResult[] }>({
@@ -328,8 +414,22 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
           doc_id: item.doc_id,
           translated_text: trimSummary(item.text),
         }),
-      ),
-    );
+        );
+      } catch (error) {
+        if (!modelOutputFailureCanDegrade(error)) {
+          throw error;
+        }
+        console.warn('[vh:storycluster] translation output degraded to source text', {
+          chunkIndex,
+          itemCount: chunk.length,
+          reason: redactOpenAIProviderMessage(error instanceof Error ? error.message : error),
+        });
+        return chunk.map((item) => ({
+          doc_id: item.doc_id,
+          translated_text: trimSummary(item.text),
+        }));
+      }
+    });
   }
   async embed(items: EmbeddingWorkItem[], dimensions: number): Promise<EmbeddingWorkResult[]> {
     if (items.length === 0) {
@@ -401,19 +501,22 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    return collectChunksWithConcurrency(chunks, (chunk, chunkIndex) =>
-      collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
+    return collectChunksWithConcurrency(chunks, async (chunk, chunkIndex) => {
+      try {
+        return await collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
         chunk,
         async (pending) => {
           const user = JSON.stringify({ rerank_pairs: pending });
+          const pairIds = uniquePairIds(pending);
           let response;
           try {
-            response = await this.client.chatJson<{ reranks?: Array<{ pair_id: string; score: number }> }>({
+            response = await this.client.chatJson<{ reranks?: Record<string, number> }>({
               model: this.textModel,
-              system: ['You rerank document-to-cluster candidate pairs for same-event news clustering.', 'Return strict JSON: {"reranks":[{"pair_id":"...","score":0.0}]}.', 'score must be a calibrated 0..1 same-event similarity score.', 'Do not make final acceptance decisions here. Use the score only for ordering and margin comparison.'].join(' '),
+              system: ['You rerank document-to-cluster candidate pairs for same-event news clustering.', 'Return only the requested fixed-key JSON object: {"reranks":{"pair-id":0.0}}.', 'Each key must be one of the requested pair IDs and every requested pair ID must be present exactly once.', 'score must be a calibrated 0..1 same-event similarity score.', 'Do not make final acceptance decisions here. Use the score only for ordering and margin comparison.'].join(' '),
               user,
               temperature: 0,
               maxTokens: 4_000,
+              responseFormat: fixedKeyRerankResponseFormat(pairIds),
             });
           } catch (error) {
             await this.captureRerankParseFailure(error, {
@@ -423,19 +526,37 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             });
             throw error;
           }
-          return (response.reranks ?? []).map((item) => ({
-            pair_id: item.pair_id,
-            score: clampScore(item.score),
-          }));
+          const reranks = normalizeFixedKeyReranks(response.reranks, pairIds);
+          if (hasDegenerateRerankScores(reranks, pairIds.length)) {
+            console.warn('[vh:storycluster] cross_encoder_rerank degenerate score chunk degraded', {
+              chunkIndex,
+              pairCount: pending.length,
+              uniquePairCount: pairIds.length,
+              score: reranks[0]?.score,
+            });
+            throw new RerankDegenerateScoresError();
+          }
+          return reranks;
         },
         (item) => item.pair_id,
         (item) => item.pair_id,
-        (item) => ({
-          pair_id: item.pair_id,
-          score: 0,
-        }),
-      ),
-    );
+        () => null,
+        );
+      } catch (error) {
+        if (error instanceof RerankDegenerateScoresError) {
+          return [];
+        }
+        if (!modelOutputFailureCanDegrade(error)) {
+          throw error;
+        }
+        console.warn('[vh:storycluster] cross_encoder_rerank output degraded to prior scores', {
+          chunkIndex,
+          pairCount: chunk.length,
+          reason: redactOpenAIProviderMessage(error instanceof Error ? error.message : error),
+        });
+        return [];
+      }
+    });
   }
 
   private async captureRerankParseFailure(
@@ -509,8 +630,9 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
       return [];
     }
     const chunks = chunkBySize(items, 8);
-    return collectChunksWithConcurrency(chunks, (chunk) =>
-      collectWithRetry<PairJudgementWorkItem, PairJudgementWorkResult>(
+    return collectChunksWithConcurrency(chunks, async (chunk, chunkIndex) => {
+      try {
+        return await collectWithRetry<PairJudgementWorkItem, PairJudgementWorkResult>(
         chunk,
         async (pending) => {
           const { sanitized, stats } = sanitizePairJudgementWorkItems(pending);
@@ -536,20 +658,27 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             throw error;
           }
           return (response.judgements ?? []).map((item) => ({
-            pair_id: item.pair_id,
-            score: clampScore(item.score),
-            decision: judgementDecision(item.decision),
+          pair_id: item.pair_id,
+          score: clampScore(item.score),
+          decision: judgementDecision(item.decision),
           }));
         },
         (item) => item.pair_id,
         (item) => item.pair_id,
-        (item) => ({
-          pair_id: item.pair_id,
-          score: 0,
-          decision: 'abstain' as const,
-        }),
-      ),
-    );
+        () => null,
+        );
+      } catch (error) {
+        if (!modelOutputFailureCanDegrade(error)) {
+          throw error;
+        }
+        console.warn('[vh:storycluster] adjudication output degraded to prior gate state', {
+          chunkIndex,
+          pairCount: chunk.length,
+          reason: redactOpenAIProviderMessage(error instanceof Error ? error.message : error),
+        });
+        return [];
+      }
+    });
   }
   async summarize(items: SummaryWorkItem[]): Promise<SummaryWorkResult[]> {
     if (items.length === 0) {

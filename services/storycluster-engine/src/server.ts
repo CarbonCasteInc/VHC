@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { StoryClusterStageError } from './contracts';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import { STORYCLUSTER_STAGE_SEQUENCE } from './contracts';
-import { runStoryClusterRemoteContract } from './remoteContract';
+import { StoryClusterRemoteRequestValidationError, runStoryClusterRemoteContract } from './remoteContract';
 import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend';
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -189,21 +189,37 @@ async function handleRequest(
     return;
   }
 
+  const store = options.store ?? getDefaultClusterStore();
+  const vectorBackend = resolveVectorBackend(options.vectorBackend);
+  const readiness = await runtimeReadiness(store, vectorBackend);
+  if (!readiness.ok) {
+    traceLog('cluster_request_rejected', {
+      request_id: requestId,
+      method,
+      path: parsed.pathname,
+      reason: readiness.detail,
+    });
+    sendJson(res, 503, { error: readiness.detail });
+    return;
+  }
+
+  let payload: unknown;
   try {
-    const store = options.store ?? getDefaultClusterStore();
-    const vectorBackend = resolveVectorBackend(options.vectorBackend);
-    const readiness = await runtimeReadiness(store, vectorBackend);
-    if (!readiness.ok) {
-      traceLog('cluster_request_rejected', {
-        request_id: requestId,
-        method,
-        path: parsed.pathname,
-        reason: readiness.detail,
-      });
-      sendJson(res, 503, { error: readiness.detail });
-      return;
-    }
-    const payload = await readJsonBody(req);
+    payload = await readJsonBody(req);
+  } catch (error) {
+    traceLog('cluster_request_rejected', {
+      request_id: requestId,
+      method,
+      path: parsed.pathname,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    sendJson(res, 400, {
+      error: error instanceof Error ? error.message : 'Invalid storycluster request payload',
+    });
+    return;
+  }
+
+  try {
     const topicId = typeof (payload as { topic_id?: unknown })?.topic_id === 'string'
       ? (payload as { topic_id: string }).topic_id
       : null;
@@ -243,7 +259,8 @@ async function handleRequest(
       error: error instanceof Error ? error.message : String(error),
       failed_stage: error instanceof StoryClusterStageError ? error.stageId : null,
     });
-    sendJson(res, 400, {
+    const statusCode = error instanceof StoryClusterRemoteRequestValidationError ? 400 : 503;
+    sendJson(res, statusCode, {
       error: error instanceof Error ? error.message : 'Invalid storycluster request payload',
     });
   }

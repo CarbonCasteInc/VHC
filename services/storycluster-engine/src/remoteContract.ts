@@ -111,9 +111,20 @@ export interface StoryClusterRemoteResponse {
   telemetry: StoryClusterTelemetryEnvelope;
 }
 
+export class StoryClusterRemoteRequestValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoryClusterRemoteRequestValidationError';
+  }
+}
+
+function requestValidationError(message: string): StoryClusterRemoteRequestValidationError {
+  return new StoryClusterRemoteRequestValidationError(message);
+}
+
 function asRecord(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(message);
+    throw requestValidationError(message);
   }
   return value as Record<string, unknown>;
 }
@@ -121,7 +132,7 @@ function asRecord(value: unknown, message: string): Record<string, unknown> {
 function readRequiredString(record: Record<string, unknown>, key: string, path: string): string {
   const value = record[key];
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`${path}.${key} must be a non-empty string`);
+    throw requestValidationError(`${path}.${key} must be a non-empty string`);
   }
   return value.trim();
 }
@@ -137,7 +148,7 @@ function readOptionalNumber(record: Record<string, unknown>, key: string, path: 
     return undefined;
   }
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`${path}.${key} must be a non-negative finite number when provided`);
+    throw requestValidationError(`${path}.${key} must be a non-negative finite number when provided`);
   }
   return Math.floor(value);
 }
@@ -145,11 +156,11 @@ function readOptionalNumber(record: Record<string, unknown>, key: string, path: 
 function readEntityKeys(record: Record<string, unknown>, path: string): string[] {
   const value = record.entity_keys;
   if (!Array.isArray(value)) {
-    throw new Error(`${path}.entity_keys must be an array`);
+    throw requestValidationError(`${path}.entity_keys must be an array`);
   }
   return value.map((entry, index) => {
     if (typeof entry !== 'string') {
-      throw new Error(`${path}.entity_keys[${index}] must be a string`);
+      throw requestValidationError(`${path}.entity_keys[${index}] must be a string`);
     }
     return entry.trim().toLowerCase();
   }).filter(Boolean);
@@ -166,7 +177,7 @@ function readCoverageRole(
   if (value === 'canonical' || value === 'related') {
     return value;
   }
-  throw new Error(`${path}.coverage_role must be canonical or related when provided`);
+  throw requestValidationError(`${path}.coverage_role must be canonical or related when provided`);
 }
 
 function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRequest & { reference_now_ms: number } {
@@ -174,7 +185,7 @@ function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRe
   const topicId = readRequiredString(record, 'topic_id', 'payload');
   const rawItems = record.items;
   if (!Array.isArray(rawItems)) {
-    throw new Error('payload.items must be an array');
+    throw requestValidationError('payload.items must be an array');
   }
 
   const items = rawItems.map((rawItem, index) => {

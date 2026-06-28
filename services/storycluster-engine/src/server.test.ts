@@ -370,6 +370,52 @@ describe('storycluster server', () => {
     expect(serverInternal.isAuthorized({ headers: {} } as never, {})).toBe(true);
   });
 
+  it('maps internal stage failures to 5xx while preserving malformed payload 400s', async () => {
+    const failingVectorBackend: ClusterVectorBackend = {
+      async queryTopic() {
+        return new Map();
+      },
+      async readiness() {
+        return { ok: true, detail: 'test-vector-ready' };
+      },
+      async replaceTopicClusters() {
+        throw new Error('synthetic vector stage failure');
+      },
+    };
+
+    await withServer({ vectorBackend: failingVectorBackend }, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/cluster`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic_id: 'topic-stage-failure',
+          items: [
+            {
+              sourceId: 'wire-a',
+              publisher: 'Wire A',
+              url: 'https://example.com/a',
+              canonicalUrl: 'https://example.com/a',
+              title: 'Breaking: Port attack triggers alerts',
+              publishedAt: 1_710_000_000_000,
+              summary: 'Authorities respond in the first hour',
+              url_hash: 'hash-a',
+              language: 'en',
+              translation_applied: false,
+              entity_keys: ['port', 'alerts'],
+            },
+          ],
+        }),
+      });
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: 'storycluster stage qdrant_candidate_retrieval failed: synthetic vector stage failure',
+      });
+    });
+  });
+
   it('covers direct invalid-url/default-method/error-payload handling and start helper', async () => {
     const makeResponse = () => {
       const responseState: {

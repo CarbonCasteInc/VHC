@@ -288,11 +288,11 @@ describe('OpenAIStoryClusterProvider', () => {
           choices: [{
             message: {
               content: JSON.stringify({
-                reranks: [
-                  { pair_id: 'pair-accepted', score: 1.8 },
-                  { pair_id: 'pair-rejected', score: -4 },
-                  { pair_id: 'pair-fallback', score: null },
-                ],
+                reranks: {
+                  'pair-accepted': 1.8,
+                  'pair-rejected': -4,
+                  'pair-fallback': 0.51,
+                },
               }),
             },
           }],
@@ -347,7 +347,7 @@ describe('OpenAIStoryClusterProvider', () => {
     expect(reranks.slice(0, 3)).toEqual([
       { pair_id: 'pair-accepted', score: 1 },
       { pair_id: 'pair-rejected', score: 0 },
-      { pair_id: 'pair-fallback', score: 0 },
+      { pair_id: 'pair-fallback', score: 0.51 },
     ]);
 
     expect(await provider.adjudicatePairs([])).toEqual([]);
@@ -380,7 +380,188 @@ describe('OpenAIStoryClusterProvider', () => {
     expect(summaries).toHaveLength(7);
   });
 
-  it('completes missing provider outputs deterministically after retry exhaustion', async () => {
+  it('sends fixed-key strict rerank schemas for the requested pair ids', async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                reranks: {
+                  'doc-1::story-a': 0.82,
+                  'doc-2::story-b': 0.27,
+                },
+              }),
+            },
+          }],
+        });
+      },
+    });
+
+    await expect(provider.rerankPairs([
+      {
+        pair_id: 'doc-1::story-a',
+        document_title: 'Doc 1',
+        document_text: 'Text 1',
+        document_entities: ['entity'],
+        document_trigger: 'attack',
+        cluster_headline: 'Headline A',
+        cluster_summary: 'Summary A',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['attack'],
+      },
+      {
+        pair_id: 'doc-2::story-b',
+        document_title: 'Doc 2',
+        document_text: 'Text 2',
+        document_entities: ['entity'],
+        document_trigger: 'vote',
+        cluster_headline: 'Headline B',
+        cluster_summary: 'Summary B',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['vote'],
+      },
+    ])).resolves.toEqual([
+      { pair_id: 'doc-1::story-a', score: 0.82 },
+      { pair_id: 'doc-2::story-b', score: 0.27 },
+    ]);
+
+    const responseFormat = capturedBody?.response_format as {
+      type: string;
+      json_schema: {
+        strict: boolean;
+        schema: {
+          required: string[];
+          additionalProperties: boolean;
+          properties: {
+            reranks: {
+              required: string[];
+              additionalProperties: boolean;
+              properties: Record<string, { type: string }>;
+            };
+          };
+        };
+      };
+    };
+    expect(responseFormat.type).toBe('json_schema');
+    expect(responseFormat.json_schema.strict).toBe(true);
+    expect(responseFormat.json_schema.schema.required).toEqual(['reranks']);
+    expect(responseFormat.json_schema.schema.additionalProperties).toBe(false);
+    expect(responseFormat.json_schema.schema.properties.reranks.required).toEqual([
+      'doc-1::story-a',
+      'doc-2::story-b',
+    ]);
+    expect(responseFormat.json_schema.schema.properties.reranks.additionalProperties).toBe(false);
+    expect(responseFormat.json_schema.schema.properties.reranks.properties).toEqual({
+      'doc-1::story-a': { type: 'number' },
+      'doc-2::story-b': { type: 'number' },
+    });
+    expect(JSON.stringify(responseFormat)).not.toContain('maxItems');
+  });
+
+  it('omits missing, unknown, and invalid fixed-key rerank outputs', async () => {
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              reranks: {
+                'doc-1::story-a': 0.81,
+                'doc-3::story-c': 0.99,
+                'doc-2::story-b': null,
+              },
+            }),
+          },
+        }],
+      }),
+    });
+
+    await expect(provider.rerankPairs([
+      {
+        pair_id: 'doc-1::story-a',
+        document_title: 'Doc 1',
+        document_text: 'Text 1',
+        document_entities: ['entity'],
+        document_trigger: 'attack',
+        cluster_headline: 'Headline A',
+        cluster_summary: 'Summary A',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['attack'],
+      },
+      {
+        pair_id: 'doc-2::story-b',
+        document_title: 'Doc 2',
+        document_text: 'Text 2',
+        document_entities: ['entity'],
+        document_trigger: 'vote',
+        cluster_headline: 'Headline B',
+        cluster_summary: 'Summary B',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['vote'],
+      },
+    ])).resolves.toEqual([
+      { pair_id: 'doc-1::story-a', score: 0.81 },
+    ]);
+  });
+
+  it('degrades exactly identical nontrivial rerank chunks instead of applying low-quality scores', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async () => jsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              reranks: {
+                'doc-1::story-a': 1,
+                'doc-2::story-b': 1,
+              },
+            }),
+          },
+        }],
+      }),
+    });
+
+    await expect(provider.rerankPairs([
+      {
+        pair_id: 'doc-1::story-a',
+        document_title: 'Doc 1',
+        document_text: 'Text 1',
+        document_entities: ['entity'],
+        document_trigger: 'attack',
+        cluster_headline: 'Headline A',
+        cluster_summary: 'Summary A',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['attack'],
+      },
+      {
+        pair_id: 'doc-2::story-b',
+        document_title: 'Doc 2',
+        document_text: 'Text 2',
+        document_entities: ['entity'],
+        document_trigger: 'attack',
+        cluster_headline: 'Headline B',
+        cluster_summary: 'Summary B',
+        cluster_entities: ['entity'],
+        cluster_triggers: ['attack'],
+      },
+    ])).resolves.toEqual([]);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:storycluster] cross_encoder_rerank degenerate score chunk degraded',
+      expect.objectContaining({
+        pairCount: 2,
+        uniquePairCount: 2,
+        score: 1,
+      }),
+    );
+  });
+
+  it('keeps deterministic fallbacks while omitting missing gate-changing outputs after retry exhaustion', async () => {
     const provider = new OpenAIStoryClusterProvider({
       apiKey: 'key',
       fetchFn: async () => jsonResponse({
@@ -427,10 +608,7 @@ describe('OpenAIStoryClusterProvider', () => {
       cluster_summary: 'Summary',
       cluster_entities: ['entity'],
       cluster_triggers: ['attack'],
-    }])).resolves.toEqual([{
-      pair_id: 'pair-1',
-      score: 0,
-    }]);
+    }])).resolves.toEqual([]);
     await expect(provider.adjudicatePairs([{
       pair_id: 'pair-1',
       document_title: 'Doc',
@@ -441,11 +619,7 @@ describe('OpenAIStoryClusterProvider', () => {
       cluster_summary: 'Summary',
       cluster_entities: ['entity'],
       cluster_triggers: ['attack'],
-    }])).resolves.toEqual([{
-      pair_id: 'pair-1',
-      score: 0,
-      decision: 'abstain',
-    }]);
+    }])).resolves.toEqual([]);
     await expect(provider.summarize([{
       cluster_id: 'cluster-1',
       headline: 'Headline',
@@ -643,7 +817,7 @@ describe('OpenAIStoryClusterProvider', () => {
       cluster_summary: 'Summary',
       cluster_entities: ['entity'],
       cluster_triggers: ['attack'],
-    }])).rejects.toThrow('Expected');
+    }])).resolves.toEqual([]);
 
     const files = await readdir(artifactDir);
     expect(files).toHaveLength(1);
@@ -679,7 +853,7 @@ describe('OpenAIStoryClusterProvider', () => {
         content_preview: responseContent,
       },
       error: {
-        name: 'OpenAIChatJsonParseError',
+        name: 'OpenAIChatJsonTruncationError',
       },
     });
     expect(artifact.request.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -695,6 +869,13 @@ describe('OpenAIStoryClusterProvider', () => {
         chunkIndex: 0,
         pairCount: 1,
         finishReason: 'length',
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:storycluster] cross_encoder_rerank output degraded to prior scores',
+      expect.objectContaining({
+        chunkIndex: 0,
+        pairCount: 1,
       }),
     );
   });
