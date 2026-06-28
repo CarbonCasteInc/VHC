@@ -60,8 +60,9 @@ re-enable monitors.
 - For Scope A capped raw-only relays, keep snapshot verify/refresh disabled with
   `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
   `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The latest-index
-  snapshot and story-body caches are bounded in code; verify/refresh can be
-  re-enabled deliberately after a separate relay-memory soak.
+  snapshot and story-body REST caches are bounded in code, but those caps are
+  not a bound on Gun's in-memory graph; verify/refresh can be re-enabled
+  deliberately after a separate relay-memory soak.
 - Keep relay critical write/readback admission bounded. The deploy packet adds
   `VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2`,
   `VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_LIMIT=16`, and

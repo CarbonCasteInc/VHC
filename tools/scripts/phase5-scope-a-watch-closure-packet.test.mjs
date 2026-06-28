@@ -167,6 +167,55 @@ test('blocks the 48h threshold when relay heap trend projects below the safe hor
   assert.deepEqual(packet.thresholds.fortyEightHour.blockers, ['relay_memory_trend_fail']);
 });
 
+test('projects relay heap trend against the public-beta watchdog ceiling by default', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 500_000_000, 500_000_000),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 740_000_000, 740_000_000),
+  ]);
+  makeSample(archiveRoot, '20260630T000000Z', '2026-06-30T00:00:00.000Z', [
+    relay('vhc-relay-a', 980_000_000, 980_000_000),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T00:00:00.000Z'),
+  });
+
+  assert.equal(packet.relayMemory.heapLimitBytes, 1_100_000_000);
+  assert.equal(packet.relayMemory.heapLimitSource, 'default:public-beta-compose');
+  assert.equal(Math.round(packet.relayMemory.relays[0].heapHoursToLimit), 12);
+  assert.equal(packet.relayMemory.relays[0].trendStatus, 'fail');
+});
+
+test('projects relay heap trend against deployed watchdog env when provided', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 500_000_000, 500_000_000),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 740_000_000, 740_000_000),
+  ]);
+  makeSample(archiveRoot, '20260630T000000Z', '2026-06-30T00:00:00.000Z', [
+    relay('vhc-relay-a', 980_000_000, 980_000_000),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root, {
+      VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: '1300000000',
+    }),
+    now: new Date('2026-06-30T00:00:00.000Z'),
+  });
+
+  assert.equal(packet.relayMemory.heapLimitBytes, 1_300_000_000);
+  assert.equal(packet.relayMemory.heapLimitSource, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES');
+  assert.equal(Math.round(packet.relayMemory.relays[0].heapHoursToLimit), 32);
+});
+
 test('keeps the packet in progress before the 24h threshold elapses', () => {
   const root = tmpDir();
   const archiveRoot = path.join(root, 'archive');

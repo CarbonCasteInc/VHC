@@ -102,8 +102,10 @@
     "degeneracyWarningCount": 0
   },
   "relayMemory": {
-    "heapLimitBytes": 1300000000,
+    "heapLimitBytes": 1100000000,
+    "heapLimitSource": "default:public-beta-compose",
     "rssLimitBytes": 1800000000,
+    "rssLimitSource": "default:relay-server",
     "minTrendHorizonHours": 168,
     "relays": [
       {
@@ -120,8 +122,8 @@
         "heapFirstBytes": 241174776,
         "heapLatestBytes": 404351200,
         "heapSlopeBytesPerHour": 14406486.22081473,
-        "heapHoursToLimit": 62.16983005237959,
-        "shortestProjectedLimitHours": 62.16983005237959,
+        "heapHoursToLimit": 48.287194346871004,
+        "shortestProjectedLimitHours": 48.287194346871004,
         "trendStatus": "warn"
       },
       {
@@ -138,8 +140,8 @@
         "heapFirstBytes": 222668792,
         "heapLatestBytes": 509125328,
         "heapSlopeBytesPerHour": 22203489.225328874,
-        "heapHoursToLimit": 35.61938684383899,
-        "shortestProjectedLimitHours": 35.61938684383899,
+        "heapHoursToLimit": 26.61179357908996,
+        "shortestProjectedLimitHours": 26.61179357908996,
         "trendStatus": "fail"
       },
       {
@@ -156,8 +158,8 @@
         "heapFirstBytes": 222111864,
         "heapLatestBytes": 502642992,
         "heapSlopeBytesPerHour": 25277313.486141007,
-        "heapHoursToLimit": 31.544373116912652,
-        "shortestProjectedLimitHours": 31.544373116912652,
+        "heapHoursToLimit": 23.632139876237943,
+        "shortestProjectedLimitHours": 23.632139876237943,
         "trendStatus": "fail"
       }
     ],

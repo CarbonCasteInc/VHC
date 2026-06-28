@@ -118,8 +118,9 @@ The launched path proves the Scope A contract:
    non-fatally and retry on the next interval, while critical raw bundle writes
    and pending lifecycle writes remain fail-closed;
 4. optional enrichment is not allowed to poison raw publication;
-5. relay readback latency and relay heap growth are bounded enough for the
-   capped raw-only operating profile;
+5. relay readback latency is bounded for the capped raw-only operating profile,
+   while relay heap/RSS slope remains an explicit 24h/48h watch gate because
+   cache caps do not by themselves prove the Gun in-memory graph is bounded;
 6. host-local monitors are enabled after a successful attended run and can alert
    on publisher liveness, relay liveness, and latest-index snapshot freshness.
 
