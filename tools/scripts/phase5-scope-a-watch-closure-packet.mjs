@@ -9,6 +9,7 @@ import { resolveRelayWatchdogLimits } from './relay-watchdog-thresholds.mjs';
 
 const SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-v1';
 const DEFAULT_MIN_TREND_HORIZON_HOURS = 7 * 24;
+const DEFAULT_HEAP_PLATEAU_MAX_ABS_SLOPE_BYTES_PER_HOUR = 5 * 1024 * 1024;
 const CLAIM_BOUNDARY = Object.freeze({
   proves: [
     'raw Scope A publication health for the observed clean window',
@@ -215,6 +216,81 @@ function hoursUntilLimit(latestBytes, slopeBytesPerHour, limitBytes) {
   return (limitBytes - latestBytes) / slopeBytesPerHour;
 }
 
+function pointFirst(points) {
+  return points.length > 0 ? points[0].y : null;
+}
+
+function pointLatest(points) {
+  return points.length > 0 ? points.at(-1).y : null;
+}
+
+function summarizeNamespaceLiveBytes(namespacePoints) {
+  const summary = {};
+  for (const [namespace, points] of [...namespacePoints.entries()].sort()) {
+    summary[namespace] = {
+      firstBytes: pointFirst(points),
+      latestBytes: pointLatest(points),
+      slopeBytesPerHour: linearSlope(points),
+    };
+  }
+  return summary;
+}
+
+function relayHeapPlateauVerdict({
+  heapSlopeBytesPerHour,
+  rssSlopeBytesPerHour,
+  shortestProjectedLimitHours,
+  minTrendHorizonHours,
+  plateauMaxAbsSlopeBytesPerHour,
+  graphSampleCount,
+  graphMissingSampleCount,
+  graphTruncatedSampleCount,
+}) {
+  if (graphSampleCount <= 0 || graphMissingSampleCount > 0 || graphTruncatedSampleCount > 0) {
+    return {
+      verdict: 'heap_driver_unknown',
+      reason: graphTruncatedSampleCount > 0 ? 'graph_scan_truncated' : 'graph_scan_missing',
+      projectedLimitWindow: null,
+    };
+  }
+  const projectedLimitWindow = shortestProjectedLimitHours === null
+    ? null
+    : shortestProjectedLimitHours < 48
+      ? 'before_48h'
+      : shortestProjectedLimitHours < minTrendHorizonHours
+        ? `before_${minTrendHorizonHours}h`
+        : 'beyond_horizon';
+  const projectedHorizonSafe = shortestProjectedLimitHours === null
+    || shortestProjectedLimitHours >= minTrendHorizonHours;
+  const slopeNearZero = Math.abs(heapSlopeBytesPerHour) <= plateauMaxAbsSlopeBytesPerHour
+    && Math.abs(rssSlopeBytesPerHour) <= plateauMaxAbsSlopeBytesPerHour;
+  if (slopeNearZero && projectedHorizonSafe) {
+    return {
+      verdict: 'heap_plateau_observed',
+      reason: 'heap_and_rss_slopes_near_zero',
+      projectedLimitWindow,
+    };
+  }
+  return {
+    verdict: 'heap_still_linear',
+    reason: projectedLimitWindow && projectedLimitWindow !== 'beyond_horizon'
+      ? `projected_watchdog_crossing_${projectedLimitWindow}`
+      : 'heap_or_rss_slope_not_plateaued',
+    projectedLimitWindow,
+  };
+}
+
+function aggregateHeapPlateauVerdict(relays) {
+  if (relays.length <= 0) return 'heap_driver_unknown';
+  if (relays.some((relay) => relay.heapPlateauVerdict === 'heap_driver_unknown')) {
+    return 'heap_driver_unknown';
+  }
+  if (relays.some((relay) => relay.heapPlateauVerdict === 'heap_still_linear')) {
+    return 'heap_still_linear';
+  }
+  return 'heap_plateau_observed';
+}
+
 function summarizeRelayMemory(samples, windowStartMs, env) {
   const limits = resolveRelayWatchdogLimits(env, {
     heapOverrideEnvNames: ['VH_PHASE5_SCOPE_A_WATCH_HEAP_LIMIT_BYTES'],
@@ -223,6 +299,10 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
   const minTrendHorizonHours = parsePositiveInt(
     env.VH_PHASE5_SCOPE_A_WATCH_MIN_TREND_HORIZON_HOURS,
     DEFAULT_MIN_TREND_HORIZON_HOURS,
+  );
+  const plateauMaxAbsSlopeBytesPerHour = parsePositiveInt(
+    env.VH_PHASE5_SCOPE_A_WATCH_HEAP_PLATEAU_MAX_ABS_SLOPE_BYTES_PER_HOUR,
+    DEFAULT_HEAP_PLATEAU_MAX_ABS_SLOPE_BYTES_PER_HOUR,
   );
   const byRelay = new Map();
   for (const sample of samples) {
@@ -234,12 +314,41 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
         heap: [],
         restartCounts: [],
         watchdogTrips: [],
+        graphTotalSouls: [],
+        graphLiveUserValueBytes: [],
+        graphTombstonedSouls: [],
+        graphNamespaceLiveUserValueBytes: new Map(),
+        graphMissingSampleCount: 0,
+        graphTruncatedSampleCount: 0,
       };
       const x = (sample.generatedAtMs - windowStartMs) / 3_600_000;
       if (Number.isFinite(relay.metrics?.rssBytes)) current.rss.push({ x, y: relay.metrics.rssBytes });
       if (Number.isFinite(relay.metrics?.heapUsedBytes)) current.heap.push({ x, y: relay.metrics.heapUsedBytes });
       if (Number.isFinite(relay.docker?.restartCount)) current.restartCounts.push(relay.docker.restartCount);
       if (Number.isFinite(relay.metrics?.watchdogTrips)) current.watchdogTrips.push(relay.metrics.watchdogTrips);
+      const graphScan = relay.metrics?.graphScan;
+      const graphScanComplete = graphScan
+        && Number.isFinite(graphScan.totalSouls)
+        && Number.isFinite(graphScan.liveUserValueBytes)
+        && Number.isFinite(graphScan.tombstonedSouls)
+        && graphScan.truncated !== true
+        && Number(graphScan.truncatedTotal ?? 0) <= 0
+        && Number(graphScan.successes ?? 0) > 0;
+      if (graphScanComplete) {
+        current.graphTotalSouls.push({ x, y: graphScan.totalSouls });
+        current.graphLiveUserValueBytes.push({ x, y: graphScan.liveUserValueBytes });
+        current.graphTombstonedSouls.push({ x, y: graphScan.tombstonedSouls });
+        for (const [namespace, bytes] of Object.entries(graphScan.namespaceLiveUserValueBytes ?? {})) {
+          if (!Number.isFinite(bytes)) continue;
+          const points = current.graphNamespaceLiveUserValueBytes.get(namespace) ?? [];
+          points.push({ x, y: bytes });
+          current.graphNamespaceLiveUserValueBytes.set(namespace, points);
+        }
+      } else if (graphScan?.truncated === true || Number(graphScan?.truncatedTotal ?? 0) > 0) {
+        current.graphTruncatedSampleCount += 1;
+      } else {
+        current.graphMissingSampleCount += 1;
+      }
       byRelay.set(name, current);
     }
   }
@@ -254,6 +363,16 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
     const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, limits.rssLimitBytes);
     const projectedHours = [heapHoursToLimit, rssHoursToLimit].filter((value) => value !== null);
     const shortestProjectedLimitHours = projectedHours.length > 0 ? Math.min(...projectedHours) : null;
+    const plateau = relayHeapPlateauVerdict({
+      heapSlopeBytesPerHour,
+      rssSlopeBytesPerHour,
+      shortestProjectedLimitHours,
+      minTrendHorizonHours,
+      plateauMaxAbsSlopeBytesPerHour,
+      graphSampleCount: values.graphTotalSouls.length,
+      graphMissingSampleCount: values.graphMissingSampleCount,
+      graphTruncatedSampleCount: values.graphTruncatedSampleCount,
+    });
     relays.push({
       name,
       sampleCount: values.heap.length,
@@ -270,6 +389,22 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
       heapSlopeBytesPerHour,
       heapHoursToLimit,
       shortestProjectedLimitHours,
+      heapPlateauVerdict: plateau.verdict,
+      heapPlateauReason: plateau.reason,
+      heapPlateauProjectedLimitWindow: plateau.projectedLimitWindow,
+      graphSampleCount: values.graphTotalSouls.length,
+      graphMissingSampleCount: values.graphMissingSampleCount,
+      graphTruncatedSampleCount: values.graphTruncatedSampleCount,
+      graphTotalSoulsFirst: pointFirst(values.graphTotalSouls),
+      graphTotalSoulsLatest: pointLatest(values.graphTotalSouls),
+      graphTotalSoulsSlopePerHour: linearSlope(values.graphTotalSouls),
+      graphLiveUserValueBytesFirst: pointFirst(values.graphLiveUserValueBytes),
+      graphLiveUserValueBytesLatest: pointLatest(values.graphLiveUserValueBytes),
+      graphLiveUserValueBytesSlopePerHour: linearSlope(values.graphLiveUserValueBytes),
+      graphTombstonedSoulsFirst: pointFirst(values.graphTombstonedSouls),
+      graphTombstonedSoulsLatest: pointLatest(values.graphTombstonedSouls),
+      graphTombstonedSoulsSlopePerHour: linearSlope(values.graphTombstonedSouls),
+      graphNamespaceLiveUserValueBytes: summarizeNamespaceLiveBytes(values.graphNamespaceLiveUserValueBytes),
       trendStatus:
         shortestProjectedLimitHours === null || shortestProjectedLimitHours >= minTrendHorizonHours
           ? 'pass'
@@ -284,6 +419,8 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
     rssLimitBytes: limits.rssLimitBytes,
     rssLimitSource: limits.rssLimitSource,
     minTrendHorizonHours,
+    heapPlateauMaxAbsSlopeBytesPerHour: plateauMaxAbsSlopeBytesPerHour,
+    heapPlateauVerdict: aggregateHeapPlateauVerdict(relays),
     relays,
     status: relays.some((relay) => relay.trendStatus === 'fail')
       ? 'fail'

@@ -58,7 +58,31 @@ function makeSample(root, sampleId, generatedAt, relays) {
   });
 }
 
-function relay(name, rssBytes, heapUsedBytes) {
+function graphScan({
+  totalSouls = 100,
+  liveUserValueBytes = 10_000,
+  tombstonedSouls = 1,
+  namespaceLiveUserValueBytes = { news_story: liveUserValueBytes },
+  truncated = false,
+} = {}) {
+  return {
+    enabled: true,
+    running: false,
+    successes: 1,
+    errors: 0,
+    truncated,
+    durationMs: 20,
+    ageMs: 1000,
+    scannedSouls: totalSouls,
+    totalSouls,
+    liveUserValueBytes,
+    tombstonedSouls,
+    namespaceLiveUserValueBytes,
+    buckets: [],
+  };
+}
+
+function relay(name, rssBytes, heapUsedBytes, graph = null) {
   return {
     name,
     status: 'pass',
@@ -70,6 +94,7 @@ function relay(name, rssBytes, heapUsedBytes) {
       watchdogTrips: 0,
       eventLoopLagP99Ms: 20,
       criticalReadbacksQueued: 0,
+      ...(graph ? { graphScan: graph } : {}),
     },
   };
 }
@@ -136,11 +161,79 @@ test('passes the 48h threshold when archive, runtime, StoryCluster, and relay tr
   assert.equal(packet.thresholds.twentyFourHour.status, 'pass');
   assert.equal(packet.thresholds.fortyEightHour.status, 'pass');
   assert.equal(packet.status, 'pass');
+  assert.equal(packet.relayMemory.heapPlateauVerdict, 'heap_driver_unknown');
   assert.deepEqual(packet.claimBoundary.doesNotProve, [
     'single-host A6 topology resilience',
     'full weekly traffic cycle stability',
     'Scope B accepted/topic synthesis or storyline enrichment readiness',
   ]);
+});
+
+test('computes graph slopes and reports heap plateau when graph scans are complete', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000, graphScan({
+      totalSouls: 100,
+      liveUserValueBytes: 10_000,
+      tombstonedSouls: 2,
+      namespaceLiveUserValueBytes: { news_story: 8_000, news_latest_index: 2_000 },
+    })),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 421_000_000, 321_000_000, graphScan({
+      totalSouls: 105,
+      liveUserValueBytes: 11_200,
+      tombstonedSouls: 3,
+      namespaceLiveUserValueBytes: { news_story: 9_000, news_latest_index: 2_200 },
+    })),
+  ]);
+  makeSample(archiveRoot, '20260630T000000Z', '2026-06-30T00:00:00.000Z', [
+    relay('vhc-relay-a', 422_000_000, 322_000_000, graphScan({
+      totalSouls: 110,
+      liveUserValueBytes: 12_400,
+      tombstonedSouls: 4,
+      namespaceLiveUserValueBytes: { news_story: 10_000, news_latest_index: 2_400 },
+    })),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T00:00:00.000Z'),
+  });
+
+  const relayMemory = packet.relayMemory.relays[0];
+  assert.equal(packet.relayMemory.heapPlateauVerdict, 'heap_plateau_observed');
+  assert.equal(relayMemory.heapPlateauVerdict, 'heap_plateau_observed');
+  assert.equal(relayMemory.graphSampleCount, 3);
+  assert.equal(Math.round(relayMemory.graphTotalSoulsSlopePerHour * 1000), 208);
+  assert.equal(relayMemory.graphLiveUserValueBytesSlopePerHour, 50);
+  assert.equal(Math.round(relayMemory.graphTombstonedSoulsSlopePerHour * 1000), 42);
+  assert.equal(Math.round(relayMemory.graphNamespaceLiveUserValueBytes.news_story.slopeBytesPerHour), 42);
+});
+
+test('reports heap_still_linear when complete graph diagnostics accompany unsafe heap projection', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 500_000_000, 500_000_000, graphScan()),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 740_000_000, 740_000_000, graphScan({ totalSouls: 102, liveUserValueBytes: 11_000 })),
+  ]);
+  makeSample(archiveRoot, '20260630T000000Z', '2026-06-30T00:00:00.000Z', [
+    relay('vhc-relay-a', 980_000_000, 980_000_000, graphScan({ totalSouls: 104, liveUserValueBytes: 12_000 })),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T00:00:00.000Z'),
+  });
+
+  assert.equal(packet.relayMemory.heapPlateauVerdict, 'heap_still_linear');
+  assert.equal(packet.relayMemory.relays[0].heapPlateauVerdict, 'heap_still_linear');
+  assert.equal(packet.relayMemory.relays[0].heapPlateauProjectedLimitWindow, 'before_48h');
+  assert.equal(packet.relayMemory.status, 'fail');
 });
 
 test('blocks the 48h threshold when relay heap trend projects below the safe horizon', () => {
