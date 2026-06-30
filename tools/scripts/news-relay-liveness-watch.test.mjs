@@ -34,8 +34,10 @@ function metrics({
   lagP99 = 25,
   queued = 0,
   watchdogTrips = 0,
+  graph = false,
+  graphTruncated = 0,
 } = {}) {
-  return [
+  const rows = [
     `vh_relay_process_rss_bytes ${rss}`,
     `vh_relay_process_heap_used_bytes ${heap}`,
     `vh_relay_event_loop_lag_p99_ms ${lagP99}`,
@@ -43,8 +45,34 @@ function metrics({
     'vh_relay_critical_write_readbacks_active 0',
     `vh_relay_critical_write_readbacks_queued ${queued}`,
     `vh_relay_resource_watchdog_trips_total{reason="rss_bytes"} ${watchdogTrips}`,
-    '',
-  ].join('\n');
+  ];
+  if (graph) {
+    rows.push(
+      'vh_relay_gun_graph_scan_enabled 1',
+      'vh_relay_gun_graph_scan_running 0',
+      'vh_relay_gun_graph_scan_successes_total 3',
+      'vh_relay_gun_graph_scan_errors_total 0',
+      `vh_relay_gun_graph_scan_truncated ${graphTruncated}`,
+      `vh_relay_gun_graph_scan_truncated_total ${graphTruncated}`,
+      'vh_relay_gun_graph_scan_duration_ms 42',
+      'vh_relay_gun_graph_scan_age_ms 1000',
+      'vh_relay_gun_graph_scan_scanned_souls 19',
+      'vh_relay_gun_graph_souls_total{namespace="news_story",state="live"} 10',
+      'vh_relay_gun_graph_souls_total{namespace="news_story",state="tombstoned"} 2',
+      'vh_relay_gun_graph_user_fields_total{namespace="news_story",state="live"} 80',
+      'vh_relay_gun_graph_user_fields_total{namespace="news_story",state="tombstoned"} 14',
+      'vh_relay_gun_graph_user_value_bytes{namespace="news_story",state="live"} 12000',
+      'vh_relay_gun_graph_user_value_bytes{namespace="news_story",state="tombstoned"} 0',
+      'vh_relay_gun_graph_souls_total{namespace="news_latest_index",state="live"} 4',
+      'vh_relay_gun_graph_user_fields_total{namespace="news_latest_index",state="live"} 20',
+      'vh_relay_gun_graph_user_value_bytes{namespace="news_latest_index",state="live"} 3000',
+      'vh_relay_gun_graph_souls_total{namespace="other",state="link_only"} 3',
+      'vh_relay_gun_graph_user_fields_total{namespace="other",state="link_only"} 0',
+      'vh_relay_gun_graph_user_value_bytes{namespace="other",state="link_only"} 0',
+    );
+  }
+  rows.push('');
+  return rows.join('\n');
 }
 
 function makeFetch(responses) {
@@ -98,6 +126,36 @@ test('relay liveness passes for healthy readyz, metrics, and stable restart coun
 
     assert.equal(summary.status, 'pass');
     assert.equal(summary.relays.length, 2);
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness captures cached graph metrics without making them blockers', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({ graph: true, graphTruncated: 1 })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics()],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn({ 'vhc-relay-a': 0, 'vhc-relay-b': 0 }),
+    });
+
+    assert.equal(summary.status, 'pass');
+    const graphScan = summary.relays[0].metrics.graphScan;
+    assert.equal(graphScan.enabled, true);
+    assert.equal(graphScan.truncated, true);
+    assert.equal(graphScan.totalSouls, 19);
+    assert.equal(graphScan.liveUserValueBytes, 15_000);
+    assert.equal(graphScan.tombstonedSouls, 2);
+    assert.equal(graphScan.namespaceLiveUserValueBytes.news_story, 12_000);
+    assert.equal(graphScan.namespaceLiveUserValueBytes.news_latest_index, 3_000);
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }
