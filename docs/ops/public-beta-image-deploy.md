@@ -75,6 +75,21 @@ re-enable monitors.
   `VH_RELAY_RADATA_BYTES_SCAN_TIMEOUT_MS`. During soak, scrape the companion
   refresh age/error/truncation counters; a metrics scrape must not recursively
   walk the radata tree.
+- Treat Gun graph metrics as opt-in diagnostics, not release blockers.
+  `VH_RELAY_GUN_GRAPH_SCAN_ENABLED=false` by default. When enabled for an
+  attended memory soak, the relay scans `gun._.graph` only from a background
+  task and `/metrics` reads the cached result. Bound the scan with
+  `VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS` (default 60s),
+  `VH_RELAY_GUN_GRAPH_SCAN_BATCH_SIZE` (default 1000),
+  `VH_RELAY_GUN_GRAPH_SCAN_MAX_SOULS` (default 250000), and
+  `VH_RELAY_GUN_GRAPH_SCAN_MAX_DURATION_MS` (default 5000). The shareable
+  metric families report namespace/state counts and byte totals only:
+  `vh_relay_gun_graph_souls_total`,
+  `vh_relay_gun_graph_user_fields_total`, and
+  `vh_relay_gun_graph_user_value_bytes`, plus scan age/duration/truncation and
+  success/error counters. They must not be used as hard rollout blockers until
+  a separate soak proves the signal. Missing or truncated graph scans mean the
+  heap driver remains unknown.
 - Leave relay `GUN_STATS` unset or explicitly `false`. The relay disables GUN's
   package-local stats writer by default; setting `GUN_STATS=true` makes GUN
   write `stats.<basename(GUN_FILE)>` beside `node_modules/gun`, which is not a

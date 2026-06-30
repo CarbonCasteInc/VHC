@@ -150,6 +150,33 @@ function parseMetricValue(text, metricName, labels = null) {
   return rows;
 }
 
+function parseMetricLabels(labelText) {
+  const labels = {};
+  const trimmed = String(labelText ?? '').trim();
+  if (!trimmed) return labels;
+  const body = trimmed.startsWith('{') && trimmed.endsWith('}') ? trimmed.slice(1, -1) : trimmed;
+  const labelPattern = /([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let match = labelPattern.exec(body);
+  while (match) {
+    labels[match[1]] = match[2].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    match = labelPattern.exec(body);
+  }
+  return labels;
+}
+
+function parseMetricRows(text, metricName) {
+  const rows = [];
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const match = line.match(/^([A-Za-z_:][A-Za-z0-9_:]*)(\{[^}]*\})?\s+(-?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?)$/i);
+    if (!match || match[1] !== metricName) continue;
+    const value = Number(match[3]);
+    if (!Number.isFinite(value)) continue;
+    rows.push({ labels: parseMetricLabels(match[2]), value });
+  }
+  return rows;
+}
+
 function metricNumber(text, metricName, fallback = null) {
   const rows = parseMetricValue(text, metricName);
   return rows.length > 0 && Number.isFinite(rows[0]) ? rows[0] : fallback;
@@ -157,6 +184,76 @@ function metricNumber(text, metricName, fallback = null) {
 
 function metricSum(text, metricName) {
   return parseMetricValue(text, metricName).reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+}
+
+function parseGunGraphMetrics(text) {
+  const successes = metricNumber(text, 'vh_relay_gun_graph_scan_successes_total');
+  const enabled = metricNumber(text, 'vh_relay_gun_graph_scan_enabled');
+  if (successes === null && enabled === null) return null;
+
+  const buckets = new Map();
+  const ensureBucket = (namespace, state) => {
+    const key = `${namespace}\t${state}`;
+    const bucket = buckets.get(key) ?? {
+      namespace,
+      state,
+      souls: 0,
+      userFields: 0,
+      userValueBytes: 0,
+    };
+    buckets.set(key, bucket);
+    return bucket;
+  };
+
+  for (const row of parseMetricRows(text, 'vh_relay_gun_graph_souls_total')) {
+    const namespace = String(row.labels.namespace ?? '').trim();
+    const state = String(row.labels.state ?? '').trim();
+    if (!namespace || !state) continue;
+    ensureBucket(namespace, state).souls = row.value;
+  }
+  for (const row of parseMetricRows(text, 'vh_relay_gun_graph_user_fields_total')) {
+    const namespace = String(row.labels.namespace ?? '').trim();
+    const state = String(row.labels.state ?? '').trim();
+    if (!namespace || !state) continue;
+    ensureBucket(namespace, state).userFields = row.value;
+  }
+  for (const row of parseMetricRows(text, 'vh_relay_gun_graph_user_value_bytes')) {
+    const namespace = String(row.labels.namespace ?? '').trim();
+    const state = String(row.labels.state ?? '').trim();
+    if (!namespace || !state) continue;
+    ensureBucket(namespace, state).userValueBytes = row.value;
+  }
+
+  const bucketList = [...buckets.values()]
+    .sort((left, right) => `${left.namespace}\t${left.state}`.localeCompare(`${right.namespace}\t${right.state}`));
+  const namespaceLiveUserValueBytes = {};
+  for (const bucket of bucketList) {
+    if (bucket.state === 'live') {
+      namespaceLiveUserValueBytes[bucket.namespace] = (namespaceLiveUserValueBytes[bucket.namespace] ?? 0)
+        + bucket.userValueBytes;
+    }
+  }
+
+  return {
+    enabled: enabled === null ? null : enabled > 0,
+    running: metricNumber(text, 'vh_relay_gun_graph_scan_running', 0) > 0,
+    successes: successes ?? 0,
+    errors: metricNumber(text, 'vh_relay_gun_graph_scan_errors_total', 0),
+    truncated: metricNumber(text, 'vh_relay_gun_graph_scan_truncated') === 1,
+    truncatedTotal: metricNumber(text, 'vh_relay_gun_graph_scan_truncated_total', 0),
+    durationMs: metricNumber(text, 'vh_relay_gun_graph_scan_duration_ms'),
+    ageMs: metricNumber(text, 'vh_relay_gun_graph_scan_age_ms'),
+    scannedSouls: metricNumber(text, 'vh_relay_gun_graph_scan_scanned_souls'),
+    totalSouls: bucketList.reduce((sum, bucket) => sum + bucket.souls, 0),
+    liveUserValueBytes: bucketList
+      .filter((bucket) => bucket.state === 'live')
+      .reduce((sum, bucket) => sum + bucket.userValueBytes, 0),
+    tombstonedSouls: bucketList
+      .filter((bucket) => bucket.state === 'tombstoned')
+      .reduce((sum, bucket) => sum + bucket.souls, 0),
+    namespaceLiveUserValueBytes,
+    buckets: bucketList,
+  };
 }
 
 async function inspectRelay(target, {
@@ -213,6 +310,7 @@ async function inspectRelay(target, {
       criticalReadbacksActive: metricNumber(text, 'vh_relay_critical_write_readbacks_active', 0),
       criticalReadbacksQueued: metricNumber(text, 'vh_relay_critical_write_readbacks_queued', 0),
       watchdogTrips,
+      graphScan: parseGunGraphMetrics(text),
     };
     if (metrics.rssBytes !== null && metrics.rssBytes > limits.rssLimitBytes) blockers.push(`rss_hot:${metrics.rssBytes}/${limits.rssLimitBytes}`);
     if (metrics.heapUsedBytes !== null && metrics.heapUsedBytes > limits.heapLimitBytes) blockers.push(`heap_hot:${metrics.heapUsedBytes}/${limits.heapLimitBytes}`);
@@ -403,6 +501,7 @@ async function main() {
 export const newsRelayLivenessWatchInternal = {
   REPORT_SCHEMA_VERSION,
   STATE_SCHEMA_VERSION,
+  parseGunGraphMetrics,
   parseMetricValue,
   parseTargets,
   relayRestartEligibleBlockers,
