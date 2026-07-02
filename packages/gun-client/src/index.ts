@@ -1,6 +1,7 @@
 import Gun from 'gun';
 import 'gun/sea.js';
 import type { IGunInstance } from 'gun';
+import { lumaLog } from '@vh/luma-sdk';
 import { waitForRemote, type ChainAck, type ChainLike, type ChainWithGet } from './chain';
 import { createStorageAdapter } from './storage/adapter';
 import type { StorageAdapter, StorageRecord } from './storage/types';
@@ -137,7 +138,7 @@ export function createClient(config: VennClientConfig = {}): VennClient {
       }
     })
     .catch((error: unknown) => {
-      console.warn('[vh] storage hydration failed', error);
+      lumaLog('warn', '[vh] storage hydration failed', { error });
       if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
         const message = error instanceof Error ? error.message : String(error);
         globalThis.dispatchEvent(

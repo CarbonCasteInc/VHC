@@ -302,6 +302,17 @@ export const GATES = [
     ],
   },
   {
+    id: 'luma_telemetry_redaction',
+    label: 'LUMA telemetry §16 source discipline holds; §21.4 replay remains deferred before <TrustClaim>',
+    command: ['pnpm', ['check:luma-telemetry-redaction']],
+    artifactRefs: [
+      'tools/scripts/check-luma-telemetry-redaction.mjs',
+      'packages/luma-sdk/src/telemetry.ts',
+      'packages/luma-sdk/src/telemetry.test.ts',
+      'docs/specs/spec-luma-service-v0.md',
+    ],
+  },
+  {
     id: 'luma_mvp_production_readiness',
     label: 'LUMA public-beta MVP readiness has current signed-write and mesh evidence',
     command: ['pnpm', ['check:luma:mvp-production-readiness']],

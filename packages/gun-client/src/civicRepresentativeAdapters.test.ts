@@ -498,7 +498,7 @@ describe('civicRepresentativeAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/civic/reps/jurisdiction-v1',
+          path: '[REDACTED:mesh-path]',
         }),
       );
       expect(dispatchSpy).toHaveBeenCalledWith(

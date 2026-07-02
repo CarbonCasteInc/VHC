@@ -10,6 +10,7 @@ import {
 } from '@vh/data-model';
 import {
   canonicalizeSignedWritePayload,
+  lumaLog,
   verifySignedWriteEnvelope
 } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
@@ -91,7 +92,7 @@ export async function publishToDirectory(client: VennClient, entry: DirectoryEnt
       writeClass: 'directory',
       timeoutMs: DIRECTORY_PUT_ACK_TIMEOUT_MS,
       timeoutError: 'directory publish timed out and readback did not confirm persistence',
-      onAckTimeout: () => console.warn('[vh:directory] publish ack timed out, requiring readback confirmation'),
+      onAckTimeout: () => lumaLog('warn', '[vh:directory] publish ack timed out, requiring readback confirmation'),
       readback: () => lookupByIdentityDirectoryKey(client, validatedEntry.identityDirectoryKey),
       readbackPredicate: (observed) => {
         const candidate = observed as DirectoryEntry | null;

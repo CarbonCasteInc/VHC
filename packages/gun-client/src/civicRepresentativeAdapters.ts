@@ -2,6 +2,7 @@ import {
   RepresentativeDirectorySchema,
   type RepresentativeDirectory,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -116,7 +117,7 @@ function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
 }
 
 function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailure): void {
-  console.warn(`[vh:civic-reps] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  lumaLog('warn', `[vh:civic-reps] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
   if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
     globalThis.dispatchEvent(
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure }),
@@ -248,7 +249,7 @@ function putWithAck<T>(
     timeoutError: options.timeoutError,
     readback: options.readback,
     readbackPredicate: options.readbackPredicate,
-    onAckTimeout: () => console.warn('[vh:civic-reps] put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:civic-reps] put ack timed out, requiring readback confirmation'),
   });
 }
 

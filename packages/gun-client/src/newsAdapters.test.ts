@@ -785,7 +785,7 @@ describe('newsAdapters', () => {
       expect(mesh.writes).toEqual([]);
       expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(info).toHaveBeenCalledWith('[vh:news] relay REST write completed', expect.objectContaining({
-        path: '/vh/news/latest-index',
+        path: '[REDACTED:mesh-path]',
         relay_success_count: 2,
         relay_target_count: 3,
         relay_required_success_count: 2,
@@ -3769,7 +3769,7 @@ describe('newsAdapters', () => {
         expect.objectContaining({
           event: 'system-writer-validation-failed',
           reason: 'missing-pin',
-          path: 'vh/news/stories/story-123',
+          path: '[REDACTED:mesh-path]',
         })
       );
     } finally {
@@ -4449,7 +4449,7 @@ describe('newsAdapters', () => {
         expect.objectContaining({
           event: 'system-writer-validation-failed',
           reason: 'missing-pin',
-          path: 'vh/news/index/latest/story-a',
+          path: '[REDACTED:mesh-path]',
         })
       );
       expect(warning).toHaveBeenCalledWith(
@@ -4457,7 +4457,7 @@ describe('newsAdapters', () => {
         expect.objectContaining({
           event: 'system-writer-validation-failed',
           reason: 'missing-pin',
-          path: 'vh/news/index/hot/story-a',
+          path: '[REDACTED:mesh-path]',
         })
       );
     } finally {

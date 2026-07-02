@@ -579,7 +579,7 @@ describe('topicEngagementAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/aggregates/topics/topic-1/engagement/summary',
+          path: '[REDACTED:mesh-path]',
         }),
       );
       expect(dispatchSpy).toHaveBeenCalledWith(

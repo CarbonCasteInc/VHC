@@ -9,6 +9,7 @@ import {
   type PointAggregateSnapshotV1,
 } from '@vh/data-model';
 import {
+  lumaLog,
   verifySignedWriteEnvelope,
   type SignedWriteVerifyHook,
 } from '@vh/luma-sdk';
@@ -1061,7 +1062,7 @@ export async function writeVoterNode(
       node: sanitized,
     }, { allowLumaV1: true });
     if (relayed) {
-      console.info('[vh:aggregate:voter-write]', {
+      lumaLog('info', '[vh:aggregate:voter-write]', {
         topic_id: normalizedTopicId,
         synthesis_id: normalizedSynthesisId,
         epoch: Number(normalizedEpoch),
@@ -1103,7 +1104,7 @@ export async function writeVoterNode(
         sanitized,
       );
       if (recovered) {
-        console.info('[vh:aggregate:voter-write]', {
+        lumaLog('info', '[vh:aggregate:voter-write]', {
           topic_id: normalizedTopicId,
           synthesis_id: normalizedSynthesisId,
           epoch: Number(normalizedEpoch),
@@ -1126,7 +1127,7 @@ export async function writeVoterNode(
         node: sanitized,
       }, { allowLumaV1: true });
       if (relayed) {
-        console.info('[vh:aggregate:voter-write]', {
+        lumaLog('info', '[vh:aggregate:voter-write]', {
           topic_id: normalizedTopicId,
           synthesis_id: normalizedSynthesisId,
           epoch: Number(normalizedEpoch),
@@ -1142,7 +1143,7 @@ export async function writeVoterNode(
       }
     }
 
-    console.warn('[vh:aggregate:voter-write]', {
+    lumaLog('warn', '[vh:aggregate:voter-write]', {
       topic_id: normalizedTopicId,
       synthesis_id: normalizedSynthesisId,
       epoch: Number(normalizedEpoch),
@@ -1166,7 +1167,7 @@ export async function writeVoterNode(
     node: sanitized,
   }, { allowLumaV1: true });
 
-  console.info('[vh:aggregate:voter-write]', {
+  lumaLog('info', '[vh:aggregate:voter-write]', {
     topic_id: normalizedTopicId,
     synthesis_id: normalizedSynthesisId,
     epoch: Number(normalizedEpoch),
@@ -1203,7 +1204,7 @@ export async function writePointAggregateSnapshot(
   if (shouldWriteAggregateViaRelayRestFirst()) {
     const relayed = await writePointSnapshotViaRelayFallback(client, sanitized);
     if (relayed) {
-      console.info('[vh:aggregate:point-snapshot-write]', {
+      lumaLog('info', '[vh:aggregate:point-snapshot-write]', {
         topic_id: normalizedTopicId,
         synthesis_id: normalizedSynthesisId,
         epoch: Number(normalizedEpoch),
@@ -1236,7 +1237,7 @@ export async function writePointAggregateSnapshot(
         sanitized,
       );
       if (recovered) {
-        console.info('[vh:aggregate:point-snapshot-write]', {
+        lumaLog('info', '[vh:aggregate:point-snapshot-write]', {
           topic_id: normalizedTopicId,
           synthesis_id: normalizedSynthesisId,
           epoch: Number(normalizedEpoch),
@@ -1257,7 +1258,7 @@ export async function writePointAggregateSnapshot(
 
       const relayed = await writePointSnapshotViaRelayFallback(client, sanitized);
       if (relayed) {
-        console.info('[vh:aggregate:point-snapshot-write]', {
+        lumaLog('info', '[vh:aggregate:point-snapshot-write]', {
           topic_id: normalizedTopicId,
           synthesis_id: normalizedSynthesisId,
           epoch: Number(normalizedEpoch),
@@ -1277,7 +1278,7 @@ export async function writePointAggregateSnapshot(
       }
     }
 
-    console.warn('[vh:aggregate:point-snapshot-write]', {
+    lumaLog('warn', '[vh:aggregate:point-snapshot-write]', {
       topic_id: normalizedTopicId,
       synthesis_id: normalizedSynthesisId,
       epoch: Number(normalizedEpoch),
@@ -1294,7 +1295,7 @@ export async function writePointAggregateSnapshot(
 
   const relayMirrored = await writePointSnapshotViaRelayFallback(client, sanitized);
 
-  console.info('[vh:aggregate:point-snapshot-write]', {
+  lumaLog('info', '[vh:aggregate:point-snapshot-write]', {
     topic_id: normalizedTopicId,
     synthesis_id: normalizedSynthesisId,
     epoch: Number(normalizedEpoch),

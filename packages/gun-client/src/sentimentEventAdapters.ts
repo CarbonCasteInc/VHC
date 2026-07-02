@@ -4,6 +4,7 @@ import {
   deriveSentimentEventId,
   type SentimentEvent,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet, type PutAckResult } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -158,7 +159,7 @@ async function putWithAck<T>(
     timeoutError: options.timeoutError,
     readback: options.readback,
     readbackPredicate: options.readbackPredicate,
-    onAckTimeout: () => console.warn('[vh:gun-client] sentiment outbox put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:gun-client] sentiment outbox put ack timed out, requiring readback confirmation'),
   });
   return result.ack;
 }
