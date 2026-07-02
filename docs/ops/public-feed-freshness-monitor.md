@@ -39,6 +39,77 @@ alerting channel by themselves. A fail-closed publisher can leave the feed stale
 until a human reads the host. Before any unattended long watch, confirm that at
 least one monitor failure path reaches the release owner outside the A6 host.
 
+## Host-Local Alert Watch
+
+`tools/scripts/public-feed-alert-watch.mjs` is the repo-side host alert path for
+the outage #2 silence gap. It composes the public freshness monitor with a
+read-only publisher unit check and sends a state-change-only alert when either:
+
+- the public latest-index freshness monitor fails the 6-hour SLO or public
+  health checks;
+- `vh-news-aggregator.service` is not `active/running`;
+- the publisher unit is parked with `ExecMainStatus=78`.
+
+The alert output is secret-safe. It records statuses, blockers, counts, ages,
+and origin hashes only; it does not include tokens, raw feed payloads, story
+bodies, URLs, pins, keys, or heap snapshot contents.
+
+The script supports two delivery channels configured by environment only:
+
+| Variable | Notes |
+| --- | --- |
+| `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` | HTTPS webhook target. Keep the value in the host env file, not the repo. |
+| `VH_PUBLIC_FEED_ALERT_EMAIL_TO` | Recipient for host-MTA delivery via `sendmail -t`. |
+| `VH_PUBLIC_FEED_ALERT_EMAIL_FROM` | Optional sender, default `vhc-public-feed-alert@localhost`. |
+| `VH_PUBLIC_FEED_ALERT_SENDMAIL` | Optional sendmail path, default `/usr/sbin/sendmail`. |
+| `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS` | Optional resend interval for unchanged state. Default `0`, meaning no heartbeat. |
+| `VH_PUBLIC_FEED_ALERT_TEST_FIRE` | Set to `1` for a one-shot delivery test without changing the observed pass/fail result. |
+| `VH_PUBLIC_FEED_ALERT_STATE_DIR` | Default `~/.local/state/vhc/public-feed-alert`. |
+
+State-change-only delivery means a repeated stale feed or repeated exit-78
+publisher state does not spam every timer tick. A transition into failure sends,
+a transition out of failure sends, and a heartbeat sends only when explicitly
+configured. The state fingerprint is based on failure class, publisher state,
+origin hashes, counts, and stale/fresh age state rather than the exact
+`newestAgeMs`, so an already-stale feed aging by another timer interval does not
+create a new alert by itself. A failed delivery is not treated as delivered; the
+next timer run retries the same observed failure until at least one configured
+channel succeeds.
+
+The repo ships user-systemd units but does not enable them:
+
+- `infra/systemd/user/vh-public-feed-alert-watch.service`
+- `infra/systemd/user/vh-public-feed-alert-watch.timer`
+
+Operator enablement, after explicit approval:
+
+```bash
+mkdir -p ~/.config/vhc
+install -m 0600 /dev/null ~/.config/vhc/public-feed-alert.env
+$EDITOR ~/.config/vhc/public-feed-alert.env
+
+mkdir -p ~/.config/systemd/user
+cp infra/systemd/user/vh-public-feed-alert-watch.service ~/.config/systemd/user/
+cp infra/systemd/user/vh-public-feed-alert-watch.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+
+VH_PUBLIC_FEED_ALERT_TEST_FIRE=1 systemctl --user start vh-public-feed-alert-watch.service
+cat ~/.local/state/vhc/public-feed-alert/latest.json
+
+systemctl --user enable --now vh-public-feed-alert-watch.timer
+systemctl --user status vh-public-feed-alert-watch.timer --no-pager
+```
+
+Rollback:
+
+```bash
+systemctl --user disable --now vh-public-feed-alert-watch.timer
+systemctl --user reset-failed vh-public-feed-alert-watch.service
+rm -f ~/.config/systemd/user/vh-public-feed-alert-watch.service
+rm -f ~/.config/systemd/user/vh-public-feed-alert-watch.timer
+systemctl --user daemon-reload
+```
+
 Host-local relay snapshot freshness is covered separately by
 `docs/ops/news-aggregator-production-service.md`. That watch reads
 `news-latest-index-snapshot.json` files directly and does not perform public
@@ -95,6 +166,9 @@ health, publisher liveness by itself, or broader release readiness.
 | `VH_PUBLIC_FEED_FRESHNESS_SCAN_LIMIT` | `120` | Relay scan limit for latest-index reads. |
 | `VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT` | `false` | When `true`, the monitor builds StoryCluster and fails on auth/quota/model preflight errors. |
 | `VH_PUBLIC_FEED_FRESHNESS_ARTIFACT_DIR` | `.tmp/public-feed-freshness/<timestamp>` | Override for deterministic local tests. |
+| `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` | unset | Host-local alert webhook URL; only read by `public-feed-alert-watch.mjs`. |
+| `VH_PUBLIC_FEED_ALERT_EMAIL_TO` | unset | Host-local alert email recipient; only read by `public-feed-alert-watch.mjs`. |
+| `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS` | `0` | Optional unchanged-state heartbeat interval for host-local alerting. |
 
 ## Failure Classes
 
