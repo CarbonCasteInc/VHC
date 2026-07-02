@@ -1837,11 +1837,131 @@ describe('infra relay server', () => {
     expect(heapSummary).toMatchObject({
       schema_version: 'vh-relay-heap-summary-v1',
       reason: 'watchdog-heap_used_growth_bytes',
+      heap_snapshot_status: 'success',
+      heap_snapshot_path: expect.stringContaining('.heapsnapshot'),
+      heap_snapshot_size_bytes: expect.any(Number),
       heap_statistics: expect.any(Object),
       heap_space_statistics: expect.any(Array),
     });
+    expect(heapSummary.heap_snapshot_size_bytes).toBeGreaterThan(0);
     expect(JSON.stringify(heapSummary)).not.toContain('VH_RELAY_DAEMON_TOKEN');
   }, 20_000);
+
+  it('reports empty heap snapshots without publishing a final heapsnapshot artifact', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-empty-heap-diagnostics-'));
+    tempDirs.add(diagnosticDir);
+    const { child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'true',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRIP: 'true',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRIP_REASON: 'heap_used_growth_bytes',
+      VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT: 'true',
+      VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EXIT_GRACE_MS: '5000',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    await waitForOutput(child, /relay_resource_watchdog_tripped/, 10_000);
+    await expect(waitForExit(child, 10_000)).resolves.toBe(1);
+
+    const files = readdirSync(diagnosticDir);
+    const heapSnapshotFile = files.find((file) => file.endsWith('.heapsnapshot'));
+    const heapTempFile = files.find((file) => file.includes('.heapsnapshot.tmp-'));
+    const heapSummaryFile = files.find((file) => file.endsWith('.heap-summary.json'));
+    const heapErrorFile = files.find((file) => file.endsWith('.heapsnapshot-error.json'));
+    const summaryFile = files.find((file) => file.endsWith('.json')
+      && !file.endsWith('.process-report.json')
+      && !file.endsWith('.heap-summary.json')
+      && !file.endsWith('.heapsnapshot-error.json'));
+    expect(heapSnapshotFile).toBeFalsy();
+    expect(heapTempFile).toBeTruthy();
+    expect(heapSummaryFile).toBeTruthy();
+    expect(heapErrorFile).toBeTruthy();
+    expect(summaryFile).toBeTruthy();
+
+    const summary = JSON.parse(readFileSync(path.join(diagnosticDir, summaryFile), 'utf8'));
+    expect(summary).toMatchObject({
+      reason: 'watchdog-heap_used_growth_bytes',
+      artifacts: expect.objectContaining({
+        heap_snapshot_path: null,
+        heap_summary_path: expect.stringContaining('.heap-summary.json'),
+        heap_snapshot_error_path: expect.stringContaining('.heapsnapshot-error.json'),
+        heap_snapshot_status: 'failed',
+        heap_snapshot_size_bytes: 0,
+      }),
+    });
+    const heapSummary = JSON.parse(readFileSync(path.join(diagnosticDir, heapSummaryFile), 'utf8'));
+    expect(heapSummary).toMatchObject({
+      schema_version: 'vh-relay-heap-summary-v1',
+      reason: 'watchdog-heap_used_growth_bytes',
+      heap_snapshot_status: 'failed',
+      heap_snapshot_path: null,
+      heap_snapshot_error_path: expect.stringContaining('.heapsnapshot-error.json'),
+      heap_snapshot_size_bytes: 0,
+      error: 'heap snapshot writer produced an empty file',
+    });
+    const heapError = JSON.parse(readFileSync(path.join(diagnosticDir, heapErrorFile), 'utf8'));
+    expect(heapError).toMatchObject({
+      schema_version: 'vh-relay-heap-snapshot-error-v1',
+      reason: 'watchdog-heap_used_growth_bytes',
+      heap_snapshot_temp_size_bytes: 0,
+      error: 'heap snapshot writer produced an empty file',
+    });
+  }, 10_000);
+
+  it('captures a one-shot early heap snapshot without tripping the watchdog', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-early-heap-diagnostics-'));
+    tempDirs.add(diagnosticDir);
+    const { child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'false',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: '1',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    await waitForOutput(child, /relay_watchdog_early_heap_snapshot_captured/, 20_000);
+    await delay(150);
+    expect(child.exitCode).toBeNull();
+
+    const files = readdirSync(diagnosticDir);
+    const heapSnapshotFiles = files.filter((file) => file.endsWith('.heapsnapshot'));
+    const heapSummaryFiles = files.filter((file) => file.endsWith('.heap-summary.json'));
+    const summaryFile = files.find((file) => file.endsWith('.json')
+      && !file.endsWith('.process-report.json')
+      && !file.endsWith('.heap-summary.json')
+      && !file.endsWith('.heapsnapshot-error.json'));
+    expect(heapSnapshotFiles).toHaveLength(1);
+    expect(heapSummaryFiles).toHaveLength(1);
+    expect(summaryFile).toBeTruthy();
+    expect(statSync(path.join(diagnosticDir, heapSnapshotFiles[0])).size).toBeGreaterThan(0);
+    expect(statSync(path.join(diagnosticDir, heapSnapshotFiles[0])).mode & 0o777).toBe(0o600);
+
+    const summary = JSON.parse(readFileSync(path.join(diagnosticDir, summaryFile), 'utf8'));
+    expect(summary).toMatchObject({
+      reason: 'watchdog-early-heap-used-bytes',
+      details: expect.objectContaining({
+        reason: 'early_heap_used_bytes',
+        limit: 1,
+      }),
+      artifacts: expect.objectContaining({
+        heap_snapshot_path: expect.stringContaining('.heapsnapshot'),
+        heap_summary_path: expect.stringContaining('.heap-summary.json'),
+        heap_snapshot_status: 'success',
+        heap_snapshot_size_bytes: expect.any(Number),
+      }),
+    });
+    const heapSummary = JSON.parse(readFileSync(path.join(diagnosticDir, heapSummaryFiles[0]), 'utf8'));
+    expect(heapSummary).toMatchObject({
+      schema_version: 'vh-relay-heap-summary-v1',
+      reason: 'watchdog-early-heap-used-bytes',
+      heap_snapshot_status: 'success',
+      heap_snapshot_size_bytes: expect.any(Number),
+    });
+    expect(heapSummary.heap_snapshot_size_bytes).toBeGreaterThan(0);
+  }, 25_000);
 
   it('keeps critical write readback failures fatal to the route', async () => {
     const routes = [

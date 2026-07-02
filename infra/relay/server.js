@@ -178,6 +178,11 @@ const relayWatchdogMaxHeapUsedBytes = numberEnv('VH_RELAY_WATCHDOG_MAX_HEAP_USED
 const relayWatchdogMaxRssGrowthBytes = nonNegativeNumberEnv('VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES', 0);
 const relayWatchdogMaxHeapGrowthBytes = nonNegativeNumberEnv('VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES', 0);
 const relayWatchdogHeapSnapshotEnabled = boolEnv('VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED', false);
+const relayWatchdogEarlyHeapSnapshotEnabled = boolEnv('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED', false);
+const relayWatchdogEarlyHeapSnapshotHeapUsedBytes = numberEnv(
+  'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES',
+  800_000_000,
+);
 const relayWatchdogDiagnosticDir = String(
   process.env.VH_RELAY_DIAGNOSTIC_DIR
   || (typeof gunFile === 'string' ? path.join(gunFile, 'diagnostics') : path.join(os.tmpdir(), 'vh-relay-diagnostics')),
@@ -260,6 +265,8 @@ const metrics = {
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let lastRelayWatchdogSample = null;
+let relayWatchdogEarlyHeapSnapshotCaptured = false;
+let relayWatchdogEarlyHeapSnapshotInFlight = false;
 
 const httpBuckets = new Map();
 const seenUserNonces = new Map();
@@ -1387,6 +1394,8 @@ function relayDiagnosticSnapshot(reason, details = {}) {
       watchdog_max_rss_growth_bytes: relayWatchdogMaxRssGrowthBytes,
       watchdog_max_heap_growth_bytes: relayWatchdogMaxHeapGrowthBytes,
       watchdog_heap_snapshot_enabled: relayWatchdogHeapSnapshotEnabled,
+      watchdog_early_heap_snapshot_enabled: relayWatchdogEarlyHeapSnapshotEnabled,
+      watchdog_early_heap_snapshot_heap_used_bytes: relayWatchdogEarlyHeapSnapshotHeapUsedBytes,
       diagnostic_dir: relayWatchdogDiagnosticDir,
       gun_graph_scan_enabled: gunGraphScanEnabled,
       gun_graph_scan_interval_ms: gunGraphScanIntervalMs,
@@ -1404,18 +1413,31 @@ function writeRedactedProcessReport(reportPath) {
   return reportPath;
 }
 
-function shouldWriteHeapSnapshotForDiagnostic(reason, details = {}) {
+function shouldWriteHeapSnapshotForDiagnostic(reason, details = {}, options = {}) {
+  if (options.forceHeapSnapshot) return true;
   if (!relayWatchdogHeapSnapshotEnabled) return false;
   const diagnosticReason = `${reason} ${details?.reason ?? ''}`;
   return /(heap|rss)/i.test(diagnosticReason);
 }
 
-function writeBestEffortHeapSnapshot(base, reason, details = {}) {
-  if (!relayWatchdogDiagnosticDir || !base || !shouldWriteHeapSnapshotForDiagnostic(reason, details)) {
-    return { heap_snapshot_path: null, heap_summary_path: null };
+function testForcesEmptyHeapSnapshot() {
+  return process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT', false);
+}
+
+function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
+  if (!relayWatchdogDiagnosticDir || !base || !shouldWriteHeapSnapshotForDiagnostic(reason, details, options)) {
+    return {
+      heap_snapshot_path: null,
+      heap_summary_path: null,
+      heap_snapshot_error_path: null,
+      heap_snapshot_status: 'not_requested',
+      heap_snapshot_size_bytes: null,
+    };
   }
   const heapSnapshotPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot`);
+  const heapSnapshotTempPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot.tmp-${process.pid}`);
   const heapSummaryPath = path.join(relayWatchdogDiagnosticDir, `${base}.heap-summary.json`);
+  const heapSnapshotErrorPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot-error.json`);
   const summary = {
     schema_version: 'vh-relay-heap-summary-v1',
     generated_at: new Date().toISOString(),
@@ -1425,30 +1447,111 @@ function writeBestEffortHeapSnapshot(base, reason, details = {}) {
     memory: process.memoryUsage(),
     heap_statistics: v8.getHeapStatistics(),
     heap_space_statistics: v8.getHeapSpaceStatistics(),
+    heap_snapshot_status: 'started',
+    heap_snapshot_path: null,
+    heap_snapshot_temp_path: heapSnapshotTempPath,
+    heap_snapshot_error_path: null,
+    heap_snapshot_size_bytes: null,
     note: 'Heap snapshot is host-private and may contain application object strings; share only this redacted summary unless explicitly approved.',
   };
+  writePrivateJsonFile(heapSummaryPath, summary);
   try {
-    v8.writeHeapSnapshot(heapSnapshotPath);
+    try {
+      fs.rmSync(heapSnapshotTempPath, { force: true });
+    } catch {
+      // Best-effort cleanup of a previous interrupted temp file.
+    }
+    if (testForcesEmptyHeapSnapshot()) {
+      fs.closeSync(fs.openSync(heapSnapshotTempPath, 'w', 0o600));
+    } else {
+      v8.writeHeapSnapshot(heapSnapshotTempPath);
+    }
+    try {
+      fs.chmodSync(heapSnapshotTempPath, 0o600);
+    } catch {
+      // Best-effort.
+    }
+    const snapshotStat = fs.statSync(heapSnapshotTempPath);
+    if (snapshotStat.size <= 0) {
+      throw new Error('heap snapshot writer produced an empty file');
+    }
+    fs.renameSync(heapSnapshotTempPath, heapSnapshotPath);
     try {
       fs.chmodSync(heapSnapshotPath, 0o600);
     } catch {
       // Best-effort.
     }
+    writePrivateJsonFile(heapSummaryPath, {
+      ...summary,
+      completed_at: new Date().toISOString(),
+      heap_snapshot_status: 'success',
+      heap_snapshot_path: heapSnapshotPath,
+      heap_snapshot_temp_path: null,
+      heap_snapshot_size_bytes: snapshotStat.size,
+      memory_after_snapshot: process.memoryUsage(),
+      heap_statistics_after_snapshot: v8.getHeapStatistics(),
+    });
+    return {
+      heap_snapshot_path: heapSnapshotPath,
+      heap_summary_path: heapSummaryPath,
+      heap_snapshot_error_path: null,
+      heap_snapshot_status: 'success',
+      heap_snapshot_size_bytes: snapshotStat.size,
+    };
   } catch (error) {
+    let tempSizeBytes = null;
+    try {
+      tempSizeBytes = fs.statSync(heapSnapshotTempPath).size;
+    } catch {
+      // Snapshot writer may have failed before creating the temp file.
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
     writePrivateJsonFile(
-      path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot-error.json`),
-      { error: error instanceof Error ? error.message : String(error) },
+      heapSnapshotErrorPath,
+      {
+        schema_version: 'vh-relay-heap-snapshot-error-v1',
+        generated_at: new Date().toISOString(),
+        relay_id: relayId,
+        reason,
+        details,
+        error: errorMessage,
+        heap_snapshot_path: heapSnapshotPath,
+        heap_snapshot_temp_path: heapSnapshotTempPath,
+        heap_snapshot_temp_size_bytes: tempSizeBytes,
+      },
     );
-    writePrivateJsonFile(heapSummaryPath, { ...summary, heap_snapshot_path: null });
-    return { heap_snapshot_path: null, heap_summary_path: heapSummaryPath };
+    writePrivateJsonFile(heapSummaryPath, {
+      ...summary,
+      completed_at: new Date().toISOString(),
+      heap_snapshot_status: 'failed',
+      heap_snapshot_error_path: heapSnapshotErrorPath,
+      heap_snapshot_size_bytes: tempSizeBytes,
+      error: errorMessage,
+      memory_after_snapshot_failure: process.memoryUsage(),
+      heap_statistics_after_snapshot_failure: v8.getHeapStatistics(),
+    });
+    return {
+      heap_snapshot_path: null,
+      heap_summary_path: heapSummaryPath,
+      heap_snapshot_error_path: heapSnapshotErrorPath,
+      heap_snapshot_status: 'failed',
+      heap_snapshot_size_bytes: tempSizeBytes,
+    };
   }
-  writePrivateJsonFile(heapSummaryPath, { ...summary, heap_snapshot_path: heapSnapshotPath });
-  return { heap_snapshot_path: heapSnapshotPath, heap_summary_path: heapSummaryPath };
 }
 
-function writeRelayDiagnosticBundle(reason, details = {}) {
+function writeRelayDiagnosticBundle(reason, details = {}, options = {}) {
   if (!relayWatchdogDiagnosticDir) {
-    return { summary_path: null, report_path: null, heap_snapshot_path: null, heap_summary_path: null };
+    return {
+      summary_path: null,
+      report_path: null,
+      process_report_error_path: null,
+      heap_snapshot_path: null,
+      heap_summary_path: null,
+      heap_snapshot_error_path: null,
+      heap_snapshot_status: 'not_requested',
+      heap_snapshot_size_bytes: null,
+    };
   }
   fs.mkdirSync(relayWatchdogDiagnosticDir, { recursive: true, mode: 0o700 });
   try {
@@ -1461,29 +1564,46 @@ function writeRelayDiagnosticBundle(reason, details = {}) {
   const reportPath = path.join(relayWatchdogDiagnosticDir, `${base}.process-report.json`);
   const artifacts = {
     process_report_path: null,
+    process_report_error_path: null,
     heap_snapshot_path: null,
     heap_summary_path: null,
+    heap_snapshot_error_path: null,
+    heap_snapshot_status: 'not_requested',
+    heap_snapshot_size_bytes: null,
   };
+  const writeSummary = () => {
+    writePrivateJsonFile(summaryPath, {
+      ...relayDiagnosticSnapshot(reason, details),
+      artifacts,
+    });
+  };
+  writeSummary();
   try {
     artifacts.process_report_path = writeRedactedProcessReport(reportPath);
   } catch (error) {
+    artifacts.process_report_error_path = path.join(relayWatchdogDiagnosticDir, `${base}.process-report-error.json`);
     writePrivateJsonFile(
-      path.join(relayWatchdogDiagnosticDir, `${base}.process-report-error.json`),
+      artifacts.process_report_error_path,
       { error: error instanceof Error ? error.message : String(error) },
     );
   }
-  const heapArtifacts = writeBestEffortHeapSnapshot(base, reason, details);
+  writeSummary();
+  const heapArtifacts = writeBestEffortHeapSnapshot(base, reason, details, options);
   artifacts.heap_snapshot_path = heapArtifacts.heap_snapshot_path;
   artifacts.heap_summary_path = heapArtifacts.heap_summary_path;
-  writePrivateJsonFile(summaryPath, {
-    ...relayDiagnosticSnapshot(reason, details),
-    artifacts,
-  });
+  artifacts.heap_snapshot_error_path = heapArtifacts.heap_snapshot_error_path;
+  artifacts.heap_snapshot_status = heapArtifacts.heap_snapshot_status;
+  artifacts.heap_snapshot_size_bytes = heapArtifacts.heap_snapshot_size_bytes;
+  writeSummary();
   return {
     summary_path: summaryPath,
     report_path: artifacts.process_report_path,
+    process_report_error_path: artifacts.process_report_error_path,
     heap_snapshot_path: artifacts.heap_snapshot_path,
     heap_summary_path: artifacts.heap_summary_path,
+    heap_snapshot_error_path: artifacts.heap_snapshot_error_path,
+    heap_snapshot_status: artifacts.heap_snapshot_status,
+    heap_snapshot_size_bytes: artifacts.heap_snapshot_size_bytes,
     base,
   };
 }
@@ -1582,6 +1702,62 @@ function relayWatchdogBreach() {
   return null;
 }
 
+function maybeCaptureEarlyHeapSnapshot() {
+  if (!relayWatchdogEarlyHeapSnapshotEnabled
+    || relayWatchdogEarlyHeapSnapshotCaptured
+    || relayWatchdogEarlyHeapSnapshotInFlight
+    || relayWatchdogTripped) {
+    return null;
+  }
+  const memory = process.memoryUsage();
+  if (relayWatchdogEarlyHeapSnapshotHeapUsedBytes <= 0
+    || memory.heapUsed < relayWatchdogEarlyHeapSnapshotHeapUsedBytes) {
+    return null;
+  }
+  if (activeCriticalWriteReadbacks > 0 || queuedCriticalWriteReadbacks.length > 0) {
+    return null;
+  }
+
+  relayWatchdogEarlyHeapSnapshotCaptured = true;
+  relayWatchdogEarlyHeapSnapshotInFlight = true;
+  const details = {
+    reason: 'early_heap_used_bytes',
+    observed: memory.heapUsed,
+    limit: relayWatchdogEarlyHeapSnapshotHeapUsedBytes,
+    rss: memory.rss,
+    watchdog_max_heap_used_bytes: relayWatchdogMaxHeapUsedBytes,
+    watchdog_max_rss_bytes: relayWatchdogMaxRssBytes,
+  };
+  try {
+    const capture = writeRelayDiagnosticBundle('watchdog-early-heap-used-bytes', details, {
+      forceHeapSnapshot: true,
+    });
+    logEvent(capture.heap_snapshot_status === 'success' ? 'warn' : 'error', 'relay_watchdog_early_heap_snapshot_captured', {
+      relay_id: relayId,
+      observed: details.observed,
+      limit: details.limit,
+      diagnostic_summary_path: capture.summary_path,
+      process_report_path: capture.report_path,
+      heap_snapshot_path: capture.heap_snapshot_path,
+      heap_summary_path: capture.heap_summary_path,
+      heap_snapshot_error_path: capture.heap_snapshot_error_path,
+      heap_snapshot_status: capture.heap_snapshot_status,
+      heap_snapshot_size_bytes: capture.heap_snapshot_size_bytes,
+    });
+    return capture;
+  } catch (error) {
+    logEvent('error', 'relay_watchdog_early_heap_snapshot_failed', {
+      relay_id: relayId,
+      observed: details.observed,
+      limit: details.limit,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  } finally {
+    relayWatchdogEarlyHeapSnapshotInFlight = false;
+  }
+}
+
 function tripRelayWatchdog(breach) {
   if (relayWatchdogTripped) return;
   relayWatchdogTripped = true;
@@ -1608,15 +1784,17 @@ function tripRelayWatchdog(breach) {
 }
 
 function startRelayResourceWatchdog() {
-  if (!relayResourceWatchdogEnabled && !(process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRIP', false))) {
+  const forcedWatchdogTrip = process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRIP', false);
+  if (!relayResourceWatchdogEnabled && !relayWatchdogEarlyHeapSnapshotEnabled && !forcedWatchdogTrip) {
     return;
   }
   const interval = setInterval(() => {
-    const breach = relayWatchdogBreach();
+    const breach = (relayResourceWatchdogEnabled || forcedWatchdogTrip) ? relayWatchdogBreach() : null;
     if (breach) {
       tripRelayWatchdog(breach);
       return;
     }
+    maybeCaptureEarlyHeapSnapshot();
     eventLoopDelay.reset();
   }, relayResourceWatchdogIntervalMs);
   interval.unref?.();
