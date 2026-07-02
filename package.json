@@ -57,6 +57,8 @@
     "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",
     "check:linkability-domain-registry": "node ./tools/scripts/check-linkability-domain-registry.mjs",
     "check:luma-provider-surface": "node ./tools/scripts/check-luma-provider-surface.mjs",
+    "check:luma-forbidden-claims": "node ./tools/scripts/check-luma-forbidden-claims.mjs",
+    "check:luma-production-profile": "node ./tools/scripts/check-luma-production-profile.mjs",
     "check:luma-signed-write-surface": "node ./tools/scripts/check-luma-signed-write-surface.mjs",
     "check:luma-vault-compartments": "node ./tools/scripts/check-luma-vault-compartments.mjs",
     "check:luma-delegation-signer-surface": "node ./tools/scripts/check-luma-delegation-signer-surface.mjs",
