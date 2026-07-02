@@ -355,12 +355,17 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
 
   const relays = [];
   for (const [name, values] of [...byRelay.entries()].sort()) {
+    const relayLimits = resolveRelayWatchdogLimits(env, {
+      heapOverrideEnvNames: ['VH_PHASE5_SCOPE_A_WATCH_HEAP_LIMIT_BYTES'],
+      rssOverrideEnvNames: ['VH_PHASE5_SCOPE_A_WATCH_RSS_LIMIT_BYTES'],
+      targetName: name,
+    });
     const rssSlopeBytesPerHour = linearSlope(values.rss);
     const heapSlopeBytesPerHour = linearSlope(values.heap);
     const latestRssBytes = values.rss.at(-1)?.y ?? null;
     const latestHeapBytes = values.heap.at(-1)?.y ?? null;
-    const heapHoursToLimit = hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, limits.heapLimitBytes);
-    const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, limits.rssLimitBytes);
+    const heapHoursToLimit = hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, relayLimits.heapLimitBytes);
+    const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, relayLimits.rssLimitBytes);
     const projectedHours = [heapHoursToLimit, rssHoursToLimit].filter((value) => value !== null);
     const shortestProjectedLimitHours = projectedHours.length > 0 ? Math.min(...projectedHours) : null;
     const plateau = relayHeapPlateauVerdict({
@@ -387,7 +392,11 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
       heapFirstBytes: values.heap[0]?.y ?? null,
       heapLatestBytes: latestHeapBytes,
       heapSlopeBytesPerHour,
+      heapLimitBytes: relayLimits.heapLimitBytes,
+      heapLimitSource: relayLimits.heapLimitSource,
       heapHoursToLimit,
+      rssLimitBytes: relayLimits.rssLimitBytes,
+      rssLimitSource: relayLimits.rssLimitSource,
       shortestProjectedLimitHours,
       heapPlateauVerdict: plateau.verdict,
       heapPlateauReason: plateau.reason,

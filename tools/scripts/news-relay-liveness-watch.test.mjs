@@ -185,7 +185,7 @@ test('relay liveness fails hot metrics even when readyz is healthy', async () =>
   }
 });
 
-test('relay liveness defaults heap threshold to the public-beta watchdog ceiling', async () => {
+test('relay liveness defaults heap threshold to the public-beta per-relay watchdog ceilings', async () => {
   const paths = makeTempState();
   try {
     const responses = new Map([
@@ -202,9 +202,17 @@ test('relay liveness defaults heap threshold to the public-beta watchdog ceiling
     });
 
     assert.equal(summary.status, 'fail');
-    assert.match(summary.blockers.join('\n'), /vhc-relay-a:heap_hot:1200000000\/1100000000/);
+    assert.match(summary.blockers.join('\n'), /vhc-relay-a:heap_hot:1200000000\/850000000/);
     assert.equal(summary.config.maxHeapUsedBytes, 1_100_000_000);
     assert.equal(summary.config.maxHeapUsedBytesSource, 'default:public-beta-compose');
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytes, {
+      'vhc-relay-a': 850_000_000,
+      'vhc-relay-b': 1_000_000_000,
+    });
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytesSource, {
+      'vhc-relay-a': 'default:public-beta-compose:relay-a',
+      'vhc-relay-b': 'default:public-beta-compose:relay-b',
+    });
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }
@@ -232,6 +240,50 @@ test('relay liveness uses deployed watchdog threshold env before its default cei
     assert.equal(summary.status, 'pass');
     assert.equal(summary.config.maxHeapUsedBytes, 1_300_000_000);
     assert.equal(summary.config.maxHeapUsedBytesSource, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES');
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytes, {
+      'vhc-relay-a': 1_300_000_000,
+      'vhc-relay-b': 1_300_000_000,
+    });
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytesSource, {
+      'vhc-relay-a': 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+      'vhc-relay-b': 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+    });
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness uses per-relay watchdog threshold env before shared watchdog env', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({ heap: 900_000_000 })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics({ heap: 1_200_000_000 })],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: {
+        ...baseEnv(paths),
+        VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: '2000000000',
+        VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES: '850000000',
+        VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES: '1300000000',
+      },
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn(),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.deepEqual(summary.blockers, ['vhc-relay-a:heap_hot:900000000/850000000']);
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytes, {
+      'vhc-relay-a': 850_000_000,
+      'vhc-relay-b': 1_300_000_000,
+    });
+    assert.deepEqual(summary.config.perRelayMaxHeapUsedBytesSource, {
+      'vhc-relay-a': 'VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES',
+      'vhc-relay-b': 'VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES',
+    });
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }

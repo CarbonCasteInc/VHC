@@ -266,6 +266,7 @@ async function inspectRelay(target, {
   const limits = resolveRelayWatchdogLimits(env, {
     heapOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_HEAP_USED_BYTES'],
     rssOverrideEnvNames: ['VH_RELAY_LIVENESS_MAX_RSS_BYTES'],
+    targetName: target.name,
   });
   const maxLagP99Ms = positiveInt(env.VH_RELAY_LIVENESS_MAX_EVENT_LOOP_LAG_P99_MS, 2_500);
   const maxQueuedReadbacks = Number.parseInt(String(env.VH_RELAY_LIVENESS_MAX_QUEUED_READBACKS ?? '16'), 10);
@@ -331,6 +332,7 @@ async function inspectRelay(target, {
     status: blockers.length === 0 ? 'pass' : 'fail',
     blockers,
     warnings,
+    limits,
     docker,
     readyz,
     metrics,
@@ -463,6 +465,8 @@ export async function runNewsRelayLivenessWatch({
       restartMinIntervalMs: nonNegativeInt(env.VH_RELAY_LIVENESS_RESTART_MIN_INTERVAL_MS, 10 * 60_000),
       maxHeapUsedBytes: limits.heapLimitBytes,
       maxHeapUsedBytesSource: limits.heapLimitSource,
+      perRelayMaxHeapUsedBytes: Object.fromEntries(relays.map((relay) => [relay.name, relay.limits.heapLimitBytes])),
+      perRelayMaxHeapUsedBytesSource: Object.fromEntries(relays.map((relay) => [relay.name, relay.limits.heapLimitSource])),
       maxRssBytes: limits.rssLimitBytes,
       maxRssBytesSource: limits.rssLimitSource,
     },

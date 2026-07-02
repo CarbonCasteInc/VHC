@@ -107,6 +107,11 @@ const originName = process.env.ORIGIN_NAME;
 const relayNames = (process.env.RELAY_NAMES || '').split(',').map((name) => name.trim()).filter(Boolean);
 const includeRecreate = process.env.INCLUDE_RECREATE === 'true';
 const relayMemoryLimit = process.env.VH_RELAY_DOCKER_MEMORY_LIMIT || '2304m';
+const relayHeapThresholdDefaults = ['850000000', '1000000000', '1150000000'];
+const relayHeapThresholdByName = new Map(relayNames.map((name, index) => [
+  name,
+  relayHeapThresholdDefaults[index] ?? relayHeapThresholdDefaults.at(-1),
+]));
 const containers = JSON.parse(readFileSync(inspectJson, 'utf8'));
 
 function cleanName(container) {
@@ -213,12 +218,20 @@ function envEnsureLine(envPath, name, value) {
   return `grep -q '^${name}=' ${envPath} || printf '%s\\n' '${name}=${value}' >> ${envPath}`;
 }
 
+function envSetLine(envPath, name, value) {
+  return `awk 'BEGIN{done=0} /^${name}=/{print "${name}=${value}"; done=1; next} {print} END{if(!done) print "${name}=${value}"}' ${envPath} > ${envPath}.tmp && mv ${envPath}.tmp ${envPath}`;
+}
+
+function relayDefaultHeapThreshold(name) {
+  return relayHeapThresholdByName.get(name) ?? '1100000000';
+}
+
 function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
   const relayDefaults = relay ? [
     envEnsureLine(envPath, 'VH_RELAY_RESOURCE_WATCHDOG_ENABLED', 'true'),
     envEnsureLine(envPath, 'VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS', '2000'),
-    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES', '1100000000'),
+    envSetLine(envPath, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES', relayDefaultHeapThreshold(name)),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES', '150000000'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES', '250000000'),
     envEnsureLine(envPath, 'VH_RELAY_DIAGNOSTIC_DIR', '/data/diagnostics'),
