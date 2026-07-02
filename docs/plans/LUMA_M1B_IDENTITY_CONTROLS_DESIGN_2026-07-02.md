@@ -17,9 +17,9 @@ sequences how the UI lands them.
 | M1.B deliverable | State | Evidence |
 | --- | --- | --- |
 | `useIdentity.signOut()` / `resetIdentity()` split | DONE | `apps/web-pwa/src/hooks/useIdentity.ts` (~315-336); `revokeSession()` is a deprecation shim |
-| Spec §13.2 state-graph behavior in the hooks | DONE (11 of 12 rows) | Sign Out preserves device credential / SEA pair / wallet binding / delegation key; Reset rotates or clears them; see §3 table |
-| `operatorAuthorizationToken` clearing on Reset | AUDIT ITEM | No explicit clear call in `resetIdentity()`; may be covered by `vaultClear()` zeroization — must be proven by a state-graph unit test, not assumed |
-| Unit tests for Sign Out / Reset semantics | PARTIAL | `useIdentity.test.ts` asserts ~6-7 of 12 rows per flow; missing rows listed in §6.1 |
+| Spec §13.2 state-graph behavior in the hooks | DONE (operator-token row completed after initial packet) | Sign Out preserves device credential / SEA pair / wallet binding / delegation key / operator token; Reset rotates or clears them; see §3 table |
+| `operatorAuthorizationToken` clearing on Reset | DONE | Implemented as an optional VaultV2 compartment; `resetIdentity()` explicitly clears it and tests prove Sign Out preserves it |
+| Unit tests for Sign Out / Reset semantics | PARTIAL | `useIdentity.test.ts` asserts the high-risk state rows including `operatorAuthorizationToken`; remaining rows listed in §6.1 |
 | `/account/identity` route | MISSING | No `/account/*` route in `apps/web-pwa/src/routes/index.tsx` |
 | Controls UI (panels, confirmation modals, session metadata) | MISSING | Dashboard has stub buttons only |
 | Wallet re-bind prompt after Reset | PARTIAL | `WalletPanel` handles the re-bind state; not wired into an identity-controls flow |
@@ -89,7 +89,7 @@ data-deletion page copy already owns the honest-deletion stance.
 | `seaDevicePair` | Preserved | Rotated | `seaDevicePair.rotate(() => SEA.pair())` |
 | `walletBinding` | Preserved | Cleared (re-bind prompt) | `clearWalletBinding()` |
 | `delegationSigningKey` | Preserved | Rotated | `delegationSigningKey.rotateStored()` |
-| `operatorAuthorizationToken` | Preserved | Cleared | AUDIT: must be asserted by test (§6.1); add explicit clear if `vaultClear()` does not cover it |
+| `operatorAuthorizationToken` | Preserved | Cleared | `operatorAuthorizationToken` vault compartment; `resetIdentity()` calls `operatorAuthorizationToken.clear()` |
 | `vh_delegation_v1:<principal>` localStorage | Preserved | Cleared | `clearDelegationStorageForPrincipal(oldPrincipal)` |
 | `xpLedger.activeNullifier` | Cleared, re-attached on re-attest | Cleared (new principal) | `clearActiveIdentityRuntime()` |
 | `useSentimentState.signals` | Cleared | Cleared | `clearActiveIdentityRuntime()` |
@@ -134,11 +134,10 @@ action, not the controls.
 
 Extend `useIdentity.test.ts` so every row of the §3 table is asserted for
 both flows — the currently missing assertions are: `sessionToken`,
-`assuranceEnvelope`, `operatorAuthorizationToken` (both flows),
-`useSentimentState.signals`, `vaultMasterKey` preservation, and
-`xpLedger.activeNullifier` on Reset. The `operatorAuthorizationToken` Reset
-row is the open audit item: the test must prove clearing, and if it fails,
-`resetIdentity()` gains an explicit clear call (hook change, separate PR).
+`assuranceEnvelope`, `useSentimentState.signals`, `vaultMasterKey`
+preservation, and `xpLedger.activeNullifier` on Reset. The
+`operatorAuthorizationToken` row is now covered: Sign Out preserves the vault
+compartment and Reset Identity clears it explicitly.
 
 ### 6.2 E2E (roadmap M1.B acceptance)
 
@@ -161,9 +160,11 @@ post-sign-out vault (device-bound compartments intact), post-reset vault
 
 Implementation PR order (each independently revertable): (1) route + panel +
 session metadata (read-only); (2) Sign Out flow + modal; (3) Reset flow +
-two-step confirm + wallet re-bind wiring; (4) state-graph unit-test completion
-+ the `operatorAuthorizationToken` audit; (5) E2E flows.
+two-step confirm + wallet re-bind wiring; (4) remaining state-graph unit-test
+completion; (5) E2E flows.
 
 Non-goals for all of the above: no provider selection changes, no public
-schema/epoch changes, no vault layout changes, no delete-account affordance,
-no multi-device linking (stays fail-closed stub), no numeric trust display.
+schema/epoch changes, no further vault layout changes beyond the completed
+optional `operatorAuthorizationToken` compartment, no delete-account
+affordance, no multi-device linking (stays fail-closed stub), no numeric trust
+display.

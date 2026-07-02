@@ -57,6 +57,14 @@ export interface WalletBindingCompartment {
   updatedAt: number;
 }
 
+export interface OperatorAuthorizationTokenCompartment {
+  schemaVersion: 1;
+  token: string;
+  boundPrincipalNullifier: string;
+  issuedAt: number;
+  expiresAt?: number;
+}
+
 export interface VaultV2 {
   schemaVersion: 2;
   identityRecord?: Identity;
@@ -64,6 +72,7 @@ export interface VaultV2 {
   seaDevicePair?: SeaDevicePairCompartment;
   delegationSigningKey?: DelegationSigningKeyCompartment;
   walletBinding?: WalletBindingCompartment;
+  operatorAuthorizationToken?: OperatorAuthorizationTokenCompartment;
 }
 
 /**
@@ -146,6 +155,46 @@ export function isWalletBindingCompartment(value: unknown): value is WalletBindi
   );
 }
 
+export function isOperatorAuthorizationTokenCompartment(
+  value: unknown
+): value is OperatorAuthorizationTokenCompartment {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  const allowedKeys = new Set([
+    'schemaVersion',
+    'token',
+    'boundPrincipalNullifier',
+    'issuedAt',
+    'expiresAt'
+  ]);
+  if (keys.some((key) => !allowedKeys.has(key))) {
+    return false;
+  }
+
+  const record = value as OperatorAuthorizationTokenCompartment;
+  return (
+    record.schemaVersion === 1
+    && typeof record.token === 'string'
+    && record.token.length > 0
+    && typeof record.boundPrincipalNullifier === 'string'
+    && record.boundPrincipalNullifier.length > 0
+    && typeof record.issuedAt === 'number'
+    && Number.isSafeInteger(record.issuedAt)
+    && record.issuedAt >= 0
+    && (
+      record.expiresAt === undefined
+      || (
+        typeof record.expiresAt === 'number'
+        && Number.isSafeInteger(record.expiresAt)
+        && record.expiresAt >= record.issuedAt
+      )
+    )
+  );
+}
+
 export function isVaultV2(value: unknown): value is VaultV2 {
   if (
     !isValidIdentity(value)
@@ -156,8 +205,10 @@ export function isVaultV2(value: unknown): value is VaultV2 {
 
   const identityRecord = (value as { identityRecord?: unknown }).identityRecord;
   const walletBinding = (value as { walletBinding?: unknown }).walletBinding;
+  const operatorToken = (value as { operatorAuthorizationToken?: unknown }).operatorAuthorizationToken;
   return (
     (identityRecord === undefined || isValidIdentity(identityRecord))
     && (walletBinding === undefined || isWalletBindingCompartment(walletBinding))
+    && (operatorToken === undefined || isOperatorAuthorizationTokenCompartment(operatorToken))
   );
 }

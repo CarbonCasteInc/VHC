@@ -11,6 +11,18 @@ const DEV_FALLBACK_ENABLED =
   DEV_MODE
   && !PUBLIC_BETA_PROFILE
   && IDENTITY_ENV.VITE_LUMA_DEV_FALLBACK === 'true';
+const DEV_E2E_VERIFIER_TIMEOUT_MS = 2000;
+const DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000;
+const DEPLOYABLE_IDENTITY_PROFILE = PUBLIC_BETA_PROFILE || LUMA_PROFILE === 'production-attestation';
+const VERIFIER_TIMEOUT_MS = DEPLOYABLE_IDENTITY_PROFILE
+  ? DEPLOYABLE_VERIFIER_TIMEOUT_MS
+  : Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || DEV_E2E_VERIFIER_TIMEOUT_MS;
+const DEV_FALLBACK_TRUST_SCORE = 0.95;
+session = {
+  token: 'dev-session',
+  trustScore: DEV_FALLBACK_TRUST_SCORE,
+  nullifier: 'dev-nullifier'
+};
 const ATTESTATION_URL =
   (typeof CONFIGURED_ATTESTATION_URL === 'string' ? CONFIGURED_ATTESTATION_URL : undefined)
   ?? (PUBLIC_BETA_PROFILE ? undefined : 'http://localhost:3000/verify');
@@ -82,6 +94,52 @@ test('red: loosened dev-fallback gate fails', () => {
   try {
     const { failures } = runChecks(root, { env: {} });
     assert.ok(failures.some((failure) => failure.includes('DEV_FALLBACK_ENABLED')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('red: deployable verifier timeout env override fails', () => {
+  const root = makeFixtureRepo({
+    'apps/web-pwa/src/hooks/useIdentity.ts': FAITHFUL_USE_IDENTITY.replace(
+      `const VERIFIER_TIMEOUT_MS = DEPLOYABLE_IDENTITY_PROFILE
+  ? DEPLOYABLE_VERIFIER_TIMEOUT_MS
+  : Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || DEV_E2E_VERIFIER_TIMEOUT_MS;`,
+      'const VERIFIER_TIMEOUT_MS = Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || DEV_E2E_VERIFIER_TIMEOUT_MS;',
+    ),
+  });
+  try {
+    const { failures } = runChecks(root, { env: {} });
+    assert.ok(failures.some((failure) => failure.includes('verifier timeout pin')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('red: deployable verifier timeout below 5000ms fails', () => {
+  const root = makeFixtureRepo({
+    'apps/web-pwa/src/hooks/useIdentity.ts': FAITHFUL_USE_IDENTITY.replace(
+      'const DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000;',
+      'const DEPLOYABLE_VERIFIER_TIMEOUT_MS = 2000;',
+    ),
+  });
+  try {
+    const { failures } = runChecks(root, { env: {} });
+    assert.ok(failures.some((failure) => failure.includes('DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('red: dev fallback trust score magic literal fails', () => {
+  const root = makeFixtureRepo({
+    'apps/web-pwa/src/hooks/useIdentity.ts': FAITHFUL_USE_IDENTITY
+      .replace('const DEV_FALLBACK_TRUST_SCORE = 0.95;\n', '')
+      .replace('trustScore: DEV_FALLBACK_TRUST_SCORE', 'trustScore: 0.95'),
+  });
+  try {
+    const { failures } = runChecks(root, { env: {} });
+    assert.ok(failures.some((failure) => failure.includes('DEV_FALLBACK_TRUST_SCORE')));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

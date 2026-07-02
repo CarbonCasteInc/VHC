@@ -37,6 +37,14 @@ export {
   type WalletBindingInput
 } from './walletBinding';
 export {
+  clearOperatorAuthorizationToken,
+  loadOperatorAuthorizationToken,
+  operatorAuthorizationToken,
+  saveOperatorAuthorizationToken,
+  validateOperatorAuthorizationToken,
+  type OperatorAuthorizationTokenInput
+} from './operatorAuthorizationToken';
+export {
   base64UrlToBytes,
   bytesToBase64Url,
   randomBase64Url,

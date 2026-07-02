@@ -16,6 +16,7 @@ import {
   clearWalletBinding,
   delegationSigningKey,
   deviceCredential,
+  operatorAuthorizationToken,
   migrateLegacyLocalStorage,
   seaDevicePair
 } from '@vh/identity-vault';
@@ -47,7 +48,13 @@ const CONFIGURED_ATTESTATION_URL = IDENTITY_ENV.VITE_ATTESTATION_URL;
 const ATTESTATION_URL =
   (typeof CONFIGURED_ATTESTATION_URL === 'string' ? CONFIGURED_ATTESTATION_URL : undefined)
   ?? (PUBLIC_BETA_PROFILE ? undefined : 'http://localhost:3000/verify');
-const VERIFIER_TIMEOUT_MS = Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
+const DEV_E2E_VERIFIER_TIMEOUT_MS = 2000;
+const DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000;
+const DEPLOYABLE_IDENTITY_PROFILE = PUBLIC_BETA_PROFILE || LUMA_PROFILE === 'production-attestation';
+const VERIFIER_TIMEOUT_MS = DEPLOYABLE_IDENTITY_PROFILE
+  ? DEPLOYABLE_VERIFIER_TIMEOUT_MS
+  : Number(IDENTITY_ENV.VITE_ATTESTATION_TIMEOUT_MS) || DEV_E2E_VERIFIER_TIMEOUT_MS;
+const DEV_FALLBACK_TRUST_SCORE = 0.95;
 const DEV_FALLBACK_ENABLED =
   DEV_MODE
   && !PUBLIC_BETA_PROFILE
@@ -192,7 +199,7 @@ export function useIdentity() {
             console.warn('[vh:identity] Attestation verifier unavailable, using dev fallback');
             session = {
               token: `dev-session-${randomToken()}`,
-              trustScore: 0.95,
+              trustScore: DEV_FALLBACK_TRUST_SCORE,
               nullifier: `dev-nullifier-${randomToken()}`
             };
           } else {
@@ -330,6 +337,7 @@ export function useIdentity() {
 
     await vaultClear().catch(() => {});
     await clearWalletBinding().catch(() => {});
+    await operatorAuthorizationToken.clear().catch(() => {});
     await deviceCredential.rotate();
     await seaDevicePair.rotate(() => SEA.pair());
     await delegationSigningKey.rotateStored();

@@ -198,7 +198,7 @@ Recommended PR stack after this alignment pass:
 | Secure-storage policy granularity | `secure-storage-policy.md` Tier 1 lumps "Master key, Identity record, Session token, Nullifier, Trust score". | M0.D produces the key-compartment manifest sub-spec under that authority (lands as part of spec §11). |
 | Env-name drift | `packages/gun-client/src/auth.ts:7` reads `ATTESTATION_URL`. `apps/web-pwa/src/hooks/useIdentity.ts:18` reads `VITE_ATTESTATION_URL`. Both default `localhost:3000/verify`. | M0.E records. M1.C build assertion checks both names resolve to the same URL. |
 | Revocation underdelivers vs comments | `revokeSession` JSDoc claims it clears delegation grants; implementation does not. | M1.B revocation state graph (per spec §13) makes behavior match comments. |
-| Dev fallback trust score | `useIdentity.ts:127` uses hard-coded `trustScore: 0.95` when verifier is unreachable in dev mode. | M1.C removes from non-dev profiles via build-time assertion. |
+| Dev fallback trust score | `useIdentity.ts` uses named `DEV_FALLBACK_TRUST_SCORE = 0.95` only behind the triple-gated dev fallback path. | M1.C keeps it reviewable and excluded from deployable profiles via build-time assertion. |
 | E2E auto-create | `useIdentity.ts:188` auto-calls `createIdentity()` when `status === 'anonymous' && E2E_MODE`. | M1.C build-time assertion makes `VITE_E2E_MODE=false` the only acceptable value in `public-beta` and `production-attestation`. |
 | Production proof flag | `VITE_CONSTITUENCY_PROOF_REAL` documented as "stricter validation, not a real cryptographic provider." | M0.C and M2 keep this discipline. |
 | Per-human nullifier | Identity spec §1 names per-human nullifier as the target; §2 v0 implementation note records device-bound reality. | Out of scope. M0.D scopes only "stable per device". |
@@ -492,15 +492,15 @@ Comprehensive dev-fallback table:
 | --- | --- | --- | --- |
 | Trust-score 0.95 fallback | `useIdentity.ts:127` | `if (DEV_MODE)` | Gate behind `VITE_LUMA_DEV_FALLBACK=true`. Off in `public-beta`/`production-attestation`. |
 | E2E auto-create | `useIdentity.ts:188` | `if (E2E_MODE)` | Build assertion: `VITE_E2E_MODE=false` is the only acceptable value in `public-beta`/`production-attestation`. |
-| Attestation timeout default | `useIdentity.ts:19` | 2000ms env-tunable | Pinned at build time per profile. `production-attestation`/`public-beta`: 5000ms; `dev`/`e2e`: 2000ms. |
+| Attestation timeout default | `useIdentity.ts` | Profile-derived: deployable profiles are pinned to 5000ms; dev/e2e default to 2000ms and may use `VITE_ATTESTATION_TIMEOUT_MS`. | Pinned at build time per profile. `production-attestation`/`public-beta`: 5000ms; `dev`/`e2e`: 2000ms. |
 | Verifier URL | `useIdentity.ts:18`, `gun-client/auth.ts:7` | Both default localhost | Build assertion: both env names resolve to identical URL or build fails. |
 | Mock constituency proof | `constituencyProof.ts` | Test/dev only | Tree-shake assertion: not present in `public-beta`/`production-attestation` bundles. |
 | Rust DEV stub URL | `services/luma-verifier-dev` | Allowed everywhere | Bundle assertion: `VITE_ATTESTATION_URL` does not point at known DEV-stub hosts in non-`dev` profiles. |
 
 Deliverables:
 - Replace `DEV_MODE` guard with `VITE_LUMA_DEV_FALLBACK`.
-- Replace magic `0.95` with `DEV_FALLBACK_TRUST_SCORE` constant.
-- Build-time assertions per the table.
+- Keep magic `0.95` replaced by `DEV_FALLBACK_TRUST_SCORE` constant.
+- Keep build-time assertions per the table, including deployable timeout pinning.
 - New release gate `pnpm check:luma-production-profile` wired into `pnpm check:mvp-release-gates`.
 
 Acceptance criteria:

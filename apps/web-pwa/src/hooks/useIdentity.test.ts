@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   delegationSigningKey,
   deviceCredential,
+  operatorAuthorizationToken,
   saveIdentity as vaultSave,
   loadIdentity as vaultLoad,
   clearIdentity as vaultClear,
@@ -294,6 +295,12 @@ describe('useIdentity', () => {
     const firstDevicePair = result.current.identity?.devicePair;
     const firstDeviceCredential = await deviceCredential.loadOrCreate();
     const firstDelegationPublicKey = await delegationSigningKey.publicKey();
+    const firstOperatorToken = await operatorAuthorizationToken.save({
+      token: 'operator-token-signout',
+      boundPrincipalNullifier: firstNullifier!,
+      issuedAt: 1000,
+      expiresAt: 2000
+    });
     expect(firstDeviceKey).toEqual(expect.any(String));
     expect(firstNullifier).toBe(`nullifier:${firstDeviceKey}`);
     expect(firstDevicePair).toEqual(SEA_PAIR_1);
@@ -320,6 +327,7 @@ describe('useIdentity', () => {
     expect(await deviceCredential.loadOrCreate()).toEqual(firstDeviceCredential);
     expect(await delegationSigningKey.publicKey()).toEqual(firstDelegationPublicKey);
     expect(await walletBinding.load()).toEqual(firstWalletBinding);
+    expect(await operatorAuthorizationToken.load()).toEqual(firstOperatorToken);
 
     await act(async () => {
       await result.current.createIdentity();
@@ -332,6 +340,7 @@ describe('useIdentity', () => {
     expect(pairMock).toHaveBeenCalledTimes(1);
     expect(useXpLedger.getState().activeNullifier).toBe(firstNullifier);
     expect(useXpLedger.getState().civicXP).toBeGreaterThanOrEqual(4);
+    expect(await operatorAuthorizationToken.load()).toEqual(firstOperatorToken);
 
     const fromVault = await vaultLoad();
     expect((fromVault as any)?.attestation.deviceKey).toBe(firstDeviceKey);
@@ -368,6 +377,12 @@ describe('useIdentity', () => {
       boundPrincipalNullifier: firstNullifier,
       now: 1000
     });
+    await operatorAuthorizationToken.save({
+      token: 'operator-token-reset',
+      boundPrincipalNullifier: firstNullifier,
+      issuedAt: 1000,
+      expiresAt: 2000
+    });
 
     await act(async () => {
       await result.current.resetIdentity();
@@ -378,6 +393,7 @@ describe('useIdentity', () => {
     expect(useDelegationStore.getState().activePrincipal).toBeNull();
     expect(await vaultLoad()).toBeNull();
     expect(await walletBinding.load()).toBeNull();
+    expect(await operatorAuthorizationToken.load()).toBeNull();
     expect(await deviceCredential.loadOrCreate()).not.toEqual(firstDeviceCredential);
     expect(await delegationSigningKey.publicKey()).not.toEqual(firstDelegationPublicKey);
     expect(pairMock).toHaveBeenCalledTimes(2);
@@ -392,6 +408,7 @@ describe('useIdentity', () => {
     expect(result.current.identity?.session.nullifier).toBe(`nullifier:${secondDeviceKey}`);
     expect(result.current.identity?.session.nullifier).not.toBe(firstNullifier);
     expect(result.current.identity?.devicePair).toEqual(SEA_PAIR_2);
+    expect(await operatorAuthorizationToken.load()).toBeNull();
   });
 
   it('keeps revokeSession as a deprecated signOut shim', async () => {
