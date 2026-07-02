@@ -2,7 +2,7 @@
 
 > Status: Active
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-06-14
+> Last Reviewed: 2026-07-02
 > Depends On: docs/ops/news-aggregator-production-service.md, docs/ops/analysis-backend-3001.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/mesh-production-operator-runbook.md
 
 This runbook makes the public beta origin and relay image path reproducible
@@ -104,6 +104,10 @@ re-enable monitors.
   success/error counters. They must not be used as hard rollout blockers until
   a separate soak proves the signal. Missing or truncated graph scans mean the
   heap driver remains unknown.
+- A6 currently runs `VH_RELAY_GUN_GRAPH_SCAN_ENABLED=true` during the post-#694
+  recovery climb. Leave the default false in generated deploy material, and make
+  any future enable/disable choice explicit in the run packet so a docs reader
+  can distinguish code defaults from the active diagnostic window.
 - Leave relay `GUN_STATS` unset or explicitly `false`. The relay disables GUN's
   package-local stats writer by default; setting `GUN_STATS=true` makes GUN
   write `stats.<basename(GUN_FILE)>` beside `node_modules/gun`, which is not a

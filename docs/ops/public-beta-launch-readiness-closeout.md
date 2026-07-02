@@ -2,7 +2,7 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
 Version: 0.9
@@ -24,6 +24,17 @@ closed for the launched raw path after #687. The stability bake in
 post-overlap ticks, 336/336 raw writes, zero new truncation artifacts, zero
 rerank degeneracy warnings, and a passing hourly archive. This strengthens the
 controlled raw Scope A claim but still does not satisfy the broader gates below.
+
+2026-07-02 Scope A recovery update: outage #2 began at
+`2026-06-29T15:50:53Z` when correlated relay trips broke critical 2-of-3 quorum
+and the publisher fail-closed as designed. The feed recovered after roughly 67
+hours and is fresh again with #691 graph diagnostics, #692 early heap capture,
+#693 fresh-bundle priority, and #694 staggered relay watchdog ceilings deployed.
+The recovery is recorded in
+`docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`. This closes
+the outage, not the sustained-operation proof: retention/compaction and 48-hour
+Scope A stability claims remain gated on the current 12-24 hour graph/heap
+climb.
 
 ## 1. Closeout Verdict
 
@@ -171,7 +182,7 @@ Public peer-config bootstrap and accepted-detail smoke update, 2026-05-31: PR #6
 
 Public feed/stance relay recovery update, 2026-06-01: PR #631 follow-up replaced the blocked `nypost-politics` starter feed with `washingtonexaminer-politics`, then pruned `channelnewsasia-latest` after live source-health sampled an RSS item returning HTTP 404. A candidate scout rerun found no promotable replacement (`cnn-politics` was singleton-only, and the other candidates were rejected or inconclusive), so the active source surface now keeps only the 27 verified readable sources. Source-health artifact `services/news-aggregator/.tmp/news-source-admission/1780289875717/source-health-report.json` reports `ready` with 27/27 sources kept, 27 contributing sources, 26 corroborating sources, no watch/remove sources, and `releaseEvidence.status: pass`. The deployed relays were operationally repaired by moving aside corrupted legacy RADISK field files while preserving `news-latest-index-snapshot.json`, `news-synthesis-lifecycle-snapshot.json`, and `topic-synthesis-latest-snapshot.json`; relay A/B/C were then recreated with aggregate self-peer readback disabled and the origin was recreated with three relay fanout targets (`gun-a`, `gun-b`, `gun-c`). This avoided the prior aggregate REST hang/OOM loop and restored bounded public aggregate reads. Current code hardens the relay so optional aggregate self-peer readback is bounded even if re-enabled; local coverage is `pnpm --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts` (`31 passed`) plus `node --check infra/relay/server.js`. A later lifecycle gate rerun exposed 77 stale pending rows, so the public repair utility was hardened to derive the lifecycle row from public state before signing: current accepted syntheses with complete frame/reframe point IDs are preserved as `accepted_available` and `frame_table_ready`, while incomplete rows receive a fresh pending/retryable heartbeat instead of being hidden or downgraded. The lifecycle-preserving signed repair passed for 80/80 rows on `gun-a`/`gun-c` at `.tmp/release-evidence/public-news-system-writer-repair/20260601T051408Z-lifecycle-preserve-top80-gun-a-c/public-news-system-writer-repair-summary.json` and for 80/80 rows on `gun-b` at `.tmp/release-evidence/public-news-system-writer-repair/20260601T052025Z-lifecycle-preserve-top80-gun-b/public-news-system-writer-repair-summary.json`. Current live public artifacts are: composition/freshness at `.tmp/release-evidence/public-feed-composition-freshness/1780290109877/public-feed-composition-freshness-summary.json`, which observed 80 latest rows, 59 singleton, 21 multi-source/corroborated, 3 accepted synthesis stories, and 80/80 story-body readback; lifecycle accountability at `.tmp/release-evidence/public-feed-lifecycle-accountability/1780291589018/public-feed-lifecycle-accountability-summary.json`, which observed 80/80 product-visible stories, 77 fresh pending lifecycle rows, 3 accepted/frame-ready rows, and no stale pending rows; and strict stance/aggregate/decay at `.tmp/release-evidence/public-feed-browser-smoke/1780290283606/public-feed-browser-smoke-summary.json`, which passed with app-open 15 cards, load-more 30 cards through a real `before` cursor, accepted detail for `story-b6355234a9f6`, public aggregate readback via same-origin relay fanout (`agree: 12`, `participants: 12`), and second-browser vote visibility. This remains public feed and relay-fanout recovery evidence, not a blanket distributed mesh release claim: server-to-server relay peering is still disabled (`relay_peer_count: 0`) because the current public Gun peer hydration path OOMs under the recovered data load, direct Gun latest-index reads are not the authoritative accepted-synthesis path after the snapshot-preserving RADISK cleanup, and mesh production readiness remains `review_required` until the separate public WSS deployment proof blocker is cleared.
 
-This closeout does not claim legal approval, production-grade live headline freshness, production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, public WSS mesh `release_ready`, full production app readiness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
+This closeout does not claim legal approval, 48-hour Scope A stability, production-grade live headline freshness, production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, public WSS mesh `release_ready`, full production app readiness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
 
 ## 2. Required Release Evidence Packet
 
@@ -287,6 +298,7 @@ Allowed public-beta claim:
 Disallowed without additional evidence:
 
 - legal approval complete;
+- 48-hour Scope A stability after outage #2;
 - production-grade live headline freshness;
 - no verified-human, one-human-one-vote, or Sybil-resistant civic proof claim;
 - no production-attestation/Silver, cryptographic residency, or verified-human assurance claim;

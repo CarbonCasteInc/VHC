@@ -2,7 +2,7 @@
 
 > Status: Operational Current-State Record
 > Owner: VHC LUMA Ops
-> Last Reviewed: 2026-05-04
+> Last Reviewed: 2026-07-02
 > Depends On: docs/specs/spec-luma-service-v0.md, docs/plans/LUMA_SERVICE_V0_ROADMAP_2026-05-02.md, docs/specs/spec-identity-trust-constituency.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-signed-pin-custody-v0.md, services/luma-verifier-dev/src/main.rs, apps/web-pwa/src/hooks/useIdentity.ts, packages/gun-client/src/auth.ts, packages/types/src/attestation.ts, packages/types/src/session.ts, infra/docker/docker-compose.yml, infra/docker/traefik-dynamic.yml
 
 Version: 0.1
@@ -13,13 +13,23 @@ interfaces.
 
 ## 1. Purpose
 
-M0.E records the verifier implementation that exists before M0.B. M0.F moves
+M0.E recorded the verifier implementation that existed before M0.B. M0.F moved
 that implementation to `services/luma-verifier-dev` without changing runtime
-behavior. This document is a required input to M2.A, where the real verifier
+behavior. M0.B public-surface migration has since landed, but this document
+remains the DEV-verifier inventory required by M2.A, where the real verifier
 spec and runbook will be designed from explicit current-state drift instead of
 implicit assumptions.
 
 Release note for M0.F: DEV-only verifier moved; behavior unchanged.
+
+2026-07-02 execution note: while Phase 5 Scope A accumulates relay graph/heap
+evidence, LUMA work may advance only in lanes that do not mutate the live
+public-news publisher/relay posture and do not promote assurance claims. Safe
+lanes are docs/spec/RFC alignment, public-beta readiness-gate tightening,
+identity-settings UX copy/state diagrams, forbidden-claims hardening, and M2.A
+verifier-spec planning. Unsafe lanes for this window are public schema epoch
+migration, production verifier deployment, provider/profile promotion, Silver
+copy, mesh `release_ready` claims, or any change to live Scope A publication.
 
 ## 2. Current DEV Stub Inventory
 
@@ -141,5 +151,6 @@ This document and the mechanical rename do not:
 - claim post-M0.B mesh readiness or Silver assurance.
 
 Invalid `_writerKind: 'system'` records and non-aggregate public records
-carrying `district_hash` remain governed by `spec-data-topology-privacy-v0.md`
-and are not implemented or migrated in this M0.E/M0.F slice.
+carrying `district_hash` remain governed by `spec-data-topology-privacy-v0.md`.
+This current-state record still does not authorize a migration or production
+verifier deployment.
