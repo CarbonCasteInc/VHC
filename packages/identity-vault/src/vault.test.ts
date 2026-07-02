@@ -17,6 +17,7 @@ import {
   IDENTITY_KEY,
   MASTER_KEY,
   LEGACY_STORAGE_KEY,
+  isOperatorAuthorizationTokenCompartment,
   isWalletBindingCompartment,
   LEGACY_VAULT_VERSION,
   VAULT_VERSION
@@ -27,13 +28,15 @@ import {
   base64UrlToBytes,
   delegationSigningKey,
   deviceCredential,
+  operatorAuthorizationToken,
   randomBase64Url,
   seaDevicePair,
-  validateWalletBinding,
   validateDelegationSigningKey,
   validateDelegationSigningPublicKey,
   validateDeviceCredential,
+  validateOperatorAuthorizationToken,
   validateSeaDevicePair,
+  validateWalletBinding,
   walletBinding,
   VaultCompartmentError
 } from './compartments';
@@ -958,6 +961,12 @@ describe('M0.D-1 vault v2 compartments', () => {
     const firstCredential = await deviceCredential.loadOrCreate();
     const firstPair = await seaDevicePair.loadOrCreate(() => LEGACY_SEA_PAIR);
     const firstDelegationKey = await delegationSigningKey.loadOrCreate();
+    const firstOperatorToken = await operatorAuthorizationToken.save({
+      token: 'operator-token',
+      boundPrincipalNullifier: 'principal-1',
+      issuedAt: 1000,
+      expiresAt: 2000
+    });
     await saveIdentity(LEGACY_IDENTITY);
 
     await clearIdentity();
@@ -968,6 +977,68 @@ describe('M0.D-1 vault v2 compartments', () => {
       throw new Error('SEA pair should have been preserved');
     })).toEqual(firstPair);
     expect(await delegationSigningKey.loadOrCreate()).toEqual(firstDelegationKey);
+    expect(await operatorAuthorizationToken.load()).toEqual(firstOperatorToken);
+  });
+
+  it('validates and clears the operator authorization token compartment explicitly', async () => {
+    await expect(operatorAuthorizationToken.clear()).resolves.toBeUndefined();
+
+    const token = await operatorAuthorizationToken.save({
+      token: 'operator-token',
+      boundPrincipalNullifier: 'principal-1',
+      issuedAt: 1000,
+      expiresAt: 2000
+    });
+
+    expect(validateOperatorAuthorizationToken(token)).toEqual(token);
+    expect(isOperatorAuthorizationTokenCompartment(token)).toBe(true);
+    expect(isOperatorAuthorizationTokenCompartment(null)).toBe(false);
+    expect(isOperatorAuthorizationTokenCompartment([])).toBe(false);
+    expect(isOperatorAuthorizationTokenCompartment({
+      ...token,
+      unexpected: true
+    })).toBe(false);
+    expect(await operatorAuthorizationToken.load()).toEqual(token);
+
+    await operatorAuthorizationToken.clear();
+
+    expect(await operatorAuthorizationToken.load()).toBeNull();
+    expect(() => validateOperatorAuthorizationToken({
+      schemaVersion: 1,
+      token: '',
+      boundPrincipalNullifier: 'principal-1',
+      issuedAt: 1000
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateOperatorAuthorizationToken(null)).toThrow(VaultCompartmentError);
+    expect(() => validateOperatorAuthorizationToken([])).toThrow(VaultCompartmentError);
+    expect(() => validateOperatorAuthorizationToken({
+      ...token,
+      unexpected: true
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateOperatorAuthorizationToken({
+      ...token,
+      issuedAt: -1
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateOperatorAuthorizationToken({
+      ...token,
+      expiresAt: 999
+    })).toThrow(VaultCompartmentError);
+
+    const noExpiryToken = await operatorAuthorizationToken.save({
+      token: 'operator-token-without-expiry',
+      boundPrincipalNullifier: 'principal-1',
+      issuedAt: 1000
+    });
+    expect(noExpiryToken.expiresAt).toBeUndefined();
+    expect(await operatorAuthorizationToken.load()).toEqual(noExpiryToken);
+
+    await expect(saveVaultV2({
+      schemaVersion: VAULT_VERSION,
+      operatorAuthorizationToken: {
+        ...noExpiryToken,
+        token: ''
+      } as never
+    })).resolves.toBeUndefined();
   });
 
   it('persists compartment byte material as JSON-safe strings', async () => {

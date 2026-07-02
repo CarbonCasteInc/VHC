@@ -14,11 +14,13 @@ import {
   LEGACY_VAULT_VERSION,
   isValidIdentity,
   isVaultV2,
+  isOperatorAuthorizationTokenCompartment,
   isWalletBindingCompartment,
 } from './types';
 import type {
   DeviceCredentialCompartment,
   Identity,
+  OperatorAuthorizationTokenCompartment,
   SeaDevicePairCompartment,
   VaultRecord,
   VaultV2,
@@ -265,6 +267,13 @@ function normalizeVaultV2(vault: VaultV2): VaultV2 {
   if (walletBinding !== undefined && !isWalletBindingCompartment(walletBinding)) {
     throw new Error('Invalid v2 walletBinding compartment');
   }
+  const operatorAuthorizationToken = vault.operatorAuthorizationToken;
+  if (
+    operatorAuthorizationToken !== undefined
+    && !isOperatorAuthorizationTokenCompartment(operatorAuthorizationToken)
+  ) {
+    throw new Error('Invalid v2 operatorAuthorizationToken compartment');
+  }
 
   return {
     schemaVersion: VAULT_VERSION,
@@ -272,7 +281,10 @@ function normalizeVaultV2(vault: VaultV2): VaultV2 {
     ...(vault.deviceCredential ? { deviceCredential: vault.deviceCredential } : {}),
     ...(vault.seaDevicePair ? { seaDevicePair: vault.seaDevicePair } : {}),
     ...(vault.delegationSigningKey ? { delegationSigningKey: vault.delegationSigningKey } : {}),
-    ...(walletBinding ? { walletBinding: walletBinding as WalletBindingCompartment } : {})
+    ...(walletBinding ? { walletBinding: walletBinding as WalletBindingCompartment } : {}),
+    ...(operatorAuthorizationToken
+      ? { operatorAuthorizationToken: operatorAuthorizationToken as OperatorAuthorizationTokenCompartment }
+      : {})
   };
 }
 

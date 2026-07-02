@@ -20,7 +20,11 @@
  *  6. The `ATTESTATION_URL` (gun-client) and `VITE_ATTESTATION_URL`
  *     (web-pwa) fallback literals stay identical, and both env names,
  *     when set in the invoking environment, resolve to the same URL.
- *  7. Optional `--dist <dir>`: scans built JS for mock-provider symbols
+ *  7. Attestation verifier timeouts are pinned by profile: deployable
+ *     profiles use 5000ms, while dev/e2e keep the 2000ms default and may
+ *     still use VITE_ATTESTATION_TIMEOUT_MS.
+ *  8. Dev fallback trust score remains named and reviewable.
+ *  9. Optional `--dist <dir>`: scans built JS for mock-provider symbols
  *     and DEV-stub verifier hosts (bundle-level tree-shake evidence).
  *
  * This is a source/env-level guard: without `--dist` it proves the
@@ -68,6 +72,23 @@ export function runChecks(repoRoot = REPO_ROOT, { distDir = null, env = process.
     const devFallbackGate = /const DEV_FALLBACK_ENABLED =\s*\n?\s*DEV_MODE\s*\n?\s*&&\s*!PUBLIC_BETA_PROFILE\s*\n?\s*&&\s*IDENTITY_ENV\.VITE_LUMA_DEV_FALLBACK === 'true'/;
     if (!devFallbackGate.test(useIdentity)) {
       failures.push(`${USE_IDENTITY}: DEV_FALLBACK_ENABLED must stay triple-gated (DEV_MODE && !PUBLIC_BETA_PROFILE && VITE_LUMA_DEV_FALLBACK === 'true')`);
+    }
+    const timeoutPins = [
+      ['DEV_E2E_VERIFIER_TIMEOUT_MS = 2000', /const DEV_E2E_VERIFIER_TIMEOUT_MS = 2000;/],
+      ['DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000', /const DEPLOYABLE_VERIFIER_TIMEOUT_MS = 5000;/],
+      ['DEPLOYABLE_IDENTITY_PROFILE includes production-attestation', /const DEPLOYABLE_IDENTITY_PROFILE = PUBLIC_BETA_PROFILE \|\| LUMA_PROFILE === 'production-attestation';/],
+      ['deployable profiles select DEPLOYABLE_VERIFIER_TIMEOUT_MS before env override', /const VERIFIER_TIMEOUT_MS = DEPLOYABLE_IDENTITY_PROFILE\s*\n?\s*\?\s*DEPLOYABLE_VERIFIER_TIMEOUT_MS\s*\n?\s*:\s*Number\(IDENTITY_ENV\.VITE_ATTESTATION_TIMEOUT_MS\) \|\| DEV_E2E_VERIFIER_TIMEOUT_MS;/],
+    ];
+    for (const [label, pattern] of timeoutPins) {
+      if (!pattern.test(useIdentity)) {
+        failures.push(`${USE_IDENTITY}: verifier timeout pin missing or loosened (${label})`);
+      }
+    }
+    if (!/const DEV_FALLBACK_TRUST_SCORE = 0\.95;/.test(useIdentity)) {
+      failures.push(`${USE_IDENTITY}: dev fallback trust score must remain a named DEV_FALLBACK_TRUST_SCORE constant`);
+    }
+    if (!/trustScore:\s*DEV_FALLBACK_TRUST_SCORE/.test(useIdentity)) {
+      failures.push(`${USE_IDENTITY}: dev fallback session must use DEV_FALLBACK_TRUST_SCORE, not a magic literal`);
     }
     const runtimeAssertions = [
       ["public-beta identity creation requires VITE_E2E_MODE=false", /VITE_E2E_MODE=false/],
