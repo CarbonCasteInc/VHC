@@ -92,6 +92,7 @@ export interface NewsRuntimeConfig {
   pollIntervalMs?: number;
   maxPublishedBundles?: number;
   firstTickMaxPublishedBundles?: number;
+  publicationFreshnessMaxAgeMs?: number;
   rawBundleWriteConcurrency?: number;
   pruneStaleBundles?: boolean;
   runOnStart?: boolean;
@@ -245,6 +246,12 @@ function resolveFirstTickMaxPublishedBundles(config: NewsRuntimeConfig): number 
   return normalizeOptionalPositiveInt(config.firstTickMaxPublishedBundles, 'firstTickMaxPublishedBundles')
     ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES')
     ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES');
+}
+
+function resolvePublicationFreshnessMaxAgeMs(config: NewsRuntimeConfig): number | null {
+  return normalizeOptionalPositiveInt(config.publicationFreshnessMaxAgeMs, 'publicationFreshnessMaxAgeMs')
+    ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS')
+    ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS');
 }
 
 function resolveRawBundleWriteConcurrency(config: NewsRuntimeConfig): number {
@@ -422,14 +429,20 @@ function refineBundleForPublication(bundle: StoryBundle): StoryBundle {
 function selectBundlesForPublication(
   bundles: readonly StoryBundle[],
   maxPublishedBundles: number | null,
-  options: { readonly trustClusterOutput?: boolean } = {},
+  options: {
+    readonly trustClusterOutput?: boolean;
+    readonly publicationFreshnessMaxAgeMs?: number | null;
+    readonly nowMs?: number;
+  } = {},
 ): StoryBundle[] {
   const eligibleBundles = options.trustClusterOutput
     ? [...bundles]
     : bundles
         .map(refineBundleForPublication)
         .filter(isPublicationEligibleBundle);
-  const orderedBundles = [...eligibleBundles].sort(compareBundlesForPublication);
+  const orderedBundles = [...eligibleBundles].sort((left, right) =>
+    compareBundlesForPublicationWithFreshness(left, right, options),
+  );
 
   if (!maxPublishedBundles || orderedBundles.length <= maxPublishedBundles) {
     return orderedBundles;
@@ -443,6 +456,43 @@ function compareBundlesForPublication(left: StoryBundle, right: StoryBundle): nu
     || right.cluster_window_end - left.cluster_window_end
     || right.created_at - left.created_at
     || left.story_id.localeCompare(right.story_id);
+}
+
+function compareBundlesForPublicationWithFreshness(
+  left: StoryBundle,
+  right: StoryBundle,
+  options: {
+    readonly publicationFreshnessMaxAgeMs?: number | null;
+    readonly nowMs?: number;
+  },
+): number {
+  const maxAgeMs = options.publicationFreshnessMaxAgeMs;
+  if (maxAgeMs !== null && maxAgeMs !== undefined) {
+    const nowMs = options.nowMs ?? Date.now();
+    const leftFresh = isBundleFreshForPublication(left, nowMs, maxAgeMs);
+    const rightFresh = isBundleFreshForPublication(right, nowMs, maxAgeMs);
+    if (leftFresh !== rightFresh) {
+      return leftFresh ? -1 : 1;
+    }
+  }
+  return compareBundlesForPublication(left, right);
+}
+
+function isBundleFreshForPublication(
+  bundle: StoryBundle,
+  nowMs: number,
+  maxAgeMs: number,
+): boolean {
+  if (!Number.isFinite(nowMs) || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0) {
+    return false;
+  }
+  const latestActivityAt = Number.isFinite(bundle.cluster_window_end)
+    ? bundle.cluster_window_end
+    : bundle.created_at;
+  if (!Number.isFinite(latestActivityAt) || latestActivityAt <= 0) {
+    return false;
+  }
+  return Math.max(0, nowMs - latestActivityAt) <= maxAgeMs;
 }
 
 function defaultPrompt(bundle: StoryBundle): string {
@@ -537,6 +587,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
   const firstTickMaxPublishedBundles = resolveFirstTickMaxPublishedBundles(config);
+  const publicationFreshnessMaxAgeMs = resolvePublicationFreshnessMaxAgeMs(config);
   const rawBundleWriteConcurrency = resolveRawBundleWriteConcurrency(config);
   const pruneStaleBundles = resolvePruneStaleBundles(config);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
@@ -657,6 +708,8 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       const trustClusterOutput = trustsClusterOutputForPublication(config);
       const bundlesToPublish = selectBundlesForPublication(bundles, publishedBundleLimit, {
         trustClusterOutput,
+        publicationFreshnessMaxAgeMs,
+        nowMs: Date.now(),
       });
       const publicationEligibleBundleCount = trustClusterOutput
         ? bundles.length
@@ -668,6 +721,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         published_bundle_limit: publishedBundleLimit,
         steady_published_bundle_limit: maxPublishedBundles,
         first_tick_published_bundle_limit: firstTickMaxPublishedBundles,
+        publication_freshness_max_age_ms: publicationFreshnessMaxAgeMs,
         prune_stale_bundles: pruneStaleBundles,
         trusted_cluster_output_for_publication: trustClusterOutput,
         publication_ineligible_bundle_count: bundles.length - publicationEligibleBundleCount,
@@ -1092,10 +1146,13 @@ export const __internal = {
   refineBundleForPublication,
   resolveFirstTickMaxPublishedBundles,
   resolveMaxPublishedBundles,
+  resolvePublicationFreshnessMaxAgeMs,
   resolvePublishedBundleLimit,
   resolvePruneStaleBundles,
   resolveRawBundleWriteConcurrency,
   compareBundlesForPublication,
+  compareBundlesForPublicationWithFreshness,
+  isBundleFreshForPublication,
   selectBundlesForPublication,
   readEnvVar,
   readOptionalPositiveIntEnv,
