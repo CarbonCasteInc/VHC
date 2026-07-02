@@ -223,6 +223,8 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES', '250000000'),
     envEnsureLine(envPath, 'VH_RELAY_DIAGNOSTIC_DIR', '/data/diagnostics'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED', 'true'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED', 'true'),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES', '800000000'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EXIT_GRACE_MS', '30000'),
     envEnsureLine(envPath, 'VH_RELAY_STARTUP_JITTER_MAX_MS', '5000'),
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY', '2'),
@@ -230,6 +232,11 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_QUEUE_TIMEOUT_MS', '1000'),
     envEnsureLine(envPath, 'VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES', 'false'),
     envEnsureLine(envPath, 'VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES', 'false'),
+    envEnsureLine(envPath, 'VH_RELAY_GUN_GRAPH_SCAN_ENABLED', 'false'),
+    envEnsureLine(envPath, 'VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS', '60000'),
+    envEnsureLine(envPath, 'VH_RELAY_GUN_GRAPH_SCAN_BATCH_SIZE', '1000'),
+    envEnsureLine(envPath, 'VH_RELAY_GUN_GRAPH_SCAN_MAX_SOULS', '250000'),
+    envEnsureLine(envPath, 'VH_RELAY_GUN_GRAPH_SCAN_MAX_DURATION_MS', '5000'),
   ] : [];
   if (!rewriteAnalysisTarget) {
     return [

@@ -51,8 +51,17 @@ re-enable monitors.
   ceiling sits above the relay's graceful RSS watchdog and below host-exhaustion
   territory, so a fast off-heap spike is contained to one relay container.
   `VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true` is useful during attended soaks,
-  but its `.heapsnapshot` files are host-private diagnostic artifacts, not
-  shareable release evidence. The generated A6 deploy packet includes a safe
+  but trip-time heap snapshots can be killed by the container OOM backstop if the
+  relay is already near the watchdog ceiling. Keep
+  `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true` and
+  `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000` for the
+  public-beta relays so each process gets one mid-climb capture with enough
+  cgroup headroom to serialize. Raw `.heapsnapshot` files are host-private
+  diagnostic artifacts, not shareable release evidence. The relay writes the
+  redacted bundle summary and heap summary before snapshot serialization, writes
+  the raw snapshot through a temp file, and reports empty or failed captures via
+  `*.heapsnapshot-error.json`; a zero-byte raw snapshot means the raw artifact is
+  unusable, not secret-safe. The generated A6 deploy packet includes a safe
   relay-diagnostics evidence capture block that excludes `*.heapsnapshot` and
   `*.heapprofile`, then fails closed if either appears in the tar manifest; use
   that path for shareable diagnostics unless a separate secret-review approval
@@ -77,9 +86,11 @@ re-enable monitors.
   walk the radata tree.
 - Treat Gun graph metrics as opt-in diagnostics, not release blockers.
   `VH_RELAY_GUN_GRAPH_SCAN_ENABLED=false` by default. When enabled for an
-  attended memory soak, the relay scans `gun._.graph` only from a background
-  task and `/metrics` reads the cached result. Bound the scan with
-  `VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS` (default 60s),
+  attended memory soak, set it in the same relay deploy as the early heap
+  capture fix so the next post-restart climb records graph bytes continuously
+  and captures one mid-climb heap snapshot. The relay scans `gun._.graph` only
+  from a background task and `/metrics` reads the cached result. Bound the scan
+  with `VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS` (default 60s),
   `VH_RELAY_GUN_GRAPH_SCAN_BATCH_SIZE` (default 1000),
   `VH_RELAY_GUN_GRAPH_SCAN_MAX_SOULS` (default 250000), and
   `VH_RELAY_GUN_GRAPH_SCAN_MAX_DURATION_MS` (default 5000). The shareable

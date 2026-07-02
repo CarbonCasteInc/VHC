@@ -699,16 +699,22 @@ Deploy packets should recreate relays with bounded `--restart on-failure:5`,
 `VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000`,
 `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000`,
 `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
-`VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`, and
+`VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
+`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true`,
+`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000`, and
 `VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become an
 unbounded synchronized restart loop. The Docker memory ceiling is a
 host-protection backstop above the 1.8 GB RSS watchdog; the lower heap threshold
 plus faster polling and growth-rate trips should capture and exit before V8
 reaches its heap ceiling, while the cgroup prevents a fast off-heap spike from
 exhausting A6 memory across all three co-located relays. If
-`VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true`,
-heap snapshots are written as host-private `0600` artifacts only; do not attach
-or publish `.heapsnapshot` files without explicit secret-review approval.
+`VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true`, heap snapshots are written as
+host-private `0600` artifacts only; do not attach or publish `.heapsnapshot`
+files without explicit secret-review approval. Trip-time snapshots can still OOM
+while serializing a large heap, so the early heap snapshot threshold is the
+primary raw-retainer capture path; the relay writes redacted summaries before
+serialization and reports empty or failed captures through
+`*.heapsnapshot-error.json`.
 
 For the capped raw-only Scope A operating profile, run all three relays with
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
