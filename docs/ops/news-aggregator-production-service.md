@@ -404,6 +404,7 @@ VH_NEWS_FEED_MAX_ITEMS_TOTAL
 VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES
 VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES
+VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY
 VH_NEWS_RUNTIME_TICK_WATCHDOG_MS
 VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH
@@ -416,12 +417,16 @@ publication cap defaults to 96 bundles, while
 `VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES` defaults to 8 and applies
 only to tick 1. That first-tick cap is intentionally narrow so the post-reset
 live start lands a small, inspectable batch before the daemon opens to the
-steady-state publication limit. Raw bundle writes default to bounded concurrency
-2 through `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY`, matching the daemon
-write-lane capacity while keeping fail-closed exposure bounded to already
-in-flight writes. The wrapper also keeps the first-tick watchdog at 420 seconds;
-do not use a watchdog increase as the primary fix for raw publication
-throughput. Override these values deliberately only when StoryCluster
+steady-state publication limit. `VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS`
+defaults to 21600000, matching the 6-hour public freshness SLO: bundles inside
+that window are selected before stale high-corroboration bundles, while normal
+corroboration ordering still applies within the fresh set. Raw bundle writes
+default to bounded concurrency 2 through
+`VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY`, matching the daemon write-lane
+capacity while keeping fail-closed exposure bounded to already in-flight writes.
+The wrapper also keeps the first-tick watchdog at 420 seconds; do not use a
+watchdog increase as the primary fix for raw publication throughput. Override
+these values deliberately only when StoryCluster
 throughput, first-tick quality review, steady-state publication fanout, and the
 watchdog window have been recalibrated together.
 
@@ -517,6 +522,7 @@ VH_ANALYSIS_EVAL_REPLAY_ON_START=0
 VH_NEWS_STORYLINES_ENABLED=0
 VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
 VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=8
+VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS=21600000
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=8
 VH_NEWS_PRODUCT_FEED_REPAIR_SAMPLE_LIMIT=8
 VH_NEWS_PRODUCT_FEED_REPAIR_INTERVAL_MS=86400000

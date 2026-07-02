@@ -410,6 +410,47 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('applies the configured publication freshness window to runtime writes', async () => {
+    const nowMs = 1_700_000_500_000;
+    vi.setSystemTime(nowMs);
+    const staleHighlyCorroborated = storyBundle('stale-highly-corroborated', {
+      sourceCount: 12,
+      clusterWindowEnd: nowMs - 72 * 60 * 60 * 1_000,
+    });
+    const freshSingleton = storyBundle('fresh-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: nowMs - 5 * 60 * 1_000,
+    });
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([
+      staleHighlyCorroborated,
+      freshSingleton,
+    ]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onTickSummary = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      maxPublishedBundles: 1,
+      publicationFreshnessMaxAgeMs: 6 * 60 * 60 * 1_000,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+      onTickSummary,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle.mock.calls.map((call) => call[1].story_id)).toEqual([
+      'fresh-singleton',
+    ]);
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      selected_bundle_count: 1,
+      first_selected_story_ids: ['fresh-singleton'],
+    }));
+
+    handle.stop();
+  });
+
   it('publishes raw bundles with bounded configured concurrency', async () => {
     const bundles = [
       storyBundle('story-fastest', { clusterWindowEnd: 300 }),
@@ -602,6 +643,87 @@ describe('newsRuntime', () => {
       'recent-singleton',
       'stale-singleton',
     ]);
+  });
+
+  it('prioritizes bundles inside the configured freshness window before stale corroborated bundles', () => {
+    const nowMs = 1_700_000_500_000;
+    const staleHighlyCorroborated = storyBundle('stale-highly-corroborated', {
+      sourceCount: 12,
+      clusterWindowEnd: nowMs - 72 * 60 * 60 * 1_000,
+    });
+    const freshTwoSource = storyBundle('fresh-two-source', {
+      sourceCount: 2,
+      clusterWindowEnd: nowMs - 20 * 60 * 1_000,
+    });
+    const freshSingleton = storyBundle('fresh-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: nowMs - 5 * 60 * 1_000,
+    });
+
+    expect(__internal.selectBundlesForPublication(
+      [staleHighlyCorroborated, freshSingleton, freshTwoSource],
+      2,
+      {
+        publicationFreshnessMaxAgeMs: 6 * 60 * 60 * 1_000,
+        nowMs,
+      },
+    ).map((bundle) => bundle.story_id)).toEqual([
+      'fresh-two-source',
+      'fresh-singleton',
+    ]);
+  });
+
+  it('uses the runtime clock when comparing publication freshness without an explicit now', () => {
+    const nowMs = 1_700_000_500_000;
+    vi.setSystemTime(new Date(nowMs));
+    const staleHighlyCorroborated = storyBundle('clock-stale-highly-corroborated', {
+      sourceCount: 12,
+      clusterWindowEnd: nowMs - 72 * 60 * 60 * 1_000,
+    });
+    const freshSingleton = storyBundle('clock-fresh-singleton', {
+      sourceCount: 1,
+      clusterWindowEnd: nowMs - 10 * 60 * 1_000,
+    });
+    const options = {
+      publicationFreshnessMaxAgeMs: 6 * 60 * 60 * 1_000,
+    };
+
+    expect(__internal.compareBundlesForPublicationWithFreshness(
+      freshSingleton,
+      staleHighlyCorroborated,
+      options,
+    )).toBe(-1);
+    expect(__internal.compareBundlesForPublicationWithFreshness(
+      staleHighlyCorroborated,
+      freshSingleton,
+      options,
+    )).toBe(1);
+  });
+
+  it('treats invalid publication freshness inputs as stale', () => {
+    const nowMs = 1_700_000_500_000;
+    const freshBundle = storyBundle('freshness-valid', {
+      clusterWindowEnd: nowMs - 1_000,
+    });
+    const createdAtFreshBundle = storyBundle('freshness-created-at-fallback', {
+      clusterWindowEnd: Number.NaN,
+      createdAt: nowMs - 1_000,
+    });
+    const missingTimestampBundle = storyBundle('freshness-missing-timestamp', {
+      clusterWindowEnd: Number.NaN,
+      createdAt: Number.NaN,
+    });
+    const nonPositiveTimestampBundle = storyBundle('freshness-non-positive-timestamp', {
+      clusterWindowEnd: Number.NaN,
+      createdAt: 0,
+    });
+
+    expect(__internal.isBundleFreshForPublication(freshBundle, Number.NaN, 60_000)).toBe(false);
+    expect(__internal.isBundleFreshForPublication(freshBundle, nowMs, Number.POSITIVE_INFINITY)).toBe(false);
+    expect(__internal.isBundleFreshForPublication(freshBundle, nowMs, 0)).toBe(false);
+    expect(__internal.isBundleFreshForPublication(createdAtFreshBundle, nowMs, 60_000)).toBe(true);
+    expect(__internal.isBundleFreshForPublication(missingTimestampBundle, nowMs, 60_000)).toBe(false);
+    expect(__internal.isBundleFreshForPublication(nonPositiveTimestampBundle, nowMs, 60_000)).toBe(false);
   });
 
   it('filters weak two-source canonical bundles before publication', () => {
