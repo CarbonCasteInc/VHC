@@ -283,6 +283,25 @@ export const GATES = [
     ],
   },
   {
+    id: 'luma_forbidden_claims',
+    label: 'LUMA forbidden-claims registry holds over app copy (spec §20)',
+    command: ['pnpm', ['check:luma-forbidden-claims']],
+    artifactRefs: [
+      'tools/scripts/check-luma-forbidden-claims.mjs',
+      'docs/specs/spec-luma-service-v0.md',
+    ],
+  },
+  {
+    id: 'luma_production_profile',
+    label: 'LUMA profile guards keep dev fallback, mocks, and DEV-stub URLs out of deployable profiles',
+    command: ['pnpm', ['check:luma-production-profile']],
+    artifactRefs: [
+      'tools/scripts/check-luma-production-profile.mjs',
+      'apps/web-pwa/src/hooks/useIdentity.ts',
+      'packages/luma-sdk/src/providers/index.ts',
+    ],
+  },
+  {
     id: 'luma_mvp_production_readiness',
     label: 'LUMA public-beta MVP readiness has current signed-write and mesh evidence',
     command: ['pnpm', ['check:luma:mvp-production-readiness']],
