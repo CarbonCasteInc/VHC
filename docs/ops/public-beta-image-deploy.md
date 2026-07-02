@@ -42,12 +42,15 @@ re-enable monitors.
   `--memory 2304m --memory-swap 2304m`,
   `VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true`,
   `VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000`,
-  `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000`,
+  staggered heap watchdog ceilings
+  `relay-a=850000000`, `relay-b=1000000000`, and `relay-c=1150000000`,
   `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
   `VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
   `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics`, and
   `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`. Relay watchdog exit is intentionally
-  restartable; publisher fail-closed exit is intentionally not. The memory
+  restartable; publisher fail-closed exit is intentionally not. The staggered
+  heap ceilings are separated by at least 150 MB so relays with similar heap
+  floors/slopes do not phase-lock their watchdog exits. The Docker memory
   ceiling sits above the relay's graceful RSS watchdog and below host-exhaustion
   territory, so a fast off-heap spike is contained to one relay container.
   `VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true` is useful during attended soaks,

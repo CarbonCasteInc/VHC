@@ -703,17 +703,20 @@ Deploy packets should recreate relays with bounded `--restart on-failure:5`,
 `--memory 2304m --memory-swap 2304m`, `VH_RELAY_STARTUP_JITTER_MAX_MS=5000`,
 `VH_RELAY_DIAGNOSTIC_DIR=/data/diagnostics`,
 `VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000`,
-`VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000`,
+staggered `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES` values
+(`relay-a=850000000`, `relay-b=1000000000`, `relay-c=1150000000`),
 `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
 `VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
 `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true`,
 `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000`, and
-`VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become an
-unbounded synchronized restart loop. The Docker memory ceiling is a
-host-protection backstop above the 1.8 GB RSS watchdog; the lower heap threshold
-plus faster polling and growth-rate trips should capture and exit before V8
-reaches its heap ceiling, while the cgroup prevents a fast off-heap spike from
-exhausting A6 memory across all three co-located relays. If
+`VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become a
+synchronized restart loop. The heap ceilings are separated by at least 150 MB to
+break co-located relay phase-lock even after a shared deploy/recreate floor
+reset. The Docker memory ceiling is a host-protection backstop above the 1.8 GB
+RSS watchdog; the lower heap threshold plus faster polling and growth-rate trips
+should capture and exit before V8 reaches its heap ceiling, while the cgroup
+prevents a fast off-heap spike from exhausting A6 memory across all three
+co-located relays. If
 `VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true`, heap snapshots are written as
 host-private `0600` artifacts only; do not attach or publish `.heapsnapshot`
 files without explicit secret-review approval. Trip-time snapshots can still OOM
@@ -735,11 +738,13 @@ counters during sustained operation and any future verify/refresh re-enable
 soak.
 
 The 24h/48h watch tools must project relay heap/RSS slope against the same
-watchdog ceiling. Export the deployed `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES`
-and `VH_RELAY_WATCHDOG_MAX_RSS_BYTES` into the watch environment if A6 overrides
-the compose defaults; otherwise the tools intentionally fall back to the
-public-beta compose heap default (`1100000000`) and relay server RSS default
-(`1800000000`).
+watchdog ceilings. Export the deployed
+`VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES`,
+`VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES`, and
+`VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES` into the watch environment if A6
+overrides the compose defaults; otherwise the tools intentionally fall back to
+the public-beta per-relay defaults (`850000000`, `1000000000`, `1150000000`) and
+the relay server RSS default (`1800000000`).
 
 The latest-index snapshot and story-body REST caches are bounded, but they do
 not prove the relay process heap is bounded. Public-news writes still create

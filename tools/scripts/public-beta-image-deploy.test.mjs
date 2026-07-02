@@ -425,7 +425,10 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /--memory-swap 2304m/);
     assert.match(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true/);
     assert.match(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS=2000/);
-    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=850000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1000000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1150000000/);
+    assert.doesNotMatch(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000/);
     assert.match(result.stdout, /VH_RELAY_DIAGNOSTIC_DIR=\/data\/diagnostics/);
@@ -474,6 +477,11 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
 
 test('public beta compose bounds relay restart and memory self-defense', () => {
   const compose = readFileSync(PUBLIC_BETA_COMPOSE, 'utf8');
+  const expectedHeapLimit = {
+    'relay-a': /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES:-850000000\}/,
+    'relay-b': /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES:-1000000000\}/,
+    'relay-c': /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES:-1150000000\}/,
+  };
   for (const relay of ['relay-a', 'relay-b', 'relay-c']) {
     const blockMatch = compose.match(new RegExp(`  ${relay}:\\n([\\s\\S]*?)(?=\\n  (?:relay-|origin:)|\\nnetworks:)`));
     assert.ok(blockMatch, `${relay} service missing`);
@@ -483,7 +491,7 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
     assert.match(block, /memswap_limit: \$\{VH_PUBLIC_BETA_RELAY_MEMORY_SWAP_LIMIT:-2304m\}/);
     assert.match(block, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED: \$\{VH_RELAY_RESOURCE_WATCHDOG_ENABLED:-true\}/);
     assert.match(block, /VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: \$\{VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS:-2000\}/);
-    assert.match(block, /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES:-1100000000\}/);
+    assert.match(block, expectedHeapLimit[relay]);
     assert.match(block, /VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES:-150000000\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES:-250000000\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED:-true\}/);
