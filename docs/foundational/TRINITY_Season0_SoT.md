@@ -2,14 +2,14 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-06-28
+**Last updated:** 2026-07-02
 
 > Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
@@ -168,13 +168,13 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
-    - **News Aggregator / StoryCluster** 🟢/🟡 - daemon-first bundling is real and Phase 5 Scope A is live on A6 as a capped raw-only public-news feed with relay REST 2-of-3 quorum, pending lifecycle rows, host-local liveness/freshness monitors, and hourly soak archive; the post-#687 stability bake recorded 42 clean post-overlap ticks, 336/336 raw writes, zero new rerank truncation artifacts, and zero degeneracy warnings. Fixture-backed browser gates, source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force. Accepted synthesis, topic synthesis, storyline overlays, verify/refresh re-enable, higher caps, broader source-density claims, the remaining 24-72 hour watch, and full public-beta umbrella readiness remain post-launch tracks.
+    - **News Aggregator / StoryCluster** 🟢/🟡 - daemon-first bundling is real and Phase 5 Scope A is recovered on A6 as a capped raw-only public-news feed with relay REST 2-of-3 quorum, pending lifecycle rows, host-local liveness/freshness monitors, hourly soak archive, #691 graph diagnostics, #692 early heap capture, #693 fresh-bundle priority, and #694 staggered relay watchdog ceilings. The 2026-06-28 post-#687 bake remains the StoryCluster rerank proof for the launched raw path, but outage #2 reset the sustained-operation ledger; the current gate is the 12-24 hour instrumented heap/graph climb. Fixture-backed browser gates, source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force. Accepted synthesis, topic synthesis, storyline overlays, verify/refresh re-enable, higher caps, broader source-density claims, retention/compaction behavior, and full public-beta umbrella readiness remain post-launch tracks.
     - **Discovery feed / storyline UX** 🟡 - compact one-feed shell, first-use orientation, source-strip/story-media cards, storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
     - **HERMES Docs** 🟢 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)
     - **Bridge / Civic Action Kit** 🟡 — 5-component UI, trust/XP/budget enforcement, and local receipt capture are real; unified feed receipt publication remains partial (Wave 2 Gamma + Wave 3 CAK)
-    - **LUMA** 🟡 - Wave 4 hardened: trust constants consolidated, session lifecycle (expiry/revocation), constituency proof verification (flag-gated). TEE/VIO/sybil still stubbed (Season 0 §9.2 deferred)
+    - **LUMA** 🟡 - Public-beta MVP layer is beta-local and signed-write/envelope-backed with current readiness gates; safe work during the Scope A telemetry window is spec/RFC/readiness/product hardening that does not change public schemas or deploy a verifier. Production-attestation/Silver, TEE/VIO/sybil, verified-human, one-human-one-vote, and public WSS mesh `release_ready` remain deferred.
     - **GWC contracts** 🟡 - contracts implemented; public testnet deploy incomplete; Season 0 UX should remain XP-first
 
   - **Legacy / migration (explicitly non-blocking but must be tracked)** 🟡

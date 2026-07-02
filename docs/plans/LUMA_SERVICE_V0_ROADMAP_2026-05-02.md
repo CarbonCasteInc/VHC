@@ -1,7 +1,7 @@
 # LUMA Service v0 Roadmap
 
 > Status: Draft v0.7 — execution-sequence document; the normative service contract has been extracted to `docs/specs/spec-luma-service-v0.md`.
-> Date: 2026-05-02 (v0.1 through v0.6); 2026-05-04 (v0.7 mesh-coherence pass); 2026-05-11 (v0.18 public-beta MVP readiness alignment)
+> Date: 2026-05-02 (v0.1 through v0.6); 2026-05-04 (v0.7 mesh-coherence pass); 2026-05-11 (v0.18 public-beta MVP readiness alignment); 2026-07-02 (v0.19 current execution window)
 > Owner: VHC Spec Owners (proposed)
 > Depends On: `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/specs/spec-mesh-production-readiness.md`, `docs/specs/spec-signed-pin-custody-v0.md`, `docs/specs/secure-storage-policy.md`, `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/STATUS.md`, `docs/foundational/System_Architecture.md`, `docs/ops/luma-verifier-current-state.md`, `services/luma-verifier-dev/src/main.rs`, `apps/web-pwa/src/hooks/useIdentity.ts`, `packages/identity-vault/src/vault.ts`, `packages/identity-vault/src/types.ts`, `packages/gun-client/src/auth.ts`
 > Scope: Sequence the work that lands `docs/specs/spec-luma-service-v0.md` in code. Implementation milestones, codebase reality check, and open decisions only — normative contract material lives in the spec.
@@ -135,6 +135,52 @@ snapshot:
   must be current-commit and pass for the five required user-write classes, but
   public WSS mesh `release_ready` and production app canary readiness remain
   downstream gates.
+
+## Current execution window (2026-07-02)
+
+Phase 5 Scope A is fresh again after outage #2, but the public-news lane is in a
+12-24 hour instrumented relay graph/heap accumulation window. LUMA can advance
+during that wait only if the work does not touch live Scope A publication,
+relay topology, public-news relays, or active release claims.
+
+Allowed now:
+
+1. **Docs/spec alignment**: keep `docs/specs/spec-luma-service-v0.md`,
+   `docs/ops/luma-verifier-current-state.md`, this roadmap, launch closeout
+   docs, and forbidden-claim boundaries mutually consistent.
+2. **M1.B product hardening prep**: flesh out `/account/identity` copy, state
+   graph diagrams, a11y criteria, test plans, and fixture expectations for Sign
+   Out versus Reset Identity. Do not change provider selection or public schema
+   epochs in the same PR.
+3. **M1.C guard hardening**: implement or refine build-time checks that prevent
+   DEV fallback, verifier URL drift, mock providers, and `VITE_E2E_MODE` from
+   entering `public-beta` or `production-attestation` bundles.
+4. **M1.D forbidden-claims hardening**: keep the forbidden-claims gate aligned
+   with the current copy surface and add runtime defense tests where they do not
+   require live publisher/relay changes.
+5. **M2.A verifier-spec packet**: draft the production verifier spec/runbook,
+   including nonce/challenge policy, signed response schema, manifest/JWKS
+   topology, rate limits, audit retention, custody, SLOs, and adversarial
+   harness requirements. This is design/readiness work, not deployment.
+
+Blocked in this window without a separate operator-approved plan:
+
+- public schema epoch migration or `_writerKind`/`_authorScheme` changes;
+- production verifier deployment or `VITE_ATTESTATION_URL` promotion;
+- Silver, verified-human, one-human-one-vote, Sybil-resistance, cryptographic
+  residency, or mesh `release_ready` copy;
+- any change that restarts the public-news publisher, rewrites live news data,
+  changes relay watchdog thresholds, or changes Scope A retention/compaction.
+
+Recommended PR stack after this alignment pass:
+
+1. `luma-m1b-identity-controls-design`: docs, UX copy, state graph, and tests for
+   identity controls, no provider/schema changes.
+2. `luma-m1c-profile-guard`: deterministic build assertions for profile/provider
+   drift and DEV fallback exclusion.
+3. `luma-m1d-forbidden-claims-runtime`: grep gate refresh plus `<TrustClaim>`
+   runtime defense.
+4. `luma-m2a-verifier-spec`: docs-only verifier spec and ops runbook packet.
 
 ## Codebase reality check (2026-05-02, historical)
 
@@ -777,3 +823,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.16 | 2026-05-10 | Reviewer | M0.B topic engagement summary narrow slice. `vh/aggregates/topics/<topicId>/engagement/summary` writes move to system-writer signed records with shared validator reads and legacy summary compatibility; topic-scoped actor nodes, aggregate voter/snapshot adapters, discovery indexes, mesh evidence artifacts, relay, and browser signing remain out of scope. Added `pnpm check:luma-topic-engagement-summary-system-v1`. |
 | 0.17 | 2026-05-10 | Reviewer | M0.B civic representative directory snapshot narrow slice. `vh/civic/reps/<jurisdictionVersion>` writes move to system-writer signed records with shared validator reads and legacy directory snapshot compatibility; identity directory schemas, bridge action/receipt/stat adapters, discovery indexes, mesh evidence artifacts, relay, and browser signing remain out of scope. Added `pnpm check:luma-civic-reps-system-v1`. |
 | 0.18 | 2026-05-11 | Reviewer | Public-beta MVP readiness alignment. Added current implementation addendum for vault v2 compartments, beta-local AssuranceEnvelope runtime, provider allow-lists, discovery system-writer migration, aggregate `pnpm check:luma:mvp-production-readiness`, and the boundary that production-attestation/Silver, public WSS mesh `release_ready`, and full production app readiness remain separate gates. |
+| 0.19 | 2026-07-02 | Reviewer | Current execution-window alignment while Scope A accumulates relay graph/heap evidence. Added the safe LUMA work queue, blocked live/public-schema/provider changes, and the recommended M1.B/M1.C/M1.D/M2.A PR stack. |

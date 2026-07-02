@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/ops/news-aggregator-production-service.md
 
 ## Purpose
@@ -21,18 +21,22 @@ This runbook installs two managed user units:
 
 There is no memory-vector bootstrap mode in this production path.
 
-Current deployed Scope A posture after #687:
+Current deployed Scope A posture:
 
-- `main` at `baf1dd5f41958473c93db04e4d6007e4df7b074f` is the first deployed
+- #687 at `baf1dd5f41958473c93db04e4d6007e4df7b074f` is the first deployed
   durable fix for the recurring `cross_encoder_rerank` truncation class;
+- current `main` is `eab5d3c6`, with later #691-#694 diagnostics,
+  publisher-priority, heap-capture, and relay-stagger changes layered on top;
 - rerank requests use strict fixed-key object structured output instead of an
   array/max-items shape;
 - recoverable rerank output failures omit supplemental rerank results so the
   deterministic prior score remains the gate-feeding value;
 - provider/config/auth/transport failures still surface as stage failures and
   must not be converted into successful empty rerank output;
-- the first extended bake after deployment recorded zero new OpenAI failure
-  artifacts and zero rerank degeneracy warnings.
+- the first extended bake after #687 recorded zero new OpenAI failure artifacts
+  and zero rerank degeneracy warnings;
+- the current post-#694 watch is primarily a relay-memory/availability
+  diagnostic window, not a new StoryCluster correctness hypothesis.
 
 ## Env File Surface
 
@@ -207,10 +211,10 @@ journalctl --user -u vh-storycluster-engine.service --since "$since" --no-pager 
   | grep -E "cross_encoder_rerank|degenerate|parse failure|finish_reason.?length|truncat"
 ```
 
-For a healthy post-#687 bake, both checks should stay empty. A persistent
-degeneracy warning stream is gate-safe but indicates rerank quality loss and
-should be treated as a product-quality incident, not as a launch write-safety
-failure.
+For healthy Scope A operation, both checks should stay empty after the latest
+StoryCluster restart. A persistent degeneracy warning stream is gate-safe but
+indicates rerank quality loss and should be treated as a product-quality
+incident, not as a launch write-safety failure.
 
 ## Reset Persistent State
 

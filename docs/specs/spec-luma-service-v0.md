@@ -2,7 +2,7 @@
 
 > Status: Draft Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-05-07
+> Last Reviewed: 2026-07-02
 > Depends On: docs/specs/spec-identity-trust-constituency.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/secure-storage-policy.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md, docs/foundational/LUMA_BriefWhitePaper.md, docs/foundational/System_Architecture.md
 
 Version: 0.3
@@ -11,6 +11,15 @@ Status: Draft for Season 0 LUMA service boundary and SDK contract; transitions t
 This spec defines the LUMA service contract: API boundary, SDK surface, identity types, write-envelope shape, policy engine, storage model, session lifecycle, transparency posture, and acceptance tests. It is the canonical owner of LUMA service-level concerns. Identity, trust, and constituency *semantics* (thresholds, beta-local proof contract, familiar invariants, Season 0 fence) remain owned by `docs/specs/spec-identity-trust-constituency.md`; this spec defers to it on conflict.
 
 Implementation sequencing for v0 lives in `docs/plans/LUMA_SERVICE_V0_ROADMAP_2026-05-02.md`.
+
+Current implementation note, 2026-07-02: the public-beta LUMA layer is
+beta-local, signed-write/envelope-backed, and guarded by
+`pnpm check:luma:mvp-production-readiness` plus the broader MVP release gates.
+While Phase 5 Scope A accumulates relay graph/heap evidence, safe LUMA work is
+limited to docs/spec/RFC alignment, public-beta gate hardening, identity-control
+UX/test planning, forbidden-claims enforcement, and M2.A verifier-spec design.
+Do not use this window to deploy a production verifier, change public schema
+epochs, promote providers, or make Silver/verified-human/mesh-release claims.
 
 ## 1. Scope And Boundaries
 
@@ -94,7 +103,7 @@ Four profiles. Each is a frozen tuple of feature flags, allowed providers, allow
 | --- | --- | --- | --- | --- | --- |
 | `dev` | TTL respected only if `VITE_SESSION_LIFECYCLE_ENABLED=true` | Mock or DEV stub or `VITE_LUMA_DEV_FALLBACK=true` shortcut | Mock or beta-local | Internal copy only; UI shows persistent DEV banner | None |
 | `e2e` | Lifecycle disabled | Mock providers only (DEV stub permitted via `x-mock-attestation` header) | Mock providers only | Test-only copy | E2E suite green |
-| `public-beta` | Lifecycle enforced | `BetaLocalAttestationProvider` only | `BetaLocalConstituencyProvider` | Beta-local stance language only; forbidden-claims gate enforced | `pnpm check:public-beta-compliance`, forbidden-claims gate, telemetry redaction test, safety-bulletin freshness (advisory) |
+| `public-beta` | Lifecycle enforced | `BetaLocalAttestationProvider` only | `BetaLocalConstituencyProvider` | Beta-local stance language only; forbidden-claims gate enforced | `pnpm check:luma:mvp-production-readiness`, `pnpm check:public-beta-compliance`, forbidden-claims gate, telemetry redaction test, safety-bulletin freshness (advisory) |
 | `production-attestation` | Lifecycle enforced | Real Silver verifier; pinned manifest required | `BetaLocalConstituencyProvider` until a separate cryptographic-proof spec | Silver attestation language permitted; beta-local stance language for constituency | All `public-beta` gates plus `pnpm check:luma-production-profile`, verifier-manifest pin check, transparency-log freshness, safety-bulletin freshness (hard), adversarial-harness corpus pass |
 
 The DEV stub verifier (`services/luma-verifier-dev`) MUST NOT serve `public-beta` or `production-attestation`. Its truth label (`environment: "DEV"`) is non-negotiable for as long as it exists.

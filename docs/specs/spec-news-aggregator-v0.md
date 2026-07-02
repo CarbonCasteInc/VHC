@@ -2,7 +2,7 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
@@ -68,9 +68,11 @@ Season 0 Scope A live contract:
    surface as 5xx to callers. Malformed client payloads may remain 4xx.
 6. Sustained Scope A operation is proven by host-local publisher liveness,
    relay liveness, relay snapshot freshness, public feed freshness, runtime tick
-   diagnostics, and StoryCluster model-output artifact/warning absence over the
-   watch window. A single clean tick is not enough for a sustained-operation
-   claim.
+   diagnostics, StoryCluster model-output artifact/warning absence, and no
+   fail-closed outage over the watch window. When relay-memory risk is active,
+   the watch also needs relay heap/RSS projection plus the diagnostic graph scan
+   and early-snapshot evidence needed to classify the heap driver. A single clean
+   tick or post-outage recovery is not enough for a sustained-operation claim.
 
 ## 2. Inputs and ingest
 

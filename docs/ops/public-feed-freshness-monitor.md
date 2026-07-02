@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -34,17 +34,22 @@ for the release owner account. If this monitor is promoted into PagerDuty or a
 host-local launchd check later, the GitHub Action remains the canonical public
 artifact producer unless this document is updated.
 
+Outage #2 proved that host-local liveness timers and freshness logs are not an
+alerting channel by themselves. A fail-closed publisher can leave the feed stale
+until a human reads the host. Before any unattended long watch, confirm that at
+least one monitor failure path reaches the release owner outside the A6 host.
+
 Host-local relay snapshot freshness is covered separately by
 `docs/ops/news-aggregator-production-service.md`. That watch reads
 `news-latest-index-snapshot.json` files directly and does not perform public
 latest-index HTTP probes.
 
-During the Phase 5 Scope A 24-72 hour watch, the host-local soak archive timer
-wraps this monitor and preserves hourly public freshness summaries under
-`~/.local/state/vhc/phase5-scope-a-soak/YYYYMMDDTHHMMSSZ/`. The archive is the
-preferred evidence packet for bake-window review because it captures this public
-freshness result together with publisher liveness, relay liveness, and relay
-snapshot freshness.
+During the current post-#694 Scope A instrumented climb, the host-local soak
+archive timer wraps this monitor and preserves hourly public freshness summaries
+under `~/.local/state/vhc/phase5-scope-a-soak/YYYYMMDDTHHMMSSZ/`. The archive is
+the preferred evidence packet for window review because it captures this public
+freshness result together with publisher liveness, relay liveness, relay
+snapshot freshness, and relay graph/heap diagnostics when enabled.
 
 ## Command
 

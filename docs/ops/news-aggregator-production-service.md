@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -18,22 +18,32 @@ startup fails closed.
 
 ## Current Launch State
 
-Phase 5 Scope A is live on A6 as of 2026-06-24. The controlling closeout is
-`docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
-The first extended post-#687 stability bake is recorded in
+Phase 5 Scope A launched on A6 on 2026-06-24. The launch closeout is
+`docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`, and the first
+extended post-#687 StoryCluster stability bake is
 `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`.
+
+Current state as of 2026-07-02 is recovered/fresh after outage #2, not
+stability-proven. The outage and recovery evidence are recorded in
+`docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`.
+The feed is fresh again, but the clean-window ledger reset when the publisher
+fail-closed at `2026-06-29T15:50:53Z` after correlated relay trips broke
+critical 2-of-3 write quorum.
 
 Current intended-live posture:
 
 - `vh-news-aggregator.service` is expected to be active/running, enabled, and at
   `NRestarts=0`.
-- Relays run `vhc-public-beta-relay:20260624-main-vb3da27a0-amd64` with Docker
-  `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs, and bounded
-  latest-index/story-body caches.
+- Current relays run `vhc-public-beta-relay:20260702-main-v96488ca0-amd64` with
+  Docker `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs,
+  bounded latest-index/story-body caches, #691 graph diagnostics, and #692 early
+  heap capture.
 - Raw story, latest-index, hot-index, and pending synthesis-lifecycle writes use
   relay REST quorum with required success count 2.
 - Accepted bundle synthesis, replay synthesis, topic synthesis, storyline writes,
   and stale storyline cleanup are disabled for the launched raw Scope A profile.
+- Raw publication runs with `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2`
+  after #693.
 - Product-feed repair is deferred until after the first completed runtime tick
   and then paced through dedicated non-fatal maintenance lanes.
 - Relay verify/refresh body maintenance is disabled for the launch profile;
@@ -41,18 +51,23 @@ Current intended-live posture:
 - Publisher liveness, relay liveness, and relay snapshot freshness timers are
   intended to stay enabled during live operation.
 - The hourly Scope A soak archive timer is intended to stay enabled during the
-  24-72 hour watch so each hour preserves publisher liveness, relay liveness,
-  relay snapshot freshness, and public feed freshness evidence.
+  current post-#694 12-24 hour instrumented climb so each hour preserves
+  publisher liveness, relay liveness, relay snapshot freshness, public feed
+  freshness, and graph/heap diagnostics.
 - The StoryCluster rerank truncation class that interrupted launch is fixed at
   source by #687 and had zero new artifacts / zero degeneracy warnings during
   the first seven-plus-hour production bake.
+- The per-relay heap watchdog ceilings are staggered by #694:
+  relay-a `850000000`, relay-b `1000000000`, relay-c `1150000000`. Do not remove
+  the stagger while all three public-news relay votes remain co-located on A6.
 
 This launch state proves raw-fresh, v4-signed, product-visible cards with
 pending lifecycle rows, and the post-#687 bake proves the known StoryCluster
 rerank truncation failure no longer interrupts the launched raw path. It does
-not prove accepted synthesis, frame tables, storyline overlays, topic synthesis,
-full public-beta readiness, mesh `release_ready`, production app canary
-readiness, or legal/commercial approval.
+not prove current 48-hour sustained operation after outage #2, retention/heap
+boundedness, accepted synthesis, frame tables, storyline overlays, topic
+synthesis, full public-beta readiness, mesh `release_ready`, production app
+canary readiness, or legal/commercial approval.
 
 ## Hard Boundaries
 
@@ -207,16 +222,18 @@ This timer makes the post-launch watch a data product instead of a mutable
 The archive service fails closed when any required host-local latest file is
 missing, invalid, or reports non-`pass`, or when the public freshness monitor
 fails. It does not restart relays, start the publisher, mutate mesh state, or
-write public feed records. It exists to preserve baseline / 24h / 48h / 72h
-evidence even though the individual liveness watches overwrite their
-`latest.json` files.
+write public feed records. It exists to preserve time-window evidence even
+though the individual liveness watches overwrite their `latest.json` files.
 
-During the post-#687 bake, treat the archive plus StoryCluster watch as the
-Scope A health surface:
+During the current post-#694 instrumented climb, treat the archive plus
+StoryCluster watch plus relay graph metrics as the Scope A health surface:
 
 - archive `manifest.json` remains `status: pass`;
 - publisher liveness, relay liveness, relay snapshot freshness, and public feed
   freshness reports remain `pass`;
+- relay graph scan age/duration/truncation/error metrics remain diagnostic and
+  available when the scan is enabled; missing or truncated graph metrics mean the
+  heap driver remains unknown, not that the feed is unsafe;
 - StoryCluster OpenAI failure artifact count since the #687 restart remains
   zero;
 - StoryCluster rerank degeneracy warning count remains zero or isolated enough
@@ -520,7 +537,7 @@ VH_BUNDLE_SYNTHESIS_ENABLED=0
 VH_NEWS_SCOPE_B_ENRICHMENT_ENABLED=0
 VH_ANALYSIS_EVAL_REPLAY_ON_START=0
 VH_NEWS_STORYLINES_ENABLED=0
-VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=1
+VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2
 VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES=8
 VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS=21600000
 VH_NEWS_RUNTIME_MAX_PUBLISHED_BUNDLES=8
@@ -737,8 +754,8 @@ latest-index snapshot entry cache and story-body cache; watch
 counters during sustained operation and any future verify/refresh re-enable
 soak.
 
-The 24h/48h watch tools must project relay heap/RSS slope against the same
-watchdog ceilings. Export the deployed
+The relay-memory watch and closure tools must project relay heap/RSS slope
+against the same watchdog ceilings. Export the deployed
 `VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES`,
 `VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES`, and
 `VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES` into the watch environment if A6
@@ -764,9 +781,18 @@ Operators should watch `/metrics` counters
 `vh_relay_snapshot_background_concurrency_caps_total`, plus
 `vh_relay_news_latest_index_snapshot_entry_evictions_total` and
 `vh_relay_news_latest_index_story_body_cache_evictions_total`, during any
-post-merge soak.
+post-merge soak. During a graph-enabled relay-memory climb, also watch
+`vh_relay_gun_graph_scan_successes_total`,
+`vh_relay_gun_graph_scan_errors_total`,
+`vh_relay_gun_graph_scan_truncated`,
+`vh_relay_gun_graph_scan_duration_ms`,
+`vh_relay_gun_graph_scan_age_ms`,
+`vh_relay_gun_graph_souls_total`,
+`vh_relay_gun_graph_user_fields_total`, and
+`vh_relay_gun_graph_user_value_bytes`. Graph metrics are diagnostic only until a
+separate soak proves they are reliable blockers.
 
-During the post-#675 soak, a single relay returning `503`
+During Scope A relay-memory soaks, a single relay returning `503`
 `relay-critical-readback-backpressure` is expected graceful load shedding when
 the other two relays satisfy quorum. It must not be counted as success, and it
 must not be treated like a readback `500`. Abort or investigate on any critical
@@ -1039,11 +1065,13 @@ Abort or stop the service if any of these occur:
   cadence.
 
 After an approved start, Scope A live evidence requires fresh content advance,
-pending lifecycle evidence, public latest-index/story-body readability, an
-attended soak, enabled liveness/freshness monitors, hourly archive samples, and
-no recurring StoryCluster rerank truncation or degeneracy warnings. The
-2026-06-24 closeout records the first completed proof for that raw Scope A
-launch; the 2026-06-28 stability bake records the first extended clean
-post-#687 window. Accepted synthesis and storyline enrichment evidence remain
-post-launch quality checks, not Scope A raw-feed gates. The service starting
-successfully by itself is never a release-ready claim.
+pending lifecycle evidence, public latest-index/story-body readability, enabled
+liveness/freshness monitors, hourly archive samples, no recurring StoryCluster
+rerank truncation or degeneracy warnings, and no current fail-closed outage. The
+2026-06-24 closeout records the first completed proof for the raw Scope A launch;
+the 2026-06-28 stability bake records the first extended clean post-#687
+StoryCluster window; the 2026-07-02 recovery report records outage #2 closure
+and the start of the graph/heap diagnostic climb. Accepted synthesis and
+storyline enrichment evidence remain post-launch quality checks, not Scope A
+raw-feed gates. The service starting successfully by itself is never a
+release-ready claim.

@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-06-28
+> Last Reviewed: 2026-07-02
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-06-28
-**Version:** 0.9.4 (Phase 5 Scope A stability bake recorded)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A live and stable under the post-launch watch. The A6 public-news publisher is running a capped raw-only Scope A profile: raw-fresh, v4-signed, product-visible news cards, relay REST 2-of-3 quorum, and raw pending lifecycle rows (`synthesis_pending` / `frame_table_pending`). The launch closeout is recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`; the first extended post-#687 stability bake is recorded in `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`. That bake showed 42 consecutive clean post-overlap publisher ticks across more than seven hours, 336/336 raw writes, zero new StoryCluster truncation artifacts, zero rerank degeneracy warnings, and a passing hourly archive sample. This closes the StoryCluster rerank truncation track for Scope A raw publication, but the 24-72 hour sustained-operation watch and broader public-beta claims remain separate. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain downstream gates or post-launch tracks.
+**Last Updated:** 2026-07-02
+**Version:** 0.9.5 (Phase 5 Scope A recovered and instrumented)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A recovered after outage #2, fresh again on A6, and running the capped raw-only Scope A profile with new relay-memory diagnostics. The 2026-06-24 launch closeout and 2026-06-28 StoryCluster stability bake remain historical evidence for the raw path, but the 2026-06-29 fail-close outage reset the clean-window ledger. Current A6 posture is #691 graph diagnostics enabled, #692 early heap capture enabled, #693 fresh-bundle publisher priority, and #694 staggered relay watchdog heap ceilings. The next gate is a 12-24 hour instrumented climb to identify whether heap growth follows graph live bytes, graph skeleton/count growth, or an off-graph retainer. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, retention/compaction behavior, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢 Phase 5 Scope A live and stable under watch: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, hourly soak archive, and bounded relay heap/readback defenses. #687 closed the StoryCluster rerank truncation failure class for the launched raw path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A live; 24-72h watch in progress; Scope B enrichment pending |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #2: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #691 graph diagnostics, #692 early heap capture, #693 fresh-bundle priority, and #694 staggered relay watchdog ceilings. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered; 12-24h instrumented heap/graph climb in progress; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -38,15 +38,28 @@
 ## Active Program — Production Hardening
 
 Current policy state:
-- Phase 5 Scope A raw public-news rollout is live on A6 under the capped raw-only
-  profile recorded in `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`.
-  The 2026-06-28 stability bake in
-  `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md` records the
-  post-#687 production result: zero new rerank truncation artifacts, zero
-  degeneracy warnings, 42 clean post-overlap ticks, and 336/336 raw writes.
+- Phase 5 Scope A raw public-news rollout is intended-live on A6 under the capped
+  raw-only profile recorded in
+  `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`. The
+  2026-06-28 stability bake in
+  `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md` remains the
+  historical proof that #687 closed the known StoryCluster rerank truncation
+  class for the launched raw path.
+- Outage #2 is recorded in
+  `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`: the
+  publisher fail-closed at `2026-06-29T15:50:53Z` after correlated relay trips
+  broke 2-of-3 critical write quorum, remained parked by design, and was
+  recovered on 2026-07-02 after #691-#694. This was a safety success and an
+  availability failure; it resets sustained-operation evidence.
+- Current deployed Scope A posture is recovered/fresh, not stability-proven:
+  #691 graph scan metrics are enabled for the current A6 climb, #692 early heap
+  capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
+  priority, and #694 staggers relay heap watchdog ceilings at `850000000`,
+  `1000000000`, and `1150000000`.
 - Broader production/beta claims remain blocked until the relevant downstream
-  gates pass; do not promote Scope A raw-feed proof into accepted synthesis,
-  full product, mesh release, native, or identity-assurance claims.
+  gates pass; do not promote Scope A raw-feed proof or outage recovery into
+  accepted synthesis, full product, mesh release, native, identity-assurance, or
+  host-failure-tolerance claims.
 - Transitional proof shims are dev/staging only and must be removed before ship.
 - Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
@@ -78,12 +91,11 @@ Current policy state:
 - Production-grade feed claims now depend more on source-readability discipline than on additional StoryCluster corpus growth:
   - only onboarded readable, accessible, extraction-safe sources count toward the feed promise;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
-- Phase 5 Scope A launch evidence:
+- Phase 5 Scope A historical launch evidence:
   - closeout report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`;
   - stability bake report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`;
   - launched commit: `b3da27a09f683b7933f169bdd77c03f101681663`;
-  - current deployed stability-fix commit: `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - relay image: `vhc-public-beta-relay:20260624-main-vb3da27a0-amd64`;
+  - StoryCluster stability-fix commit: `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
   - launch profile: synthesis disabled, replay disabled, storylines disabled,
     raw cap `8`, raw concurrency `1`, repair sample `8`, repair interval
     `86400000`, prune disabled, relay min-success `2`;
@@ -92,7 +104,23 @@ Current policy state:
     restarts `0/0/0`;
   - public feed state: `record_count=20`, all `pending_synthesis`, no accepted
     synthesis available.
-- Phase 5 Scope A post-#687 stability evidence:
+- Phase 5 Scope A current recovery evidence:
+  - recovery/current-state report:
+    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`;
+  - current `main`: `eab5d3c6` (`Stagger public beta relay watchdog heap limits (#694)`);
+  - current relay image: `vhc-public-beta-relay:20260702-main-v96488ca0-amd64`;
+  - current live raw profile: synthesis disabled, replay disabled, storylines
+    disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
+    interval `86400000`, prune disabled, relay min-success `2`;
+  - relay diagnostics: graph scan enabled on A6, early heap capture at
+    `800000000`, watchdog heap ceilings `850000000` / `1000000000` /
+    `1150000000`;
+  - post-recovery checks: publisher liveness `pass`, relay liveness `pass`,
+    relay snapshot freshness `pass`, public freshness `pass`, watchdog trips
+    `0`, graph scan errors `0`, graph scan truncation `0`;
+  - current gate: 12-24 hour heap/graph climb before any retention,
+    publisher-clear, or relay-compaction fix.
+- Phase 5 Scope A post-#687 StoryCluster stability evidence:
   - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
   - #685 captured bounded OpenAI rerank artifacts and proved recurring
     `finish_reason=length` truncation;
@@ -195,21 +223,27 @@ Current policy state:
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (reviewed 2026-06-28)
+## StoryCluster Program Snapshot (reviewed 2026-07-02)
 
 Current truth for the news bundler and feed hardening lane:
 
-- Phase 5 Scope A is live on A6 as of 2026-06-24:
-  - raw publication is capped at 8 bundles per tick with raw write concurrency 1;
+- Phase 5 Scope A is recovered and intended-live on A6 after outage #2:
+  - raw publication is capped at 8 bundles per tick with raw write concurrency 2;
   - raw story, latest-index, hot-index, and pending lifecycle writes use relay
     REST 2-of-3 quorum;
   - accepted synthesis, topic synthesis, and storyline overlays are outside the
     launched path and remain post-launch enrichment;
   - publisher liveness, relay liveness, and relay snapshot freshness monitors
-    are operating monitors for the intended-live service.
+    are operating monitors for the intended-live service;
+  - the current stability question is relay-memory behavior, measured by #691
+    graph metrics and #692 early heap capture during the post-#694 staggered
+    climb.
 - The StoryCluster rerank truncation track is closed for the launched Scope A
   raw path as of the 2026-06-28 stability bake:
-  - #687 is deployed at `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
+  - #687 first deployed the durable rerank fix at
+    `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
+  - current `main` is `eab5d3c6`, with later #691-#694 diagnostics,
+    publisher-priority, and relay-stagger changes layered on top;
   - rerank output uses strict fixed-key object structured output instead of an
     array/max-items shape;
   - recoverable rerank output failures omit supplemental rerank results so the
@@ -275,8 +309,9 @@ Current truth for the news bundler and feed hardening lane:
   - explicit promotion-readiness assessment with blocking reasons;
   - denser diagnostic artifacts for insufficient-bundle public runs.
 - The correctness-gate sufficiency lane is complete and in force on `main`.
-- The current active post-launch work is source-surface density growth, sustained
-  monitor operation, and release-evidence accumulation beyond raw Scope A:
+- The current active post-launch work is source-surface density growth,
+  instrumented relay-memory observation, sustained monitor operation, and
+  release-evidence accumulation beyond raw Scope A:
   - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
   - require the daemon-first semantic gate as the served-stack confirmation of that proof;
   - keep public semantic runs smoke-only unless they independently earn promotion beyond telemetry;
@@ -304,6 +339,8 @@ Current truth for the news bundler and feed hardening lane:
    - treat monitor regressions, relay watchdog trips, readback 500s, fail-closed
      publisher stops, and stale latest-index snapshots as live-operation
      incidents, not launch-soak curiosities;
+   - let the current post-#694 graph/heap climb accumulate before choosing
+     retention, publisher clear, or relay compaction;
    - do not re-enable accepted synthesis, topic synthesis, storyline writes,
      verify/refresh, higher raw caps, or pruning without a separate attended
      soak and an updated runbook entry.
