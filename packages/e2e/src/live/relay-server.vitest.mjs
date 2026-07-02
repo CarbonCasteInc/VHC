@@ -184,6 +184,19 @@ async function waitForOutput(child, pattern, timeoutMs = 10_000) {
   throw new Error(`timed out waiting for output ${pattern}`);
 }
 
+async function waitForMetrics(port, predicate, timeoutMs = 5_000) {
+  const start = Date.now();
+  let latest = null;
+  while (Date.now() - start < timeoutMs) {
+    latest = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    if (latest.statusCode === 200 && predicate(latest.body)) {
+      return latest;
+    }
+    await delay(50);
+  }
+  throw new Error(`timed out waiting for metrics predicate. latest=${latest?.body ?? '<none>'}`);
+}
+
 async function waitForExit(child, timeoutMs = 10_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -477,6 +490,8 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_http_requests_total');
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
+    expect(metrics.body).toContain('vh_relay_gun_graph_scan_enabled 0');
+    expect(metrics.body).toContain('vh_relay_gun_graph_scan_successes_total 0');
     expect(metrics.body).toMatch(/vh_relay_process_open_fds \d+/);
   });
 
@@ -499,6 +514,43 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_radata_bytes 0');
     expect(metrics.body).toContain('vh_relay_radata_bytes_refresh_enabled 0');
     expect(metrics.body).toContain('vh_relay_radata_bytes_refresh_successes_total 0');
+  });
+
+  it('serves opt-in Gun graph metrics from a cached background scan without leaking values', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      GUN_RADISK: 'false',
+      VH_RELAY_GUN_GRAPH_SCAN_ENABLED: 'true',
+      VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS: '50',
+      VH_RELAY_GUN_GRAPH_SCAN_BATCH_SIZE: '2',
+      VH_RELAY_GUN_GRAPH_SCAN_MAX_DURATION_MS: '5000',
+    });
+    const privateTitle = `graph metrics private title ${Date.now()}`;
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/forum/thread`, {
+      method: 'POST',
+      body: {
+        thread: {
+          id: 'graph-metrics-thread',
+          title: privateTitle,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, thread_id: 'graph-metrics-thread' }),
+    });
+
+    const metrics = await waitForMetrics(port, (body) =>
+      /vh_relay_gun_graph_scan_successes_total [1-9]\d*/.test(body)
+      && /vh_relay_gun_graph_souls_total\{namespace="forum",state="live"\} [1-9]\d*/.test(body)
+      && /vh_relay_gun_graph_user_value_bytes\{namespace="forum",state="live"\} [1-9]\d*/.test(body));
+
+    expect(metrics.body).toContain('vh_relay_gun_graph_scan_enabled 1');
+    expect(metrics.body).toContain('vh_relay_gun_graph_scan_truncated 0');
+    expect(metrics.body).toMatch(/vh_relay_gun_graph_scan_duration_ms \d+/);
+    expect(metrics.body).toMatch(/vh_relay_gun_graph_scan_age_ms -?\d+/);
+    expect(metrics.body).not.toContain(privateTitle);
   });
 
   it('keeps GUN package stats file writes disabled by default', async () => {

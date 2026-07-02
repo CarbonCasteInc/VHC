@@ -206,6 +206,11 @@ const radataBytesRefreshIntervalMs = nonNegativeNumberEnv(
 const radataBytesScanMaxEntries = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_MAX_ENTRIES', 50_000);
 const radataBytesScanMaxDepth = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_MAX_DEPTH', 32);
 const radataBytesScanTimeoutMs = numberEnv('VH_RELAY_RADATA_BYTES_SCAN_TIMEOUT_MS', 5_000);
+const gunGraphScanEnabled = boolEnv('VH_RELAY_GUN_GRAPH_SCAN_ENABLED', false);
+const gunGraphScanIntervalMs = nonNegativeNumberEnv('VH_RELAY_GUN_GRAPH_SCAN_INTERVAL_MS', 60_000);
+const gunGraphScanBatchSize = numberEnv('VH_RELAY_GUN_GRAPH_SCAN_BATCH_SIZE', 1_000);
+const gunGraphScanMaxSouls = numberEnv('VH_RELAY_GUN_GRAPH_SCAN_MAX_SOULS', 250_000);
+const gunGraphScanMaxDurationMs = numberEnv('VH_RELAY_GUN_GRAPH_SCAN_MAX_DURATION_MS', 5_000);
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
 const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
 if (!relayPeerAuthModes.has(relayPeerAuthMode)) {
@@ -248,6 +253,9 @@ const metrics = {
   radataBytesRefreshSuccesses: 0,
   radataBytesRefreshErrors: 0,
   radataBytesRefreshTruncated: 0,
+  gunGraphScanSuccesses: 0,
+  gunGraphScanErrors: 0,
+  gunGraphScanTruncated: 0,
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
@@ -408,6 +416,26 @@ const radataBytesCache = {
   scannedEntries: 0,
   truncated: false,
   lastError: '',
+};
+let gunGraphScanInFlight = false;
+const GUN_GRAPH_NAMESPACES = Object.freeze([
+  'news_story',
+  'news_latest_index',
+  'news_hot_index',
+  'news_lifecycle',
+  'topic_synthesis',
+  'aggregate',
+  'forum',
+  'other',
+]);
+const GUN_GRAPH_STATES = Object.freeze(['live', 'tombstoned', 'link_only', 'unknown']);
+const gunGraphScanCache = {
+  refreshedAt: 0,
+  durationMs: 0,
+  scannedSouls: 0,
+  truncated: false,
+  lastError: '',
+  buckets: new Map(),
 };
 
 function criticalWriteReadbacksAreActive() {
@@ -951,6 +979,193 @@ function startRadataBytesRefresh() {
   interval.unref?.();
 }
 
+function gunGraphNamespaceForSoul(soul) {
+  const normalized = typeof soul === 'string' ? soul.replace(/\/+$/, '') : '';
+  if (!normalized) return 'other';
+  if (normalized === 'vh/news/index/latest' || normalized.startsWith('vh/news/index/latest/')) {
+    return 'news_latest_index';
+  }
+  if (normalized === 'vh/news/index/hot' || normalized.startsWith('vh/news/index/hot/')) {
+    return 'news_hot_index';
+  }
+  if (normalized.includes('/synthesis_lifecycle')) {
+    return 'news_lifecycle';
+  }
+  if (normalized === 'vh/news/stories' || normalized.startsWith('vh/news/stories/')) {
+    return 'news_story';
+  }
+  if (normalized === 'vh/topics' || normalized.startsWith('vh/topics/')) {
+    return 'topic_synthesis';
+  }
+  if (normalized === 'vh/aggregates' || normalized.startsWith('vh/aggregates/')) {
+    return 'aggregate';
+  }
+  if (normalized === 'vh/forum' || normalized.startsWith('vh/forum/')) {
+    return 'forum';
+  }
+  return 'other';
+}
+
+function isGunLinkValue(value) {
+  if (!isPlainRecord(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === 1 && keys[0] === '#' && typeof value['#'] === 'string';
+}
+
+function emptyGunGraphBuckets() {
+  const buckets = new Map();
+  for (const namespace of GUN_GRAPH_NAMESPACES) {
+    for (const state of GUN_GRAPH_STATES) {
+      buckets.set(`${namespace}\t${state}`, {
+        namespace,
+        state,
+        souls: 0,
+        userFields: 0,
+        userValueBytes: 0,
+      });
+    }
+  }
+  return buckets;
+}
+
+function addGunGraphBucket(buckets, { namespace, state, userFields, userValueBytes }) {
+  const safeNamespace = GUN_GRAPH_NAMESPACES.includes(namespace) ? namespace : 'other';
+  const safeState = GUN_GRAPH_STATES.includes(state) ? state : 'unknown';
+  const key = `${safeNamespace}\t${safeState}`;
+  const bucket = buckets.get(key) ?? {
+    namespace: safeNamespace,
+    state: safeState,
+    souls: 0,
+    userFields: 0,
+    userValueBytes: 0,
+  };
+  bucket.souls += 1;
+  bucket.userFields += Math.max(0, userFields || 0);
+  bucket.userValueBytes += Math.max(0, userValueBytes || 0);
+  buckets.set(key, bucket);
+}
+
+function summarizeGunGraphNode(soul, node) {
+  const namespace = gunGraphNamespaceForSoul(soul);
+  if (!isPlainRecord(node)) {
+    return { namespace, state: 'unknown', userFields: 0, userValueBytes: 0 };
+  }
+
+  let linkFields = 0;
+  let userFields = 0;
+  let nonNullUserFields = 0;
+  let nullUserFields = 0;
+  let userValueBytes = 0;
+
+  for (const field in node) {
+    if (!Object.prototype.hasOwnProperty.call(node, field) || field === '_') continue;
+    const value = node[field];
+    if (isGunLinkValue(value)) {
+      linkFields += 1;
+      continue;
+    }
+    userFields += 1;
+    if (value === null) {
+      nullUserFields += 1;
+    } else {
+      nonNullUserFields += 1;
+      userValueBytes += approximateJsonBytes(value);
+    }
+  }
+
+  if (userFields > 0 && nonNullUserFields > 0) {
+    return { namespace, state: 'live', userFields, userValueBytes };
+  }
+  if (userFields > 0 && nullUserFields === userFields) {
+    return { namespace, state: 'tombstoned', userFields, userValueBytes };
+  }
+  if (userFields === 0 && linkFields > 0) {
+    return { namespace, state: 'link_only', userFields, userValueBytes };
+  }
+  return { namespace, state: 'unknown', userFields, userValueBytes };
+}
+
+async function scanGunGraph(gunInstance) {
+  const startedAt = Date.now();
+  const graph = gunInstance?._?.graph;
+  const buckets = emptyGunGraphBuckets();
+  if (!isPlainRecord(graph)) {
+    return { scanned_souls: 0, truncated: false, buckets };
+  }
+
+  let scannedSouls = 0;
+  let truncated = false;
+  for (const soul in graph) {
+    if (!Object.prototype.hasOwnProperty.call(graph, soul)) continue;
+    if (scannedSouls >= gunGraphScanMaxSouls) {
+      truncated = true;
+      break;
+    }
+    if (Date.now() - startedAt > gunGraphScanMaxDurationMs) {
+      truncated = true;
+      break;
+    }
+    scannedSouls += 1;
+    addGunGraphBucket(buckets, summarizeGunGraphNode(soul, graph[soul]));
+    if (scannedSouls % gunGraphScanBatchSize === 0) {
+      await yieldToEventLoop();
+      if (Date.now() - startedAt > gunGraphScanMaxDurationMs) {
+        truncated = true;
+        break;
+      }
+    }
+  }
+  return { scanned_souls: scannedSouls, truncated, buckets };
+}
+
+async function refreshGunGraphScanCache(gunInstance, reason = 'interval') {
+  if (!gunGraphScanEnabled || gunGraphScanInFlight) return;
+  gunGraphScanInFlight = true;
+  const startedAt = Date.now();
+  try {
+    const result = await scanGunGraph(gunInstance);
+    gunGraphScanCache.refreshedAt = Date.now();
+    gunGraphScanCache.durationMs = gunGraphScanCache.refreshedAt - startedAt;
+    gunGraphScanCache.scannedSouls = result.scanned_souls;
+    gunGraphScanCache.truncated = result.truncated;
+    gunGraphScanCache.lastError = '';
+    gunGraphScanCache.buckets = result.buckets;
+    metrics.gunGraphScanSuccesses += 1;
+    if (result.truncated) {
+      metrics.gunGraphScanTruncated += 1;
+      logEvent('warn', 'gun_graph_scan_truncated', {
+        relay_id: relayId,
+        reason,
+        scanned_souls: result.scanned_souls,
+        max_souls: gunGraphScanMaxSouls,
+        max_duration_ms: gunGraphScanMaxDurationMs,
+      });
+    }
+  } catch (error) {
+    metrics.gunGraphScanErrors += 1;
+    gunGraphScanCache.lastError = error instanceof Error ? error.message : String(error);
+    logEvent('warn', 'gun_graph_scan_failed', {
+      relay_id: relayId,
+      reason,
+      error: gunGraphScanCache.lastError,
+    });
+  } finally {
+    gunGraphScanInFlight = false;
+  }
+}
+
+function startGunGraphScan(gunInstance) {
+  if (!gunGraphScanEnabled) return;
+  setTimeout(() => {
+    void refreshGunGraphScanCache(gunInstance, 'startup');
+  }, 0).unref?.();
+  if (gunGraphScanIntervalMs <= 0) return;
+  const interval = setInterval(() => {
+    void refreshGunGraphScanCache(gunInstance, 'interval');
+  }, gunGraphScanIntervalMs);
+  interval.unref?.();
+}
+
 function openFileDescriptorCount() {
   for (const fdDir of ['/proc/self/fd', '/dev/fd']) {
     try {
@@ -997,6 +1212,22 @@ function metricsText() {
   add('vh_relay_radata_bytes_refresh_successes_total', metrics.radataBytesRefreshSuccesses);
   add('vh_relay_radata_bytes_refresh_errors_total', metrics.radataBytesRefreshErrors);
   add('vh_relay_radata_bytes_refresh_truncated_total', metrics.radataBytesRefreshTruncated);
+  add('vh_relay_gun_graph_scan_enabled', gunGraphScanEnabled ? 1 : 0);
+  add('vh_relay_gun_graph_scan_running', gunGraphScanInFlight ? 1 : 0);
+  add('vh_relay_gun_graph_scan_successes_total', metrics.gunGraphScanSuccesses);
+  add('vh_relay_gun_graph_scan_errors_total', metrics.gunGraphScanErrors);
+  add('vh_relay_gun_graph_scan_truncated', gunGraphScanCache.truncated ? 1 : 0);
+  add('vh_relay_gun_graph_scan_truncated_total', metrics.gunGraphScanTruncated);
+  add('vh_relay_gun_graph_scan_duration_ms', gunGraphScanCache.durationMs);
+  add('vh_relay_gun_graph_scan_age_ms', gunGraphScanCache.refreshedAt > 0 ? Date.now() - gunGraphScanCache.refreshedAt : -1);
+  add('vh_relay_gun_graph_scan_scanned_souls', gunGraphScanCache.scannedSouls);
+  for (const bucket of [...gunGraphScanCache.buckets.values()]
+    .sort((left, right) => `${left.namespace}\t${left.state}`.localeCompare(`${right.namespace}\t${right.state}`))) {
+    const labels = { namespace: bucket.namespace, state: bucket.state };
+    add('vh_relay_gun_graph_souls_total', bucket.souls, labels);
+    add('vh_relay_gun_graph_user_fields_total', bucket.userFields, labels);
+    add('vh_relay_gun_graph_user_value_bytes', bucket.userValueBytes, labels);
+  }
   const memory = process.memoryUsage();
   const openFds = openFileDescriptorCount();
   add('vh_relay_process_rss_bytes', memory.rss);
@@ -1157,6 +1388,11 @@ function relayDiagnosticSnapshot(reason, details = {}) {
       watchdog_max_heap_growth_bytes: relayWatchdogMaxHeapGrowthBytes,
       watchdog_heap_snapshot_enabled: relayWatchdogHeapSnapshotEnabled,
       diagnostic_dir: relayWatchdogDiagnosticDir,
+      gun_graph_scan_enabled: gunGraphScanEnabled,
+      gun_graph_scan_interval_ms: gunGraphScanIntervalMs,
+      gun_graph_scan_batch_size: gunGraphScanBatchSize,
+      gun_graph_scan_max_souls: gunGraphScanMaxSouls,
+      gun_graph_scan_max_duration_ms: gunGraphScanMaxDurationMs,
     },
   };
 }
@@ -6015,6 +6251,7 @@ server.prependListener('upgrade', (req, socket) => {
 installFatalCaptureHandlers();
 startRelayResourceWatchdog();
 startRadataBytesRefresh();
+startGunGraphScan(gun);
 
 function listen() {
   server.listen(port, host, () => {
