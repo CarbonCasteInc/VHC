@@ -94,6 +94,8 @@ Templates:
 - `infra/systemd/user/vh-news-relay-liveness-watch.timer`
 - `infra/systemd/user/vh-phase5-scope-a-soak-archive.service`
 - `infra/systemd/user/vh-phase5-scope-a-soak-archive.timer`
+- `infra/systemd/user/vh-public-feed-alert-watch.service`
+- `infra/systemd/user/vh-public-feed-alert-watch.timer`
 
 Installer:
 

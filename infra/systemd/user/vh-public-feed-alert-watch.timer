@@ -1,0 +1,12 @@
+[Unit]
+Description=Run VHC public feed alert watch every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+Unit=vh-public-feed-alert-watch.service
+
+[Install]
+WantedBy=timers.target
