@@ -92,6 +92,24 @@ function nonNegativeNumberEnv(name, fallback) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+function positiveNumberListEnv(name, fallback = []) {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return fallback;
+  let entries = null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) entries = parsed;
+  } catch {
+    // Fall through to comma/whitespace-separated parsing.
+  }
+  if (!entries) entries = raw.split(/[,\s]+/);
+  const values = entries
+    .map((entry) => Number(entry))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .map((value) => Math.floor(value));
+  return [...new Set(values)].sort((left, right) => left - right);
+}
+
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
@@ -181,7 +199,11 @@ const relayWatchdogHeapSnapshotEnabled = boolEnv('VH_RELAY_WATCHDOG_HEAP_SNAPSHO
 const relayWatchdogEarlyHeapSnapshotEnabled = boolEnv('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED', false);
 const relayWatchdogEarlyHeapSnapshotHeapUsedBytes = numberEnv(
   'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES',
-  800_000_000,
+  500_000_000,
+);
+const relayWatchdogEarlyHeapSnapshotThresholds = positiveNumberListEnv(
+  'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST',
+  [relayWatchdogEarlyHeapSnapshotHeapUsedBytes],
 );
 const relayWatchdogDiagnosticDir = String(
   process.env.VH_RELAY_DIAGNOSTIC_DIR
@@ -261,11 +283,12 @@ const metrics = {
   gunGraphScanSuccesses: 0,
   gunGraphScanErrors: 0,
   gunGraphScanTruncated: 0,
+  earlyHeapSnapshotCaptures: new Map(),
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let lastRelayWatchdogSample = null;
-let relayWatchdogEarlyHeapSnapshotCaptured = false;
+const relayWatchdogEarlyHeapSnapshotCapturedThresholds = new Set();
 let relayWatchdogEarlyHeapSnapshotInFlight = false;
 
 const httpBuckets = new Map();
@@ -1184,6 +1207,19 @@ function openFileDescriptorCount() {
   return null;
 }
 
+function memoryUsageBreakdown(memory = process.memoryUsage()) {
+  const rssMinusHeapTotal = Math.max(0, memory.rss - memory.heapTotal);
+  return {
+    rss_bytes: memory.rss,
+    js_heap_total_bytes: memory.heapTotal,
+    js_heap_used_bytes: memory.heapUsed,
+    external_bytes: memory.external,
+    array_buffers_bytes: memory.arrayBuffers,
+    rss_minus_heap_total_bytes: rssMinusHeapTotal,
+    native_non_heap_estimate_bytes: Math.max(0, rssMinusHeapTotal - memory.external),
+  };
+}
+
 function metricsText() {
   const lines = [];
   const add = (name, value, labels = {}) => {
@@ -1280,6 +1316,28 @@ function metricsText() {
   for (const [reason, count] of metrics.relayWatchdogTrips) {
     add('vh_relay_resource_watchdog_trips_total', count, { reason });
   }
+  add('vh_relay_watchdog_early_heap_snapshot_enabled', relayWatchdogEarlyHeapSnapshotEnabled ? 1 : 0);
+  add('vh_relay_watchdog_early_heap_snapshot_in_flight', relayWatchdogEarlyHeapSnapshotInFlight ? 1 : 0);
+  relayWatchdogEarlyHeapSnapshotThresholds.forEach((thresholdBytes, index) => {
+    const labels = {
+      threshold_index: index + 1,
+      threshold_bytes: thresholdBytes,
+    };
+    add('vh_relay_watchdog_early_heap_snapshot_threshold_bytes', thresholdBytes, labels);
+    add(
+      'vh_relay_watchdog_early_heap_snapshot_captured',
+      relayWatchdogEarlyHeapSnapshotCapturedThresholds.has(thresholdBytes) ? 1 : 0,
+      labels,
+    );
+  });
+  for (const [key, count] of metrics.earlyHeapSnapshotCaptures) {
+    const [thresholdIndex, thresholdBytes, status] = key.split('\t');
+    add('vh_relay_watchdog_early_heap_snapshot_captures_total', count, {
+      threshold_index: thresholdIndex,
+      threshold_bytes: thresholdBytes,
+      status,
+    });
+  }
   for (const [operation, count] of metrics.snapshotBackgroundPauses) {
     add('vh_relay_snapshot_background_pauses_total', count, { operation });
   }
@@ -1360,6 +1418,7 @@ function relayDiagnosticSnapshot(reason, details = {}) {
       external: memory.external,
       array_buffers: memory.arrayBuffers,
     },
+    memory_breakdown: memoryUsageBreakdown(memory),
     event_loop_delay: eventLoopDelaySummary(),
     critical_write_readbacks: {
       active: activeCriticalWriteReadbacks,
@@ -1396,6 +1455,7 @@ function relayDiagnosticSnapshot(reason, details = {}) {
       watchdog_heap_snapshot_enabled: relayWatchdogHeapSnapshotEnabled,
       watchdog_early_heap_snapshot_enabled: relayWatchdogEarlyHeapSnapshotEnabled,
       watchdog_early_heap_snapshot_heap_used_bytes: relayWatchdogEarlyHeapSnapshotHeapUsedBytes,
+      watchdog_early_heap_snapshot_heap_used_bytes_list: relayWatchdogEarlyHeapSnapshotThresholds,
       diagnostic_dir: relayWatchdogDiagnosticDir,
       gun_graph_scan_enabled: gunGraphScanEnabled,
       gun_graph_scan_interval_ms: gunGraphScanIntervalMs,
@@ -1438,13 +1498,15 @@ function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
   const heapSnapshotTempPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot.tmp-${process.pid}`);
   const heapSummaryPath = path.join(relayWatchdogDiagnosticDir, `${base}.heap-summary.json`);
   const heapSnapshotErrorPath = path.join(relayWatchdogDiagnosticDir, `${base}.heapsnapshot-error.json`);
+  const memoryBeforeSnapshot = process.memoryUsage();
   const summary = {
     schema_version: 'vh-relay-heap-summary-v1',
     generated_at: new Date().toISOString(),
     relay_id: relayId,
     reason,
     details,
-    memory: process.memoryUsage(),
+    memory: memoryBeforeSnapshot,
+    memory_breakdown: memoryUsageBreakdown(memoryBeforeSnapshot),
     heap_statistics: v8.getHeapStatistics(),
     heap_space_statistics: v8.getHeapSpaceStatistics(),
     heap_snapshot_status: 'started',
@@ -1489,6 +1551,7 @@ function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
       heap_snapshot_temp_path: null,
       heap_snapshot_size_bytes: snapshotStat.size,
       memory_after_snapshot: process.memoryUsage(),
+      memory_breakdown_after_snapshot: memoryUsageBreakdown(),
       heap_statistics_after_snapshot: v8.getHeapStatistics(),
     });
     return {
@@ -1528,6 +1591,7 @@ function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
       heap_snapshot_size_bytes: tempSizeBytes,
       error: errorMessage,
       memory_after_snapshot_failure: process.memoryUsage(),
+      memory_breakdown_after_snapshot_failure: memoryUsageBreakdown(),
       heap_statistics_after_snapshot_failure: v8.getHeapStatistics(),
     });
     return {
@@ -1702,29 +1766,47 @@ function relayWatchdogBreach() {
   return null;
 }
 
+function nextEarlyHeapSnapshotThreshold(heapUsedBytes) {
+  for (let index = 0; index < relayWatchdogEarlyHeapSnapshotThresholds.length; index += 1) {
+    const thresholdBytes = relayWatchdogEarlyHeapSnapshotThresholds[index];
+    if (relayWatchdogEarlyHeapSnapshotCapturedThresholds.has(thresholdBytes)) continue;
+    if (heapUsedBytes >= thresholdBytes) {
+      return { thresholdBytes, thresholdIndex: index + 1 };
+    }
+  }
+  return null;
+}
+
+function incEarlyHeapSnapshotCapture(thresholdIndex, thresholdBytes, status) {
+  incMap(metrics.earlyHeapSnapshotCaptures, `${thresholdIndex}\t${thresholdBytes}\t${status}`);
+}
+
 function maybeCaptureEarlyHeapSnapshot() {
   if (!relayWatchdogEarlyHeapSnapshotEnabled
-    || relayWatchdogEarlyHeapSnapshotCaptured
+    || relayWatchdogEarlyHeapSnapshotThresholds.length === 0
     || relayWatchdogEarlyHeapSnapshotInFlight
     || relayWatchdogTripped) {
     return null;
   }
   const memory = process.memoryUsage();
-  if (relayWatchdogEarlyHeapSnapshotHeapUsedBytes <= 0
-    || memory.heapUsed < relayWatchdogEarlyHeapSnapshotHeapUsedBytes) {
+  const threshold = nextEarlyHeapSnapshotThreshold(memory.heapUsed);
+  if (!threshold) {
     return null;
   }
   if (activeCriticalWriteReadbacks > 0 || queuedCriticalWriteReadbacks.length > 0) {
     return null;
   }
 
-  relayWatchdogEarlyHeapSnapshotCaptured = true;
+  relayWatchdogEarlyHeapSnapshotCapturedThresholds.add(threshold.thresholdBytes);
   relayWatchdogEarlyHeapSnapshotInFlight = true;
   const details = {
     reason: 'early_heap_used_bytes',
+    threshold_index: threshold.thresholdIndex,
     observed: memory.heapUsed,
-    limit: relayWatchdogEarlyHeapSnapshotHeapUsedBytes,
+    limit: threshold.thresholdBytes,
+    configured_thresholds: relayWatchdogEarlyHeapSnapshotThresholds,
     rss: memory.rss,
+    memory_breakdown: memoryUsageBreakdown(memory),
     watchdog_max_heap_used_bytes: relayWatchdogMaxHeapUsedBytes,
     watchdog_max_rss_bytes: relayWatchdogMaxRssBytes,
   };
@@ -1732,8 +1814,10 @@ function maybeCaptureEarlyHeapSnapshot() {
     const capture = writeRelayDiagnosticBundle('watchdog-early-heap-used-bytes', details, {
       forceHeapSnapshot: true,
     });
+    incEarlyHeapSnapshotCapture(threshold.thresholdIndex, threshold.thresholdBytes, capture.heap_snapshot_status);
     logEvent(capture.heap_snapshot_status === 'success' ? 'warn' : 'error', 'relay_watchdog_early_heap_snapshot_captured', {
       relay_id: relayId,
+      threshold_index: details.threshold_index,
       observed: details.observed,
       limit: details.limit,
       diagnostic_summary_path: capture.summary_path,
@@ -1748,10 +1832,12 @@ function maybeCaptureEarlyHeapSnapshot() {
   } catch (error) {
     logEvent('error', 'relay_watchdog_early_heap_snapshot_failed', {
       relay_id: relayId,
+      threshold_index: details.threshold_index,
       observed: details.observed,
       limit: details.limit,
       error: error instanceof Error ? error.message : String(error),
     });
+    incEarlyHeapSnapshotCapture(threshold.thresholdIndex, threshold.thresholdBytes, 'exception');
     return null;
   } finally {
     relayWatchdogEarlyHeapSnapshotInFlight = false;

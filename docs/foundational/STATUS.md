@@ -116,19 +116,20 @@ Current policy state:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
   - current MVP readiness state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
-  - current `main`: `215b5c8f` (`Close out next-owner diagnostics and LUMA gates (#701)`);
+  - current `main`: `b9007531` (`Align MVP readiness state after Scope A driver verdict (#702)`);
   - current relay image: `vhc-public-beta-relay:20260702-main-v96488ca0-amd64`;
   - current live raw profile: synthesis disabled, replay disabled, storylines
     disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
     interval `86400000`, prune disabled, relay min-success `2`;
-  - relay diagnostics: graph scan enabled on A6, early heap capture at
-    `800000000`, watchdog heap ceilings `850000000` / `1000000000` /
-    `1150000000`;
+  - deployed relay diagnostics at the recovery image: graph scan enabled on A6,
+    early heap capture at `800000000`, watchdog heap ceilings `850000000` /
+    `1000000000` / `1150000000`;
   - post-recovery checks: publisher liveness `pass`, relay liveness `pass`,
     relay snapshot freshness `pass`, public freshness `pass`, watchdog trips
     `0`, graph scan errors `0`, graph scan truncation `0`;
-  - current gate: early-capture threshold retune and secret-safe retainer
-    summary before any off-graph driver fix;
+  - current gate: early-capture threshold retune (`500000000` first capture,
+    optional `700000000` second capture) and secret-safe retainer summary before
+    any off-graph driver fix;
   - explicit non-gate: do not start retention, publisher-clear, eviction, or
     relay-compaction work from the current evidence.
 - Phase 5 Scope A post-#687 StoryCluster stability evidence:
@@ -368,9 +369,9 @@ Current truth for the news bundler and feed hardening lane:
      incidents, not launch-soak curiosities;
    - treat the current post-#701 driver verdict as off-graph-likely until a
      secret-safe early-capture retainer summary supersedes it;
-   - build the next Scope A PR as early-capture threshold retuning and
-     retainer-summary assertion, not retention, publisher clear, or relay
-     compaction;
+   - build the next Scope A PR as early-capture threshold retuning
+     (`500000000,700000000`) and retainer-summary assertion, not retention,
+     publisher clear, or relay compaction;
    - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
      investigation item before trusting future threshold math;
    - keep A6 public-feed alert enablement operator-owned and require a reachable

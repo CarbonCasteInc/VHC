@@ -1913,7 +1913,7 @@ describe('infra relay server', () => {
   it('captures a one-shot early heap snapshot without tripping the watchdog', async () => {
     const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-early-heap-diagnostics-'));
     tempDirs.add(diagnosticDir);
-    const { child } = await startRelay(children, tempDirs, {
+    const { port, child } = await startRelay(children, tempDirs, {
       VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'false',
       VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
       VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: 'true',
@@ -1944,7 +1944,19 @@ describe('infra relay server', () => {
       reason: 'watchdog-early-heap-used-bytes',
       details: expect.objectContaining({
         reason: 'early_heap_used_bytes',
+        threshold_index: 1,
         limit: 1,
+        configured_thresholds: [1],
+        memory_breakdown: expect.objectContaining({
+          js_heap_used_bytes: expect.any(Number),
+          external_bytes: expect.any(Number),
+          array_buffers_bytes: expect.any(Number),
+          native_non_heap_estimate_bytes: expect.any(Number),
+        }),
+      }),
+      config: expect.objectContaining({
+        watchdog_early_heap_snapshot_heap_used_bytes: 1,
+        watchdog_early_heap_snapshot_heap_used_bytes_list: [1],
       }),
       artifacts: expect.objectContaining({
         heap_snapshot_path: expect.stringContaining('.heapsnapshot'),
@@ -1959,9 +1971,82 @@ describe('infra relay server', () => {
       reason: 'watchdog-early-heap-used-bytes',
       heap_snapshot_status: 'success',
       heap_snapshot_size_bytes: expect.any(Number),
+      memory_breakdown: expect.objectContaining({
+        js_heap_used_bytes: expect.any(Number),
+        external_bytes: expect.any(Number),
+        array_buffers_bytes: expect.any(Number),
+        native_non_heap_estimate_bytes: expect.any(Number),
+      }),
+      memory_breakdown_after_snapshot: expect.objectContaining({
+        js_heap_used_bytes: expect.any(Number),
+      }),
     });
     expect(heapSummary.heap_snapshot_size_bytes).toBeGreaterThan(0);
+
+    const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+    expect(metrics.body).toContain('vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index="1",threshold_bytes="1"} 1');
+    expect(metrics.body).toContain('vh_relay_watchdog_early_heap_snapshot_captured{threshold_index="1",threshold_bytes="1"} 1');
+    expect(metrics.body).toContain('vh_relay_watchdog_early_heap_snapshot_captures_total{threshold_index="1",threshold_bytes="1",status="success"} 1');
   }, 25_000);
+
+  it('captures each configured early heap threshold once without repeated back-to-back snapshots', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-early-heap-list-diagnostics-'));
+    tempDirs.add(diagnosticDir);
+    const { port, child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'false',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '50',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: '1',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: '1,2',
+      VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT: 'true',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    const waitForCaptureMetrics = async () => {
+      const start = Date.now();
+      while (Date.now() - start < 10_000) {
+        const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+        const failedCaptures = (metrics.body.match(/vh_relay_watchdog_early_heap_snapshot_captures_total\{[^}]*status="failed"[^}]*\} 1/g) || []).length;
+        if (failedCaptures >= 2) return metrics.body;
+        await delay(50);
+      }
+      throw new Error(`timed out waiting for two early heap capture metrics: ${child.stdoutText}\n${child.stderrText}`);
+    };
+
+    const metrics = await waitForCaptureMetrics();
+    expect(child.exitCode).toBeNull();
+    expect(metrics).toContain('vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index="1",threshold_bytes="1"} 1');
+    expect(metrics).toContain('vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index="2",threshold_bytes="2"} 2');
+    expect(metrics).toContain('vh_relay_watchdog_early_heap_snapshot_captured{threshold_index="1",threshold_bytes="1"} 1');
+    expect(metrics).toContain('vh_relay_watchdog_early_heap_snapshot_captured{threshold_index="2",threshold_bytes="2"} 1');
+
+    const files = readdirSync(diagnosticDir);
+    const heapSnapshotFiles = files.filter((file) => file.endsWith('.heapsnapshot'));
+    const heapSummaryFiles = files.filter((file) => file.endsWith('.heap-summary.json'));
+    const heapErrorFiles = files.filter((file) => file.endsWith('.heapsnapshot-error.json'));
+    expect(heapSnapshotFiles).toHaveLength(0);
+    expect(heapSummaryFiles).toHaveLength(2);
+    expect(heapErrorFiles).toHaveLength(2);
+
+    const summaries = heapSummaryFiles
+      .map((file) => JSON.parse(readFileSync(path.join(diagnosticDir, file), 'utf8')))
+      .sort((left, right) => left.details.threshold_index - right.details.threshold_index);
+    expect(summaries.map((summary) => summary.details.threshold_index)).toEqual([1, 2]);
+    expect(summaries.map((summary) => summary.details.limit)).toEqual([1, 2]);
+    expect(summaries[0]).toMatchObject({
+      heap_snapshot_status: 'failed',
+      error: 'heap snapshot writer produced an empty file',
+      memory_breakdown: expect.objectContaining({
+        js_heap_used_bytes: expect.any(Number),
+        external_bytes: expect.any(Number),
+        array_buffers_bytes: expect.any(Number),
+      }),
+      memory_breakdown_after_snapshot_failure: expect.objectContaining({
+        js_heap_used_bytes: expect.any(Number),
+      }),
+    });
+  }, 15_000);
 
   it('keeps critical write readback failures fatal to the route', async () => {
     const routes = [

@@ -434,7 +434,20 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /VH_RELAY_DIAGNOSTIC_DIR=\/data\/diagnostics/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true/);
-    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000/);
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000'))
+        .length >= 3,
+      result.stdout,
+    );
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000'))
+        .length >= 3,
+      result.stdout,
+    );
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000/);
     assert.match(result.stdout, /VH_RELAY_STARTUP_JITTER_MAX_MS=5000/);
     assert.match(result.stdout, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY=2/);
@@ -496,7 +509,8 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
     assert.match(block, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES:-250000000\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED:-true\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED:-true\}/);
-    assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-800000000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-500000000\}/);
+    assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST:-500000000,700000000\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS: \$\{VH_RELAY_WATCHDOG_EXIT_GRACE_MS:-30000\}/);
     assert.match(block, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY: \$\{VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY:-2\}/);
     assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES:-false\}/);

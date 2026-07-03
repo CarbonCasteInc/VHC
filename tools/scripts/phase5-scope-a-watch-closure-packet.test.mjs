@@ -82,7 +82,7 @@ function graphScan({
   };
 }
 
-function relay(name, rssBytes, heapUsedBytes, graph = null) {
+function relay(name, rssBytes, heapUsedBytes, graph = null, earlyHeapSnapshot = null) {
   return {
     name,
     status: 'pass',
@@ -95,6 +95,7 @@ function relay(name, rssBytes, heapUsedBytes, graph = null) {
       eventLoopLagP99Ms: 20,
       criticalReadbacksQueued: 0,
       ...(graph ? { graphScan: graph } : {}),
+      ...(earlyHeapSnapshot ? { earlyHeapSnapshot } : {}),
     },
   };
 }
@@ -311,6 +312,39 @@ test('projects relay heap trend against deployed watchdog env when provided', ()
   assert.equal(packet.relayMemory.relays[0].heapLimitBytes, 1_300_000_000);
   assert.equal(packet.relayMemory.relays[0].heapLimitSource, 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES');
   assert.equal(Math.round(packet.relayMemory.relays[0].heapHoursToLimit), 32);
+});
+
+test('projects relay heap trend against the next early-capture threshold when present', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  const earlyHeapSnapshot = {
+    enabled: true,
+    inFlight: false,
+    thresholds: [
+      { thresholdIndex: 1, thresholdBytes: 500_000_000, captured: false },
+      { thresholdIndex: 2, thresholdBytes: 700_000_000, captured: false },
+    ],
+    captureTotals: [],
+  };
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 400_000_000, 300_000_000, null, earlyHeapSnapshot),
+  ]);
+  makeSample(archiveRoot, '20260628T010000Z', '2026-06-28T01:00:00.000Z', [
+    relay('vhc-relay-a', 410_000_000, 310_000_000, null, earlyHeapSnapshot),
+  ]);
+  makeSample(archiveRoot, '20260628T020000Z', '2026-06-28T02:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000, null, earlyHeapSnapshot),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-28T02:00:00.000Z'),
+  });
+
+  const relaySummary = packet.relayMemory.relays[0];
+  assert.equal(relaySummary.earlyHeapSnapshotNextThresholdBytes, 500_000_000);
+  assert.equal(Math.round(relaySummary.earlyHeapSnapshotHoursToNextThreshold), 18);
+  assert.equal(relaySummary.earlyHeapSnapshot.thresholds.length, 2);
 });
 
 test('keeps the packet in progress before the 24h threshold elapses', () => {

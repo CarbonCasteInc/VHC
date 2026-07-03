@@ -42,9 +42,11 @@ count is not large enough to make link-only structure the primary driver. The
 missing early-capture artifact is threshold-not-reached evidence, not another
 trip-time capture failure: the sampled heap stayed near `300 MiB`, below the
 configured `~800 MiB` trigger. The next Scope A PR is early-capture threshold
-retuning and secret-safe retainer identification. Retention, publisher clear,
-eviction, and relay compaction are not release-readiness work unless a future
-retainer summary names them.
+retuning and secret-safe retainer identification; the intended public-beta
+diagnostic defaults are a first capture at `500 MiB` and a second capture at
+`700 MiB` so realistic relay uptimes can produce evidence. Retention, publisher
+clear, eviction, and relay compaction are not release-readiness work unless a
+future retainer summary names them.
 
 ## 1. Closeout Verdict
 

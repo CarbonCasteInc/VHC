@@ -51,7 +51,7 @@ Current intended-live posture:
 - Publisher liveness, relay liveness, and relay snapshot freshness timers are
   intended to stay enabled during live operation.
 - The hourly Scope A soak archive timer is intended to stay enabled during the
-  current post-#694 12-24 hour instrumented climb so each hour preserves
+  post-#701 off-graph relay-memory diagnostic window so each hour preserves
   publisher liveness, relay liveness, relay snapshot freshness, public feed
   freshness, and graph/heap diagnostics.
 - The StoryCluster rerank truncation class that interrupted launch is fixed at
@@ -727,7 +727,8 @@ staggered `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES` values
 `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
 `VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
 `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true`,
-`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000`, and
+`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000`,
+`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000`, and
 `VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become a
 synchronized restart loop. The heap ceilings are separated by at least 150 MB to
 break co-located relay phase-lock even after a shared deploy/recreate floor
@@ -740,9 +741,12 @@ co-located relays. If
 host-private `0600` artifacts only; do not attach or publish `.heapsnapshot`
 files without explicit secret-review approval. Trip-time snapshots can still OOM
 while serializing a large heap, so the early heap snapshot threshold is the
-primary raw-retainer capture path; the relay writes redacted summaries before
-serialization and reports empty or failed captures through
-`*.heapsnapshot-error.json`.
+primary raw-retainer capture path. The public-beta defaults capture two one-shot
+points, around `500 MB` and `700 MB` heap used, so realistic relay uptimes can
+produce at least one artifact and the two summaries can be compared for retainer
+growth when both fire. The relay writes redacted summaries before serialization,
+includes explicit JS-heap, external, arrayBuffer, and native-non-heap estimate
+totals, and reports empty or failed captures through `*.heapsnapshot-error.json`.
 
 For the capped raw-only Scope A operating profile, run all three relays with
 `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
@@ -763,7 +767,12 @@ against the same watchdog ceilings. Export the deployed
 `VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES` into the watch environment if A6
 overrides the compose defaults; otherwise the tools intentionally fall back to
 the public-beta per-relay defaults (`850000000`, `1000000000`, `1150000000`) and
-the relay server RSS default (`1800000000`).
+the relay server RSS default (`1800000000`). The relay liveness watch also reads
+the early-capture metrics. If a relay advertises early heap capture as enabled,
+heap has crossed the first configured threshold, no capture is in flight, and
+that threshold has not been recorded as captured, the watch fails with
+`early_heap_snapshot_missing:<heap>/<threshold>`. Treat that as a diagnostic
+assertion failure, not as a heap-retainer verdict.
 
 The latest-index snapshot and story-body REST caches are bounded, but they do
 not prove the relay process heap is bounded. Public-news writes still create
