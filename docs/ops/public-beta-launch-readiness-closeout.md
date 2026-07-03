@@ -2,10 +2,10 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-02
+> Last Reviewed: 2026-07-03
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
-Version: 0.9
+Version: 0.10
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
@@ -32,9 +32,19 @@ hours and is fresh again with #691 graph diagnostics, #692 early heap capture,
 #693 fresh-bundle priority, and #694 staggered relay watchdog ceilings deployed.
 The recovery is recorded in
 `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`. This closes
-the outage, not the sustained-operation proof: retention/compaction and 48-hour
-Scope A stability claims remain gated on the current 12-24 hour graph/heap
-climb.
+the outage, not the sustained-operation proof.
+
+2026-07-03 Scope A driver update: the read-only verdict in
+`docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md` classifies the
+current heap growth as `heap_driver_off_graph_likely`. Graph live bytes are too
+small to explain heap/RSS growth, tombstones remain absent, and total graph soul
+count is not large enough to make link-only structure the primary driver. The
+missing early-capture artifact is threshold-not-reached evidence, not another
+trip-time capture failure: the sampled heap stayed near `300 MiB`, below the
+configured `~800 MiB` trigger. The next Scope A PR is early-capture threshold
+retuning and secret-safe retainer identification. Retention, publisher clear,
+eviction, and relay compaction are not release-readiness work unless a future
+retainer summary names them.
 
 ## 1. Closeout Verdict
 
@@ -182,7 +192,7 @@ Public peer-config bootstrap and accepted-detail smoke update, 2026-05-31: PR #6
 
 Public feed/stance relay recovery update, 2026-06-01: PR #631 follow-up replaced the blocked `nypost-politics` starter feed with `washingtonexaminer-politics`, then pruned `channelnewsasia-latest` after live source-health sampled an RSS item returning HTTP 404. A candidate scout rerun found no promotable replacement (`cnn-politics` was singleton-only, and the other candidates were rejected or inconclusive), so the active source surface now keeps only the 27 verified readable sources. Source-health artifact `services/news-aggregator/.tmp/news-source-admission/1780289875717/source-health-report.json` reports `ready` with 27/27 sources kept, 27 contributing sources, 26 corroborating sources, no watch/remove sources, and `releaseEvidence.status: pass`. The deployed relays were operationally repaired by moving aside corrupted legacy RADISK field files while preserving `news-latest-index-snapshot.json`, `news-synthesis-lifecycle-snapshot.json`, and `topic-synthesis-latest-snapshot.json`; relay A/B/C were then recreated with aggregate self-peer readback disabled and the origin was recreated with three relay fanout targets (`gun-a`, `gun-b`, `gun-c`). This avoided the prior aggregate REST hang/OOM loop and restored bounded public aggregate reads. Current code hardens the relay so optional aggregate self-peer readback is bounded even if re-enabled; local coverage is `pnpm --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts` (`31 passed`) plus `node --check infra/relay/server.js`. A later lifecycle gate rerun exposed 77 stale pending rows, so the public repair utility was hardened to derive the lifecycle row from public state before signing: current accepted syntheses with complete frame/reframe point IDs are preserved as `accepted_available` and `frame_table_ready`, while incomplete rows receive a fresh pending/retryable heartbeat instead of being hidden or downgraded. The lifecycle-preserving signed repair passed for 80/80 rows on `gun-a`/`gun-c` at `.tmp/release-evidence/public-news-system-writer-repair/20260601T051408Z-lifecycle-preserve-top80-gun-a-c/public-news-system-writer-repair-summary.json` and for 80/80 rows on `gun-b` at `.tmp/release-evidence/public-news-system-writer-repair/20260601T052025Z-lifecycle-preserve-top80-gun-b/public-news-system-writer-repair-summary.json`. Current live public artifacts are: composition/freshness at `.tmp/release-evidence/public-feed-composition-freshness/1780290109877/public-feed-composition-freshness-summary.json`, which observed 80 latest rows, 59 singleton, 21 multi-source/corroborated, 3 accepted synthesis stories, and 80/80 story-body readback; lifecycle accountability at `.tmp/release-evidence/public-feed-lifecycle-accountability/1780291589018/public-feed-lifecycle-accountability-summary.json`, which observed 80/80 product-visible stories, 77 fresh pending lifecycle rows, 3 accepted/frame-ready rows, and no stale pending rows; and strict stance/aggregate/decay at `.tmp/release-evidence/public-feed-browser-smoke/1780290283606/public-feed-browser-smoke-summary.json`, which passed with app-open 15 cards, load-more 30 cards through a real `before` cursor, accepted detail for `story-b6355234a9f6`, public aggregate readback via same-origin relay fanout (`agree: 12`, `participants: 12`), and second-browser vote visibility. This remains public feed and relay-fanout recovery evidence, not a blanket distributed mesh release claim: server-to-server relay peering is still disabled (`relay_peer_count: 0`) because the current public Gun peer hydration path OOMs under the recovered data load, direct Gun latest-index reads are not the authoritative accepted-synthesis path after the snapshot-preserving RADISK cleanup, and mesh production readiness remains `review_required` until the separate public WSS deployment proof blocker is cleared.
 
-This closeout does not claim legal approval, 48-hour Scope A stability, production-grade live headline freshness, production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, public WSS mesh `release_ready`, full production app readiness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
+This closeout does not claim legal approval, 48-hour Scope A stability, production-grade live headline freshness, production-attestation/Silver, verified-human identity, one-human-one-vote, Sybil resistance, full LUMA `§21.4` recorded product replay, `<TrustClaim>` readiness, public WSS mesh `release_ready`, full production app readiness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
 
 ## 2. Required Release Evidence Packet
 
@@ -269,6 +279,8 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 | `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
 | `external_release_approval_not_recorded` | ship_blocker | This repo does not create legal/commercial approval. If the organization requires legal/operator approval before public distribution, that signoff must be recorded outside the code gates before public launch claims are made. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | Do not market live public headlines as production-grade unless `pnpm check:storycluster:production-readiness` resolves to `release_ready`. The Web PWA beta may still use the constrained beta and validated-snapshot scope. |
+| `scope_a_sustained_stability_claim_without_retainer_evidence` | ship_blocker | Do not claim 48-hour Scope A stability or host-failure tolerance from outage recovery alone. The current verdict is `heap_driver_off_graph_likely`; sustained live-headline claims require early-capture retainer evidence or a later clean plateau/window that supersedes the verdict. |
+| `public_feed_alert_delivery_channel_missing` | ship_blocker | Do not run an unattended public-feed watch if no webhook/email delivery channel reaches the release owner. Host-local logs and timers already failed as the only alert path during outage #2. |
 | `full_product_engagement_claim_without_live_lane` | ship_blocker | Do not claim the full multi-user product loop was exercised against release-like service wiring unless `pnpm live:stack:up:analysis-stub` and `pnpm test:live:five-user-engagement` pass on the release candidate or the claim is removed. |
 | `public_feed_analysis_frame_reliability_missing_or_failing` | ship_blocker | Do not launch the public MVP feed if the public browser smoke or consistency probe shows latest-index rows whose story body route 404s outside a bounded repair/tombstone window, app-open public latest refresh is skipped because stale launch/snapshot news was already composed, visible readable text stories without accepted-current synthesis or terminal unavailable reason, accepted synthesis counted without matching story/source-set lifecycle, missing accepted frame rows, missing point ids for votable rows, or CSP/network errors affecting peer health, synthesis, story reads, or app function. |
 | `public_feed_composition_or_lifecycle_missing_or_failing` | ship_blocker | Do not launch the public MVP feed if the latest feed is singleton-only, lacks visible eligible singleton stories, lacks visible multi-source/corroborated stories without an explicit `setup_scarcity` classification, omits the relay composition/story-state/product-metadata surface, fails to verify all configured public relay peers, has an empty/unavailable hot index or sampled hot rows with metadata-stale/forked story identities, is outside the freshness window, or hides eligible raw stories because synthesis is pending. |
