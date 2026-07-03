@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button } from '@vh/ui';
 import { TRUST_MINIMUM, TRUST_ELEVATED } from '@vh/data-model';
 import { useAI, type AnalysisResult } from '@vh/ai-engine';
@@ -184,9 +185,13 @@ export const DashboardContent: React.FC = () => {
 
           <div className="flex flex-wrap gap-3">
             <Button onClick={() => console.log('bootstrap mesh')}>Bootstrap Mesh</Button>
-            <Button variant="secondary" onClick={() => console.log('open settings')}>
-              Open Settings
-            </Button>
+            <Link
+              to="/account/identity"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zinc-100 px-4 text-sm font-medium text-zinc-900 transition-colors hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
+              data-testid="identity-controls-link"
+            >
+              Identity controls
+            </Link>
             <Button
               variant="ghost"
               disabled

@@ -19,10 +19,10 @@ sequences how the UI lands them.
 | `useIdentity.signOut()` / `resetIdentity()` split | DONE | `apps/web-pwa/src/hooks/useIdentity.ts` (~315-336); `revokeSession()` is a deprecation shim |
 | Spec §13.2 state-graph behavior in the hooks | DONE (operator-token row completed after initial packet) | Sign Out preserves device credential / SEA pair / wallet binding / delegation key / operator token; Reset rotates or clears them; see §3 table |
 | `operatorAuthorizationToken` clearing on Reset | DONE | Implemented as an optional VaultV2 compartment; `resetIdentity()` explicitly clears it and tests prove Sign Out preserves it |
-| Unit tests for Sign Out / Reset semantics | PARTIAL | `useIdentity.test.ts` asserts the high-risk state rows including `operatorAuthorizationToken`; remaining rows listed in §6.1 |
-| `/account/identity` route | MISSING | No `/account/*` route in `apps/web-pwa/src/routes/index.tsx` |
-| Controls UI (panels, confirmation modals, session metadata) | MISSING | Dashboard has stub buttons only |
-| Wallet re-bind prompt after Reset | PARTIAL | `WalletPanel` handles the re-bind state; not wired into an identity-controls flow |
+| Unit tests for Sign Out / Reset semantics | DONE | `useIdentity.test.ts` asserts session clearing, runtime clearing, compartment preservation/rotation, wallet binding, delegation storage, operator token, XP active nullifier, sentiment signals, and telemetry reset |
+| `/account/identity` route | DONE | Route is registered in `apps/web-pwa/src/routes/index.tsx` |
+| Controls UI (panels, confirmation modals, session metadata) | DONE | `apps/web-pwa/src/routes/AccountIdentityPage.tsx` implements the panel, confirmation modals, session metadata, and telemetry debug surface |
+| Wallet re-bind prompt after Reset | DONE | `/account/identity` renders `identity-wallet-rebind` when the connected wallet is bound to a prior principal |
 | E2E flows (sign-out continuity / reset rotation) | MISSING | No e2e coverage of either journey |
 
 ## 2. UX copy pack (draft strings)
@@ -54,7 +54,7 @@ claim deletion, anonymity, or repudiation.
 
 - Button: `Reset identity` (destructive styling, separated placement)
 - Modal title: `Reset your identity on this device?`
-- Modal body: `Resetting creates a new pseudonym and abandons the current one.
+- Modal body: `Resetting creates a new pseudonym and stops using the current one.
   Your previous posts, comments, and votes remain public under your old
   pseudonym — resetting does not remove them and cannot make them yours again.
   Your wallet must be re-bound, and any operator authorization or delegations
@@ -132,12 +132,10 @@ action, not the controls.
 
 ### 6.1 Unit (state-graph completion)
 
-Extend `useIdentity.test.ts` so every row of the §3 table is asserted for
-both flows — the currently missing assertions are: `sessionToken`,
-`assuranceEnvelope`, `useSentimentState.signals`, `vaultMasterKey`
-preservation, and `xpLedger.activeNullifier` on Reset. The
-`operatorAuthorizationToken` row is now covered: Sign Out preserves the vault
-compartment and Reset Identity clears it explicitly.
+`useIdentity.test.ts` asserts every exposed row of the §3 table for both
+flows. Direct `vaultMasterKey` inspection remains intentionally unavailable;
+the test proves preservation through post-flow compartment load/create behavior
+for device credential, SEA pair, wallet binding, and delegation key material.
 
 ### 6.2 E2E (roadmap M1.B acceptance)
 

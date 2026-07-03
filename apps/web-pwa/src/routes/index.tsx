@@ -12,6 +12,7 @@ import { ThreadView } from '../components/hermes/forum/ThreadView';
 import { IDChip } from '../components/hermes/IDChip';
 import { ScanContact } from '../components/hermes/ScanContact';
 import { DashboardPage } from './dashboardContent';
+import { AccountIdentityPage } from './AccountIdentityPage';
 import { DevColorPanel } from '../components/DevColorPanel';
 import { NewsReportAdminQueue } from '../components/admin/NewsReportAdminQueue';
 import {
@@ -100,6 +101,7 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
 const HomeComponent = () => <FeedList />;
 
 const DashboardComponent = DashboardPage;
+const AccountIdentityComponent = AccountIdentityPage;
 
 const AdminReportsComponent = () => <NewsReportAdminQueue />;
 
@@ -239,6 +241,11 @@ const dashboardRoute = createRoute({
   path: '/dashboard',
   component: DashboardComponent
 });
+const accountIdentityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/identity',
+  component: AccountIdentityComponent
+});
 const adminReportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin/reports',
@@ -295,6 +302,7 @@ export const routeTree = rootRoute.addChildren([
   hermesRoute.addChildren([hermesIndexRoute, hermesMessagesRoute, hermesMessagesChannelRoute, hermesThreadRoute]),
   governanceRoute,
   dashboardRoute,
+  accountIdentityRoute,
   adminReportsRoute,
   complianceRoute,
   betaRoute,
