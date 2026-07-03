@@ -127,9 +127,10 @@ Current policy state:
   - post-recovery checks: publisher liveness `pass`, relay liveness `pass`,
     relay snapshot freshness `pass`, public freshness `pass`, watchdog trips
     `0`, graph scan errors `0`, graph scan truncation `0`;
-  - current gate: early-capture threshold retune (`500000000` first capture,
-    optional `700000000` second capture) and secret-safe retainer summary before
-    any off-graph driver fix;
+  - current gate: early-capture threshold retune with per-relay stagger
+    (`a=500000000,700000000`; `b=520000000,720000000`;
+    `c=540000000,740000000`) and secret-safe retainer summary before any
+    off-graph driver fix;
   - explicit non-gate: do not start retention, publisher-clear, eviction, or
     relay-compaction work from the current evidence.
 - Phase 5 Scope A post-#687 StoryCluster stability evidence:
@@ -370,7 +371,8 @@ Current truth for the news bundler and feed hardening lane:
    - treat the current post-#701 driver verdict as off-graph-likely until a
      secret-safe early-capture retainer summary supersedes it;
    - build the next Scope A PR as early-capture threshold retuning
-     (`500000000,700000000`) and retainer-summary assertion, not retention,
+     (`a=500000000,700000000`; `b=520000000,720000000`;
+     `c=540000000,740000000`) and retainer-summary assertion, not retention,
      publisher clear, or relay compaction;
    - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
      investigation item before trusting future threshold math;

@@ -435,17 +435,46 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED=true/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=520000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=540000000/);
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=520000000,720000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=540000000,740000000/);
+    assert.match(result.stdout, /VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS=2/);
     assert.ok(
       result.stdout.split('\n')
         .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000'))
-        .length >= 3,
+        .length >= 1,
+      result.stdout,
+    );
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=520000000'))
+        .length >= 1,
+      result.stdout,
+    );
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=540000000'))
+        .length >= 1,
       result.stdout,
     );
     assert.ok(
       result.stdout.split('\n')
         .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000'))
-        .length >= 3,
+        .length >= 1,
+      result.stdout,
+    );
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=520000000,720000000'))
+        .length >= 1,
+      result.stdout,
+    );
+    assert.ok(
+      result.stdout.split('\n')
+        .filter((line) => line.startsWith("awk '") && line.includes('VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=540000000,740000000'))
+        .length >= 1,
       result.stdout,
     );
     assert.match(result.stdout, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000/);
@@ -495,6 +524,16 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
     'relay-b': /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES:-1000000000\}/,
     'relay-c': /VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: \$\{VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES:-1150000000\}/,
   };
+  const expectedEarlyHeapThreshold = {
+    'relay-a': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_A_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-500000000\}/,
+    'relay-b': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_B_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-520000000\}/,
+    'relay-c': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_C_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-540000000\}/,
+  };
+  const expectedEarlyHeapThresholdList = {
+    'relay-a': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: \$\{VH_RELAY_A_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST:-500000000,700000000\}/,
+    'relay-b': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: \$\{VH_RELAY_B_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST:-520000000,720000000\}/,
+    'relay-c': /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: \$\{VH_RELAY_C_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST:-540000000,740000000\}/,
+  };
   for (const relay of ['relay-a', 'relay-b', 'relay-c']) {
     const blockMatch = compose.match(new RegExp(`  ${relay}:\\n([\\s\\S]*?)(?=\\n  (?:relay-|origin:)|\\nnetworks:)`));
     assert.ok(blockMatch, `${relay} service missing`);
@@ -509,8 +548,9 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
     assert.match(block, /VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES: \$\{VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES:-250000000\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED:-true\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED:-true\}/);
-    assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES:-500000000\}/);
-    assert.match(block, /VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST: \$\{VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST:-500000000,700000000\}/);
+    assert.match(block, expectedEarlyHeapThreshold[relay]);
+    assert.match(block, expectedEarlyHeapThresholdList[relay]);
+    assert.match(block, /VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS: \$\{VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS:-2\}/);
     assert.match(block, /VH_RELAY_WATCHDOG_EXIT_GRACE_MS: \$\{VH_RELAY_WATCHDOG_EXIT_GRACE_MS:-30000\}/);
     assert.match(block, /VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY: \$\{VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY:-2\}/);
     assert.match(block, /VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES: \$\{VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES:-false\}/);

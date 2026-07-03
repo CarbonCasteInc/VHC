@@ -727,8 +727,9 @@ staggered `VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES` values
 `VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES=150000000`,
 `VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES=250000000`,
 `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true`,
-`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000`,
-`VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000`, and
+staggered early heap capture thresholds (`relay-a=500000000,700000000`,
+`relay-b=520000000,720000000`, `relay-c=540000000,740000000`),
+`VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS=2`, and
 `VH_RELAY_WATCHDOG_EXIT_GRACE_MS=30000` so repeated overload does not become a
 synchronized restart loop. The heap ceilings are separated by at least 150 MB to
 break co-located relay phase-lock even after a shared deploy/recreate floor
@@ -742,9 +743,12 @@ host-private `0600` artifacts only; do not attach or publish `.heapsnapshot`
 files without explicit secret-review approval. Trip-time snapshots can still OOM
 while serializing a large heap, so the early heap snapshot threshold is the
 primary raw-retainer capture path. The public-beta defaults capture two one-shot
-points, around `500 MB` and `700 MB` heap used, so realistic relay uptimes can
-produce at least one artifact and the two summaries can be compared for retainer
-growth when both fire. The relay writes redacted summaries before serialization,
+points per relay, staggered by 20 MB, so realistic relay uptimes can produce at
+least one artifact without making all relays serialize at the same heap level and
+the two summaries can be compared for retainer growth when both fire. The relay
+suppresses only post-capture transient lag/growth watchdog breaches for the next
+two intervals; absolute heap/RSS ceilings remain armed. The relay writes
+redacted summaries before serialization,
 includes explicit JS-heap, external, arrayBuffer, and native-non-heap estimate
 totals, and reports empty or failed captures through `*.heapsnapshot-error.json`.
 

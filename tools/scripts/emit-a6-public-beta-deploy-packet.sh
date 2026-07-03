@@ -226,6 +226,20 @@ function relayDefaultHeapThreshold(name) {
   return relayHeapThresholdByName.get(name) ?? '1100000000';
 }
 
+function relayDefaultEarlyHeapThreshold(name) {
+  if (name.endsWith('-a')) return '500000000';
+  if (name.endsWith('-b')) return '520000000';
+  if (name.endsWith('-c')) return '540000000';
+  return '500000000';
+}
+
+function relayDefaultEarlyHeapThresholdList(name) {
+  if (name.endsWith('-a')) return '500000000,700000000';
+  if (name.endsWith('-b')) return '520000000,720000000';
+  if (name.endsWith('-c')) return '540000000,740000000';
+  return '500000000,700000000';
+}
+
 function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
   const relayDefaults = relay ? [
@@ -237,8 +251,9 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
     envEnsureLine(envPath, 'VH_RELAY_DIAGNOSTIC_DIR', '/data/diagnostics'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_HEAP_SNAPSHOT_ENABLED', 'true'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED', 'true'),
-    envSetLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES', '500000000'),
-    envSetLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST', '500000000,700000000'),
+    envSetLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES', relayDefaultEarlyHeapThreshold(name)),
+    envSetLine(envPath, 'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST', relayDefaultEarlyHeapThresholdList(name)),
+    envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS', '2'),
     envEnsureLine(envPath, 'VH_RELAY_WATCHDOG_EXIT_GRACE_MS', '30000'),
     envEnsureLine(envPath, 'VH_RELAY_STARTUP_JITTER_MAX_MS', '5000'),
     envEnsureLine(envPath, 'VH_RELAY_CRITICAL_WRITE_READBACK_MAX_CONCURRENCY', '2'),

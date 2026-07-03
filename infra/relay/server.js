@@ -205,6 +205,9 @@ const relayWatchdogEarlyHeapSnapshotThresholds = positiveNumberListEnv(
   'VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST',
   [relayWatchdogEarlyHeapSnapshotHeapUsedBytes],
 );
+const relayWatchdogPostHeapSnapshotTransientSuppressionIntervals = Math.floor(
+  nonNegativeNumberEnv('VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS', 2),
+);
 const relayWatchdogDiagnosticDir = String(
   process.env.VH_RELAY_DIAGNOSTIC_DIR
   || (typeof gunFile === 'string' ? path.join(gunFile, 'diagnostics') : path.join(os.tmpdir(), 'vh-relay-diagnostics')),
@@ -284,12 +287,14 @@ const metrics = {
   gunGraphScanErrors: 0,
   gunGraphScanTruncated: 0,
   earlyHeapSnapshotCaptures: new Map(),
+  relayWatchdogTransientBreachSuppressions: new Map(),
 };
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let lastRelayWatchdogSample = null;
 const relayWatchdogEarlyHeapSnapshotCapturedThresholds = new Set();
 let relayWatchdogEarlyHeapSnapshotInFlight = false;
+let relayWatchdogTransientSuppressionSamplesRemaining = 0;
 
 const httpBuckets = new Map();
 const seenUserNonces = new Map();
@@ -1316,6 +1321,13 @@ function metricsText() {
   for (const [reason, count] of metrics.relayWatchdogTrips) {
     add('vh_relay_resource_watchdog_trips_total', count, { reason });
   }
+  add(
+    'vh_relay_watchdog_transient_breach_suppression_samples_remaining',
+    relayWatchdogTransientSuppressionSamplesRemaining,
+  );
+  for (const [reason, count] of metrics.relayWatchdogTransientBreachSuppressions) {
+    add('vh_relay_watchdog_transient_breach_suppressions_total', count, { reason });
+  }
   add('vh_relay_watchdog_early_heap_snapshot_enabled', relayWatchdogEarlyHeapSnapshotEnabled ? 1 : 0);
   add('vh_relay_watchdog_early_heap_snapshot_in_flight', relayWatchdogEarlyHeapSnapshotInFlight ? 1 : 0);
   relayWatchdogEarlyHeapSnapshotThresholds.forEach((thresholdBytes, index) => {
@@ -1456,6 +1468,8 @@ function relayDiagnosticSnapshot(reason, details = {}) {
       watchdog_early_heap_snapshot_enabled: relayWatchdogEarlyHeapSnapshotEnabled,
       watchdog_early_heap_snapshot_heap_used_bytes: relayWatchdogEarlyHeapSnapshotHeapUsedBytes,
       watchdog_early_heap_snapshot_heap_used_bytes_list: relayWatchdogEarlyHeapSnapshotThresholds,
+      watchdog_post_heap_snapshot_transient_suppression_intervals:
+        relayWatchdogPostHeapSnapshotTransientSuppressionIntervals,
       diagnostic_dir: relayWatchdogDiagnosticDir,
       gun_graph_scan_enabled: gunGraphScanEnabled,
       gun_graph_scan_interval_ms: gunGraphScanIntervalMs,
@@ -1482,6 +1496,18 @@ function shouldWriteHeapSnapshotForDiagnostic(reason, details = {}, options = {}
 
 function testForcesEmptyHeapSnapshot() {
   return process.env.NODE_ENV === 'test' && boolEnv('VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT', false);
+}
+
+function testHeapSnapshotBlockMs() {
+  if (process.env.NODE_ENV !== 'test') return 0;
+  return Math.floor(nonNegativeNumberEnv('VH_RELAY_TEST_HEAP_SNAPSHOT_BLOCK_MS', 0));
+}
+
+function blockEventLoopForMs(durationMs) {
+  const deadline = Date.now() + durationMs;
+  while (Date.now() < deadline) {
+    // Intentionally empty: test-only simulation of synchronous V8 snapshot work.
+  }
 }
 
 function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
@@ -1523,6 +1549,8 @@ function writeBestEffortHeapSnapshot(base, reason, details = {}, options = {}) {
     } catch {
       // Best-effort cleanup of a previous interrupted temp file.
     }
+    const testBlockMs = testHeapSnapshotBlockMs();
+    if (testBlockMs > 0) blockEventLoopForMs(testBlockMs);
     if (testForcesEmptyHeapSnapshot()) {
       fs.closeSync(fs.openSync(heapSnapshotTempPath, 'w', 0o600));
     } else {
@@ -1729,15 +1757,29 @@ function relayWatchdogBreach() {
     rss: memory.rss,
     heap_used: memory.heapUsed,
   };
-  if (relayWatchdogMaxEventLoopLagP99Ms > 0 && delay.p99_ms > relayWatchdogMaxEventLoopLagP99Ms) {
-    return { reason: 'event_loop_lag_p99', observed: delay.p99_ms, limit: relayWatchdogMaxEventLoopLagP99Ms };
+  const suppressTransientBreaches = relayWatchdogTransientSuppressionSamplesRemaining > 0;
+  if (suppressTransientBreaches) {
+    relayWatchdogTransientSuppressionSamplesRemaining -= 1;
+  }
+  const suppressedTransientBreaches = [];
+  const eventLoopLagP99Ms = testForcesWatchdogTransientBreach('event_loop_lag_p99')
+    ? relayWatchdogMaxEventLoopLagP99Ms + 1
+    : delay.p99_ms;
+  if (relayWatchdogMaxEventLoopLagP99Ms > 0 && eventLoopLagP99Ms > relayWatchdogMaxEventLoopLagP99Ms) {
+    const breach = { reason: 'event_loop_lag_p99', observed: eventLoopLagP99Ms, limit: relayWatchdogMaxEventLoopLagP99Ms };
+    if (!suppressTransientBreaches) return breach;
+    suppressedTransientBreaches.push(breach);
   }
   if (previous) {
     const elapsedMs = Math.max(1, now - previous.sampled_at);
-    const heapGrowth = memory.heapUsed - previous.heap_used;
-    const rssGrowth = memory.rss - previous.rss;
+    const heapGrowth = testForcesWatchdogTransientBreach('heap_used_growth_bytes')
+      ? relayWatchdogMaxHeapGrowthBytes + 1
+      : memory.heapUsed - previous.heap_used;
+    const rssGrowth = testForcesWatchdogTransientBreach('rss_growth_bytes')
+      ? relayWatchdogMaxRssGrowthBytes + 1
+      : memory.rss - previous.rss;
     if (relayWatchdogMaxHeapGrowthBytes > 0 && heapGrowth > relayWatchdogMaxHeapGrowthBytes) {
-      return {
+      const breach = {
         reason: 'heap_used_growth_bytes',
         observed: heapGrowth,
         limit: relayWatchdogMaxHeapGrowthBytes,
@@ -1745,9 +1787,11 @@ function relayWatchdogBreach() {
         current: memory.heapUsed,
         previous: previous.heap_used,
       };
+      if (!suppressTransientBreaches) return breach;
+      suppressedTransientBreaches.push(breach);
     }
     if (relayWatchdogMaxRssGrowthBytes > 0 && rssGrowth > relayWatchdogMaxRssGrowthBytes) {
-      return {
+      const breach = {
         reason: 'rss_growth_bytes',
         observed: rssGrowth,
         limit: relayWatchdogMaxRssGrowthBytes,
@@ -1755,14 +1799,23 @@ function relayWatchdogBreach() {
         current: memory.rss,
         previous: previous.rss,
       };
+      if (!suppressTransientBreaches) return breach;
+      suppressedTransientBreaches.push(breach);
     }
   }
-  if (relayWatchdogMaxRssBytes > 0 && memory.rss > relayWatchdogMaxRssBytes) {
-    return { reason: 'rss_bytes', observed: memory.rss, limit: relayWatchdogMaxRssBytes };
+  const rssBytes = testForcesWatchdogAbsoluteBreach('rss_bytes')
+    ? relayWatchdogMaxRssBytes + 1
+    : memory.rss;
+  const heapUsedBytes = testForcesWatchdogAbsoluteBreach('heap_used_bytes')
+    ? relayWatchdogMaxHeapUsedBytes + 1
+    : memory.heapUsed;
+  if (relayWatchdogMaxRssBytes > 0 && rssBytes > relayWatchdogMaxRssBytes) {
+    return { reason: 'rss_bytes', observed: rssBytes, limit: relayWatchdogMaxRssBytes };
   }
-  if (relayWatchdogMaxHeapUsedBytes > 0 && memory.heapUsed > relayWatchdogMaxHeapUsedBytes) {
-    return { reason: 'heap_used_bytes', observed: memory.heapUsed, limit: relayWatchdogMaxHeapUsedBytes };
+  if (relayWatchdogMaxHeapUsedBytes > 0 && heapUsedBytes > relayWatchdogMaxHeapUsedBytes) {
+    return { reason: 'heap_used_bytes', observed: heapUsedBytes, limit: relayWatchdogMaxHeapUsedBytes };
   }
+  for (const breach of suppressedTransientBreaches) recordRelayWatchdogTransientSuppression(breach);
   return null;
 }
 
@@ -1779,6 +1832,32 @@ function nextEarlyHeapSnapshotThreshold(heapUsedBytes) {
 
 function incEarlyHeapSnapshotCapture(thresholdIndex, thresholdBytes, status) {
   incMap(metrics.earlyHeapSnapshotCaptures, `${thresholdIndex}\t${thresholdBytes}\t${status}`);
+}
+
+function suppressPostHeapSnapshotTransientBreaches() {
+  relayWatchdogTransientSuppressionSamplesRemaining = Math.max(
+    relayWatchdogTransientSuppressionSamplesRemaining,
+    relayWatchdogPostHeapSnapshotTransientSuppressionIntervals,
+  );
+}
+
+function testForcesWatchdogTransientBreach(reason) {
+  if (process.env.NODE_ENV !== 'test' || relayWatchdogEarlyHeapSnapshotCapturedThresholds.size === 0) return false;
+  return csvEnv('VH_RELAY_TEST_FORCE_WATCHDOG_TRANSIENT_BREACH_REASONS').includes(reason);
+}
+
+function testForcesWatchdogAbsoluteBreach(reason) {
+  if (process.env.NODE_ENV !== 'test' || relayWatchdogEarlyHeapSnapshotCapturedThresholds.size === 0) return false;
+  return String(process.env.VH_RELAY_TEST_FORCE_WATCHDOG_ABSOLUTE_BREACH_REASON || '').trim() === reason;
+}
+
+function recordRelayWatchdogTransientSuppression(breach) {
+  incMap(metrics.relayWatchdogTransientBreachSuppressions, breach.reason);
+  logEvent('warn', 'relay_watchdog_transient_breach_suppressed', {
+    relay_id: relayId,
+    ...breach,
+    suppression_samples_remaining: relayWatchdogTransientSuppressionSamplesRemaining,
+  });
 }
 
 function maybeCaptureEarlyHeapSnapshot() {
@@ -1840,6 +1919,7 @@ function maybeCaptureEarlyHeapSnapshot() {
     incEarlyHeapSnapshotCapture(threshold.thresholdIndex, threshold.thresholdBytes, 'exception');
     return null;
   } finally {
+    suppressPostHeapSnapshotTransientBreaches();
     relayWatchdogEarlyHeapSnapshotInFlight = false;
   }
 }

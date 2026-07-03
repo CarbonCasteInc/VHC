@@ -2048,6 +2048,64 @@ describe('infra relay server', () => {
     });
   }, 15_000);
 
+  it('suppresses post-capture transient watchdog breaches from a long early heap capture', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-early-heap-transient-'));
+    tempDirs.add(diagnosticDir);
+    const { port, child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'true',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '250',
+      VH_RELAY_WATCHDOG_MAX_EVENT_LOOP_LAG_P99_MS: '10000',
+      VH_RELAY_WATCHDOG_MAX_HEAP_GROWTH_BYTES: '100000000',
+      VH_RELAY_WATCHDOG_MAX_RSS_GROWTH_BYTES: '100000000',
+      VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS: '2',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: '1',
+      VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT: 'true',
+      VH_RELAY_TEST_HEAP_SNAPSHOT_BLOCK_MS: '100',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRANSIENT_BREACH_REASONS: 'event_loop_lag_p99,heap_used_growth_bytes,rss_growth_bytes',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+    });
+
+    await waitForOutput(child, /relay_watchdog_early_heap_snapshot_captured/, 10_000);
+    const metrics = await waitForMetrics(
+      port,
+      (body) => body.includes('vh_relay_watchdog_transient_breach_suppressions_total{reason="event_loop_lag_p99"} 1'),
+      5_000,
+    );
+
+    expect(child.exitCode).toBeNull();
+    expect(metrics.body).toContain('vh_relay_watchdog_early_heap_snapshot_captured{threshold_index="1",threshold_bytes="1"} 1');
+    expect(metrics.body).toContain('vh_relay_watchdog_transient_breach_suppressions_total{reason="event_loop_lag_p99"} 1');
+    expect(`${child.stdoutText}\n${child.stderrText}`).toContain('relay_watchdog_transient_breach_suppressed');
+    expect(`${child.stdoutText}\n${child.stderrText}`).not.toContain('relay_resource_watchdog_tripped');
+  }, 15_000);
+
+  it('keeps absolute watchdog ceilings armed during post-capture transient suppression', async () => {
+    const diagnosticDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-watchdog-early-heap-absolute-'));
+    tempDirs.add(diagnosticDir);
+    const { child } = await startRelay(children, tempDirs, {
+      VH_RELAY_RESOURCE_WATCHDOG_ENABLED: 'true',
+      VH_RELAY_RESOURCE_WATCHDOG_INTERVAL_MS: '250',
+      VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES: '1000000000',
+      VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS: '2',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED: 'true',
+      VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES: '1',
+      VH_RELAY_TEST_FORCE_EMPTY_HEAP_SNAPSHOT: 'true',
+      VH_RELAY_TEST_HEAP_SNAPSHOT_BLOCK_MS: '100',
+      VH_RELAY_TEST_FORCE_WATCHDOG_TRANSIENT_BREACH_REASONS: 'event_loop_lag_p99',
+      VH_RELAY_TEST_FORCE_WATCHDOG_ABSOLUTE_BREACH_REASON: 'heap_used_bytes',
+      VH_RELAY_DIAGNOSTIC_DIR: diagnosticDir,
+      VH_RELAY_WATCHDOG_CPU_PROFILE_ENABLED: 'false',
+      VH_RELAY_WATCHDOG_EXIT_GRACE_MS: '5000',
+    });
+
+    await waitForOutput(child, /relay_watchdog_early_heap_snapshot_captured/, 10_000);
+    await waitForOutput(child, /relay_resource_watchdog_tripped/, 10_000);
+    await expect(waitForExit(child, 10_000)).resolves.toBe(1);
+    expect(`${child.stdoutText}\n${child.stderrText}`).toContain('"reason":"heap_used_bytes"');
+  }, 15_000);
+
   it('keeps critical write readback failures fatal to the route', async () => {
     const routes = [
       {

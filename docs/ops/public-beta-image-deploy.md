@@ -57,10 +57,15 @@ re-enable monitors.
   but trip-time heap snapshots can be killed by the container OOM backstop if the
   relay is already near the watchdog ceiling. Keep
   `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true` and
-  `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=500000000` plus
-  `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST=500000000,700000000`
-  for the public-beta relays so each process gets one or two mid-climb captures
-  with enough cgroup headroom to serialize. Raw `.heapsnapshot` files are
+  per-relay early heap capture thresholds (`relay-a=500000000,700000000`,
+  `relay-b=520000000,720000000`, `relay-c=540000000,740000000`) for the
+  public-beta relays so each process gets one or two mid-climb captures with
+  enough cgroup headroom to serialize without all three relays capturing at the
+  same heap level. The deploy packet rewrites the early-capture threshold envs
+  per relay so stale shared values do not defeat the stagger. Keep
+  `VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS=2` so a
+  synchronous capture cannot self-trip the relay on transient lag/growth residue;
+  absolute heap/RSS ceilings stay armed. Raw `.heapsnapshot` files are
   host-private diagnostic artifacts, not shareable release evidence. The relay
   writes the redacted bundle summary and heap summary before snapshot
   serialization, includes JS-heap/external/arrayBuffer/native-non-heap estimate
