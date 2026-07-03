@@ -26,6 +26,12 @@ vi.mock('@vh/ui', () => ({
   )
 }));
 
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ to, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={to} {...props}>{children}</a>
+  )
+}));
+
 vi.mock('@vh/ai-engine', () => ({
   useAI: () => ({
     state: {
@@ -41,7 +47,7 @@ vi.mock('@vh/ai-engine', () => ({
 
 vi.mock('@vh/ai-engine/worker?worker', () => ({
   default: class MockWorker {}
-}), { virtual: true });
+}));
 
 vi.mock('../components/HandleEditor', () => ({
   HandleEditor: () => <div data-testid="handle-editor" />
@@ -100,6 +106,7 @@ describe('DashboardContent multi-device deferral', () => {
     expect(screen.getByTestId('link-device-deferred')).toHaveTextContent(
       'Multi-device identity linking is deferred to LUMA Phase 3+.'
     );
+    expect(screen.getByTestId('identity-controls-link')).toHaveAttribute('href', '/account/identity');
 
     expect(screen.queryByTestId('link-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('link-input')).not.toBeInTheDocument();
