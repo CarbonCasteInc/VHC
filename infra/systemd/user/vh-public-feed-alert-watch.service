@@ -4,6 +4,7 @@ Documentation=file:/home/humble/VHC/docs/ops/public-feed-freshness-monitor.md
 
 [Service]
 Type=oneshot
+TimeoutStartSec=180
 Environment=VHC_REPO=/home/humble/VHC
 Environment=VH_PUBLIC_FEED_ALERT_STATE_DIR=%h/.local/state/vhc/public-feed-alert
 Environment=VH_PUBLIC_FEED_ALERT_OUTPUT_FILE=%h/.local/state/vhc/public-feed-alert/latest.json

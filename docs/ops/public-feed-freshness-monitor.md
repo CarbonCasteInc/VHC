@@ -81,12 +81,20 @@ The repo ships user-systemd units but does not enable them:
 - `infra/systemd/user/vh-public-feed-alert-watch.service`
 - `infra/systemd/user/vh-public-feed-alert-watch.timer`
 
+The service unit includes `TimeoutStartSec=180`, which bounds a hung
+freshness/publisher probe without making normal 15-second HTTP timeouts race the
+systemd start deadline.
+
 Operator enablement, after explicit approval:
 
 ```bash
 mkdir -p ~/.config/vhc
 install -m 0600 /dev/null ~/.config/vhc/public-feed-alert.env
 $EDITOR ~/.config/vhc/public-feed-alert.env
+
+# Fail closed before enabling: at least one delivery channel must be configured
+# and reachable from this host.
+grep -Eq '^(VH_PUBLIC_FEED_ALERT_WEBHOOK_URL|VH_PUBLIC_FEED_ALERT_EMAIL_TO)=' ~/.config/vhc/public-feed-alert.env
 
 mkdir -p ~/.config/systemd/user
 cp infra/systemd/user/vh-public-feed-alert-watch.service ~/.config/systemd/user/

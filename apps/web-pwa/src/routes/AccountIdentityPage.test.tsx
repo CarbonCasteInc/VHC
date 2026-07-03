@@ -155,7 +155,8 @@ describe('AccountIdentityPage', () => {
     const dialog = screen.getByRole('dialog', { name: 'Reset your identity on this device?' });
     const confirm = within(dialog).getByTestId('identity-reset-confirm');
 
-    expect(dialog).toHaveTextContent('Resetting creates a new pseudonym and stops using the current one.');
+    expect(dialog).toHaveTextContent('Resetting stops using the current pseudonym and rotates the identity material on this device.');
+    expect(dialog).toHaveTextContent('The next identity you create on this device uses a new pseudonym.');
     expect(dialog).toHaveTextContent('Resetting does not remove them and cannot make them yours again.');
     expect(confirm).toBeDisabled();
 
@@ -164,7 +165,7 @@ describe('AccountIdentityPage', () => {
     fireEvent.click(confirm);
 
     await waitFor(() => expect(identityMock.state.resetIdentity).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getAllByText(/previous pseudonym's public history remains/).length).toBeGreaterThanOrEqual(1));
+    await waitFor(() => expect(screen.getAllByText(/Identity reset/).length).toBeGreaterThanOrEqual(1));
   });
 
   it('surfaces the wallet re-bind prompt for a binding on the previous identity', () => {
@@ -176,11 +177,18 @@ describe('AccountIdentityPage', () => {
 
     render(<AccountIdentityPage />);
 
-    expect(screen.getByTestId('identity-wallet-rebind')).toHaveTextContent(
-      'This wallet was bound to your previous identity. Re-bind it to your current identity to continue.'
-    );
+    expect(screen.getByTestId('identity-wallet-rebind')).toHaveTextContent('This wallet is not bound to your current identity.');
     fireEvent.click(screen.getByRole('button', { name: 'Re-bind wallet' }));
     expect(walletMock.state.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces the wallet re-bind prompt when a connected wallet has no current binding', () => {
+    walletMock.state.account = '0x1111111111111111111111111111111111111111';
+    walletMock.state.walletBinding = null;
+
+    render(<AccountIdentityPage />);
+
+    expect(screen.getByTestId('identity-wallet-rebind')).toHaveTextContent('This wallet is not bound to your current identity.');
   });
 
   it('renders the create-identity call to action for a device without an active session', () => {

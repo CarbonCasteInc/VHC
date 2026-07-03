@@ -10,8 +10,9 @@
  *     guarded namespaces. Null/undefined presence checks are allowed.
  *
  * Runtime redaction behavior is covered by packages/luma-sdk/src/telemetry.test.ts.
- * The full spec §21.4 recorded engagement replay remains deferred as a
- * pre-<TrustClaim> obligation.
+ * packages/luma-sdk/src/telemetryReplayFixture.test.ts adds a fixture replay
+ * harness and red tests. The full spec §21.4 recorded product replay remains
+ * deferred until product emit sites and a capture/regeneration path exist.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';

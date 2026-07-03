@@ -22,8 +22,8 @@ sequences how the UI lands them.
 | Unit tests for Sign Out / Reset semantics | DONE | `useIdentity.test.ts` asserts session clearing, runtime clearing, compartment preservation/rotation, wallet binding, delegation storage, operator token, XP active nullifier, sentiment signals, and telemetry reset |
 | `/account/identity` route | DONE | Route is registered in `apps/web-pwa/src/routes/index.tsx` |
 | Controls UI (panels, confirmation modals, session metadata) | DONE | `apps/web-pwa/src/routes/AccountIdentityPage.tsx` implements the panel, confirmation modals, session metadata, and telemetry debug surface |
-| Wallet re-bind prompt after Reset | DONE | `/account/identity` renders `identity-wallet-rebind` when the connected wallet is bound to a prior principal |
-| E2E flows (sign-out continuity / reset rotation) | MISSING | No e2e coverage of either journey |
+| Wallet re-bind prompt after Reset | DONE | `/account/identity` renders `identity-wallet-rebind` when a connected wallet is missing a binding to the current principal or is bound to a prior principal |
+| E2E flows (sign-out continuity / reset rotation) | DONE | `packages/e2e/src/luma/account-identity-controls.spec.ts` covers Sign Out continuity, Reset rotation, wallet re-bind prompt, and rendered-copy forbidden-claim assertions |
 
 ## 2. UX copy pack (draft strings)
 
@@ -54,15 +54,16 @@ claim deletion, anonymity, or repudiation.
 
 - Button: `Reset identity` (destructive styling, separated placement)
 - Modal title: `Reset your identity on this device?`
-- Modal body: `Resetting creates a new pseudonym and stops using the current one.
-  Your previous posts, comments, and votes remain public under your old
-  pseudonym — resetting does not remove them and cannot make them yours again.
-  Your wallet must be re-bound, and any operator authorization or delegations
-  are cleared.`
+- Modal body: `Resetting stops using the current pseudonym and rotates the
+  identity material on this device. The next identity you create on this device
+  uses a new pseudonym. Your previous posts, comments, and votes remain public
+  under your old pseudonym — resetting does not remove them and cannot make
+  them yours again. Your wallet must be re-bound, and any operator
+  authorization or delegations are cleared.`
 - Second-step confirmation (destructive tier): type-to-confirm the literal
   word `reset`, then `Reset identity` / `Cancel`
-- Post-reset toast: `New identity created. Your previous pseudonym's public
-  history remains on the network.`
+- Post-reset toast: `Identity reset. Your previous pseudonym's public history
+  remains on the network.`
 
 Copy red-lines (from spec §13.3-§13.4 and §20): never render "delete", never
 imply prior history is removed, transferred, or disowned; never render the
@@ -70,8 +71,8 @@ principal nullifier; never show a numeric trust score.
 
 ### 2.4 Wallet re-bind prompt (post-Reset, on next claim)
 
-`This wallet was bound to your previous identity. Re-bind it to your current
-identity to continue.` Action: `Re-bind wallet`.
+`This wallet is not bound to your current identity. Re-bind it to continue.`
+Action: `Re-bind wallet`.
 
 ### 2.5 Privacy links
 
@@ -147,6 +148,13 @@ for device credential, SEA pair, wallet binding, and delegation key material.
   no delegation grants, wallet re-bind prompt rendered.
 - Copy: both modals render; neither contains a forbidden-claims registry
   phrase (rendered-copy assertion, complementing the build-time grep).
+
+Implemented coverage: the current Playwright slice asserts principal and
+`forumAuthorId` continuity/rotation, rendered-copy forbidden-claim absence,
+raw principal/session-token non-disclosure, and wallet re-bind prompt rendering.
+Operator-authorization and delegation-grant browser seeding remain covered at
+the hook state-graph layer because the public UI does not expose controls to
+mint those compartments.
 
 ### 6.3 Fixtures
 

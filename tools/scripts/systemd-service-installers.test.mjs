@@ -148,6 +148,15 @@ test('news aggregator installer writes Phase 5 soak archive units without enabli
   assert.match(timer, /Unit=vh-phase5-scope-a-soak-archive\.service/);
 });
 
+test('public feed alert watch unit bounds host-local probe runtime', () => {
+  const service = readInfraUnit('vh-public-feed-alert-watch.service');
+
+  assert.match(service, /public-feed-alert-watch\.mjs/);
+  assert.match(service, /TimeoutStartSec=180/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_STATE_DIR=%h\/\.local\/state\/vhc\/public-feed-alert/);
+  assert.match(service, /source "%h\/\.config\/vhc\/public-feed-alert\.env"/);
+});
+
 test('news aggregator user unit orders publisher after StoryCluster', () => {
   for (const source of [
     readScript('install-news-aggregator-production-service.sh'),

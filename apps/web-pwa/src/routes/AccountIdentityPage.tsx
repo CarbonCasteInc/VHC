@@ -104,9 +104,10 @@ const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
               Reset your identity on this device?
             </h2>
             <p id={bodyId} className="mt-3 text-sm leading-6 text-slate-700 dark:text-slate-200">
-              Resetting creates a new pseudonym and stops using the current one. Your previous posts, comments, and votes
-              remain public under your old pseudonym. Resetting does not remove them and cannot make them yours again.
-              Your wallet must be re-bound, and any operator authorization or delegations are cleared.
+              Resetting stops using the current pseudonym and rotates the identity material on this device. The next
+              identity you create on this device uses a new pseudonym. Your previous posts, comments, and votes remain
+              public under your old pseudonym. Resetting does not remove them and cannot make them yours again. Your
+              wallet must be re-bound, and any operator authorization or delegations are cleared.
             </p>
             <label className="mt-4 block text-sm font-medium text-slate-800 dark:text-slate-100" htmlFor="identity-reset-input">
               Type reset to confirm
@@ -166,8 +167,7 @@ export const AccountIdentityPage: React.FC = () => {
   const walletNeedsRebind = Boolean(
     activePrincipal
     && account
-    && walletBinding?.boundPrincipalNullifier
-    && walletBinding.boundPrincipalNullifier !== activePrincipal
+    && (!walletBinding?.boundPrincipalNullifier || walletBinding.boundPrincipalNullifier !== activePrincipal)
   );
 
   const recentEvents = useMemo(() => events.slice(-5).reverse(), [events]);
@@ -188,7 +188,7 @@ export const AccountIdentityPage: React.FC = () => {
         setToast('Signed out. Your device identity remains available for re-attestation.');
       } else {
         await resetIdentity();
-        setToast("New identity created. Your previous pseudonym's public history remains on the network.");
+        setToast("Identity reset. Your previous pseudonym's public history remains on the network.");
       }
       setDialog(null);
       setResetInput('');
@@ -276,7 +276,7 @@ export const AccountIdentityPage: React.FC = () => {
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm">
-              This wallet was bound to your previous identity. Re-bind it to your current identity to continue.
+              This wallet is not bound to your current identity. Re-bind it to continue.
             </p>
             <Button type="button" variant="secondary" onClick={() => void connectWallet()} disabled={walletLoading}>
               Re-bind wallet
