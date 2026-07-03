@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-02
+> Last Reviewed: 2026-07-03
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-07-02
-**Version:** 0.9.5 (Phase 5 Scope A recovered and instrumented)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A recovered after outage #2, fresh again on A6, and running the capped raw-only Scope A profile with new relay-memory diagnostics. The 2026-06-24 launch closeout and 2026-06-28 StoryCluster stability bake remain historical evidence for the raw path, but the 2026-06-29 fail-close outage reset the clean-window ledger. Current A6 posture is #691 graph diagnostics enabled, #692 early heap capture enabled, #693 fresh-bundle publisher priority, and #694 staggered relay watchdog heap ceilings. The next gate is a 12-24 hour instrumented climb to identify whether heap growth follows graph live bytes, graph skeleton/count growth, or an off-graph retainer. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, retention/compaction behavior, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, and legal/commercial approval remain downstream gates or post-launch tracks.
+**Last Updated:** 2026-07-03
+**Version:** 0.9.6 (MVP readiness state aligned after #701)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A recovered after outage #2, fresh again on A6, and running the capped raw-only Scope A profile with relay-memory diagnostics, early heap capture wiring, fresh-bundle publisher priority, and staggered relay watchdog heap ceilings. The 2026-06-24 launch closeout and 2026-06-28 StoryCluster stability bake remain historical evidence for the raw path, but the 2026-06-29 fail-close outage reset the clean-window ledger. The 2026-07-03 driver verdict now classifies the observed heap growth as `heap_driver_off_graph_likely`: graph live bytes are effectively flat at heap scale, tombstones are absent, and graph soul count is too small to explain the slope. The next Scope A development step is early-capture threshold retuning and secret-safe retainer identification, not publisher-visible retention or relay compaction. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -20,14 +20,14 @@
 
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
-| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, signed-write envelopes, centralized action policy, public namespace guards, and current mesh LUMA coverage gate | ⚠️ Public-beta only; no production-attestation/Silver |
+| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, signed-write envelopes, centralized action policy, public namespace guards, M1.B identity controls/UI, M1.C/M1.D profile and forbidden-claim gates, and M1.E telemetry source-discipline gate | ⚠️ Public-beta only; no production-attestation/Silver; full §21.4 recorded product replay and `<TrustClaim>` deferred |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
 | **VENN (Analysis)** | 🟡 Pipeline end-to-end; live profile defaults to relay-backed analysis, local-first remains target-state default | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #2: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #691 graph diagnostics, #692 early heap capture, #693 fresh-bundle priority, and #694 staggered relay watchdog ceilings. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered; 12-24h instrumented heap/graph climb in progress; Scope B enrichment pending |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #2: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #691 graph diagnostics, #692 early heap capture wiring, #693 fresh-bundle priority, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered; off-graph heap retainer not yet named; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -56,6 +56,11 @@ Current policy state:
   capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
   priority, and #694 staggers relay heap watchdog ceilings at `850000000`,
   `1000000000`, and `1150000000`.
+- The current read-only driver verdict is
+  `docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`: graph
+  `userValueBytes` do not track heap growth, tombstones remain `0`, and total
+  graph soul scale is too small to explain the slope. Treat the driver as
+  off-graph until a secret-safe early-capture retainer summary says otherwise.
 - Broader production/beta claims remain blocked until the relevant downstream
   gates pass; do not promote Scope A raw-feed proof or outage recovery into
   accepted synthesis, full product, mesh release, native, identity-assurance, or
@@ -107,7 +112,11 @@ Current policy state:
 - Phase 5 Scope A current recovery evidence:
   - recovery/current-state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`;
-  - current `main`: `eab5d3c6` (`Stagger public beta relay watchdog heap limits (#694)`);
+  - current driver verdict:
+    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
+  - current MVP readiness state report:
+    `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
+  - current `main`: `215b5c8f` (`Close out next-owner diagnostics and LUMA gates (#701)`);
   - current relay image: `vhc-public-beta-relay:20260702-main-v96488ca0-amd64`;
   - current live raw profile: synthesis disabled, replay disabled, storylines
     disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
@@ -118,8 +127,10 @@ Current policy state:
   - post-recovery checks: publisher liveness `pass`, relay liveness `pass`,
     relay snapshot freshness `pass`, public freshness `pass`, watchdog trips
     `0`, graph scan errors `0`, graph scan truncation `0`;
-  - current gate: 12-24 hour heap/graph climb before any retention,
-    publisher-clear, or relay-compaction fix.
+  - current gate: early-capture threshold retune and secret-safe retainer
+    summary before any off-graph driver fix;
+  - explicit non-gate: do not start retention, publisher-clear, eviction, or
+    relay-compaction work from the current evidence.
 - Phase 5 Scope A post-#687 StoryCluster stability evidence:
   - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
   - #685 captured bounded OpenAI rerank artifacts and proved recurring
@@ -153,6 +164,12 @@ Current policy state:
   - MVP report gate: `luma_mvp_production_readiness` inside `pnpm check:mvp-release-gates`;
   - success boundary: LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer;
   - excluded claims: production-attestation/Silver, verified-human, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness.
+- LUMA hardening through #695-#701 adds diagnostics-only docs alignment,
+  forbidden-claim and production-profile gates, M1.B identity controls/UI, and
+  M1.E telemetry source-discipline/fixture replay. The full `§21.4` recorded
+  product replay remains deferred until real product emit sites and a real
+  capture/regeneration path exist; `<TrustClaim>` remains deferred behind that
+  evidence.
 - Full-product local engagement validation is now a named service-backed lane:
   - stack command: `pnpm live:stack:up:analysis-stub`;
   - test command: `pnpm test:live:five-user-engagement`;
@@ -185,9 +202,18 @@ Current policy state:
   - collapsed news cards are compact and place available story media beside the headline/title, with extra source images kept for expanded detail.
 - Story bundler release claims now have an explicit operational scorecard:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
-- The latest full combined readiness check on `main` is fresh again and currently blocks only on:
-  - `headline_soak_release_evidence_failed`
-  - latest artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+- The latest merge-time CI for #701 was green on `main`, but a public-beta
+  release claim still requires a fresh release packet on the intended release
+  commit:
+  - `pnpm check:mvp-release-gates`
+  - `pnpm check:mvp-closeout`
+  - `pnpm check:public-beta-launch-closeout`
+  - `pnpm check:launch-content-snapshot`
+  - `pnpm check:public-beta-compliance`
+  - `pnpm docs:check`
+  - lint/dependency checks and touched package typechecks.
+  Existing StoryCluster production-readiness artifacts remain evidence inputs,
+  not a blanket release-ready claim.
 - The latest complete post-fix public soak now provides usable telemetry again, but the density is still thin:
   - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774695043848/semantic-soak-summary.json`
   - visible stories: `4`
@@ -223,7 +249,7 @@ Current policy state:
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (reviewed 2026-07-02)
+## StoryCluster Program Snapshot (reviewed 2026-07-03)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -235,15 +261,16 @@ Current truth for the news bundler and feed hardening lane:
     launched path and remain post-launch enrichment;
   - publisher liveness, relay liveness, and relay snapshot freshness monitors
     are operating monitors for the intended-live service;
-  - the current stability question is relay-memory behavior, measured by #691
-    graph metrics and #692 early heap capture during the post-#694 staggered
-    climb.
+  - the current stability question is off-graph relay heap behavior: #691
+    graph metrics are the negative control, and #692 early heap capture must be
+    retuned so the next climb yields a secret-safe retainer summary.
 - The StoryCluster rerank truncation track is closed for the launched Scope A
   raw path as of the 2026-06-28 stability bake:
   - #687 first deployed the durable rerank fix at
     `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - current `main` is `eab5d3c6`, with later #691-#694 diagnostics,
-    publisher-priority, and relay-stagger changes layered on top;
+  - current `main` is `215b5c8f`, with later #691-#701 diagnostics,
+    publisher-priority, relay-stagger, alerting, LUMA, and driver-verdict
+    changes layered on top;
   - rerank output uses strict fixed-key object structured output instead of an
     array/max-items shape;
   - recoverable rerank output failures omit supplemental rerank results so the
@@ -310,7 +337,7 @@ Current truth for the news bundler and feed hardening lane:
   - denser diagnostic artifacts for insufficient-bundle public runs.
 - The correctness-gate sufficiency lane is complete and in force on `main`.
 - The current active post-launch work is source-surface density growth,
-  instrumented relay-memory observation, sustained monitor operation, and
+  off-graph relay-memory diagnosis, sustained monitor operation, and
   release-evidence accumulation beyond raw Scope A:
   - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
   - require the daemon-first semantic gate as the served-stack confirmation of that proof;
@@ -339,8 +366,15 @@ Current truth for the news bundler and feed hardening lane:
    - treat monitor regressions, relay watchdog trips, readback 500s, fail-closed
      publisher stops, and stale latest-index snapshots as live-operation
      incidents, not launch-soak curiosities;
-   - let the current post-#694 graph/heap climb accumulate before choosing
-     retention, publisher clear, or relay compaction;
+   - treat the current post-#701 driver verdict as off-graph-likely until a
+     secret-safe early-capture retainer summary supersedes it;
+   - build the next Scope A PR as early-capture threshold retuning and
+     retainer-summary assertion, not retention, publisher clear, or relay
+     compaction;
+   - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
+     investigation item before trusting future threshold math;
+   - keep A6 public-feed alert enablement operator-owned and require a reachable
+     webhook/email delivery channel before enabling the timer;
    - do not re-enable accepted synthesis, topic synthesis, storyline writes,
      verify/refresh, higher raw caps, or pruning without a separate attended
      soak and an updated runbook entry.
@@ -354,7 +388,11 @@ Current truth for the news bundler and feed hardening lane:
    - single-source stories remain valid feed entries;
    - later same-incident / same-developing-episode coverage must attach without identity churn as source coverage grows.
 4. Production-readiness next steps:
-   - keep the unified production-readiness report fresh and treat `headline_soak_release_evidence_failed` as the current live blocker until the trend actually recovers;
+   - produce a fresh MVP release packet on the intended release commit before
+     any public-beta readiness claim;
+   - keep the unified production-readiness report fresh and treat stale or
+     failing headline-soak evidence as a blocker for production-grade live
+     headline claims until the trend actually recovers;
    - keep scheduled headline-soak collection running on the fresh, contribution-ranked public smoke surface so new density evidence replaces the older red trend window;
    - expand admitted readable source breadth only through the scout/admission/health pipeline, not generic feed growth;
    - use scout-ranked overlap-heavy candidates as the primary source-growth queue;

@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-02
+> Last Reviewed: 2026-07-03
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -123,12 +123,15 @@ Host-local relay snapshot freshness is covered separately by
 `news-latest-index-snapshot.json` files directly and does not perform public
 latest-index HTTP probes.
 
-During the current post-#694 Scope A instrumented climb, the host-local soak
+During the current post-#701 Scope A diagnostic window, the host-local soak
 archive timer wraps this monitor and preserves hourly public freshness summaries
 under `~/.local/state/vhc/phase5-scope-a-soak/YYYYMMDDTHHMMSSZ/`. The archive is
 the preferred evidence packet for window review because it captures this public
 freshness result together with publisher liveness, relay liveness, relay
-snapshot freshness, and relay graph/heap diagnostics when enabled.
+snapshot freshness, and relay graph/heap diagnostics when enabled. The
+2026-07-03 driver verdict used that archive to classify heap growth as
+off-graph-likely; the next Scope A diagnostic step is early-capture threshold
+retuning, not a monitor-path change.
 
 ## Command
 
