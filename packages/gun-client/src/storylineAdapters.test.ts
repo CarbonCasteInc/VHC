@@ -400,7 +400,7 @@ describe('storylineAdapters', () => {
         expect.objectContaining({
           event: 'system-writer-validation-failed',
           reason: 'missing-pin',
-          path: 'vh/news/storylines/storyline-1',
+          path: '[REDACTED:mesh-path]',
         })
       );
       expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({

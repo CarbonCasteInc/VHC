@@ -609,7 +609,7 @@ describe('discoveryAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/discovery/items/topic-1',
+          path: '[REDACTED:mesh-path]',
         }),
       );
       expect(dispatchSpy).toHaveBeenCalledWith(

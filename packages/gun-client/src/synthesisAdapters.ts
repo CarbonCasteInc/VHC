@@ -10,6 +10,7 @@ import {
   type TopicSynthesisV2,
   type TrustedOperatorAuthorization
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
@@ -410,7 +411,7 @@ function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
 }
 
 function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailure): void {
-  console.warn(`[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  lumaLog('warn', `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
   if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
     globalThis.dispatchEvent(
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
@@ -704,7 +705,7 @@ async function putSystemWriterSynthesisWithDurability(
         && candidate.epoch === synthesis.epoch
       );
     },
-    onAckTimeout: () => console.warn('[vh:synthesis] put ack timed out, requiring signed readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:synthesis] put ack timed out, requiring signed readback confirmation'),
   });
 }
 

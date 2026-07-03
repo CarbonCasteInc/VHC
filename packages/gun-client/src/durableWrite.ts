@@ -1,3 +1,4 @@
+import { lumaLog } from '@vh/luma-sdk';
 import { putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 
@@ -74,10 +75,10 @@ function emitDefaultDurableWriteEvent(event: DurableWriteEvent): void {
   };
   const label = '[vh:mesh:durable-write]';
   if (event.stage === 'failed' || event.stage === 'ack-error') {
-    console.warn(label, payload);
+    lumaLog('warn', label, payload);
     return;
   }
-  console.info(label, payload);
+  lumaLog('info', label, payload);
 }
 
 function emitEvent(options: DurableWriteOptions<unknown>, event: DurableWriteEvent): void {

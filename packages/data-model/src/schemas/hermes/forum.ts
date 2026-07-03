@@ -418,14 +418,7 @@ export const REPLY_CONTENT_MAX = REPLY_CONTENT_LIMIT;
 
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
-  const nodeBuffer = (globalThis as typeof globalThis & {
-    Buffer?: { from(bytes: Uint8Array): Uint8Array };
-  }).Buffer;
-  const digestInput = nodeBuffer ? nodeBuffer.from(data) : new ArrayBuffer(data.byteLength);
-  if (!nodeBuffer) {
-    new Uint8Array(digestInput).set(data);
-  }
-  const hashBuffer = await crypto.subtle.digest('SHA-256', digestInput);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = new Uint8Array(hashBuffer);
   return Array.from(hashArray, (b) => b.toString(16).padStart(2, '0')).join('');
 }

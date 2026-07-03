@@ -9,6 +9,7 @@ import {
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
 import {
+  lumaLog,
   verifySignedWriteEnvelope,
   type SignedWriteVerifyHook
 } from '@vh/luma-sdk';
@@ -283,7 +284,7 @@ export async function writeForumCommentModeration(
     writeClass: 'forum-comment-moderation',
     timeoutMs: 2_500,
     timeoutError: 'forum comment moderation write timed out and readback did not confirm persistence',
-    onAckTimeout: () => console.warn('[vh:forum] moderation put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:forum] moderation put ack timed out, requiring readback confirmation'),
     readback: () => readForumCommentModeration(client, threadId, moderationId),
     readbackPredicate: (observed) => {
       const candidate = observed as HermesCommentModeration | null;
@@ -302,7 +303,7 @@ export async function writeForumCommentModeration(
     writeClass: 'forum-latest-comment-moderation',
     timeoutMs: 2_500,
     timeoutError: 'forum latest comment moderation write timed out and readback did not confirm persistence',
-    onAckTimeout: () => console.warn('[vh:forum] latest moderation put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:forum] latest moderation put ack timed out, requiring readback confirmation'),
     readback: () => readForumLatestCommentModeration(client, threadId, commentId),
     readbackPredicate: (observed) => {
       const candidate = observed as HermesCommentModeration | null;

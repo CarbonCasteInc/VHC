@@ -660,7 +660,7 @@ describe('analysisAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/news/stories/story-1/analysis/analysis-1',
+          path: '[REDACTED:mesh-path]',
         }),
       );
     } finally {

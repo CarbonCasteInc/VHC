@@ -4,6 +4,7 @@ import {
   type StoryAnalysisArtifact,
   type StoryAnalysisLatestPointer,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -275,7 +276,7 @@ const WRITE_READBACK_RETRY_MS = 250;
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   return putWithAckTimeout(chain, value, {
     timeoutMs: PUT_ACK_TIMEOUT_MS,
-    onTimeout: () => console.warn('[vh:gun-client] analysis put ack timed out, requiring readback confirmation'),
+    onTimeout: () => lumaLog('warn', '[vh:gun-client] analysis put ack timed out, requiring readback confirmation'),
   });
 }
 
@@ -367,7 +368,7 @@ function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
 function emitSystemWriterValidationFailure(
   failure: SystemWriterValidationFailure,
 ): void {
-  console.warn(`[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  lumaLog('warn', `[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
   if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
     globalThis.dispatchEvent(
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
@@ -576,7 +577,7 @@ export async function writeAnalysis(
     writeClass: 'analysis-latest-pointer',
     timeoutMs: PUT_ACK_TIMEOUT_MS,
     timeoutError: 'analysis latest pointer write timed out and readback did not confirm persistence',
-    onAckTimeout: () => console.warn('[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation'),
     readback: async () => {
       const result = await parseLatestPointerFromStoredRecord(
         client,

@@ -727,16 +727,15 @@ describe('topic derivation', () => {
     );
   });
 
-  it('sha256Hex hashes without a global Buffer fallback', async () => {
-    const originalBuffer = globalThis.Buffer;
-    vi.stubGlobal('Buffer', undefined);
-    try {
-      await expect(sha256Hex('abc')).resolves.toBe(
-        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
-      );
-    } finally {
-      vi.stubGlobal('Buffer', originalBuffer);
-    }
+  it('sha256Hex hashes through WebCrypto without a Node Buffer dependency', async () => {
+    const digest = vi.spyOn(crypto.subtle, 'digest');
+
+    await expect(sha256Hex('abc')).resolves.toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+    );
+
+    expect(digest).toHaveBeenCalledWith('SHA-256', expect.any(Uint8Array));
+    digest.mockRestore();
   });
 
   it('sha256Hex is deterministic', async () => {

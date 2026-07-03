@@ -4,8 +4,10 @@ import { isSessionExpired, isSessionNearExpiry, migrateSessionFields, DEFAULT_SE
 import { TRUST_MINIMUM } from '@vh/data-model';
 import { SEA, createSession } from '@vh/gun-client';
 import {
+  clearLumaTelemetry,
   createBetaLocalAssuranceEnvelope,
   deriveBetaLocalNullifier,
+  lumaLog,
   type AssuranceEnvelope,
   type DeploymentProfile
 } from '@vh/luma-sdk';
@@ -196,7 +198,7 @@ export function useIdentity() {
           session = await Promise.race([verifierPromise, timeout]);
         } catch (verifierErr) {
           if (DEV_FALLBACK_ENABLED) {
-            console.warn('[vh:identity] Attestation verifier unavailable, using dev fallback');
+            lumaLog('warn', '[vh:identity] Attestation verifier unavailable, using dev fallback');
             session = {
               token: `dev-session-${randomToken()}`,
               trustScore: DEV_FALLBACK_TRUST_SCORE,
@@ -245,7 +247,7 @@ export function useIdentity() {
           await authenticateGunUser(client, record.devicePair);
           await publishDirectoryEntry(client, record);
         } catch (err) {
-          console.warn('[vh:identity] Directory publish failed:', err);
+          lumaLog('warn', '[vh:identity] Directory publish failed', { error: err });
         }
       }
       setIdentity(record);
@@ -321,6 +323,7 @@ export function useIdentity() {
    */
   const signOut = useCallback(async () => {
     clearActiveIdentityRuntime();
+    clearLumaTelemetry({ rotateSalt: true });
     await vaultClear().catch(() => {});
   }, [clearActiveIdentityRuntime]);
 
@@ -331,6 +334,7 @@ export function useIdentity() {
   const resetIdentity = useCallback(async () => {
     const oldPrincipal = identity?.session.nullifier ?? null;
     clearActiveIdentityRuntime();
+    clearLumaTelemetry({ rotateSalt: true });
     if (oldPrincipal) {
       clearDelegationStorageForPrincipal(oldPrincipal);
     }
@@ -348,7 +352,7 @@ export function useIdentity() {
    * hook surface while the app migrates call sites.
    */
   const revokeSession = useCallback(async () => {
-    console.warn('[vh:identity] useIdentity.revokeSession() is deprecated; use signOut() instead');
+    lumaLog('warn', '[vh:identity] useIdentity.revokeSession() is deprecated; use signOut() instead');
     await signOut();
   }, [signOut]);
 

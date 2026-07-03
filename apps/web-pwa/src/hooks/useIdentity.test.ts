@@ -282,6 +282,7 @@ describe('useIdentity', () => {
     const { result } = renderHook(() => useIdentity());
     const { useXpLedger } = await import('../store/xpLedger');
     const { delegationStorageKey, useDelegationStore } = await import('../store/delegation');
+    const { emitLumaEvent, lumaTelemetryStore } = await import('@vh/luma-sdk');
 
     await waitFor(() => expect(result.current.status).toBe('anonymous'));
 
@@ -307,6 +308,8 @@ describe('useIdentity', () => {
     expect(pairMock).toHaveBeenCalledTimes(1);
 
     useXpLedger.getState().addXp('civic', 4);
+    emitLumaEvent({ type: 'luma_session_created', tsMs: 1000 });
+    expect(lumaTelemetryStore.getSnapshot()).toHaveLength(1);
     localStorage.setItem(delegationStorageKey(firstNullifier!), '{"grants":[{"grantId":"g-1"}]}');
     useDelegationStore.getState().setActivePrincipal(firstNullifier!);
     const firstWalletBinding = await walletBinding.save({
@@ -322,6 +325,7 @@ describe('useIdentity', () => {
     });
     await waitFor(() => expect(result.current.status).toBe('anonymous'));
     expect(useDelegationStore.getState().activePrincipal).toBeNull();
+    expect(lumaTelemetryStore.getSnapshot()).toHaveLength(0);
     expect(localStorage.getItem(delegationStorageKey(firstNullifier!))).toBe('{"grants":[{"grantId":"g-1"}]}');
     expect(useXpLedger.getState().activeNullifier).toBeNull();
     expect(await deviceCredential.loadOrCreate()).toEqual(firstDeviceCredential);
@@ -356,6 +360,7 @@ describe('useIdentity', () => {
     const useIdentity = await loadHook();
     const { result } = renderHook(() => useIdentity());
     const { delegationStorageKey, useDelegationStore } = await import('../store/delegation');
+    const { emitLumaEvent, lumaTelemetryStore } = await import('@vh/luma-sdk');
 
     await waitFor(() => expect(result.current.status).toBe('anonymous'));
 
@@ -383,6 +388,8 @@ describe('useIdentity', () => {
       issuedAt: 1000,
       expiresAt: 2000
     });
+    emitLumaEvent({ type: 'luma_session_created', tsMs: 1000 });
+    expect(lumaTelemetryStore.getSnapshot()).toHaveLength(1);
 
     await act(async () => {
       await result.current.resetIdentity();
@@ -391,6 +398,7 @@ describe('useIdentity', () => {
 
     expect(localStorage.getItem(delegationStorageKey(firstNullifier))).toBeNull();
     expect(useDelegationStore.getState().activePrincipal).toBeNull();
+    expect(lumaTelemetryStore.getSnapshot()).toHaveLength(0);
     expect(await vaultLoad()).toBeNull();
     expect(await walletBinding.load()).toBeNull();
     expect(await operatorAuthorizationToken.load()).toBeNull();

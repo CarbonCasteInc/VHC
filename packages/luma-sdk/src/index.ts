@@ -98,3 +98,24 @@ export {
   type UnsignedSignedWriteEnvelope,
   type VerifySignedWriteEnvelopeInput
 } from './signedWrites';
+
+export {
+  assertLumaTelemetrySafe,
+  clearLumaTelemetry,
+  createLumaTelemetryStore,
+  emitLumaEvent,
+  lumaLog,
+  LUMA_TELEMETRY_EVENT_TYPES,
+  lumaTelemetryStore,
+  redactLumaTelemetryContext,
+  redactedPathHash,
+  type EmitLumaEventInput,
+  type LumaEvent,
+  type LumaRedactedLogValue,
+  type LumaTelemetryContext,
+  type LumaTelemetryEventType,
+  type LumaTelemetryLevel,
+  type LumaTelemetryPrimitive,
+  type LumaTelemetryStore,
+  type LumaTelemetryValue
+} from './telemetry';

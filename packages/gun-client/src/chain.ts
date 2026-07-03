@@ -1,3 +1,4 @@
+import { lumaLog } from '@vh/luma-sdk';
 import type { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -61,7 +62,7 @@ function warnWaitForRemoteTimeout(): void {
       : '';
   suppressedWaitForRemoteWarns = 0;
   lastWaitForRemoteWarnAt = now;
-  console.warn(`[vh:gun-client] waitForRemote timed out, proceeding anyway${suffix}`);
+  lumaLog('warn', `[vh:gun-client] waitForRemote timed out, proceeding anyway${suffix}`);
 }
 
 export async function waitForRemote<T>(chain: ChainLike<T>, barrier: HydrationBarrier): Promise<void> {

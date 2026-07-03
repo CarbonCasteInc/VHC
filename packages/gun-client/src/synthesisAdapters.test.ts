@@ -809,7 +809,7 @@ describe('synthesisAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/topics/topic-1/epochs/2/synthesis',
+          path: '[REDACTED:mesh-path]',
         }),
       );
       expect(dispatchSpy).toHaveBeenCalledWith(
@@ -1616,7 +1616,7 @@ describe('synthesisAdapters', () => {
         expect.objectContaining({
           event: SYSTEM_WRITER_VALIDATION_EVENT,
           reason: 'missing-pin',
-          path: 'vh/topics/topic-1/digests/digest-1',
+          path: '[REDACTED:mesh-path]',
         }),
       );
       expect(dispatchSpy).toHaveBeenCalledWith(

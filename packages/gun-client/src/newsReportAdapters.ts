@@ -6,6 +6,7 @@ import {
   type HermesNewsReportStatus,
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
@@ -178,7 +179,7 @@ export async function writeNewsReport(
     writeClass: 'news-report',
     timeoutMs: 2_500,
     timeoutError: 'news report write timed out and readback did not confirm persistence',
-    onAckTimeout: () => console.warn('[vh:news-report] report put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:news-report] report put ack timed out, requiring readback confirmation'),
     readback: () => readNewsReport(client, reportId),
     readbackPredicate: (observed) => {
       const candidate = observed as HermesNewsReport | null;
@@ -201,7 +202,7 @@ export async function writeNewsReport(
     writeClass: 'news-report-index',
     timeoutMs: 2_500,
     timeoutError: 'news report status-index write timed out and readback did not confirm persistence',
-    onAckTimeout: () => console.warn('[vh:news-report] status-index put ack timed out, requiring readback confirmation'),
+    onAckTimeout: () => lumaLog('warn', '[vh:news-report] status-index put ack timed out, requiring readback confirmation'),
     readback: () => readOnce(getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId)),
     readbackPredicate: (observed) => parseQueuePointer(observed, reportId) === reportId,
   });

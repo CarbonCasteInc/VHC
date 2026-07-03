@@ -4,6 +4,7 @@ import {
   StoryBundleSchema,
   type StoryBundle,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -942,7 +943,7 @@ function warnNewsAckTimeout(): void {
       : '';
   suppressedNewsAckWarns = 0;
   lastNewsAckWarnAt = now;
-  console.warn(`[vh:news] put ack timed out, requiring readback confirmation${suffix}`);
+  lumaLog('warn', `[vh:news] put ack timed out, requiring readback confirmation${suffix}`);
 }
 
 async function putWithAck<T>(
@@ -1518,7 +1519,7 @@ function blocksLegacyIndexFallback(value: unknown): boolean {
 function emitSystemWriterValidationFailure(
   failure: SystemWriterValidationFailure,
 ): void {
-  console.warn(`[vh:news] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  lumaLog('warn', `[vh:news] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
   if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
     globalThis.dispatchEvent(
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
@@ -2354,7 +2355,7 @@ async function writeNewsRecordViaRelayRest(input: {
   }
 
   if (successCount >= quorum.requiredSuccessCount) {
-    console.info('[vh:news] relay REST write completed', {
+    lumaLog('info', '[vh:news] relay REST write completed', {
       write_class: input.writeClass,
       path: input.path,
       relay_success_count: successCount,
