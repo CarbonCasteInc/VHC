@@ -303,12 +303,13 @@ export const GATES = [
   },
   {
     id: 'luma_telemetry_redaction',
-    label: 'LUMA telemetry §16 source discipline holds; §21.4 replay remains deferred before <TrustClaim>',
+    label: 'LUMA telemetry §16 source discipline holds; §21.4 product replay remains deferred before <TrustClaim>',
     command: ['pnpm', ['check:luma-telemetry-redaction']],
     artifactRefs: [
       'tools/scripts/check-luma-telemetry-redaction.mjs',
       'packages/luma-sdk/src/telemetry.ts',
       'packages/luma-sdk/src/telemetry.test.ts',
+      'packages/luma-sdk/src/telemetryReplayFixture.test.ts',
       'docs/specs/spec-luma-service-v0.md',
     ],
   },

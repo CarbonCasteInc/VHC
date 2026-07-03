@@ -60,7 +60,7 @@
     "check:luma-provider-surface": "node ./tools/scripts/check-luma-provider-surface.mjs",
     "check:luma-forbidden-claims": "node ./tools/scripts/check-luma-forbidden-claims.mjs",
     "check:luma-production-profile": "node ./tools/scripts/check-luma-production-profile.mjs",
-    "check:luma-telemetry-redaction": "node ./tools/scripts/check-luma-telemetry-redaction.mjs && cd packages/luma-sdk && vitest run src/telemetry.test.ts --config ./vitest.config.ts",
+    "check:luma-telemetry-redaction": "node ./tools/scripts/check-luma-telemetry-redaction.mjs && cd packages/luma-sdk && vitest run src/telemetry.test.ts src/telemetryReplayFixture.test.ts --config ./vitest.config.ts",
     "check:luma-signed-write-surface": "node ./tools/scripts/check-luma-signed-write-surface.mjs",
     "check:luma-vault-compartments": "node ./tools/scripts/check-luma-vault-compartments.mjs",
     "check:luma-delegation-signer-surface": "node ./tools/scripts/check-luma-delegation-signer-surface.mjs",
