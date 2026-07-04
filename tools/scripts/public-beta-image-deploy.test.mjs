@@ -539,6 +539,46 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
   }
 });
 
+test('deploy packet supports host-network relays using GUN_PORT verifier URLs', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-host-packet-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    const containers = [
+      makeContainer(
+        'vhc-public-origin',
+        'vhc-public-beta-origin:old',
+        ['NODE_ENV=production', 'HOST=127.0.0.1', 'PORT=8080'],
+        [],
+        {},
+        { networkMode: 'host', networks: { host: {} } },
+      ),
+      makeHostNetworkRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data', '8765'),
+      makeHostNetworkRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data', '8766'),
+      makeHostNetworkRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data', '8767'),
+    ];
+    writeFileSync(inspectPath, JSON.stringify(containers), 'utf8');
+    const result = run('bash', [
+      PACKET_SCRIPT,
+      '--inspect-json',
+      inspectPath,
+      '--new-origin-image',
+      'vhc-public-beta-origin:new',
+      '--new-relay-image',
+      'vhc-public-beta-relay:new',
+      '--include-recreate-commands',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /Packet Blockers/);
+    assert.match(result.stdout, /networks: `host`/);
+    assert.match(result.stdout, /sudo docker run -d[\s\S]*--name vhc-relay-a[\s\S]*--network host[\s\S]*vhc-public-beta-relay:new/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-a' 'http:\/\/127\.0\.0\.1:8765' '\/data' '500000000' '700000000'/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-b' 'http:\/\/127\.0\.0\.1:8766' '\/data' '520000000' '720000000'/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-c' 'http:\/\/127\.0\.0\.1:8767' '\/data' '540000000' '740000000'/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('public beta compose bounds relay restart and memory self-defense', () => {
   const compose = readFileSync(PUBLIC_BETA_COMPOSE, 'utf8');
   const expectedHeapLimit = {
@@ -602,7 +642,22 @@ function makeRelay(name, dataDir) {
   }], { '7777/tcp': [{ HostIp: '127.0.0.1', HostPort: hostPort }] });
 }
 
-function makeContainer(name, image, env, mounts, portBindings) {
+function makeHostNetworkRelay(name, dataDir, gunPort) {
+  return makeContainer(name, 'vhc-public-beta-relay:old', [
+    'NODE_ENV=production',
+    'GUN_FILE=/data',
+    `GUN_PORT=${gunPort}`,
+    'VH_RELAY_DAEMON_TOKEN=do-not-print',
+  ], [{
+    Type: 'bind',
+    Source: dataDir,
+    Destination: '/data',
+    Mode: 'rw',
+    RW: true,
+  }], {}, { networkMode: 'host', networks: { host: {} } });
+}
+
+function makeContainer(name, image, env, mounts, portBindings, options = {}) {
   return {
     Name: `/${name}`,
     Image: `sha256:${name}`,
@@ -613,10 +668,11 @@ function makeContainer(name, image, env, mounts, portBindings) {
     HostConfig: {
       RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
       PortBindings: portBindings,
+      NetworkMode: options.networkMode || 'vh_public_beta',
     },
     Mounts: mounts,
     NetworkSettings: {
-      Networks: {
+      Networks: options.networks || {
         vh_public_beta: {},
       },
     },

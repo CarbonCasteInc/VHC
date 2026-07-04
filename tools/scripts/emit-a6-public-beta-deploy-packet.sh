@@ -151,6 +151,9 @@ function portFlags(container) {
 
 function relayHostPort(container) {
   const gunPort = envValue(container, 'GUN_PORT').trim() || '7777';
+  if (container?.HostConfig?.NetworkMode === 'host') {
+    return gunPort;
+  }
   const bindings = container?.HostConfig?.PortBindings || {};
   const candidates = [
     ...(bindings[`${gunPort}/tcp`] || []),
