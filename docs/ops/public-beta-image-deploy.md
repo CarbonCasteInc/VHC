@@ -372,7 +372,8 @@ their values.
    env/metrics, confirm graph-scan health when enabled, and confirm watchdog
    trips remain `0` before touching the next relay. Prefer a gap between
    publisher ticks when scheduling each relay; the rolling verifier is still the
-   hard gate.
+   hard gate. For host-network relay containers, the packet derives verifier
+   URLs from each relay's captured `GUN_PORT` instead of Docker port bindings.
 5. After each relay restart, prove the running image tag/digest and verify the
    three snapshot files still exist in the relay `GUN_FILE` directory. Confirm
    the relay env includes the watchdog/admission defaults and Docker shows
