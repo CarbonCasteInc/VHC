@@ -149,6 +149,22 @@ function portFlags(container) {
   return flags;
 }
 
+function relayHostPort(container) {
+  const gunPort = envValue(container, 'GUN_PORT').trim() || '7777';
+  const bindings = container?.HostConfig?.PortBindings || {};
+  const candidates = [
+    ...(bindings[`${gunPort}/tcp`] || []),
+    ...(gunPort === '7777' ? [] : (bindings['7777/tcp'] || [])),
+  ];
+  const binding = candidates.find((entry) => entry?.HostPort);
+  return binding?.HostPort ? String(binding.HostPort).trim() : '';
+}
+
+function relayLocalOrigin(name) {
+  const port = relayHostPort(byName.get(name));
+  return port ? `http://127.0.0.1:${port}` : '';
+}
+
 function mountFlags(container) {
   const flags = [];
   for (const mount of container?.Mounts || []) {
@@ -240,6 +256,14 @@ function relayDefaultEarlyHeapThresholdList(name) {
   return '500000000,700000000';
 }
 
+function relayEarlyHeapThresholdParts(name) {
+  const parts = relayDefaultEarlyHeapThresholdList(name).split(',');
+  return {
+    first: parts[0],
+    second: parts[1] || '',
+  };
+}
+
 function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
   const relayDefaults = relay ? [
@@ -328,6 +352,78 @@ function runCommandFor(name, image, forceRelayUser = false) {
   return shellJoin(parts);
 }
 
+function rollingRelayVerifierFunction() {
+  return [
+    'verify_rolling_relay() {',
+    '  local name="$1"',
+    '  local origin="$2"',
+    '  local data_destination="$3"',
+    '  local first_threshold="$4"',
+    '  local second_threshold="$5"',
+    '  local metrics="/tmp/vhc-public-beta-deploy/${name}.metrics"',
+    '  local latest="/tmp/vhc-public-beta-deploy/${name}.latest-index.json"',
+    '  echo "[rolling-relay] waiting for ${name} readyz at ${origin}"',
+    '  local attempt=1',
+    '  while [[ "${attempt}" -le 60 ]]; do',
+    '    if curl -fsS "${origin}/readyz" > "/tmp/vhc-public-beta-deploy/${name}.readyz.json"; then',
+    '      break',
+    '    fi',
+    '    if [[ "${attempt}" -eq 60 ]]; then',
+    '      echo "${name}: /readyz did not pass after 60s; stop before touching the next relay" >&2',
+    '      exit 78',
+    '    fi',
+    '    sleep 1',
+    '    attempt=$((attempt + 1))',
+    '  done',
+    '  sudo docker exec "${name}" test -f "${data_destination}/news-latest-index-snapshot.json"',
+    '  sudo docker exec "${name}" test -f "${data_destination}/news-synthesis-lifecycle-snapshot.json"',
+    '  sudo docker exec "${name}" test -f "${data_destination}/topic-synthesis-latest-snapshot.json"',
+    '  curl -fsS "${origin}/vh/news/latest-index?limit=1&scan_limit=3&persist=false" > "${latest}"',
+    '  python3 - "${latest}" "${name}" <<\'PY\'',
+    'import json, sys',
+    'path, name = sys.argv[1], sys.argv[2]',
+    'with open(path, "r", encoding="utf-8") as handle:',
+    '    payload = json.load(handle)',
+    'if payload.get("ok") is not True:',
+    '    raise SystemExit(f"{name}: latest-index snapshot reload returned ok={payload.get(\'ok\')}")',
+    'record_count = payload.get("record_count")',
+    'records = payload.get("records")',
+    'if not isinstance(record_count, int) or record_count <= 0:',
+    '    raise SystemExit(f"{name}: latest-index snapshot reload record_count={record_count}")',
+    'if not isinstance(records, dict) or not records:',
+    '    raise SystemExit(f"{name}: latest-index snapshot reload records empty")',
+    'print(json.dumps({"relay": name, "latest_index_snapshot_reload": "pass", "record_count": record_count}, sort_keys=True))',
+    'PY',
+    '  test "$(sudo docker exec "${name}" printenv VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES_LIST)" = "${first_threshold},${second_threshold}"',
+    '  test "$(sudo docker exec "${name}" printenv VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS)" = "2"',
+    '  local metrics_attempt=1',
+    '  while [[ "${metrics_attempt}" -le 60 ]]; do',
+    '    curl -fsS "${origin}/metrics" > "${metrics}"',
+    '    if grep -F "vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index=\\"1\\",threshold_bytes=\\"${first_threshold}\\"} ${first_threshold}" "${metrics}" >/dev/null \\',
+    '      && grep -F "vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index=\\"2\\",threshold_bytes=\\"${second_threshold}\\"} ${second_threshold}" "${metrics}" >/dev/null \\',
+    '      && grep -F "vh_relay_watchdog_transient_breach_suppression_samples_remaining" "${metrics}" >/dev/null \\',
+    '      && awk \'/^vh_relay_resource_watchdog_trips_total/ { if ($NF != 0) exit 1 }\' "${metrics}"; then',
+    '      if grep -q \'^vh_relay_gun_graph_scan_enabled 1$\' "${metrics}"; then',
+    '        if grep -E \'^vh_relay_gun_graph_scan_age_ms [0-9]+$\' "${metrics}" >/dev/null \\',
+    '          && grep -F \'vh_relay_gun_graph_scan_truncated 0\' "${metrics}" >/dev/null; then',
+    '          break',
+    '        fi',
+    '      else',
+    '        break',
+    '      fi',
+    '    fi',
+    '    if [[ "${metrics_attempt}" -eq 60 ]]; then',
+    '      echo "${name}: metrics did not advertise expected threshold/suppression/graph health within 60s" >&2',
+    '      exit 78',
+    '    fi',
+    '    sleep 1',
+    '    metrics_attempt=$((metrics_attempt + 1))',
+    '  done',
+    '  echo "[rolling-relay] ${name} verified; quorum-safe to proceed to the next relay"',
+    '}',
+  ].join('\n');
+}
+
 const blockers = [];
 for (const name of relayNames) {
   const container = byName.get(name);
@@ -339,6 +435,9 @@ for (const name of relayNames) {
     blockers.push(`${name}: ${destination} mount is ${mount.Type}, expected bind`);
   } else if (!mount.Source.includes(`/vhc-${name}/data`) && !mount.Source.endsWith(`/${name}/data`)) {
     blockers.push(`${name}: ${destination} source is unusual: ${mount.Source}`);
+  }
+  if (!relayLocalOrigin(name)) {
+    blockers.push(`${name}: missing host port binding for relay readyz/metrics verification`);
   }
 }
 
@@ -449,15 +548,22 @@ lines.push('');
 if (includeRecreate) {
   lines.push('## Relay Deploy');
   lines.push('');
-  lines.push('Run one relay at a time. Prove each relay before moving to the next. Do not run public latest-index HTTP probes until the #638 image is proven running.');
+  lines.push('Run one relay at a time while the publisher is live. The packet verifies `/readyz`, snapshot-backed latest-index reload, per-relay early-capture thresholds, suppression config, graph-scan health when enabled, and zero watchdog trips before executing the next relay removal. Stop immediately on any failure; do not batch the relay recreates.');
   lines.push('');
   lines.push('```bash');
+  lines.push('set -euo pipefail');
+  lines.push(rollingRelayVerifierFunction());
+  lines.push('');
   for (const name of relayNames) {
     const dataDestination = gunFileDestination(byName.get(name));
+    const origin = relayLocalOrigin(name);
+    const thresholds = relayEarlyHeapThresholdParts(name);
+    lines.push(`# Recreate ${name}; wait for this relay to verify before touching the next relay.`);
     lines.push(`sudo docker rm -f ${name}`);
     lines.push(runCommandFor(name, newRelayImage, true));
     lines.push(`sudo docker inspect ${name} --format '{{.Config.Image}} {{.Image}}'`);
-    lines.push(`sudo docker exec ${name} test -f ${dataDestination}/news-latest-index-snapshot.json`);
+    lines.push(`verify_rolling_relay ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(dataDestination)} ${shellSingleQuote(thresholds.first)} ${shellSingleQuote(thresholds.second)}`);
+    lines.push('');
   }
   lines.push('```');
   lines.push('');

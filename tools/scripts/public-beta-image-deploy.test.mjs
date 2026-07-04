@@ -413,7 +413,29 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /GUN_FILE destination: `\/data`/);
     assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/data:rw/);
-    assert.match(result.stdout, /sudo docker exec vhc-relay-a test -f \/data\/news-latest-index-snapshot\.json/);
+    assert.match(result.stdout, /verify_rolling_relay\(\) \{/);
+    assert.match(result.stdout, /curl -fsS "\$\{origin\}\/readyz"/);
+    assert.match(result.stdout, /\/vh\/news\/latest-index\?limit=1&scan_limit=3&persist=false/);
+    assert.match(result.stdout, /latest_index_snapshot_reload": "pass"/);
+    assert.match(result.stdout, /vh_relay_watchdog_transient_breach_suppression_samples_remaining/);
+    assert.match(result.stdout, /vh_relay_gun_graph_scan_truncated 0/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-a' 'http:\/\/127\.0\.0\.1:8765' '\/data' '500000000' '700000000'/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-b' 'http:\/\/127\.0\.0\.1:8766' '\/data' '520000000' '720000000'/);
+    assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-c' 'http:\/\/127\.0\.0\.1:8767' '\/data' '540000000' '740000000'/);
+    const relayDeploySection = result.stdout.slice(
+      result.stdout.indexOf('## Relay Deploy'),
+      result.stdout.indexOf('## Origin Deploy'),
+    );
+    assert.ok(relayDeploySection.includes('while the publisher is live'), relayDeploySection);
+    const removeA = relayDeploySection.indexOf('sudo docker rm -f vhc-relay-a');
+    const verifyA = relayDeploySection.indexOf("verify_rolling_relay 'vhc-relay-a'");
+    const removeB = relayDeploySection.indexOf('sudo docker rm -f vhc-relay-b');
+    const verifyB = relayDeploySection.indexOf("verify_rolling_relay 'vhc-relay-b'");
+    const removeC = relayDeploySection.indexOf('sudo docker rm -f vhc-relay-c');
+    const verifyC = relayDeploySection.indexOf("verify_rolling_relay 'vhc-relay-c'");
+    assert.ok(removeA > 0 && removeA < verifyA, relayDeploySection);
+    assert.ok(verifyA < removeB && removeB < verifyB, relayDeploySection);
+    assert.ok(verifyB < removeC && removeC < verifyC, relayDeploySection);
     assert.match(result.stdout, /grep -E 'vhc\\-public\\-origin\|vhc\\-relay\\-a\|vhc\\-relay\\-b\|vhc\\-relay\\-c'/);
     assert.match(result.stdout, /len\(entries\) == 0/);
     assert.match(result.stdout, /"entry_count": len\(entries\)/);
@@ -566,6 +588,7 @@ test('public beta compose bounds relay restart and memory self-defense', () => {
 });
 
 function makeRelay(name, dataDir) {
+  const hostPort = name.endsWith('-a') ? '8765' : name.endsWith('-b') ? '8766' : '8767';
   return makeContainer(name, 'vhc-public-beta-relay:old', [
     'NODE_ENV=production',
     'GUN_FILE=/data',
@@ -576,7 +599,7 @@ function makeRelay(name, dataDir) {
     Destination: '/data',
     Mode: 'rw',
     RW: true,
-  }], { '7777/tcp': [{ HostIp: '127.0.0.1', HostPort: '7777' }] });
+  }], { '7777/tcp': [{ HostIp: '127.0.0.1', HostPort: hostPort }] });
 }
 
 function makeContainer(name, image, env, mounts, portBindings) {

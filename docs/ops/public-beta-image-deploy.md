@@ -363,23 +363,33 @@ their values.
 1. Install and verify the local `:3001` analysis backend.
 2. Run the direct on-disk relay snapshot precheck for every relay.
 3. Deploy one relay at a time with the existing host data bind mount preserved.
-4. After each relay restart, prove the running image tag/digest and verify the
+4. When the publisher is live, never batch relay recreates. A simultaneous
+   all-relay recreate creates the same brief `0/3` quorum window as a correlated
+   trip; a critical write in that window would fail-close the publisher. Use the
+   approved packet's rolling relay block as written: remove/run exactly one
+   relay, wait for `/readyz`, verify snapshot-backed latest-index reload,
+   confirm the per-relay early-capture thresholds and suppression config from
+   env/metrics, confirm graph-scan health when enabled, and confirm watchdog
+   trips remain `0` before touching the next relay. Prefer a gap between
+   publisher ticks when scheduling each relay; the rolling verifier is still the
+   hard gate.
+5. After each relay restart, prove the running image tag/digest and verify the
    three snapshot files still exist in the relay `GUN_FILE` directory. Confirm
    the relay env includes the watchdog/admission defaults and Docker shows
    `RestartPolicy.Name=on-failure` with `MaximumRetryCount=5`.
-5. After all relays prove the #638 image is running, run safe latest-index
+6. After all relays prove the #638 image is running, run safe latest-index
    behavior probes:
    - `persist=true` returns JSON 400.
    - `persist=false` leaves snapshot hash, mtime, and content unchanged.
-6. Deploy the origin image from the same `main` revision and repoint analysis to
+7. Deploy the origin image from the same `main` revision and repoint analysis to
    `http://127.0.0.1:3001`.
-7. Verify local and public `/api/analyze/health` and `/api/analyze/config`.
-8. Only after explicit operator approval, run the publisher installer with
+8. Verify local and public `/api/analyze/health` and `/api/analyze/config`.
+9. Only after explicit operator approval, run the publisher installer with
    `VH_NEWS_DAEMON_START_APPROVED=1`; the installer imports that approval into
    the user systemd manager before starting `vh-news-aggregator.service`.
-9. Prove latest content advances and synthesis lifecycle/publication evidence
+10. Prove latest content advances and synthesis lifecycle/publication evidence
    is fresh.
-10. Re-enable the relay liveness, publisher liveness, and public freshness
+11. Re-enable the relay liveness, publisher liveness, and public freshness
    monitors in that order, then begin soak/canary. The relay liveness timer is
    an active remediation timer once enabled: it can restart one unhealthy relay
    per run with cooldown, so leave it disabled during intentional relay
