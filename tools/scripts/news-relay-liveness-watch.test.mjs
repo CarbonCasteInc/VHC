@@ -36,6 +36,7 @@ function metrics({
   watchdogTrips = 0,
   graph = false,
   graphTruncated = 0,
+  earlyHeapSnapshot = null,
 } = {}) {
   const rows = [
     `vh_relay_process_rss_bytes ${rss}`,
@@ -70,6 +71,26 @@ function metrics({
       'vh_relay_gun_graph_user_fields_total{namespace="other",state="link_only"} 0',
       'vh_relay_gun_graph_user_value_bytes{namespace="other",state="link_only"} 0',
     );
+  }
+  if (earlyHeapSnapshot) {
+    const {
+      enabled = 1,
+      inFlight = 0,
+      thresholds = [{ thresholdIndex: 1, thresholdBytes: 500_000_000, captured: false }],
+    } = earlyHeapSnapshot;
+    rows.push(
+      `vh_relay_watchdog_early_heap_snapshot_enabled ${enabled}`,
+      `vh_relay_watchdog_early_heap_snapshot_in_flight ${inFlight}`,
+    );
+    for (const threshold of thresholds) {
+      rows.push(
+        `vh_relay_watchdog_early_heap_snapshot_threshold_bytes{threshold_index="${threshold.thresholdIndex}",threshold_bytes="${threshold.thresholdBytes}"} ${threshold.thresholdBytes}`,
+        `vh_relay_watchdog_early_heap_snapshot_captured{threshold_index="${threshold.thresholdIndex}",threshold_bytes="${threshold.thresholdBytes}"} ${threshold.captured ? 1 : 0}`,
+      );
+      if (threshold.captureStatus) {
+        rows.push(`vh_relay_watchdog_early_heap_snapshot_captures_total{threshold_index="${threshold.thresholdIndex}",threshold_bytes="${threshold.thresholdBytes}",status="${threshold.captureStatus}"} 1`);
+      }
+    }
   }
   rows.push('');
   return rows.join('\n');
@@ -180,6 +201,74 @@ test('relay liveness fails hot metrics even when readyz is healthy', async () =>
     assert.equal(summary.status, 'fail');
     assert.match(summary.blockers.join('\n'), /vhc-relay-a:rss_hot:/);
     assert.match(summary.blockers.join('\n'), /vhc-relay-a:event_loop_lag_hot:/);
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness fails when heap crosses early-capture threshold before a capture', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({
+        heap: 550_000_000,
+        earlyHeapSnapshot: {
+          thresholds: [
+            { thresholdIndex: 1, thresholdBytes: 500_000_000, captured: false },
+            { thresholdIndex: 2, thresholdBytes: 700_000_000, captured: false },
+          ],
+        },
+      })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics()],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn(),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.match(summary.blockers.join('\n'), /vhc-relay-a:early_heap_snapshot_missing:550000000\/500000000/);
+    assert.deepEqual(summary.relays[0].metrics.earlyHeapSnapshot.thresholds, [
+      { thresholdIndex: 1, thresholdBytes: 500_000_000, captured: false },
+      { thresholdIndex: 2, thresholdBytes: 700_000_000, captured: false },
+    ]);
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness passes early-capture threshold once the first capture is recorded', async () => {
+  const paths = makeTempState();
+  try {
+    const responses = new Map([
+      ['http://127.0.0.1:8765/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8765/metrics', metrics({
+        heap: 550_000_000,
+        earlyHeapSnapshot: {
+          thresholds: [
+            { thresholdIndex: 1, thresholdBytes: 500_000_000, captured: true, captureStatus: 'success' },
+            { thresholdIndex: 2, thresholdBytes: 700_000_000, captured: false },
+          ],
+        },
+      })],
+      ['http://127.0.0.1:8766/readyz', JSON.stringify({ ok: true })],
+      ['http://127.0.0.1:8766/metrics', metrics()],
+    ]);
+    const summary = await runNewsRelayLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      fetchImpl: makeFetch(responses),
+      spawnSyncImpl: makeSpawn(),
+    });
+
+    assert.equal(summary.status, 'pass');
+    assert.deepEqual(summary.relays[0].metrics.earlyHeapSnapshot.captureTotals, [
+      { thresholdIndex: 1, thresholdBytes: 500_000_000, status: 'success', count: 1 },
+    ]);
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }

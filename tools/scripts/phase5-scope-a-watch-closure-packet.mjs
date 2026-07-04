@@ -318,6 +318,7 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
         graphLiveUserValueBytes: [],
         graphTombstonedSouls: [],
         graphNamespaceLiveUserValueBytes: new Map(),
+        earlyHeapSnapshotLatest: null,
         graphMissingSampleCount: 0,
         graphTruncatedSampleCount: 0,
       };
@@ -326,6 +327,7 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
       if (Number.isFinite(relay.metrics?.heapUsedBytes)) current.heap.push({ x, y: relay.metrics.heapUsedBytes });
       if (Number.isFinite(relay.docker?.restartCount)) current.restartCounts.push(relay.docker.restartCount);
       if (Number.isFinite(relay.metrics?.watchdogTrips)) current.watchdogTrips.push(relay.metrics.watchdogTrips);
+      if (relay.metrics?.earlyHeapSnapshot) current.earlyHeapSnapshotLatest = relay.metrics.earlyHeapSnapshot;
       const graphScan = relay.metrics?.graphScan;
       const graphScanComplete = graphScan
         && Number.isFinite(graphScan.totalSouls)
@@ -364,6 +366,12 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
     const heapSlopeBytesPerHour = linearSlope(values.heap);
     const latestRssBytes = values.rss.at(-1)?.y ?? null;
     const latestHeapBytes = values.heap.at(-1)?.y ?? null;
+    const nextEarlyHeapSnapshotThreshold = values.earlyHeapSnapshotLatest?.thresholds
+      ?.find((threshold) => threshold?.captured !== true)
+      ?? null;
+    const earlyHeapSnapshotHoursToNextThreshold = nextEarlyHeapSnapshotThreshold
+      ? hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, nextEarlyHeapSnapshotThreshold.thresholdBytes)
+      : null;
     const heapHoursToLimit = hoursUntilLimit(latestHeapBytes, heapSlopeBytesPerHour, relayLimits.heapLimitBytes);
     const rssHoursToLimit = hoursUntilLimit(latestRssBytes, rssSlopeBytesPerHour, relayLimits.rssLimitBytes);
     const projectedHours = [heapHoursToLimit, rssHoursToLimit].filter((value) => value !== null);
@@ -395,6 +403,9 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
       heapLimitBytes: relayLimits.heapLimitBytes,
       heapLimitSource: relayLimits.heapLimitSource,
       heapHoursToLimit,
+      earlyHeapSnapshot: values.earlyHeapSnapshotLatest,
+      earlyHeapSnapshotNextThresholdBytes: nextEarlyHeapSnapshotThreshold?.thresholdBytes ?? null,
+      earlyHeapSnapshotHoursToNextThreshold,
       rssLimitBytes: relayLimits.rssLimitBytes,
       rssLimitSource: relayLimits.rssLimitSource,
       shortestProjectedLimitHours,

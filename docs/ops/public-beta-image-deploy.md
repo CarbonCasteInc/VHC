@@ -57,18 +57,25 @@ re-enable monitors.
   but trip-time heap snapshots can be killed by the container OOM backstop if the
   relay is already near the watchdog ceiling. Keep
   `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_ENABLED=true` and
-  `VH_RELAY_WATCHDOG_EARLY_HEAP_SNAPSHOT_HEAP_USED_BYTES=800000000` for the
-  public-beta relays so each process gets one mid-climb capture with enough
-  cgroup headroom to serialize. Raw `.heapsnapshot` files are host-private
-  diagnostic artifacts, not shareable release evidence. The relay writes the
-  redacted bundle summary and heap summary before snapshot serialization, writes
-  the raw snapshot through a temp file, and reports empty or failed captures via
-  `*.heapsnapshot-error.json`; a zero-byte raw snapshot means the raw artifact is
-  unusable, not secret-safe. The generated A6 deploy packet includes a safe
-  relay-diagnostics evidence capture block that excludes `*.heapsnapshot` and
-  `*.heapprofile`, then fails closed if either appears in the tar manifest; use
-  that path for shareable diagnostics unless a separate secret-review approval
-  authorizes raw heap artifacts.
+  per-relay early heap capture thresholds (`relay-a=500000000,700000000`,
+  `relay-b=520000000,720000000`, `relay-c=540000000,740000000`) for the
+  public-beta relays so each process gets one or two mid-climb captures with
+  enough cgroup headroom to serialize without all three relays capturing at the
+  same heap level. The deploy packet rewrites the early-capture threshold envs
+  per relay so stale shared values do not defeat the stagger. Keep
+  `VH_RELAY_WATCHDOG_POST_HEAP_SNAPSHOT_TRANSIENT_SUPPRESSION_INTERVALS=2` so a
+  synchronous capture cannot self-trip the relay on transient lag/growth residue;
+  absolute heap/RSS ceilings stay armed. Raw `.heapsnapshot` files are
+  host-private diagnostic artifacts, not shareable release evidence. The relay
+  writes the redacted bundle summary and heap summary before snapshot
+  serialization, includes JS-heap/external/arrayBuffer/native-non-heap estimate
+  totals, writes the raw snapshot through a temp file, and reports empty or
+  failed captures via `*.heapsnapshot-error.json`; a zero-byte raw snapshot means
+  the raw artifact is unusable, not secret-safe. The generated A6 deploy packet
+  includes a safe relay-diagnostics evidence capture block that excludes
+  `*.heapsnapshot` and `*.heapprofile`, then fails closed if either appears in
+  the tar manifest; use that path for shareable diagnostics unless a separate
+  secret-review approval authorizes raw heap artifacts.
 - For Scope A capped raw-only relays, keep snapshot verify/refresh disabled with
   `VH_RELAY_NEWS_INDEX_SNAPSHOT_VERIFY_STORY_BODIES=false` and
   `VH_RELAY_NEWS_INDEX_SNAPSHOT_REFRESH_STORY_STATES=false`. The latest-index

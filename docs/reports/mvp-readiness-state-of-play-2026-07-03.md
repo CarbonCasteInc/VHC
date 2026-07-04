@@ -87,7 +87,8 @@ The current LUMA lane is public-beta hardening:
 1. Build the Scope A early-capture threshold-retune PR.
    - Lower or profile the diagnostic threshold so the next climb produces a
      secret-safe heap summary before the heap ceiling is relevant.
-   - Assert the intended relay env in repo-side checks.
+   - Assert the intended per-relay capture stagger in repo-side checks
+     (`relay-a=500/700 MiB`, `relay-b=520/720 MiB`, `relay-c=540/740 MiB`).
    - Add or tighten the watch/liveness check that reports when early capture is
      expected but no `.heap-summary.json` appears after threshold.
    - Keep graph metrics as the negative control.

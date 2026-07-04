@@ -256,6 +256,46 @@ function parseGunGraphMetrics(text) {
   };
 }
 
+function parseEarlyHeapSnapshotMetrics(text) {
+  const enabled = metricNumber(text, 'vh_relay_watchdog_early_heap_snapshot_enabled');
+  const inFlight = metricNumber(text, 'vh_relay_watchdog_early_heap_snapshot_in_flight', 0) > 0;
+  const thresholdRows = parseMetricRows(text, 'vh_relay_watchdog_early_heap_snapshot_threshold_bytes')
+    .map((row) => ({
+      thresholdIndex: Number(row.labels.threshold_index),
+      thresholdBytes: row.value,
+    }))
+    .filter((row) => Number.isFinite(row.thresholdIndex) && Number.isFinite(row.thresholdBytes))
+    .sort((left, right) => left.thresholdIndex - right.thresholdIndex);
+  const capturedRows = parseMetricRows(text, 'vh_relay_watchdog_early_heap_snapshot_captured')
+    .map((row) => ({
+      thresholdIndex: Number(row.labels.threshold_index),
+      thresholdBytes: Number(row.labels.threshold_bytes),
+      captured: row.value > 0,
+    }))
+    .filter((row) => Number.isFinite(row.thresholdIndex) && Number.isFinite(row.thresholdBytes));
+  const capturedByIndex = new Map(capturedRows.map((row) => [row.thresholdIndex, row.captured]));
+  const captureTotals = parseMetricRows(text, 'vh_relay_watchdog_early_heap_snapshot_captures_total')
+    .map((row) => ({
+      thresholdIndex: Number(row.labels.threshold_index),
+      thresholdBytes: Number(row.labels.threshold_bytes),
+      status: String(row.labels.status ?? ''),
+      count: row.value,
+    }))
+    .filter((row) => Number.isFinite(row.thresholdIndex) && Number.isFinite(row.thresholdBytes) && row.status);
+  if (enabled === null && thresholdRows.length === 0 && capturedRows.length === 0 && captureTotals.length === 0) {
+    return null;
+  }
+  return {
+    enabled: enabled === null ? null : enabled > 0,
+    inFlight,
+    thresholds: thresholdRows.map((row) => ({
+      ...row,
+      captured: capturedByIndex.get(row.thresholdIndex) === true,
+    })),
+    captureTotals,
+  };
+}
+
 async function inspectRelay(target, {
   env,
   fetchImpl,
@@ -312,9 +352,19 @@ async function inspectRelay(target, {
       criticalReadbacksQueued: metricNumber(text, 'vh_relay_critical_write_readbacks_queued', 0),
       watchdogTrips,
       graphScan: parseGunGraphMetrics(text),
+      earlyHeapSnapshot: parseEarlyHeapSnapshotMetrics(text),
     };
     if (metrics.rssBytes !== null && metrics.rssBytes > limits.rssLimitBytes) blockers.push(`rss_hot:${metrics.rssBytes}/${limits.rssLimitBytes}`);
     if (metrics.heapUsedBytes !== null && metrics.heapUsedBytes > limits.heapLimitBytes) blockers.push(`heap_hot:${metrics.heapUsedBytes}/${limits.heapLimitBytes}`);
+    const firstEarlyHeapThreshold = metrics.earlyHeapSnapshot?.thresholds?.[0] ?? null;
+    if (metrics.earlyHeapSnapshot?.enabled === true
+      && metrics.earlyHeapSnapshot.inFlight !== true
+      && metrics.heapUsedBytes !== null
+      && firstEarlyHeapThreshold
+      && metrics.heapUsedBytes >= firstEarlyHeapThreshold.thresholdBytes
+      && firstEarlyHeapThreshold.captured !== true) {
+      blockers.push(`early_heap_snapshot_missing:${metrics.heapUsedBytes}/${firstEarlyHeapThreshold.thresholdBytes}`);
+    }
     if (metrics.eventLoopLagP99Ms !== null && metrics.eventLoopLagP99Ms > maxLagP99Ms) blockers.push(`event_loop_lag_hot:${metrics.eventLoopLagP99Ms}/${maxLagP99Ms}`);
     if (Number.isFinite(maxQueuedReadbacks) && metrics.criticalReadbacksQueued > maxQueuedReadbacks) {
       blockers.push(`critical_readbacks_queued:${metrics.criticalReadbacksQueued}/${maxQueuedReadbacks}`);
