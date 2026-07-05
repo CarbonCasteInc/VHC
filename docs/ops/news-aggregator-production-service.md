@@ -266,6 +266,41 @@ StoryCluster watch plus relay graph metrics as the Scope A health surface:
 - publisher diagnostics continue to show completed ticks with
   `nonfatal_prewrite_failure_count=0` outside attended maintenance overlap.
 
+Early heap capture intake is intentionally summary-only. Raw `.heapsnapshot`
+and `.heapprofile` artifacts remain host-private diagnostic files; do not copy
+or paste them into tickets, PRs, reports, or agent context. When one or more
+relay `*.heap-summary.json` files appear after the staggered early-capture
+thresholds, classify them with:
+
+```bash
+cd /home/humble/VHC
+node tools/scripts/analyze-early-heap-captures.mjs \
+  --diagnostic-dir /path/to/relay-diagnostics \
+  --soak-archive-dir "$HOME/.local/state/vhc/phase5-scope-a-soak" \
+  --relay vhc-relay-a
+```
+
+The analyzer emits `vh-early-heap-capture-analysis-v1` JSON and reads only
+`*.heap-summary.json` plus optional soak-archive `manifest.json`,
+`relay-liveness.json`, and `publisher-liveness.json` files. Its output includes
+capture basenames, memory component deltas, graph live-byte deltas, tick deltas,
+and one of these retainer classes:
+
+| Class | Meaning |
+| --- | --- |
+| `js_heap_non_graph` | JS heap growth dominates while graph live bytes are too small to explain the growth. |
+| `external_native` | external or native-non-heap growth dominates the summary/delta. |
+| `arraybuffers` | ArrayBuffer growth dominates the summary/delta. |
+| `graph_after_all` | graph live user bytes dominate the growth; revisit the graph-retention hypothesis. |
+| `inconclusive_need_diff` | the summaries do not name a retainer class; collect the named missing measurement instead of guessing. |
+
+The analyzer deliberately rejects `.heapsnapshot` input paths and does not emit
+absolute host paths or heap-snapshot paths from summary metadata. A
+`classified` result is evidence for the next bounded-memory PR design; it is
+not an authorization to run retention, compaction, eviction, publisher clear, or
+relay remediation. Those remain blocked until the retainer class is named and a
+separate fix is reviewed.
+
 Approved publisher start packet:
 
 ```bash

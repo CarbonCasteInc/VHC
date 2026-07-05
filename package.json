@@ -27,6 +27,7 @@
     "check:public-feed:fresh-propagation": "pnpm --filter @vh/e2e test:live:daemon-feed:build && node ./packages/e2e/src/live/public-feed-fresh-propagation-gate.mjs",
     "check:public-feed:freshness-monitor": "pnpm --filter @vh/gun-client... build && node ./tools/scripts/public-feed-freshness-monitor.mjs",
     "check:public-feed:alert-watch": "node --test ./tools/scripts/public-feed-alert-watch.test.mjs",
+    "check:early-heap-captures": "node --test ./tools/scripts/analyze-early-heap-captures.test.mjs",
     "test:mesh:browser-canary": "VITE_GUN_PEERS='[\"http://127.0.0.1:7788/gun\",\"http://127.0.0.1:7789/gun\",\"http://127.0.0.1:7790/gun\"]' VITE_GUN_PEER_MINIMUM=3 VITE_GUN_PEER_QUORUM_REQUIRED=2 VITE_VH_ALLOW_LOCAL_MESH_PEERS=true VITE_VH_GUN_LOCAL_STORAGE=false VITE_VH_SHOW_HEALTH=true pnpm --filter @vh/web-pwa build && pnpm --filter @vh/e2e test:mesh:browser-canary",
     "test:mesh:signed-peer-config-canary": "node ./packages/e2e/src/mesh/signed-peer-config-canary.mjs",
     "test:mesh:deployed-wss-peer-config": "pnpm --filter @vh/e2e test:mesh:deployed-wss-peer-config",
