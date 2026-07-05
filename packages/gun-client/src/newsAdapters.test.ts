@@ -67,7 +67,9 @@ import {
   writeNewsIngestionLease,
   writeNewsLatestIndexEntry,
   writeNewsSynthesisLifecycleStatus,
-  writeNewsStory
+  writeNewsStory,
+  RelayRestTransportTotalFailureError,
+  isRelayRestTransportTotalFailureError,
 } from './newsAdapters';
 
 interface FakeMesh {
@@ -927,6 +929,386 @@ describe('newsAdapters', () => {
         'Relay REST news write failed for /vh/news/latest-index: 1/3 succeeded; required=2',
       );
       expect(mesh.writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry retries a transport-total relay failure and succeeds', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const okResponse = () => new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse());
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(
+        writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
+      ).resolves.toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('classifies only network-level thrown relay write failures as transport-class', () => {
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure('fetch failed')).toBe(false);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new TypeError('fetch failed'))).toBe(true);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new Error('ordinary application error'))).toBe(false);
+
+    const abortError = new Error('This operation was aborted');
+    abortError.name = 'AbortError';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(abortError)).toBe(false);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new Error('request timeout'))).toBe(false);
+
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: 'getaddrinfo ENOTFOUND gun-a.example.test' }),
+    )).toBe(true);
+
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: new Error('socket hang up') }),
+    )).toBe(true);
+
+    const connectTimeoutCause = new Error('Connect Timeout Error');
+    (connectTimeoutCause as NodeJS.ErrnoException).code = 'UND_ERR_CONNECT_TIMEOUT';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: connectTimeoutCause }),
+    )).toBe(true);
+
+    const bodyTimeoutCause = new Error('Body Timeout Error');
+    (bodyTimeoutCause as NodeJS.ErrnoException).code = 'UND_ERR_BODY_TIMEOUT';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: bodyTimeoutCause }),
+    )).toBe(false);
+  });
+
+  it('resolves relay REST transport retry plan with defaults, clamps, and fallback parsing', () => {
+    const restoreInvalid = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: 'not-a-number',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: 'bad also-bad',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toEqual({
+        retries: 2,
+        backoffMs: [5000, 15000],
+      });
+    } finally {
+      restoreInvalid();
+    }
+
+    const restoreClamped = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '99',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '1 -2 nope 999999',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toEqual({
+        retries: 5,
+        backoffMs: [1, 60000],
+      });
+    } finally {
+      restoreClamped();
+    }
+
+    const restoreDisabled = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '-3',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toMatchObject({
+        retries: 0,
+      });
+    } finally {
+      restoreDisabled();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest uses the configured transport retry backoff before succeeding', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '1',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const okResponse = () => new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse());
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record: { story_id: STORY.story_id, ok: true },
+        writeClass: 'news-latest-index',
+        validate: (payload) => payload.ok === true,
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(warn).toHaveBeenCalledWith(
+        '[vh:news] relay REST write transport-unavailable; retrying',
+        expect.objectContaining({
+          attempt: 1,
+          max_attempts: 2,
+          retry_delay_ms: 1,
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry throws the typed transport-total error after exhausting retries', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestTransportTotalFailureError(failure)).toBe(true);
+      expect((failure as Error).message).toContain('0/3 succeeded');
+      expect((failure as Error).message).toContain('transport_unavailable_attempts=2');
+      expect((failure as RelayRestTransportTotalFailureError).attemptCount).toBe(2);
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(mesh.writes).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry does not retry mixed transport and relay-returned failures', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(new Response('relay-backpressure', {
+          status: 503,
+          headers: { 'content-type': 'text/plain' },
+        }))
+        .mockRejectedValueOnce(new TypeError('fetch failed'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
+      expect((failure as Error).message).toContain('0/3 succeeded');
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry does not retry abort/timeout failures', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const abortError = () => {
+        const error = new Error('This operation was aborted');
+        error.name = 'AbortError';
+        return error;
+      };
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(abortError())
+        .mockRejectedValueOnce(abortError())
+        .mockRejectedValueOnce(abortError());
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry does not retry undici dispatcher timeouts wrapped as fetch failed', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      // A headers timeout means the request WAS delivered and the relay is
+      // hanging — relay-side slowness, not transport-total.
+      const headersTimeout = () => {
+        const cause = new Error('Headers Timeout Error');
+        (cause as NodeJS.ErrnoException).code = 'UND_ERR_HEADERS_TIMEOUT';
+        return new TypeError('fetch failed', { cause });
+      };
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(headersTimeout())
+        .mockRejectedValueOnce(headersTimeout())
+        .mockRejectedValueOnce(headersTimeout());
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry with retries disabled still throws the typed transport-total error', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(isRelayRestTransportTotalFailureError(failure)).toBe(true);
+      expect((failure as RelayRestTransportTotalFailureError).attemptCount).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();

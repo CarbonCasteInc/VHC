@@ -214,6 +214,52 @@ test('publisher liveness classifies exit 78 fail-close and guard refusal separat
     });
     assert.equal(guardRefusal.status, 'fail');
     assert.equal(guardRefusal.failureClass, 'guard_refusal');
+
+    const transportUnavailable = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: failedSystemctl({ status: 69 }),
+      journalText: [
+        '[vh:news-daemon] fail-closed runtime error shutting down process',
+        '[vh:news-daemon] fail-close cause is relay transport-total (no relay acknowledged the write); exiting EX_UNAVAILABLE for bounded systemd restart',
+      ].join('\n'),
+    });
+    assert.equal(transportUnavailable.status, 'fail');
+    assert.equal(transportUnavailable.failureClass, 'exit_69_transport_unavailable');
+
+    const transportUnavailableByStatusOnly = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: failedSystemctl({ status: 69 }),
+      journalText: '',
+    });
+    assert.equal(transportUnavailableByStatusOnly.status, 'fail');
+    assert.equal(transportUnavailableByStatusOnly.failureClass, 'exit_69_transport_unavailable');
+
+    // Regression: a stale transport-total line from an earlier recovered
+    // incident must NOT relabel a current exit-78 write-safety park.
+    const staleTransportLineWithCurrent78Park = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: failedSystemctl({ status: 78 }),
+      journalText: [
+        '[vh:news-daemon] fail-close cause is relay transport-total (no relay acknowledged the write); exiting EX_UNAVAILABLE for bounded systemd restart',
+        '[vh:news-daemon] fail-closed runtime error shutting down process',
+      ].join('\n'),
+    });
+    assert.equal(staleTransportLineWithCurrent78Park.status, 'fail');
+    assert.equal(staleTransportLineWithCurrent78Park.failureClass, 'fail_closed_runtime_error');
+
+    // The wrapper's own exit-75 refusal paths (sibling daemon, reap failure)
+    // must never classify as transport-unavailable.
+    const wrapperSiblingRefusal = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: failedSystemctl({ status: 75 }),
+      journalText: '[vh:news-daemon:prod] refusing start: existing news daemon runtime process(es)',
+    });
+    assert.equal(wrapperSiblingRefusal.status, 'fail');
+    assert.notEqual(wrapperSiblingRefusal.failureClass, 'exit_69_transport_unavailable');
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }

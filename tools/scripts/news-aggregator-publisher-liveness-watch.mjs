@@ -130,6 +130,14 @@ function readJournal(unit, lines, spawnSyncImpl = spawnSync) {
 
 function classifyJournal(journalText, properties) {
   const text = String(journalText ?? '');
+  // Classified by ExecMainStatus ONLY: exit 69 is emitted exclusively by the
+  // daemon's transport-total fail-close (the wrapper's own refusal paths use
+  // 75/78). Matching journal text here would let a stale transport-total line
+  // from an earlier recovered incident mislabel a current exit-78
+  // write-safety park still inside the journal window.
+  if (String(properties.ExecMainStatus ?? '').trim() === '69') {
+    return 'exit_69_transport_unavailable';
+  }
   if (/fail-closed runtime error|runtime error triggered fail-closed stop/i.test(text)) {
     return 'fail_closed_runtime_error';
   }

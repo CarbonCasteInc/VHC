@@ -193,6 +193,62 @@ describe('daemonWriteLane', () => {
     );
   });
 
+  it('propagates the transport-total brand onto lane-stopped rejections so the fail-close exit code survives', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const lane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 1,
+      stopClassOnFailure: (writeClass) => writeClass === 'news_bundle',
+    });
+    const brandedTransportTotal = Object.assign(
+      new Error('Relay REST news write failed for /vh/news/hot-index: 0/3 succeeded; required=2'),
+      { relayRestTransportTotalFailure: true },
+    );
+
+    let releaseFailingWrite: (() => void) | null = null;
+    const failingWrite = lane.run('news_bundle', { story_id: 'story-a' }, () =>
+      new Promise<never>((_resolve, reject) => {
+        releaseFailingWrite = () => reject(brandedTransportTotal);
+      }));
+    // Queue a pending write behind the failing one (concurrency 1) so the
+    // stop path rejects it while it is still pending.
+    const pendingWrite = lane.run('news_bundle', { story_id: 'story-b' }, async () => 'unreachable');
+    while (!releaseFailingWrite) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    releaseFailingWrite();
+
+    const failingError = await failingWrite.then(() => null, (error: unknown) => error);
+    const pendingError = await pendingWrite.then(() => null, (error: unknown) => error);
+    expect((failingError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBe(true);
+    expect(pendingError).toBeInstanceOf(Error);
+    expect((pendingError as Error).message).toContain('daemon write lane stopped after failure: news_bundle');
+    expect((pendingError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBe(true);
+
+    // Later writes on the stopped lane carry the brand too: a restart is the
+    // correct recovery for a lane stopped by a transport-total event.
+    const laterError = await lane
+      .run('news_bundle', { story_id: 'story-c' }, async () => 'unreachable')
+      .then(() => null, (error: unknown) => error);
+    expect((laterError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBe(true);
+
+    // A lane stopped by a NON-transport failure keeps plain rejections.
+    const plainLane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 1,
+      stopClassOnFailure: () => true,
+    });
+    await expect(
+      plainLane.run('news_bundle', { story_id: 'story-d' }, async () => {
+        throw new Error('relay returned 500');
+      }),
+    ).rejects.toThrow('relay returned 500');
+    const plainStopError = await plainLane
+      .run('news_bundle', { story_id: 'story-e' }, async () => 'unreachable')
+      .then(() => null, (error: unknown) => error);
+    expect((plainStopError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBeUndefined();
+  });
+
   it('paces product-feed repair writes with dedicated concurrency-one lanes', async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     let releaseFirstRepair: (() => void) | null = null;

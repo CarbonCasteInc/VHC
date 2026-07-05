@@ -430,6 +430,110 @@ function relayRestNetworkClassification(error: unknown): string {
   return 'error';
 }
 
+/**
+ * Thrown when a relay REST news write fan-out gets ZERO relay successes and
+ * every per-relay failure is transport-class (the fetch itself threw — DNS
+ * resolution, connection refusal, connection reset — with no HTTP response
+ * received from any relay). No relay ACKNOWLEDGED the write. A response-leg
+ * reset can, in principle, occur after a relay applied the write, and the
+ * network-level cause may be relay-side (fleet down, TLS failure) rather
+ * than host-side — so this classification means "unacknowledged everywhere",
+ * not "provably unpublished" or "host network at fault". Retrying is safe
+ * regardless: the record is encoded once and re-sent byte-identical, and all
+ * relay news writes are id-keyed idempotent upserts (created_at is
+ * first-write-wins server-side), so a re-send cannot double-publish or
+ * diverge state.
+ */
+export class RelayRestTransportTotalFailureError extends Error {
+  readonly relayRestTransportTotalFailure = true;
+
+  readonly path: string;
+
+  readonly attemptCount: number;
+
+  constructor(message: string, options: { readonly path: string; readonly attemptCount: number }) {
+    super(message);
+    this.name = 'RelayRestTransportTotalFailureError';
+    this.path = options.path;
+    this.attemptCount = options.attemptCount;
+  }
+}
+
+/** Brand-based guard so duplicated package instances cannot break detection. */
+export function isRelayRestTransportTotalFailureError(
+  error: unknown,
+): error is RelayRestTransportTotalFailureError {
+  return error instanceof Error
+    && (error as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure === true;
+}
+
+/**
+ * Transport-class means the fetch threw with a network-level cause and no
+ * HTTP response was ever received. Aborts/timeouts are deliberately NOT
+ * transport-class: a hung relay may have received the request, and masking
+ * relay-side slowness with retries would hide capacity problems that the
+ * backpressure path (#675) exists to surface.
+ */
+function isTransportClassRelayWriteFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError' || /abort|timeout/i.test(error.message)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  const causeText = cause instanceof Error
+    ? `${(cause as NodeJS.ErrnoException).code ?? ''} ${cause.name} ${cause.message}`
+    : cause === undefined || cause === null
+      ? ''
+      : String(cause);
+  // undici wraps dispatcher timeouts as TypeError('fetch failed') with the
+  // real cause underneath. A headers/body timeout means the request WAS
+  // delivered and the relay is hanging — that is relay-side slowness, not
+  // transport-total, so it must keep single-pass semantics like aborts.
+  // (UND_ERR_CONNECT_TIMEOUT stays transport-class: TCP never opened.)
+  if (/UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT|HeadersTimeoutError|BodyTimeoutError|headers timeout|body timeout/i.test(causeText)) {
+    return false;
+  }
+  const combined = `${error.message} ${causeText}`;
+  return /fetch failed|getaddrinfo|econnrefused|enotfound|eai_again|econnreset|ehostunreach|enetunreach|socket hang up|network/i.test(combined);
+}
+
+const RELAY_REST_TRANSPORT_RETRY_COUNT_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT',
+  'VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT',
+];
+const RELAY_REST_TRANSPORT_RETRY_BACKOFF_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS',
+  'VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS',
+];
+const RELAY_REST_TRANSPORT_RETRY_COUNT_DEFAULT = 2;
+const RELAY_REST_TRANSPORT_RETRY_COUNT_MAX = 5;
+const RELAY_REST_TRANSPORT_RETRY_BACKOFF_DEFAULT_MS = [5_000, 15_000] as const;
+const RELAY_REST_TRANSPORT_RETRY_BACKOFF_MAX_MS = 60_000;
+
+function resolveRelayRestTransportRetryPlan(): { retries: number; backoffMs: readonly number[] } {
+  const rawCount = readFirstRuntimeString(RELAY_REST_TRANSPORT_RETRY_COUNT_ENV);
+  const parsedCount = rawCount === undefined ? RELAY_REST_TRANSPORT_RETRY_COUNT_DEFAULT : Number.parseInt(rawCount, 10);
+  // Negative values read as "disable retries" (clamp to 0); non-numeric
+  // garbage falls back to the default rather than silently disabling.
+  const retries = Number.isFinite(parsedCount)
+    ? Math.min(Math.max(parsedCount, 0), RELAY_REST_TRANSPORT_RETRY_COUNT_MAX)
+    : RELAY_REST_TRANSPORT_RETRY_COUNT_DEFAULT;
+  const rawBackoff = readFirstRuntimeString(RELAY_REST_TRANSPORT_RETRY_BACKOFF_ENV);
+  const parsedBackoff = rawBackoff === undefined
+    ? [...RELAY_REST_TRANSPORT_RETRY_BACKOFF_DEFAULT_MS]
+    : rawBackoff
+        .split(/[,\s]+/)
+        .map((value) => Number.parseInt(value, 10))
+        .filter((value) => Number.isFinite(value) && value >= 0)
+        .map((value) => Math.min(value, RELAY_REST_TRANSPORT_RETRY_BACKOFF_MAX_MS));
+  const backoffMs = parsedBackoff.length > 0 ? parsedBackoff : [...RELAY_REST_TRANSPORT_RETRY_BACKOFF_DEFAULT_MS];
+  return { retries, backoffMs };
+}
+
+function sleepMs(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
 function createRelayRestReadDiagnostics(endpoints: readonly string[]): RelayRestReadDiagnostics {
   return {
     endpointsAttempted: [...endpoints],
@@ -2313,64 +2417,122 @@ async function writeNewsRecordViaRelayRest(input: {
     endpoint,
     headers: requireNewsRelayDaemonAuthHeaders(endpoint),
   }));
-  const failures: string[] = [];
-  const failedEndpointLabels: string[] = [];
-  let successCount = 0;
 
-  for (const { endpoint, headers } of relayTargets) {
-    const endpointLabel = relayRestEndpointLabel(endpoint);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...headers,
-        },
-        body: JSON.stringify({ record: input.record }),
-        signal: controller.signal,
-      });
-      const body = await response.text().catch(() => '');
-      const payload = (() => {
-        try {
-          return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
-        } catch {
-          return null;
+  interface RelayRestWriteFanoutOutcome {
+    readonly successCount: number;
+    readonly failures: readonly string[];
+    readonly failedEndpointLabels: readonly string[];
+    readonly transportClassFailureCount: number;
+  }
+
+  const attemptFanout = async (): Promise<RelayRestWriteFanoutOutcome> => {
+    const failures: string[] = [];
+    const failedEndpointLabels: string[] = [];
+    let successCount = 0;
+    let transportClassFailureCount = 0;
+
+    for (const { endpoint, headers } of relayTargets) {
+      const endpointLabel = relayRestEndpointLabel(endpoint);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...headers,
+          },
+          body: JSON.stringify({ record: input.record }),
+          signal: controller.signal,
+        });
+        const body = await response.text().catch(() => '');
+        const payload = (() => {
+          try {
+            return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.ok && payload && input.validate(payload)) {
+          successCount += 1;
+          continue;
         }
-      })();
-      if (response.ok && payload && input.validate(payload)) {
-        successCount += 1;
-        continue;
+        const classification = classifyRelayRestHttpFailure(response.status, body);
+        failedEndpointLabels.push(endpointLabel);
+        failures.push(`${endpointLabel}:${classification}`);
+      } catch (error) {
+        if (isTransportClassRelayWriteFailure(error)) {
+          transportClassFailureCount += 1;
+        }
+        failedEndpointLabels.push(endpointLabel);
+        failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        clearTimeout(timeout);
       }
-      const classification = classifyRelayRestHttpFailure(response.status, body);
-      failedEndpointLabels.push(endpointLabel);
-      failures.push(`${endpointLabel}:${classification}`);
-    } catch (error) {
-      failedEndpointLabels.push(endpointLabel);
-      failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      clearTimeout(timeout);
+    }
+
+    return { successCount, failures, failedEndpointLabels, transportClassFailureCount };
+  };
+
+  const isTransportTotalOutcome = (outcome: RelayRestWriteFanoutOutcome): boolean =>
+    outcome.successCount === 0 && outcome.transportClassFailureCount >= endpoints.length;
+
+  const retryPlan = resolveRelayRestTransportRetryPlan();
+  const maxAttempts = 1 + retryPlan.retries;
+  let outcome: RelayRestWriteFanoutOutcome | undefined;
+  let attemptsUsed = 0;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    attemptsUsed = attempt;
+    outcome = await attemptFanout();
+
+    if (outcome.successCount >= quorum.requiredSuccessCount) {
+      lumaLog('info', '[vh:news] relay REST write completed', {
+        write_class: input.writeClass,
+        path: input.path,
+        relay_success_count: outcome.successCount,
+        relay_target_count: endpoints.length,
+        relay_required_success_count: quorum.requiredSuccessCount,
+        relay_failed_endpoint_labels: outcome.failedEndpointLabels,
+        require_all: quorum.requireAll,
+        min_success_configured: quorum.minSuccessConfigured,
+        relay_write_attempt: attempt,
+      });
+      return;
+    }
+
+    // Retry ONLY the transport-total case: zero relays acked and every
+    // failure was network-level, so nothing was published anywhere and the
+    // id-keyed upsert is safe to re-send. Any relay-returned response (500,
+    // 503 backpressure, 4xx) or abort/timeout keeps single-pass semantics.
+    if (!isTransportTotalOutcome(outcome) || attempt >= maxAttempts) {
+      break;
+    }
+    const backoffIndex = Math.min(attempt - 1, retryPlan.backoffMs.length - 1);
+    const delayMs = retryPlan.backoffMs[backoffIndex]!;
+    lumaLog('warn', '[vh:news] relay REST write transport-unavailable; retrying', {
+      write_class: input.writeClass,
+      path: input.path,
+      relay_target_count: endpoints.length,
+      relay_failed_endpoint_labels: outcome.failedEndpointLabels,
+      attempt,
+      max_attempts: maxAttempts,
+      retry_delay_ms: delayMs,
+    });
+    if (delayMs > 0) {
+      await sleepMs(delayMs);
     }
   }
 
-  if (successCount >= quorum.requiredSuccessCount) {
-    lumaLog('info', '[vh:news] relay REST write completed', {
-      write_class: input.writeClass,
-      path: input.path,
-      relay_success_count: successCount,
-      relay_target_count: endpoints.length,
-      relay_required_success_count: quorum.requiredSuccessCount,
-      relay_failed_endpoint_labels: failedEndpointLabels,
-      require_all: quorum.requireAll,
-      min_success_configured: quorum.minSuccessConfigured,
-    });
-    return;
+  const finalOutcome = outcome as RelayRestWriteFanoutOutcome;
+  const failureMessage = `Relay REST news write failed for ${input.path}: ${finalOutcome.successCount}/${endpoints.length} succeeded; required=${quorum.requiredSuccessCount}; failed=${finalOutcome.failures.join('; ')}`;
+  if (isTransportTotalOutcome(finalOutcome)) {
+    throw new RelayRestTransportTotalFailureError(
+      `${failureMessage}; transport_unavailable_attempts=${attemptsUsed}`,
+      { path: input.path, attemptCount: attemptsUsed },
+    );
   }
-
-  throw new Error(
-    `Relay REST news write failed for ${input.path}: ${successCount}/${endpoints.length} succeeded; required=${quorum.requiredSuccessCount}; failed=${failures.join('; ')}`,
-  );
+  throw new Error(failureMessage);
 }
 
 function resolveLatestIndexRelayRestRead(
@@ -3352,6 +3514,8 @@ export const newsAdapterInternal = {
   relayRestEndpointLabel,
   resolveRelayRestWriteEndpoints,
   resolveNewsRelayRestWriteQuorum,
+  resolveRelayRestTransportRetryPlan,
+  isTransportClassRelayWriteFailure,
   shouldRequireAllNewsRelayRestWrites,
   shouldWriteNewsViaRelayRestFirst,
   classifyRelayRestHttpFailure,

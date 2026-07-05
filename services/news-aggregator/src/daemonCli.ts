@@ -1,8 +1,38 @@
 import { pathToFileURL } from 'node:url';
+import { isRelayRestTransportTotalFailureError } from '@vh/gun-client';
 
 export type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
 export type CliLogger = Pick<Console, 'info' | 'error'>;
 export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
+
+/**
+ * EX_UNAVAILABLE: the fail-close cause was a relay transport-total failure —
+ * zero relays ACKNOWLEDGED the write (network-level fetch failure on every
+ * endpoint, no HTTP response received), so no write-safety invariant is in
+ * doubt and the writes are id-keyed idempotent upserts. systemd restarts this
+ * exit code (`Restart=on-failure`; only 78 is in `RestartPreventExitStatus`),
+ * bounded by `StartLimitBurst`/`StartLimitIntervalSec`, giving transient
+ * network blips a bounded self-recovery path while genuine write-safety halts
+ * stay parked on 78 for operator inspection.
+ *
+ * 69 is chosen deliberately: the production wrapper already uses exit 75 for
+ * sibling-daemon refusal and reap failures, so 75 would conflate a
+ * duplicate-daemon incident (needs operator action) with a transport blip
+ * (self-recovers). No other publisher tooling emits 69, so
+ * ExecMainStatus=69 identifies this class unambiguously at the unit layer.
+ */
+export const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = 69;
+
+/**
+ * Fail-close always halts the process; only the exit code differs. Transport-
+ * total relay failures exit EX_UNAVAILABLE(69) for bounded systemd restart;
+ * every other fail-close cause keeps the non-restarting write-safety code 78.
+ */
+export function resolveFailClosedExitCode(error: unknown): number {
+  return isRelayRestTransportTotalFailureError(error)
+    ? NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE
+    : NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
+}
 
 export interface CliDaemonProcessHandle {
   stop(): Promise<void>;
