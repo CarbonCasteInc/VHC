@@ -15,6 +15,9 @@ const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v1';
 const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_RELAY_LIVENESS_MAX_AGE_MS = 15 * 60 * 1000;
+const DEFAULT_RELAY_SNAPSHOT_MAX_AGE_MS = 45 * 60 * 1000;
+const DEFAULT_WATCH_CLOSURE_MAX_AGE_MS = 90 * 60 * 1000;
 const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
 const NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE = '75';
 const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
@@ -117,6 +120,17 @@ function readJsonFile(filePath) {
   }
 }
 
+function readJsonReport(filePath) {
+  if (!filePath || !existsSync(filePath)) {
+    return { exists: false, parsed: null, error: null };
+  }
+  try {
+    return { exists: true, parsed: JSON.parse(readFileSync(filePath, 'utf8')), error: null };
+  } catch (error) {
+    return { exists: true, parsed: null, error };
+  }
+}
+
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -146,6 +160,325 @@ function summarizeFreshness(summary) {
     latestIndexReadbacks: Array.isArray(summary?.latestIndexReadbacks)
       ? summary.latestIndexReadbacks.map(summarizeFreshnessReadback)
       : [],
+  };
+}
+
+function reportGeneratedAgeMs(report, now) {
+  const generatedAtMs = Date.parse(String(report?.generatedAt ?? ''));
+  return Number.isFinite(generatedAtMs) ? Math.max(0, now - generatedAtMs) : null;
+}
+
+function reportInputEnabled(env, requireEnvName, fileEnvName) {
+  const requireValue = firstNonEmpty(env[requireEnvName]);
+  if (requireValue !== null) return boolEnv(requireValue, false);
+  return Boolean(firstNonEmpty(env[fileEnvName]));
+}
+
+function reportFreshnessBlockers({ label, report, maxAgeMs, now }) {
+  const blockers = [];
+  const ageMs = reportGeneratedAgeMs(report, now);
+  if (ageMs === null) {
+    blockers.push(`${label}_generated_at_missing`);
+  } else if (ageMs > maxAgeMs) {
+    blockers.push(`${label}_report_stale:${ageMs}/${maxAgeMs}`);
+  }
+  return {
+    ageMs,
+    blockers,
+  };
+}
+
+function reportStatusBlockers({ label, report, sanitizeBlocker = sanitizeAlertText }) {
+  if (report?.status === 'pass') return [];
+  const blockers = Array.isArray(report?.blockers) && report.blockers.length > 0
+    ? report.blockers.map((blocker) => `${label}:${sanitizeBlocker(blocker)}`)
+    : [`${label}_status:${sanitizeAlertText(report?.status ?? 'missing')}`];
+  return blockers;
+}
+
+function relayLivenessFile(env) {
+  return firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE)
+    ?? path.join(resolveHome(env), '.local/state/vhc/relay-liveness/latest.json');
+}
+
+function relaySnapshotFile(env) {
+  return firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE)
+    ?? path.join(resolveHome(env), '.local/state/vhc/relay-snapshot-watch/latest.json');
+}
+
+function watchClosureVerdictFile(env) {
+  return firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE)
+    ?? path.join(resolveHome(env), '.local/state/vhc/phase5-scope-a-watch-closure/verdict.json');
+}
+
+function summarizeRelayLivenessReport({ env, now }) {
+  const enabled = reportInputEnabled(
+    env,
+    'VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS',
+    'VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE',
+  );
+  const filePath = relayLivenessFile(env);
+  const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS, DEFAULT_RELAY_LIVENESS_MAX_AGE_MS);
+  if (!enabled) {
+    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+  }
+  const read = readJsonReport(filePath);
+  if (!read.exists) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: ['relay_liveness_report_missing'],
+      relays: [],
+    };
+  }
+  if (!read.parsed) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: [`relay_liveness_report_invalid:${sanitizeAlertError(read.error)}`],
+      relays: [],
+    };
+  }
+  const freshness = reportFreshnessBlockers({
+    label: 'relay_liveness',
+    report: read.parsed,
+    maxAgeMs,
+    now,
+  });
+  const blockers = [
+    ...freshness.blockers,
+    ...reportStatusBlockers({ label: 'relay_liveness', report: read.parsed }),
+  ];
+  return {
+    schemaVersion: read.parsed.schemaVersion ?? null,
+    status: blockers.length > 0 ? 'fail' : 'pass',
+    severity: blockers.length > 0 ? 'critical' : 'none',
+    required: true,
+    sourceFileHash: hashValue(filePath),
+    generatedAt: read.parsed.generatedAt ?? null,
+    ageMs: freshness.ageMs,
+    maxAgeMs,
+    blockers,
+    relays: Array.isArray(read.parsed.relays)
+      ? read.parsed.relays.map((relay) => ({
+          name: String(relay.name ?? ''),
+          status: relay.status ?? null,
+          blockerCount: Array.isArray(relay.blockers) ? relay.blockers.length : 0,
+          restartCount: Number.isFinite(relay.docker?.restartCount) ? relay.docker.restartCount : null,
+          rssBytes: Number.isFinite(relay.metrics?.rssBytes) ? relay.metrics.rssBytes : null,
+          heapUsedBytes: Number.isFinite(relay.metrics?.heapUsedBytes) ? relay.metrics.heapUsedBytes : null,
+          watchdogTrips: Number.isFinite(relay.metrics?.watchdogTrips) ? relay.metrics.watchdogTrips : null,
+          eventLoopLagP99Ms: Number.isFinite(relay.metrics?.eventLoopLagP99Ms) ? relay.metrics.eventLoopLagP99Ms : null,
+          criticalReadbacksQueued: Number.isFinite(relay.metrics?.criticalReadbacksQueued)
+            ? relay.metrics.criticalReadbacksQueued
+            : null,
+        }))
+      : [],
+  };
+}
+
+function relayNameFromSnapshotPath(filePath) {
+  return String(filePath ?? '').split(/[\\/]+/).find((segment) => segment.startsWith('vhc-relay-')) ?? null;
+}
+
+function sanitizeSnapshotBlocker(blocker) {
+  const text = String(blocker ?? '');
+  const separatorIndex = text.indexOf(':');
+  if (separatorIndex > 0 && text.slice(0, separatorIndex).includes('news-latest-index-snapshot.json')) {
+    return `snapshot_file_hash:${hashValue(text.slice(0, separatorIndex))}:${sanitizeAlertText(text.slice(separatorIndex + 1))}`;
+  }
+  return sanitizeAlertText(text);
+}
+
+function summarizeRelaySnapshotReport({ env, now }) {
+  const enabled = reportInputEnabled(
+    env,
+    'VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT',
+    'VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE',
+  );
+  const filePath = relaySnapshotFile(env);
+  const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS, DEFAULT_RELAY_SNAPSHOT_MAX_AGE_MS);
+  if (!enabled) {
+    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+  }
+  const read = readJsonReport(filePath);
+  if (!read.exists) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: ['relay_snapshot_report_missing'],
+      snapshots: [],
+    };
+  }
+  if (!read.parsed) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: [`relay_snapshot_report_invalid:${sanitizeAlertError(read.error)}`],
+      snapshots: [],
+    };
+  }
+  const freshness = reportFreshnessBlockers({
+    label: 'relay_snapshot',
+    report: read.parsed,
+    maxAgeMs,
+    now,
+  });
+  const blockers = [
+    ...freshness.blockers,
+    ...reportStatusBlockers({
+      label: 'relay_snapshot',
+      report: read.parsed,
+      sanitizeBlocker: sanitizeSnapshotBlocker,
+    }),
+  ];
+  return {
+    schemaVersion: read.parsed.schemaVersion ?? null,
+    status: blockers.length > 0 ? 'fail' : 'pass',
+    severity: blockers.length > 0 ? 'critical' : 'none',
+    required: true,
+    sourceFileHash: hashValue(filePath),
+    generatedAt: read.parsed.generatedAt ?? null,
+    ageMs: freshness.ageMs,
+    maxAgeMs,
+    blockers,
+    snapshots: Array.isArray(read.parsed.snapshots)
+      ? read.parsed.snapshots.map((snapshot) => ({
+          fileHash: hashValue(snapshot.file),
+          relay: relayNameFromSnapshotPath(snapshot.file),
+          status: snapshot.status ?? null,
+          entryCount: Number.isFinite(snapshot.entryCount) ? snapshot.entryCount : null,
+          cachedAgeMs: Number.isFinite(snapshot.cachedAgeMs) ? snapshot.cachedAgeMs : null,
+          newestEntryAgeMs: Number.isFinite(snapshot.newestEntryAgeMs) ? snapshot.newestEntryAgeMs : null,
+          failureCount: Array.isArray(snapshot.failures) ? snapshot.failures.length : 0,
+          freshnessFailureCount: Array.isArray(snapshot.freshnessFailures) ? snapshot.freshnessFailures.length : 0,
+        }))
+      : [],
+  };
+}
+
+function sanitizeWatchClosureBlocker(blocker) {
+  return sanitizeAlertText(blocker);
+}
+
+function summarizeWatchClosureVerdict({ env, now }) {
+  const enabled = reportInputEnabled(
+    env,
+    'VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE',
+    'VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE',
+  );
+  const filePath = watchClosureVerdictFile(env);
+  const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS, DEFAULT_WATCH_CLOSURE_MAX_AGE_MS);
+  if (!enabled) {
+    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+  }
+  const read = readJsonReport(filePath);
+  if (!read.exists) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: ['watch_closure_verdict_missing'],
+      verdictStatus: null,
+    };
+  }
+  if (!read.parsed) {
+    return {
+      status: 'fail',
+      severity: 'critical',
+      required: true,
+      sourceFileHash: hashValue(filePath),
+      generatedAt: null,
+      ageMs: null,
+      maxAgeMs,
+      blockers: [`watch_closure_verdict_invalid:${sanitizeAlertError(read.error)}`],
+      verdictStatus: null,
+    };
+  }
+  const freshness = reportFreshnessBlockers({
+    label: 'watch_closure',
+    report: read.parsed,
+    maxAgeMs,
+    now,
+  });
+  const verdictFailed = read.parsed.status === 'fail';
+  const verdictBlockers = verdictFailed
+    ? Array.isArray(read.parsed.blockers) && read.parsed.blockers.length > 0
+      ? read.parsed.blockers.map((blocker) => `watch_closure:${sanitizeWatchClosureBlocker(blocker)}`)
+      : ['watch_closure_status:fail']
+    : [];
+  const blockers = [...freshness.blockers, ...verdictBlockers];
+  return {
+    schemaVersion: read.parsed.schemaVersion ?? null,
+    status: blockers.length > 0 ? 'fail' : 'pass',
+    severity: blockers.length > 0 ? 'critical' : 'none',
+    required: true,
+    sourceFileHash: hashValue(filePath),
+    generatedAt: read.parsed.generatedAt ?? null,
+    ageMs: freshness.ageMs,
+    maxAgeMs,
+    blockers,
+    verdictStatus: read.parsed.status ?? null,
+    verdictSeverity: read.parsed.severity ?? null,
+    window: read.parsed.window ?? null,
+    thresholds: {
+      twentyFourHour: read.parsed.thresholds?.twentyFourHour
+        ? {
+            status: read.parsed.thresholds.twentyFourHour.status ?? null,
+            blockers: Array.isArray(read.parsed.thresholds.twentyFourHour.blockers)
+              ? read.parsed.thresholds.twentyFourHour.blockers.map(sanitizeWatchClosureBlocker)
+              : [],
+          }
+        : null,
+      fortyEightHour: read.parsed.thresholds?.fortyEightHour
+        ? {
+            status: read.parsed.thresholds.fortyEightHour.status ?? null,
+            blockers: Array.isArray(read.parsed.thresholds.fortyEightHour.blockers)
+              ? read.parsed.thresholds.fortyEightHour.blockers.map(sanitizeWatchClosureBlocker)
+              : [],
+          }
+        : null,
+    },
+    relayMemory: read.parsed.relayMemory
+      ? {
+          status: read.parsed.relayMemory.status ?? null,
+          heapPlateauVerdict: read.parsed.relayMemory.heapPlateauVerdict ?? null,
+          relays: Array.isArray(read.parsed.relayMemory.relays)
+            ? read.parsed.relayMemory.relays.map((relay) => ({
+                name: relay.name ?? null,
+                trendStatus: relay.trendStatus ?? null,
+                heapPlateauVerdict: relay.heapPlateauVerdict ?? null,
+                shortestProjectedLimitHours: Number.isFinite(relay.shortestProjectedLimitHours)
+                  ? relay.shortestProjectedLimitHours
+                  : null,
+              }))
+            : [],
+        }
+      : null,
   };
 }
 
@@ -275,7 +608,15 @@ function restartChurnBlocker({ publisher, previousState }) {
   return `publisher_restart_churn:${previousNRestarts}/${currentNRestarts}`;
 }
 
-function fingerprintFor({ status, blockers, publisher, freshness }) {
+function fingerprintFor({
+  status,
+  blockers,
+  publisher,
+  freshness,
+  relayLiveness,
+  relaySnapshot,
+  watchClosure,
+}) {
   return hashValue(JSON.stringify({
     status,
     blockers: [...blockers].map(stableFingerprintText).sort(),
@@ -296,6 +637,37 @@ function fingerprintFor({ status, blockers, publisher, freshness }) {
         recordCount: entry.recordCount,
         failureCount: entry.failureCount,
       })),
+    },
+    relayLiveness: {
+      status: relayLiveness.status,
+      blockers: relayLiveness.blockers.map(stableFingerprintText),
+      relays: (relayLiveness.relays ?? []).map((relay) => ({
+        name: relay.name,
+        status: relay.status,
+        blockerCount: relay.blockerCount,
+        restartCount: relay.restartCount,
+        watchdogTrips: relay.watchdogTrips,
+      })),
+    },
+    relaySnapshot: {
+      status: relaySnapshot.status,
+      blockers: relaySnapshot.blockers.map(stableFingerprintText),
+      snapshots: (relaySnapshot.snapshots ?? []).map((snapshot) => ({
+        fileHash: snapshot.fileHash,
+        relay: snapshot.relay,
+        status: snapshot.status,
+        entryCount: snapshot.entryCount,
+        failureCount: snapshot.failureCount,
+        freshnessFailureCount: snapshot.freshnessFailureCount,
+      })),
+    },
+    watchClosure: {
+      status: watchClosure.status,
+      blockers: watchClosure.blockers.map(stableFingerprintText),
+      verdictStatus: watchClosure.verdictStatus,
+      thresholds: watchClosure.thresholds,
+      relayMemoryStatus: watchClosure.relayMemory?.status ?? null,
+      relayMemoryVerdict: watchClosure.relayMemory?.heapPlateauVerdict ?? null,
     },
   }), 24);
 }
@@ -353,6 +725,9 @@ function alertPayload(summary, reason) {
     fingerprint: summary.fingerprint,
     publisher: summary.publisher,
     freshness: summary.freshness,
+    relayLiveness: summary.relayLiveness,
+    relaySnapshot: summary.relaySnapshot,
+    watchClosure: summary.watchClosure,
   };
 }
 
@@ -528,6 +903,9 @@ export async function runPublicFeedAlertWatch({
   const freshnessRaw = await freshnessMonitorImpl({ env, repoRoot, now });
   const freshness = summarizeFreshness(freshnessRaw);
   const publisher = inspectPublisherUnit({ env, systemctlShowText, spawnSyncImpl });
+  const relayLiveness = summarizeRelayLivenessReport({ env, now });
+  const relaySnapshot = summarizeRelaySnapshotReport({ env, now });
+  const watchClosure = summarizeWatchClosureVerdict({ env, now });
   const restartChurn = restartChurnBlocker({ publisher, previousState });
   const observedBlockers = [
     ...publisher.blockers,
@@ -537,18 +915,27 @@ export async function runPublicFeedAlertWatch({
       : freshness.blockers.length > 0
         ? freshness.blockers.map((blocker) => `public_feed:${blocker}`)
         : [`public_feed_status:${freshness.status ?? 'missing'}`]),
+    ...relayLiveness.blockers,
+    ...relaySnapshot.blockers,
+    ...watchClosure.blockers,
   ];
   const observedStatus = observedBlockers.length === 0 ? 'pass' : 'fail';
   const observedSeverity = maxSeverity(
     publisher.severity,
     restartChurn ? 'warning' : 'none',
     freshness.status === 'pass' ? 'none' : 'critical',
+    relayLiveness.severity,
+    relaySnapshot.severity,
+    watchClosure.severity,
   );
   const fingerprint = fingerprintFor({
     status: observedStatus,
     blockers: observedBlockers,
     publisher,
     freshness,
+    relayLiveness,
+    relaySnapshot,
+    watchClosure,
   });
   const deliveryDecision = shouldDeliverAlert({
     env,
@@ -570,6 +957,9 @@ export async function runPublicFeedAlertWatch({
     outputFile,
     publisher,
     freshness,
+    relayLiveness,
+    relaySnapshot,
+    watchClosure,
     delivery: {
       status: 'pending',
       reason: deliveryDecision.reason,
@@ -636,6 +1026,9 @@ export const publicFeedAlertWatchInternal = {
   runPublicFeedAlertWatch,
   shouldDeliverAlert,
   summarizeFreshness,
+  summarizeRelayLivenessReport,
+  summarizeRelaySnapshotReport,
+  summarizeWatchClosureVerdict,
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

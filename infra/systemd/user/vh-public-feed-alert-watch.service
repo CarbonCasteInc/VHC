@@ -9,6 +9,15 @@ Environment=VHC_REPO=/home/humble/VHC
 Environment=VH_PUBLIC_FEED_ALERT_STATE_DIR=%h/.local/state/vhc/public-feed-alert
 Environment=VH_PUBLIC_FEED_ALERT_OUTPUT_FILE=%h/.local/state/vhc/public-feed-alert/latest.json
 Environment=VH_PUBLIC_FEED_FRESHNESS_ARTIFACT_DIR=%h/.local/state/vhc/public-feed-alert/public-feed-freshness
+Environment=VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS=true
+Environment=VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE=%h/.local/state/vhc/relay-liveness/latest.json
+Environment=VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS=900000
+Environment=VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT=true
+Environment=VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE=%h/.local/state/vhc/relay-snapshot-watch/latest.json
+Environment=VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS=2700000
+Environment=VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE=true
+Environment=VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE=%h/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
+Environment=VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS=5400000
 Environment=PATH=/home/humble/.local/bin:/home/humble/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/humble/VHC
 ExecStart=/usr/bin/env bash -c 'if [ -f "%h/.config/vhc/public-feed-alert.env" ]; then set -a; source "%h/.config/vhc/public-feed-alert.env"; set +a; fi; exec node "/home/humble/VHC/tools/scripts/public-feed-alert-watch.mjs"'

@@ -43,7 +43,9 @@ least one monitor failure path reaches the release owner outside the A6 host.
 
 `tools/scripts/public-feed-alert-watch.mjs` is the repo-side host alert path for
 the outage #2 silence gap. It composes the public freshness monitor with a
-read-only publisher unit check and sends a state-change-only alert when either:
+read-only publisher unit check, relay health readbacks, relay snapshot
+freshness, and the Scope A watch-closure verdict. It sends a state-change-only
+alert when either:
 
 - the public latest-index freshness monitor fails the 6-hour SLO or public
   health checks;
@@ -51,6 +53,11 @@ read-only publisher unit check and sends a state-change-only alert when either:
 - the publisher unit is in the #706 transport-total restart path with
   `ExecMainStatus=69`;
 - the publisher unit is parked with `ExecMainStatus=78`.
+- required relay-liveness, relay-snapshot, or watch-closure latest files are
+  missing or stale;
+- relay liveness or relay snapshot freshness reports fail;
+- the Scope A watch-closure verdict reports `status: "fail"` after an elapsed
+  threshold.
 
 Publisher exit classification is intentionally split:
 
@@ -87,6 +94,15 @@ The script supports two delivery channels configured by environment only:
 | `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS` | Optional resend interval for unchanged state. Default `0`, meaning no heartbeat. |
 | `VH_PUBLIC_FEED_ALERT_TEST_FIRE` | Set to `1` for a one-shot delivery test without changing the observed pass/fail result. |
 | `VH_PUBLIC_FEED_ALERT_STATE_DIR` | Default `~/.local/state/vhc/public-feed-alert`. |
+| `VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS` | Set by the shipped unit. Requires a fresh relay-liveness latest file. |
+| `VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE` | Default `~/.local/state/vhc/relay-liveness/latest.json`. |
+| `VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS` | Default `900000` in the shipped unit. |
+| `VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT` | Set by the shipped unit. Requires a fresh relay snapshot watch latest file. |
+| `VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE` | Default `~/.local/state/vhc/relay-snapshot-watch/latest.json`. |
+| `VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS` | Default `2700000` in the shipped unit. |
+| `VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE` | Set by the shipped unit. Requires a fresh Scope A watch-closure verdict. |
+| `VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE` | Default `~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json`. |
+| `VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS` | Default `5400000` in the shipped unit. |
 
 State-change-only delivery means a repeated stale feed, repeated exit-69
 restart state, or repeated exit-78 publisher state does not spam every timer
@@ -124,6 +140,12 @@ $EDITOR ~/.config/vhc/public-feed-alert.env
 # and reachable from this host.
 grep -Eq '^(VH_PUBLIC_FEED_ALERT_WEBHOOK_URL|VH_PUBLIC_FEED_ALERT_EMAIL_TO)=' ~/.config/vhc/public-feed-alert.env
 
+# Fail closed before enabling: alert dependencies must already be producing
+# fresh latest files. If any command below fails, enable/fix that producer first.
+test -s ~/.local/state/vhc/relay-liveness/latest.json
+test -s ~/.local/state/vhc/relay-snapshot-watch/latest.json
+test -s ~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
+
 mkdir -p ~/.config/systemd/user
 cp infra/systemd/user/vh-public-feed-alert-watch.service ~/.config/systemd/user/
 cp infra/systemd/user/vh-public-feed-alert-watch.timer ~/.config/systemd/user/
@@ -159,6 +181,22 @@ console.log(JSON.stringify({
     execMainStatus: summary.publisher.execMainStatus,
   },
   freshnessStatus: summary.freshness?.status,
+  relayLiveness: summary.relayLiveness && {
+    status: summary.relayLiveness.status,
+    ageMs: summary.relayLiveness.ageMs,
+    blockers: summary.relayLiveness.blockers,
+  },
+  relaySnapshot: summary.relaySnapshot && {
+    status: summary.relaySnapshot.status,
+    ageMs: summary.relaySnapshot.ageMs,
+    blockers: summary.relaySnapshot.blockers,
+  },
+  watchClosure: summary.watchClosure && {
+    status: summary.watchClosure.status,
+    verdictStatus: summary.watchClosure.verdictStatus,
+    ageMs: summary.watchClosure.ageMs,
+    blockers: summary.watchClosure.blockers,
+  },
 }, null, 2));
 if (summary.delivery?.status !== 'sent') {
   process.exitCode = 1;

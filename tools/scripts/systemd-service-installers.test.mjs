@@ -176,6 +176,15 @@ test('public feed alert watch unit bounds host-local probe runtime', () => {
   assert.match(service, /public-feed-alert-watch\.mjs/);
   assert.match(service, /TimeoutStartSec=180/);
   assert.match(service, /VH_PUBLIC_FEED_ALERT_STATE_DIR=%h\/\.local\/state\/vhc\/public-feed-alert/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS=true/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE=%h\/\.local\/state\/vhc\/relay-liveness\/latest\.json/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS=900000/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT=true/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE=%h\/\.local\/state\/vhc\/relay-snapshot-watch\/latest\.json/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS=2700000/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE=true/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE=%h\/\.local\/state\/vhc\/phase5-scope-a-watch-closure\/verdict\.json/);
+  assert.match(service, /VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS=5400000/);
   assert.match(service, /source "%h\/\.config\/vhc\/public-feed-alert\.env"/);
 });
 
