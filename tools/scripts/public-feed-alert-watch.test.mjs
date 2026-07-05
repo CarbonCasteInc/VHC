@@ -37,13 +37,30 @@ function exit69Systemctl({
   activeState = 'activating',
   subState = 'auto-restart',
   nRestarts = 1,
+  result = 'exit-code',
 } = {}) {
   return [
     `ActiveState=${activeState}`,
     `SubState=${subState}`,
     `NRestarts=${nRestarts}`,
     'ExecMainStatus=69',
-    'Result=exit-code',
+    `Result=${result}`,
+    '',
+  ].join('\n');
+}
+
+function exit75Systemctl({
+  activeState = 'failed',
+  subState = 'failed',
+  nRestarts = 0,
+  result = 'exit-code',
+} = {}) {
+  return [
+    `ActiveState=${activeState}`,
+    `SubState=${subState}`,
+    `NRestarts=${nRestarts}`,
+    'ExecMainStatus=75',
+    `Result=${result}`,
     '',
   ].join('\n');
 }
@@ -119,6 +136,7 @@ test('passing feed and active publisher do not require an alert channel', async 
 
     assert.equal(summary.status, 'pass');
     assert.equal(summary.observedStatus, 'pass');
+    assert.equal(summary.severity, 'none');
     assert.equal(summary.delivery.status, 'suppressed');
     assert.equal(summary.blockers.includes('alert_delivery_missing_channel'), false);
     assert.equal(summary.freshness.latestIndexReadbacks[0].storyIds, undefined);
@@ -149,6 +167,7 @@ test('stale feed sends a webhook on state change with secret-safe aggregate payl
     assert.equal(calls.length, 1);
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.alertReason, 'first_failure');
+    assert.equal(body.severity, 'critical');
     assert.equal(body.blockers.some((blocker) => blocker.includes('url_hash:')), true);
     assert.equal(body.freshness.latestIndexReadbacks[0].origin, undefined);
     assert.equal(body.freshness.latestIndexReadbacks[0].originHash.length, 16);
@@ -296,6 +315,7 @@ test('publisher exit 78 is a fail-close alert and can deliver through sendmail',
     });
 
     assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'critical');
     assert.equal(summary.publisher.failureClass, 'exit_78_fail_closed');
     assert.equal(summary.publisher.severity, 'critical');
     assert.equal(summary.publisher.recoveryHint, 'operator_required');
@@ -326,9 +346,10 @@ test('publisher exit 69 is a warning transport alert distinct from exit 78', asy
     });
 
     assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'warning');
     assert.equal(summary.publisher.failureClass, 'exit_69_transport_unavailable');
     assert.equal(summary.publisher.severity, 'warning');
-    assert.equal(summary.publisher.recoveryHint, 'systemd_restart_expected');
+    assert.equal(summary.publisher.recoveryHint, 'bounded_systemd_restart_in_progress');
     assert.match(summary.blockers.join('\n'), /publisher_exit_69_transport_unavailable:activating\/auto-restart/);
     assert.doesNotMatch(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
@@ -337,15 +358,98 @@ test('publisher exit 69 is a warning transport alert distinct from exit 78', asy
 
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(body.severity, 'warning');
     assert.equal(body.publisher.severity, 'warning');
-    assert.equal(body.publisher.recoveryHint, 'systemd_restart_expected');
+    assert.equal(body.publisher.recoveryHint, 'bounded_systemd_restart_in_progress');
     assert.equal(JSON.stringify(body).includes('exit_78_fail_closed'), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('publisher recovery after exit 69 sends a state-changed pass alert', async () => {
+test('publisher exit 69 parked by start limit is critical and not self-recovering', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit69Systemctl({
+        activeState: 'failed',
+        subState: 'failed',
+        nRestarts: 3,
+        result: 'start-limit-hit',
+      }),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'critical');
+    assert.equal(summary.publisher.failureClass, 'exit_69_start_limit_parked');
+    assert.equal(summary.publisher.severity, 'critical');
+    assert.equal(summary.publisher.recoveryHint, 'start_limit_exhausted_operator_restart_required');
+    assert.match(summary.blockers.join('\n'), /publisher_exit_69_start_limit_parked:failed\/failed:start-limit-hit/);
+    assert.doesNotMatch(summary.blockers.join('\n'), /publisher_exit_78/);
+    assert.equal(summary.delivery.status, 'sent');
+    assert.equal(calls.length, 1);
+
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.severity, 'critical');
+    assert.equal(body.publisher.failureClass, 'exit_69_start_limit_parked');
+    assert.equal(body.publisher.recoveryHint, 'start_limit_exhausted_operator_restart_required');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher exit 69 with start-limit result is critical even if substate still says auto-restart', () => {
+  const publisher = publicFeedAlertWatchInternal.inspectPublisherUnit({
+    env: {},
+    systemctlShowText: exit69Systemctl({
+      activeState: 'activating',
+      subState: 'auto-restart',
+      nRestarts: 3,
+      result: 'start-limit-hit',
+    }),
+  });
+
+  assert.equal(publisher.status, 'fail');
+  assert.equal(publisher.failureClass, 'exit_69_start_limit_parked');
+  assert.equal(publisher.severity, 'critical');
+  assert.equal(publisher.recoveryHint, 'start_limit_exhausted_operator_restart_required');
+  assert.match(publisher.blockers.join('\n'), /publisher_exit_69_start_limit_parked/);
+});
+
+test('publisher exit 75 wrapper refusal is critical', async () => {
+  const root = tempRoot();
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid' }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit75Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      spawnSyncImpl: () => ({ status: 0, stdout: '', stderr: '' }),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'critical');
+    assert.equal(summary.publisher.failureClass, 'exit_75_wrapper_refusal');
+    assert.equal(summary.publisher.severity, 'critical');
+    assert.equal(summary.publisher.recoveryHint, 'operator_required');
+    assert.match(summary.blockers.join('\n'), /publisher_exit_75_wrapper_refusal:failed\/failed:exit-code/);
+    assert.equal(summary.delivery.status, 'sent');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher recovery after parked exit 69 sends a state-changed pass alert', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -370,7 +474,7 @@ test('publisher recovery after exit 69 sends a state-changed pass alert', async 
     });
 
     assert.equal(first.status, 'fail');
-    assert.equal(first.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(first.publisher.failureClass, 'exit_69_start_limit_parked');
     assert.equal(second.status, 'pass');
     assert.equal(second.observedStatus, 'pass');
     assert.equal(second.publisher.failureClass, 'none');
@@ -379,6 +483,102 @@ test('publisher recovery after exit 69 sends a state-changed pass alert', async 
     assert.equal(second.delivery.status, 'sent');
     assert.equal(second.delivery.reason, 'state_changed');
     assert.equal(calls.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher restart churn is warning severity and dedupes by class', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' });
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async () => ({ ok: true, status: 204 }),
+    });
+    assert.equal(first.status, 'pass');
+
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:05:00.000Z'),
+      systemctlShowText: [
+        'ActiveState=active',
+        'SubState=running',
+        'NRestarts=1',
+        'ExecMainStatus=0',
+        'Result=success',
+        '',
+      ].join('\n'),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:10:00.000Z'),
+      systemctlShowText: [
+        'ActiveState=active',
+        'SubState=running',
+        'NRestarts=9',
+        'ExecMainStatus=0',
+        'Result=success',
+        '',
+      ].join('\n'),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(second.status, 'fail');
+    assert.equal(second.observedStatus, 'fail');
+    assert.equal(second.severity, 'warning');
+    assert.deepEqual(second.blockers, ['publisher_restart_churn:0/1']);
+    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.reason, 'state_changed');
+    assert.equal(third.status, 'fail');
+    assert.equal(third.severity, 'warning');
+    assert.deepEqual(third.blockers, ['publisher_restart_churn:1/9']);
+    assert.equal(third.fingerprint, second.fingerprint);
+    assert.equal(third.delivery.status, 'suppressed');
+    assert.equal(calls.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('webhook delivery errors redact configured webhook URL from output', async () => {
+  const root = tempRoot();
+  const webhookUrl = 'not-a-url-secret-token';
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: webhookUrl }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit78Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async () => {
+        throw new TypeError(`Failed to parse URL from ${webhookUrl}`);
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.delivery.status, 'failed');
+    assert.match(summary.delivery.error, /value_hash:/);
+    assert.equal(summary.delivery.error.includes(webhookUrl), false);
+
+    const output = readFileSync(path.join(root, 'latest.json'), 'utf8');
+    assert.equal(output.includes(webhookUrl), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
