@@ -2508,7 +2508,8 @@ async function writeNewsRecordViaRelayRest(input: {
     if (!isTransportTotalOutcome(outcome) || attempt >= maxAttempts) {
       break;
     }
-    const delayMs = retryPlan.backoffMs[Math.min(attempt - 1, retryPlan.backoffMs.length - 1)] ?? 0;
+    const backoffIndex = Math.min(attempt - 1, retryPlan.backoffMs.length - 1);
+    const delayMs = retryPlan.backoffMs[backoffIndex]!;
     lumaLog('warn', '[vh:news] relay REST write transport-unavailable; retrying', {
       write_class: input.writeClass,
       path: input.path,

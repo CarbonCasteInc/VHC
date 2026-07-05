@@ -976,6 +976,130 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('classifies only network-level thrown relay write failures as transport-class', () => {
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure('fetch failed')).toBe(false);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new TypeError('fetch failed'))).toBe(true);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new Error('ordinary application error'))).toBe(false);
+
+    const abortError = new Error('This operation was aborted');
+    abortError.name = 'AbortError';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(abortError)).toBe(false);
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new Error('request timeout'))).toBe(false);
+
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: 'getaddrinfo ENOTFOUND gun-a.example.test' }),
+    )).toBe(true);
+
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: new Error('socket hang up') }),
+    )).toBe(true);
+
+    const connectTimeoutCause = new Error('Connect Timeout Error');
+    (connectTimeoutCause as NodeJS.ErrnoException).code = 'UND_ERR_CONNECT_TIMEOUT';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: connectTimeoutCause }),
+    )).toBe(true);
+
+    const bodyTimeoutCause = new Error('Body Timeout Error');
+    (bodyTimeoutCause as NodeJS.ErrnoException).code = 'UND_ERR_BODY_TIMEOUT';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('fetch failed', { cause: bodyTimeoutCause }),
+    )).toBe(false);
+  });
+
+  it('resolves relay REST transport retry plan with defaults, clamps, and fallback parsing', () => {
+    const restoreInvalid = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: 'not-a-number',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: 'bad also-bad',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toEqual({
+        retries: 2,
+        backoffMs: [5000, 15000],
+      });
+    } finally {
+      restoreInvalid();
+    }
+
+    const restoreClamped = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '99',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '1 -2 nope 999999',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toEqual({
+        retries: 5,
+        backoffMs: [1, 60000],
+      });
+    } finally {
+      restoreClamped();
+    }
+
+    const restoreDisabled = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '-3',
+    });
+    try {
+      expect(newsAdapterInternal.resolveRelayRestTransportRetryPlan()).toMatchObject({
+        retries: 0,
+      });
+    } finally {
+      restoreDisabled();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest uses the configured transport retry backoff before succeeding', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '1',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        peers: ['https://fallback-peer.example.test/gun'],
+      });
+      const okResponse = () => new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse())
+        .mockResolvedValueOnce(okResponse());
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record: { story_id: STORY.story_id, ok: true },
+        writeClass: 'news-latest-index',
+        validate: (payload) => payload.ok === true,
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(warn).toHaveBeenCalledWith(
+        '[vh:news] relay REST write transport-unavailable; retrying',
+        expect.objectContaining({
+          attempt: 1,
+          max_attempts: 2,
+          retry_delay_ms: 1,
+        }),
+      );
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
   it('writeNewsLatestIndexEntry throws the typed transport-total error after exhausting retries', async () => {
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
