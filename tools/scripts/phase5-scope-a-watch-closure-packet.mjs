@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { resolveRelayWatchdogLimits } from './relay-watchdog-thresholds.mjs';
 
 const SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-v1';
+const VERDICT_SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-verdict-v1';
 const DEFAULT_MIN_TREND_HORIZON_HOURS = 7 * 24;
 const DEFAULT_HEAP_PLATEAU_MAX_ABS_SLOPE_BYTES_PER_HOUR = 5 * 1024 * 1024;
 const CLAIM_BOUNDARY = Object.freeze({
@@ -580,6 +581,96 @@ function thresholdVerdict(hoursObserved, thresholdHours, blockers, relayMemory) 
   };
 }
 
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))];
+}
+
+function buildWatchClosureVerdict(packet) {
+  const thresholdBlockers = uniqueStrings([
+    ...(packet.thresholds.twentyFourHour.blockers ?? []),
+    ...(packet.thresholds.fortyEightHour.blockers ?? []),
+  ]);
+  const hardFail = packet.thresholds.twentyFourHour.status === 'fail'
+    || packet.thresholds.fortyEightHour.status === 'fail';
+  const status = hardFail
+    ? 'fail'
+    : packet.thresholds.fortyEightHour.status === 'pass'
+      ? 'pass'
+      : 'in_progress';
+  return {
+    schemaVersion: VERDICT_SCHEMA_VERSION,
+    generatedAt: packet.generatedAt,
+    status,
+    severity: status === 'fail' ? 'critical' : status === 'pass' ? 'ok' : 'info',
+    blockers: thresholdBlockers,
+    window: packet.window,
+    thresholds: packet.thresholds,
+    archive: {
+      sampleCount: packet.archive.sampleCount,
+      firstSampleAt: packet.archive.firstSampleAt,
+      latestSampleAt: packet.archive.latestSampleAt,
+      passCount: packet.archive.passCount,
+      failCount: packet.archive.failCount,
+      latestPublisherStatus: packet.archive.latestPublisher?.status ?? null,
+      latestPublisherNRestarts: packet.archive.latestPublisher?.nRestarts ?? null,
+      latestRelayStatus: packet.archive.latestRelay?.status ?? null,
+      latestRelaySnapshotStatus: packet.archive.latestRelaySnapshot?.status ?? null,
+      latestPublicFreshnessStatus: packet.archive.latestPublicFreshness?.status ?? null,
+      latestPublicFreshnessGeneratedAt: packet.archive.latestPublicFreshness?.generatedAt ?? null,
+    },
+    runtime: {
+      journalSummary: packet.runtime.journalSummary,
+      diagnostics: packet.runtime.diagnostics,
+    },
+    storyCluster: {
+      failureArtifactCount: packet.storyCluster.failureArtifactCount,
+      failureArtifactCountSource: packet.storyCluster.failureArtifactCountSource,
+      degeneracyWarningCount: packet.storyCluster.degeneracyWarningCount,
+    },
+    relayMemory: {
+      status: packet.relayMemory.status,
+      heapPlateauVerdict: packet.relayMemory.heapPlateauVerdict,
+      heapLimitBytes: packet.relayMemory.heapLimitBytes,
+      heapLimitSource: packet.relayMemory.heapLimitSource,
+      rssLimitBytes: packet.relayMemory.rssLimitBytes,
+      rssLimitSource: packet.relayMemory.rssLimitSource,
+      minTrendHorizonHours: packet.relayMemory.minTrendHorizonHours,
+      heapPlateauMaxAbsSlopeBytesPerHour: packet.relayMemory.heapPlateauMaxAbsSlopeBytesPerHour,
+      relays: packet.relayMemory.relays.map((relay) => ({
+        name: relay.name,
+        sampleCount: relay.sampleCount,
+        trendStatus: relay.trendStatus,
+        heapPlateauVerdict: relay.heapPlateauVerdict,
+        heapPlateauReason: relay.heapPlateauReason,
+        heapPlateauProjectedLimitWindow: relay.heapPlateauProjectedLimitWindow,
+        heapLatestBytes: relay.heapLatestBytes,
+        heapSlopeBytesPerHour: relay.heapSlopeBytesPerHour,
+        heapLimitBytes: relay.heapLimitBytes,
+        heapLimitSource: relay.heapLimitSource,
+        heapHoursToLimit: relay.heapHoursToLimit,
+        rssLatestBytes: relay.rssLatestBytes,
+        rssSlopeBytesPerHour: relay.rssSlopeBytesPerHour,
+        rssLimitBytes: relay.rssLimitBytes,
+        rssLimitSource: relay.rssLimitSource,
+        rssHoursToLimit: relay.rssHoursToLimit,
+        shortestProjectedLimitHours: relay.shortestProjectedLimitHours,
+        restartCountMin: relay.restartCountMin,
+        restartCountMax: relay.restartCountMax,
+        watchdogTripsMin: relay.watchdogTripsMin,
+        watchdogTripsMax: relay.watchdogTripsMax,
+        graphSampleCount: relay.graphSampleCount,
+        graphMissingSampleCount: relay.graphMissingSampleCount,
+        graphTruncatedSampleCount: relay.graphTruncatedSampleCount,
+        graphLiveUserValueBytesLatest: relay.graphLiveUserValueBytesLatest,
+        graphLiveUserValueBytesSlopePerHour: relay.graphLiveUserValueBytesSlopePerHour,
+        earlyHeapSnapshotNextThresholdBytes: relay.earlyHeapSnapshotNextThresholdBytes,
+        earlyHeapSnapshotHoursToNextThreshold: relay.earlyHeapSnapshotHoursToNextThreshold,
+      })),
+    },
+    claimBoundary: packet.claimBoundary,
+  };
+}
+
 export function buildPhase5ScopeAWatchClosurePacket({
   env = process.env,
   now = new Date(),
@@ -643,20 +734,26 @@ async function main() {
     ? new Date(parseTimeMs(process.env.VH_PHASE5_SCOPE_A_WATCH_NOW))
     : new Date();
   const packet = buildPhase5ScopeAWatchClosurePacket({ env: process.env, now });
+  const verdict = buildWatchClosureVerdict(packet);
   const outputFile = firstNonEmpty(process.env.VH_PHASE5_SCOPE_A_WATCH_OUTPUT_FILE);
   if (outputFile) {
     await mkdir(path.dirname(outputFile), { recursive: true });
     writeFileSync(outputFile, `${JSON.stringify(packet, null, 2)}\n`, 'utf8');
   }
+  const verdictFile = firstNonEmpty(process.env.VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE);
+  if (verdictFile) {
+    await mkdir(path.dirname(verdictFile), { recursive: true });
+    writeFileSync(verdictFile, `${JSON.stringify(verdict, null, 2)}\n`, 'utf8');
+  }
   console.info(JSON.stringify(packet, null, 2));
-  const hardFail = packet.thresholds.twentyFourHour.status === 'fail'
-    || packet.thresholds.fortyEightHour.status === 'fail';
-  if (hardFail) {
+  if (verdict.status === 'fail') {
     process.exit(1);
   }
 }
 
 export const phase5ScopeAWatchClosureInternal = {
+  VERDICT_SCHEMA_VERSION,
+  buildWatchClosureVerdict,
   buildPhase5ScopeAWatchClosurePacket,
   countFilesSince,
   linearSlope,

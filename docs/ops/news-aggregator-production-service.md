@@ -117,6 +117,8 @@ Templates:
 - `infra/systemd/user/vh-news-relay-liveness-watch.timer`
 - `infra/systemd/user/vh-phase5-scope-a-soak-archive.service`
 - `infra/systemd/user/vh-phase5-scope-a-soak-archive.timer`
+- `infra/systemd/user/vh-phase5-scope-a-watch-closure.service`
+- `infra/systemd/user/vh-phase5-scope-a-watch-closure.timer`
 - `infra/systemd/user/vh-public-feed-alert-watch.service`
 - `infra/systemd/user/vh-public-feed-alert-watch.timer`
 
@@ -249,6 +251,42 @@ missing, invalid, or reports non-`pass`, or when the public freshness monitor
 fails. It does not restart relays, start the publisher, mutate mesh state, or
 write public feed records. It exists to preserve time-window evidence even
 though the individual liveness watches overwrite their `latest.json` files.
+
+Phase 5 Scope A watch-closure packet timer:
+
+```bash
+mkdir -p ~/.config/vhc
+cat > ~/.config/vhc/phase5-scope-a-watch-closure.env <<'EOF'
+VH_PHASE5_SCOPE_A_WATCH_START_AT=2026-07-05T00:00:00.000Z
+VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=2026-07-05T00:00:00.000Z
+EOF
+chmod 0600 ~/.config/vhc/phase5-scope-a-watch-closure.env
+
+./tools/scripts/install-news-aggregator-production-service.sh
+systemctl --user start vh-phase5-scope-a-watch-closure.service
+jq '{status, severity, blockers, window, thresholds, relayMemory}' \
+  ~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
+```
+
+Enable the timer only after the one-shot writes a fresh
+`vh-phase5-scope-a-watch-closure-verdict-v1` verdict for the intended clean
+window:
+
+```bash
+./tools/scripts/install-news-aggregator-production-service.sh --enable-watch-closure
+systemctl --user status vh-phase5-scope-a-watch-closure.timer --no-pager
+journalctl --user -u vh-phase5-scope-a-watch-closure.service -n 100 --no-pager
+```
+
+The service writes the full packet to
+`~/.local/state/vhc/phase5-scope-a-watch-closure/latest.json` and the compact
+alert-safe verdict to
+`~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json` every 30 minutes.
+Before 24h/48h elapsed, the verdict is `status: "in_progress"` with
+`window_short` blockers. If a threshold has elapsed and any abort criterion is
+present, the verdict is `status: "fail"` and the service exits nonzero so
+systemd records the failed run. The verdict preserves the threshold blockers and
+relay-memory projection provenance without absolute host paths.
 
 During the current post-#694 instrumented climb, treat the archive plus
 StoryCluster watch plus relay graph metrics as the Scope A health surface:

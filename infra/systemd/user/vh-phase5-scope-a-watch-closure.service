@@ -1,0 +1,15 @@
+[Unit]
+Description=VHC Phase 5 Scope A Watch Closure Packet
+Documentation=file:/home/humble/VHC/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=/home/humble/VHC
+Environment=VH_PHASE5_SCOPE_A_WATCH_ARCHIVE_ROOT=%h/.local/state/vhc/phase5-scope-a-soak
+Environment=VH_PHASE5_SCOPE_A_WATCH_RUNTIME_DIAGNOSTICS_FILE=%h/.local/state/vhc/news-aggregator/artifacts/news-runtime-diagnostics.json
+Environment=VH_PHASE5_SCOPE_A_WATCH_STORYCLUSTER_FAILURE_DIR=%h/.local/state/vhc/storycluster-engine/openai-failures
+Environment=VH_PHASE5_SCOPE_A_WATCH_OUTPUT_FILE=%h/.local/state/vhc/phase5-scope-a-watch-closure/latest.json
+Environment=VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE=%h/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
+Environment=PATH=/home/humble/.local/bin:/home/humble/.hermes/node/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/humble/VHC
+ExecStart=/usr/bin/env bash -c 'if [ -f "%h/.config/vhc/phase5-scope-a-watch-closure.env" ]; then set -a; source "%h/.config/vhc/phase5-scope-a-watch-closure.env"; set +a; fi; exec node "/home/humble/VHC/tools/scripts/phase5-scope-a-watch-closure-packet.mjs"'

@@ -9,6 +9,7 @@ ENABLE_WATCH=false
 ENABLE_PUBLISHER_LIVENESS_WATCH=false
 ENABLE_RELAY_LIVENESS_WATCH=false
 ENABLE_SOAK_ARCHIVE=false
+ENABLE_WATCH_CLOSURE=false
 START_PUBLISHER=false
 
 for arg in "$@"; do
@@ -24,6 +25,9 @@ for arg in "$@"; do
       ;;
     --enable-soak-archive)
       ENABLE_SOAK_ARCHIVE=true
+      ;;
+    --enable-watch-closure)
+      ENABLE_WATCH_CLOSURE=true
       ;;
     --start-publisher)
       START_PUBLISHER=true
@@ -215,6 +219,39 @@ Unit=vh-phase5-scope-a-soak-archive.service
 WantedBy=timers.target
 EOF
 
+cat >"${UNIT_DIR}/vh-phase5-scope-a-watch-closure.service" <<EOF
+[Unit]
+Description=VHC Phase 5 Scope A Watch Closure Packet
+Documentation=file:${REPO_ROOT}/docs/ops/news-aggregator-production-service.md
+
+[Service]
+Type=oneshot
+Environment=VHC_REPO=${REPO_ROOT}
+Environment=VH_PHASE5_SCOPE_A_WATCH_ARCHIVE_ROOT=%h/.local/state/vhc/phase5-scope-a-soak
+Environment=VH_PHASE5_SCOPE_A_WATCH_RUNTIME_DIAGNOSTICS_FILE=%h/.local/state/vhc/news-aggregator/artifacts/news-runtime-diagnostics.json
+Environment=VH_PHASE5_SCOPE_A_WATCH_STORYCLUSTER_FAILURE_DIR=%h/.local/state/vhc/storycluster-engine/openai-failures
+Environment=VH_PHASE5_SCOPE_A_WATCH_OUTPUT_FILE=%h/.local/state/vhc/phase5-scope-a-watch-closure/latest.json
+Environment=VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE=%h/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
+Environment=PATH=${SERVICE_PATH}
+WorkingDirectory=${REPO_ROOT}
+ExecStart=/usr/bin/env bash -c 'if [ -f "%h/.config/vhc/phase5-scope-a-watch-closure.env" ]; then set -a; source "%h/.config/vhc/phase5-scope-a-watch-closure.env"; set +a; fi; exec node "${REPO_ROOT}/tools/scripts/phase5-scope-a-watch-closure-packet.mjs"'
+EOF
+
+cat >"${UNIT_DIR}/vh-phase5-scope-a-watch-closure.timer" <<'EOF'
+[Unit]
+Description=Build VHC Phase 5 Scope A watch closure packet every 30 minutes
+
+[Timer]
+OnBootSec=12min
+OnUnitActiveSec=30min
+AccuracySec=2min
+Persistent=true
+Unit=vh-phase5-scope-a-watch-closure.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl --user daemon-reload
 
 echo "Installed user units:"
@@ -227,6 +264,8 @@ echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.service"
 echo "  ${UNIT_DIR}/vh-news-relay-liveness-watch.timer"
 echo "  ${UNIT_DIR}/vh-phase5-scope-a-soak-archive.service"
 echo "  ${UNIT_DIR}/vh-phase5-scope-a-soak-archive.timer"
+echo "  ${UNIT_DIR}/vh-phase5-scope-a-watch-closure.service"
+echo "  ${UNIT_DIR}/vh-phase5-scope-a-watch-closure.timer"
 echo "Publisher env file expected at: ${ENV_FILE}"
 
 if [[ "${ENABLE_WATCH}" == "true" ]]; then
@@ -247,6 +286,11 @@ fi
 if [[ "${ENABLE_SOAK_ARCHIVE}" == "true" ]]; then
   systemctl --user enable --now vh-phase5-scope-a-soak-archive.timer
   echo "Enabled Phase 5 Scope A soak archive timer"
+fi
+
+if [[ "${ENABLE_WATCH_CLOSURE}" == "true" ]]; then
+  systemctl --user enable --now vh-phase5-scope-a-watch-closure.timer
+  echo "Enabled Phase 5 Scope A watch closure timer"
 fi
 
 if [[ "${START_PUBLISHER}" == "true" ]]; then
