@@ -130,6 +130,19 @@ describe('newsOrchestrator storyline batches', () => {
     });
   });
 
+  it('passes a max ingested item budget to feed ingest', async () => {
+    await orchestrateNewsPipeline({
+      feedSources: [FEED_SOURCE],
+      topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+    }, {
+      maxIngestedItemsTotal: 12,
+    });
+
+    expect(ingestFeedsMock).toHaveBeenCalledWith([FEED_SOURCE], {
+      maxItemsTotal: 12,
+    });
+  });
+
   it('sorts deduped storylines by topic and storyline id', async () => {
     normalizeAndDedupMock.mockReturnValue([
       {

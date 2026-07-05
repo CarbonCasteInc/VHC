@@ -428,6 +428,48 @@ describe('newsIngest', () => {
     ]);
   });
 
+  it('applies a caller total item budget as an additional upper bound', async () => {
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE', '3');
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL', '3');
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(multiItemRssXml),
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(multiItemRssXml.replaceAll('example.com/news', 'example.com/second')),
+    } as unknown as Response);
+
+    const items = await ingestFeeds([
+      {
+        id: 'source-a',
+        name: 'Source A',
+        rssUrl: 'https://example.com/a.xml',
+        enabled: true,
+      },
+      {
+        id: 'source-b',
+        name: 'Source B',
+        rssUrl: 'https://example.com/b.xml',
+        enabled: true,
+      },
+    ], { maxItemsTotal: 2 });
+
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.url)).toEqual([
+      'https://example.com/news/newest',
+      'https://example.com/second/newest',
+    ]);
+  });
+
+  it('rejects non-positive caller total item budgets', async () => {
+    await expect(ingestFeeds([], { maxItemsTotal: 0 })).rejects.toThrow(
+      'maxItemsTotal must be a positive finite number',
+    );
+  });
+
   it('retries transient feed fetch failures before succeeding', async () => {
     const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '3');

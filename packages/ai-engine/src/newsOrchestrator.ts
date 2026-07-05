@@ -41,6 +41,7 @@ export interface NewsOrchestratorOptions {
   remoteClusterEndpoint?: string;
   remoteClusterTimeoutMs?: number;
   remoteClusterMaxItemsPerRequest?: number;
+  maxIngestedItemsTotal?: number;
   remoteClusterHeaders?: Record<string, string>;
   remoteFetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   onRemoteFailure?: (error: unknown) => void;
@@ -351,7 +352,9 @@ export async function orchestrateNewsPipeline(
   });
 
   const ingestStartedAt = Date.now();
-  const rawItems = await ingestFeeds(parsedConfig.feedSources);
+  const rawItems = await ingestFeeds(parsedConfig.feedSources, {
+    maxItemsTotal: options.maxIngestedItemsTotal,
+  });
   orchestratorTrace('ingest_completed', {
     duration_ms: Math.max(0, Date.now() - ingestStartedAt),
     raw_item_count: rawItems.length,

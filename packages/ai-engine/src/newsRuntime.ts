@@ -92,6 +92,7 @@ export interface NewsRuntimeConfig {
   pollIntervalMs?: number;
   maxPublishedBundles?: number;
   firstTickMaxPublishedBundles?: number;
+  firstTickMaxIngestedItemsTotal?: number;
   publicationFreshnessMaxAgeMs?: number;
   rawBundleWriteConcurrency?: number;
   pruneStaleBundles?: boolean;
@@ -142,6 +143,7 @@ export interface NewsRuntimeTickSummary {
   readonly poll_interval_ms: number;
   readonly feed_source_count: number;
   readonly published_bundle_limit: number | null;
+  readonly ingested_item_limit?: number | null;
   readonly ingested_item_count: number | null;
   readonly normalized_item_count: number | null;
   readonly clustered_bundle_count: number;
@@ -248,6 +250,12 @@ function resolveFirstTickMaxPublishedBundles(config: NewsRuntimeConfig): number 
     ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES');
 }
 
+function resolveFirstTickMaxIngestedItemsTotal(config: NewsRuntimeConfig): number | null {
+  return normalizeOptionalPositiveInt(config.firstTickMaxIngestedItemsTotal, 'firstTickMaxIngestedItemsTotal')
+    ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL')
+    ?? readOptionalPositiveIntEnv('VITE_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL');
+}
+
 function resolvePublicationFreshnessMaxAgeMs(config: NewsRuntimeConfig): number | null {
   return normalizeOptionalPositiveInt(config.publicationFreshnessMaxAgeMs, 'publicationFreshnessMaxAgeMs')
     ?? readOptionalPositiveIntEnv('VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS')
@@ -274,6 +282,32 @@ function resolvePublishedBundleLimit(
     return firstTickMaxPublishedBundles;
   }
   return Math.min(firstTickMaxPublishedBundles, maxPublishedBundles);
+}
+
+function resolveIngestedItemLimit(
+  firstTick: boolean,
+  firstTickMaxIngestedItemsTotal: number | null,
+): number | null {
+  if (!firstTick || firstTickMaxIngestedItemsTotal === null) {
+    return null;
+  }
+  return firstTickMaxIngestedItemsTotal;
+}
+
+function applyIngestedItemLimit(
+  orchestratorOptions: NewsOrchestratorOptions,
+  ingestedItemLimit: number | null,
+): void {
+  if (ingestedItemLimit === null) {
+    return;
+  }
+  const existing = normalizeOptionalPositiveInt(
+    orchestratorOptions.maxIngestedItemsTotal,
+    'maxIngestedItemsTotal',
+  );
+  orchestratorOptions.maxIngestedItemsTotal = existing
+    ? Math.min(existing, ingestedItemLimit)
+    : ingestedItemLimit;
 }
 
 function resolvePruneStaleBundles(config: NewsRuntimeConfig): boolean {
@@ -587,6 +621,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const maxPublishedBundles = resolveMaxPublishedBundles(config);
   const firstTickMaxPublishedBundles = resolveFirstTickMaxPublishedBundles(config);
+  const firstTickMaxIngestedItemsTotal = resolveFirstTickMaxIngestedItemsTotal(config);
   const publicationFreshnessMaxAgeMs = resolvePublicationFreshnessMaxAgeMs(config);
   const rawBundleWriteConcurrency = resolveRawBundleWriteConcurrency(config);
   const pruneStaleBundles = resolvePruneStaleBundles(config);
@@ -620,6 +655,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       maxPublishedBundles,
       firstTickMaxPublishedBundles,
     );
+    const ingestedItemLimit = resolveIngestedItemLimit(firstTick, firstTickMaxIngestedItemsTotal);
     const startedAt = Date.now();
     let lastStage: NewsRuntimeTickStage = 'started';
     let latestClusterArtifacts: NewsOrchestratorClusterArtifacts | null = null;
@@ -644,6 +680,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       poll_interval_ms: pollIntervalMs,
       feed_source_count: config.feedSources.length,
       raw_write_concurrency: rawBundleWriteConcurrency,
+      first_tick_ingested_item_limit: ingestedItemLimit,
     });
 
     const baseSummary = (): Omit<NewsRuntimeTickSummary, 'status' | 'completed_at' | 'duration_ms' | 'last_stage'> => ({
@@ -656,6 +693,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       poll_interval_ms: pollIntervalMs,
       feed_source_count: config.feedSources.length,
       published_bundle_limit: publishedBundleLimit,
+      ingested_item_limit: ingestedItemLimit,
       ingested_item_count: latestClusterArtifacts?.rawItemCount ?? null,
       normalized_item_count: latestClusterArtifacts?.normalizedItems.length ?? null,
       clustered_bundle_count: 0,
@@ -691,6 +729,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       const orchestratorOptions: NewsOrchestratorOptions = {
         ...(config.orchestratorOptions ?? {}),
       };
+      applyIngestedItemLimit(orchestratorOptions, ingestedItemLimit);
       const existingClusterArtifactsHook = orchestratorOptions.onClusterArtifacts;
       orchestratorOptions.onClusterArtifacts = async (artifacts) => {
         latestClusterArtifacts = artifacts;
@@ -721,6 +760,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         published_bundle_limit: publishedBundleLimit,
         steady_published_bundle_limit: maxPublishedBundles,
         first_tick_published_bundle_limit: firstTickMaxPublishedBundles,
+        first_tick_ingested_item_limit: ingestedItemLimit,
         publication_freshness_max_age_ms: publicationFreshnessMaxAgeMs,
         prune_stale_bundles: pruneStaleBundles,
         trusted_cluster_output_for_publication: trustClusterOutput,
