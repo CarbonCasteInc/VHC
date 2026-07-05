@@ -410,6 +410,61 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('applies the first-tick ingest cap only to the first orchestrator run', async () => {
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      firstTickMaxIngestedItemsTotal: 24,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        maxIngestedItemsTotal: 24,
+      }),
+    );
+
+    orchestrateNewsPipelineMock.mockClear();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({
+        maxIngestedItemsTotal: expect.any(Number),
+      }),
+    );
+
+    handle.stop();
+  });
+
+  it('keeps a tighter existing ingest cap on the first orchestrator run', async () => {
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      firstTickMaxIngestedItemsTotal: 24,
+      orchestratorOptions: {
+        maxIngestedItemsTotal: 12,
+      },
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        maxIngestedItemsTotal: 12,
+      }),
+    );
+
+    handle.stop();
+  });
+
   it('applies the configured publication freshness window to runtime writes', async () => {
     const nowMs = 1_700_000_500_000;
     vi.setSystemTime(nowMs);

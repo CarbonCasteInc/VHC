@@ -365,15 +365,38 @@ async function fetchFeedItems(source: FeedSource): Promise<RawFeedItem[]> {
   throw lastError instanceof Error ? lastError : new Error(readErrorMessage(lastError));
 }
 
-export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]> {
+export interface NewsIngestOptions {
+  maxItemsTotal?: number;
+}
+
+function normalizeOptionalPositiveInt(value: number | undefined, name: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a positive finite number`);
+  }
+  return Math.floor(value);
+}
+
+function resolveMaxItemsTotal(options: NewsIngestOptions): number | undefined {
+  const envMaxItemsTotal = readPositiveIntEnv(
+    'VH_NEWS_FEED_MAX_ITEMS_TOTAL',
+    'VITE_NEWS_FEED_MAX_ITEMS_TOTAL',
+  );
+  const optionMaxItemsTotal = normalizeOptionalPositiveInt(options.maxItemsTotal, 'maxItemsTotal');
+  if (envMaxItemsTotal && optionMaxItemsTotal) {
+    return Math.min(envMaxItemsTotal, optionMaxItemsTotal);
+  }
+  return optionMaxItemsTotal ?? envMaxItemsTotal;
+}
+
+export async function ingestFeeds(sources: FeedSource[], options: NewsIngestOptions = {}): Promise<RawFeedItem[]> {
   const maxItemsPerSource = readPositiveIntEnv(
     'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE',
     'VITE_NEWS_FEED_MAX_ITEMS_PER_SOURCE',
   );
-  const maxItemsTotal = readPositiveIntEnv(
-    'VH_NEWS_FEED_MAX_ITEMS_TOTAL',
-    'VITE_NEWS_FEED_MAX_ITEMS_TOTAL',
-  );
+  const maxItemsTotal = resolveMaxItemsTotal(options);
 
   // Validate and filter sources synchronously before fetching.
   const validSources: FeedSource[] = [];
