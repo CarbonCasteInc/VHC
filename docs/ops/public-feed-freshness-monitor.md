@@ -48,7 +48,20 @@ read-only publisher unit check and sends a state-change-only alert when either:
 - the public latest-index freshness monitor fails the 6-hour SLO or public
   health checks;
 - `vh-news-aggregator.service` is not `active/running`;
+- the publisher unit is in the #706 transport-total restart path with
+  `ExecMainStatus=69`;
 - the publisher unit is parked with `ExecMainStatus=78`.
+
+Publisher exit classification is intentionally split:
+
+- `exit_69_transport_unavailable` is warning-severity. It means the daemon saw a
+  branded all-relay transport-total REST failure and exited with `69`, which is
+  restartable by the managed systemd unit (`Restart=on-failure`;
+  `RestartPreventExitStatus=78`). The alert exists so the operator can confirm
+  self-recovery instead of discovering a stale feed later.
+- `exit_78_fail_closed` is critical-severity. It remains the non-restarting
+  write-safety park and requires operator inspection before publisher writes
+  resume.
 
 The alert output is secret-safe. It records statuses, blockers, counts, ages,
 and origin hashes only; it does not include tokens, raw feed payloads, story
@@ -66,15 +79,15 @@ The script supports two delivery channels configured by environment only:
 | `VH_PUBLIC_FEED_ALERT_TEST_FIRE` | Set to `1` for a one-shot delivery test without changing the observed pass/fail result. |
 | `VH_PUBLIC_FEED_ALERT_STATE_DIR` | Default `~/.local/state/vhc/public-feed-alert`. |
 
-State-change-only delivery means a repeated stale feed or repeated exit-78
-publisher state does not spam every timer tick. A transition into failure sends,
-a transition out of failure sends, and a heartbeat sends only when explicitly
-configured. The state fingerprint is based on failure class, publisher state,
-origin hashes, counts, and stale/fresh age state rather than the exact
-`newestAgeMs`, so an already-stale feed aging by another timer interval does not
-create a new alert by itself. A failed delivery is not treated as delivered; the
-next timer run retries the same observed failure until at least one configured
-channel succeeds.
+State-change-only delivery means a repeated stale feed, repeated exit-69
+restart state, or repeated exit-78 publisher state does not spam every timer
+tick. A transition into failure sends, a transition out of failure sends, and a
+heartbeat sends only when explicitly configured. The state fingerprint is based
+on failure class, publisher state, origin hashes, counts, and stale/fresh age
+state rather than the exact `newestAgeMs`, so an already-stale feed aging by
+another timer interval does not create a new alert by itself. A failed delivery
+is not treated as delivered; the next timer run retries the same observed
+failure until at least one configured channel succeeds.
 
 The repo ships user-systemd units but does not enable them:
 

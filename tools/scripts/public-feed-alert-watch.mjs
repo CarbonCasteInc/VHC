@@ -15,6 +15,8 @@ const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v1';
 const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
 const DEFAULT_TIMEOUT_MS = 15_000;
+const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
+const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
 const URL_IN_TEXT_PATTERN = /https?:\/\/[^\s"'<>)}\]]+?(?=:(?:[a-z][a-z0-9_-]*)(?::|$)|[\s"'<>)}\]]|$)/gi;
 
 function firstNonEmpty(...values) {
@@ -164,12 +166,37 @@ function inspectPublisherUnit({
   const result = properties.Result ?? null;
   const nRestarts = Number.parseInt(String(properties.NRestarts ?? ''), 10);
   const running = activeState === 'active' && subState === 'running';
-  const exit78 = String(execMainStatus ?? '').trim() === '78';
+  const normalizedExecMainStatus = String(execMainStatus ?? '').trim();
+  const exit69 = normalizedExecMainStatus === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE;
+  const exit78 = normalizedExecMainStatus === NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
+  const failureClass = exit69
+    ? 'exit_69_transport_unavailable'
+    : exit78
+      ? 'exit_78_fail_closed'
+      : !running
+        ? 'unit_not_running'
+        : 'none';
+  const severity = failureClass === 'none'
+    ? 'none'
+    : failureClass === 'exit_69_transport_unavailable'
+      ? 'warning'
+      : 'critical';
+  const recoveryHint = failureClass === 'exit_69_transport_unavailable'
+    ? 'systemd_restart_expected'
+    : failureClass === 'exit_78_fail_closed'
+      ? 'operator_required'
+      : !running
+        ? 'operator_inspection_required'
+        : 'none';
 
   if (!running && blockers.length === 0) {
-    blockers.push(exit78
-      ? `publisher_exit_78:${activeState ?? 'missing'}/${subState ?? 'missing'}`
-      : `publisher_not_running:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+    if (exit69) {
+      blockers.push(`publisher_exit_69_transport_unavailable:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+    } else if (exit78) {
+      blockers.push(`publisher_exit_78:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+    } else {
+      blockers.push(`publisher_not_running:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+    }
   }
 
   return {
@@ -181,7 +208,9 @@ function inspectPublisherUnit({
     execMainStatus,
     result,
     nRestarts: Number.isFinite(nRestarts) && nRestarts >= 0 ? nRestarts : null,
-    failureClass: exit78 ? 'exit_78_fail_closed' : !running ? 'unit_not_running' : 'none',
+    failureClass,
+    severity,
+    recoveryHint,
   };
 }
 

@@ -33,6 +33,21 @@ function exit78Systemctl() {
   ].join('\n');
 }
 
+function exit69Systemctl({
+  activeState = 'activating',
+  subState = 'auto-restart',
+  nRestarts = 1,
+} = {}) {
+  return [
+    `ActiveState=${activeState}`,
+    `SubState=${subState}`,
+    `NRestarts=${nRestarts}`,
+    'ExecMainStatus=69',
+    'Result=exit-code',
+    '',
+  ].join('\n');
+}
+
 function freshnessSummary(overrides = {}) {
   const now = overrides.now ?? Date.parse('2026-07-02T18:00:00.000Z');
   return {
@@ -282,11 +297,88 @@ test('publisher exit 78 is a fail-close alert and can deliver through sendmail',
 
     assert.equal(summary.status, 'fail');
     assert.equal(summary.publisher.failureClass, 'exit_78_fail_closed');
+    assert.equal(summary.publisher.severity, 'critical');
+    assert.equal(summary.publisher.recoveryHint, 'operator_required');
     assert.match(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
     assert.equal(mail.length, 1);
     assert.match(mail[0].input, /operator@example\.invalid/);
     assert.match(mail[0].input, /exit_78_fail_closed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher exit 69 is a warning transport alert distinct from exit 78', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit69Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(summary.publisher.severity, 'warning');
+    assert.equal(summary.publisher.recoveryHint, 'systemd_restart_expected');
+    assert.match(summary.blockers.join('\n'), /publisher_exit_69_transport_unavailable:activating\/auto-restart/);
+    assert.doesNotMatch(summary.blockers.join('\n'), /publisher_exit_78/);
+    assert.equal(summary.delivery.status, 'sent');
+    assert.equal(summary.delivery.reason, 'first_failure');
+    assert.equal(calls.length, 1);
+
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(body.publisher.severity, 'warning');
+    assert.equal(body.publisher.recoveryHint, 'systemd_restart_expected');
+    assert.equal(JSON.stringify(body).includes('exit_78_fail_closed'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher recovery after exit 69 sends a state-changed pass alert', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const options = {
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit69Systemctl({ activeState: 'failed', subState: 'failed', nRestarts: 3 }),
+    });
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:05:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+    });
+
+    assert.equal(first.status, 'fail');
+    assert.equal(first.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(second.status, 'pass');
+    assert.equal(second.observedStatus, 'pass');
+    assert.equal(second.publisher.failureClass, 'none');
+    assert.equal(second.publisher.severity, 'none');
+    assert.equal(second.publisher.recoveryHint, 'none');
+    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.reason, 'state_changed');
+    assert.equal(calls.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
