@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { phase5ScopeAWatchClosureInternal } from './phase5-scope-a-watch-closure-packet.mjs';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 
 function tmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), 'vh-phase5-watch-closure-'));
@@ -259,6 +264,72 @@ test('blocks the 48h threshold when relay heap trend projects below the safe hor
   assert.equal(packet.relayMemory.status, 'fail');
   assert.equal(packet.thresholds.fortyEightHour.status, 'fail');
   assert.deepEqual(packet.thresholds.fortyEightHour.blockers, ['relay_memory_trend_fail']);
+});
+
+test('builds a compact secret-safe verdict for watch automation and alert intake', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 500_000_000, 400_000_000),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 1_000_000_000, 900_000_000),
+  ]);
+  makeSample(archiveRoot, '20260630T010000Z', '2026-06-30T01:00:00.000Z', [
+    relay('vhc-relay-a', 1_250_000_000, 1_200_000_000),
+  ]);
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T01:00:00.000Z'),
+  });
+  const verdict = phase5ScopeAWatchClosureInternal.buildWatchClosureVerdict(packet);
+  const serialized = JSON.stringify(verdict);
+
+  assert.equal(verdict.schemaVersion, phase5ScopeAWatchClosureInternal.VERDICT_SCHEMA_VERSION);
+  assert.equal(verdict.status, 'fail');
+  assert.equal(verdict.severity, 'critical');
+  assert.deepEqual(verdict.blockers, ['relay_memory_trend_fail']);
+  assert.equal(verdict.relayMemory.relays[0].name, 'vhc-relay-a');
+  assert.equal(verdict.relayMemory.relays[0].trendStatus, 'fail');
+  assert.equal(serialized.includes(root), false);
+  assert.equal(serialized.includes('failureArtifactDir'), false);
+});
+
+test('writes full packet and compact verdict files from the CLI', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 421_000_000, 321_000_000),
+  ]);
+  makeSample(archiveRoot, '20260630T010000Z', '2026-06-30T01:00:00.000Z', [
+    relay('vhc-relay-a', 422_000_000, 322_000_000),
+  ]);
+  const packetFile = path.join(root, 'watch-closure/latest.json');
+  const verdictFile = path.join(root, 'watch-closure/verdict.json');
+
+  execFileSync(process.execPath, ['tools/scripts/phase5-scope-a-watch-closure-packet.mjs'], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      ...baseEnv(root),
+      VH_PHASE5_SCOPE_A_WATCH_NOW: '2026-06-30T01:00:00.000Z',
+      VH_PHASE5_SCOPE_A_WATCH_OUTPUT_FILE: packetFile,
+      VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE: verdictFile,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  const packet = JSON.parse(readFileSync(packetFile, 'utf8'));
+  const verdict = JSON.parse(readFileSync(verdictFile, 'utf8'));
+
+  assert.equal(packet.schemaVersion, 'vh-phase5-scope-a-watch-closure-v1');
+  assert.equal(verdict.schemaVersion, phase5ScopeAWatchClosureInternal.VERDICT_SCHEMA_VERSION);
+  assert.equal(verdict.status, 'pass');
+  assert.equal(verdict.thresholds.fortyEightHour.status, 'pass');
 });
 
 test('projects relay heap trend against the public-beta per-relay watchdog ceiling by default', () => {

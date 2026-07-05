@@ -148,6 +148,28 @@ test('news aggregator installer writes Phase 5 soak archive units without enabli
   assert.match(timer, /Unit=vh-phase5-scope-a-soak-archive\.service/);
 });
 
+test('news aggregator installer writes Phase 5 watch closure packet units without enabling them by default', () => {
+  const source = readScript('install-news-aggregator-production-service.sh');
+  const service = readInfraUnit('vh-phase5-scope-a-watch-closure.service');
+  const timer = readInfraUnit('vh-phase5-scope-a-watch-closure.timer');
+
+  assert.match(source, /vh-phase5-scope-a-watch-closure\.service/);
+  assert.match(source, /vh-phase5-scope-a-watch-closure\.timer/);
+  assert.match(source, /--enable-watch-closure/);
+  assert.match(source, /if \[\[ "\$\{ENABLE_WATCH_CLOSURE\}" == "true" \]\]/);
+  assert.match(source, /systemctl --user enable --now vh-phase5-scope-a-watch-closure\.timer/);
+
+  for (const unitSource of [source, service]) {
+    assert.match(unitSource, /phase5-scope-a-watch-closure-packet\.mjs/);
+    assert.match(unitSource, /VH_PHASE5_SCOPE_A_WATCH_ARCHIVE_ROOT=%h\/\.local\/state\/vhc\/phase5-scope-a-soak/);
+    assert.match(unitSource, /VH_PHASE5_SCOPE_A_WATCH_OUTPUT_FILE=%h\/\.local\/state\/vhc\/phase5-scope-a-watch-closure\/latest\.json/);
+    assert.match(unitSource, /VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE=%h\/\.local\/state\/vhc\/phase5-scope-a-watch-closure\/verdict\.json/);
+    assert.match(unitSource, /phase5-scope-a-watch-closure\.env/);
+  }
+  assert.match(timer, /OnUnitActiveSec=30min/);
+  assert.match(timer, /Unit=vh-phase5-scope-a-watch-closure\.service/);
+});
+
 test('public feed alert watch unit bounds host-local probe runtime', () => {
   const service = readInfraUnit('vh-public-feed-alert-watch.service');
 
