@@ -16,8 +16,14 @@ const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
 const DEFAULT_TIMEOUT_MS = 15_000;
 const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
+const NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE = '75';
 const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
 const URL_IN_TEXT_PATTERN = /https?:\/\/[^\s"'<>)}\]]+?(?=:(?:[a-z][a-z0-9_-]*)(?::|$)|[\s"'<>)}\]]|$)/gi;
+const SEVERITY_RANK = {
+  none: 0,
+  warning: 1,
+  critical: 2,
+};
 
 function firstNonEmpty(...values) {
   for (const value of values) {
@@ -67,8 +73,32 @@ function sanitizeAlertText(value) {
   return String(value ?? '').replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
 }
 
+function sanitizeAlertError(error, redactions = []) {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const raw of redactions) {
+    const value = String(raw ?? '');
+    if (value) {
+      message = message.split(value).join(`value_hash:${hashValue(value)}`);
+    }
+  }
+  return sanitizeAlertText(message);
+}
+
 function stableFingerprintText(value) {
-  return sanitizeAlertText(value).replace(/\b\d{4,}\b/g, '<n>');
+  return sanitizeAlertText(value)
+    .replace(/publisher_restart_churn:\d+\/\d+/g, 'publisher_restart_churn:<n>/<n>')
+    .replace(/\b\d{4,}\b/g, '<n>');
+}
+
+function maxSeverity(...values) {
+  let best = 'none';
+  for (const value of values) {
+    const severity = Object.hasOwn(SEVERITY_RANK, value) ? value : 'none';
+    if (SEVERITY_RANK[severity] > SEVERITY_RANK[best]) {
+      best = severity;
+    }
+  }
+  return best;
 }
 
 function freshnessAgeState(readback) {
@@ -157,7 +187,7 @@ function inspectPublisherUnit({
       systemctlShowText ?? readPublisherSystemctlShow(unit, spawnSyncImpl),
     );
   } catch (error) {
-    blockers.push(`publisher_systemctl_failed:${error instanceof Error ? error.message : String(error)}`);
+    blockers.push(`publisher_systemctl_failed:${sanitizeAlertError(error)}`);
   }
 
   const activeState = properties.ActiveState ?? null;
@@ -166,32 +196,49 @@ function inspectPublisherUnit({
   const result = properties.Result ?? null;
   const nRestarts = Number.parseInt(String(properties.NRestarts ?? ''), 10);
   const running = activeState === 'active' && subState === 'running';
+  const systemdRestarting = activeState === 'activating' || subState === 'auto-restart';
   const normalizedExecMainStatus = String(execMainStatus ?? '').trim();
   const exit69 = normalizedExecMainStatus === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE;
+  const exit75 = normalizedExecMainStatus === NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE;
   const exit78 = normalizedExecMainStatus === NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
-  const failureClass = exit69
-    ? 'exit_69_transport_unavailable'
-    : exit78
-      ? 'exit_78_fail_closed'
-      : !running
-        ? 'unit_not_running'
-        : 'none';
+  const startLimitHit = result === 'start-limit-hit';
+  const exit69Restarting = !running && exit69 && systemdRestarting && !startLimitHit;
+  const exit69Parked = !running && exit69 && (startLimitHit || !systemdRestarting);
+  const failureClass = running
+    ? 'none'
+    : exit69Restarting
+      ? 'exit_69_transport_unavailable'
+      : exit69Parked
+        ? 'exit_69_start_limit_parked'
+        : exit75
+          ? 'exit_75_wrapper_refusal'
+          : exit78
+            ? 'exit_78_fail_closed'
+            : 'unit_not_running';
   const severity = failureClass === 'none'
     ? 'none'
     : failureClass === 'exit_69_transport_unavailable'
       ? 'warning'
       : 'critical';
   const recoveryHint = failureClass === 'exit_69_transport_unavailable'
-    ? 'systemd_restart_expected'
+    ? 'bounded_systemd_restart_in_progress'
+    : failureClass === 'exit_69_start_limit_parked'
+      ? 'start_limit_exhausted_operator_restart_required'
     : failureClass === 'exit_78_fail_closed'
       ? 'operator_required'
+      : failureClass === 'exit_75_wrapper_refusal'
+        ? 'operator_required'
       : !running
         ? 'operator_inspection_required'
         : 'none';
 
   if (!running && blockers.length === 0) {
-    if (exit69) {
+    if (failureClass === 'exit_69_transport_unavailable') {
       blockers.push(`publisher_exit_69_transport_unavailable:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+    } else if (failureClass === 'exit_69_start_limit_parked') {
+      blockers.push(`publisher_exit_69_start_limit_parked:${activeState ?? 'missing'}/${subState ?? 'missing'}:${result ?? 'missing'}`);
+    } else if (failureClass === 'exit_75_wrapper_refusal') {
+      blockers.push(`publisher_exit_75_wrapper_refusal:${activeState ?? 'missing'}/${subState ?? 'missing'}:${result ?? 'missing'}`);
     } else if (exit78) {
       blockers.push(`publisher_exit_78:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
     } else {
@@ -212,6 +259,20 @@ function inspectPublisherUnit({
     severity,
     recoveryHint,
   };
+}
+
+function previousPublisherRestartCount(previousState) {
+  const parsed = Number.parseInt(String(previousState?.lastPublisherNRestarts ?? ''), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function restartChurnBlocker({ publisher, previousState }) {
+  const previousNRestarts = previousPublisherRestartCount(previousState);
+  const currentNRestarts = Number.isFinite(publisher?.nRestarts) ? publisher.nRestarts : null;
+  if (previousNRestarts === null || currentNRestarts === null || currentNRestarts <= previousNRestarts) {
+    return null;
+  }
+  return `publisher_restart_churn:${previousNRestarts}/${currentNRestarts}`;
 }
 
 function fingerprintFor({ status, blockers, publisher, freshness }) {
@@ -287,6 +348,7 @@ function alertPayload(summary, reason) {
     alertReason: reason,
     status: summary.status,
     observedStatus: summary.observedStatus,
+    severity: summary.severity,
     blockers: summary.blockers,
     fingerprint: summary.fingerprint,
     publisher: summary.publisher,
@@ -377,7 +439,7 @@ async function deliverAlert({
     try {
       channels.push(await deliverWebhook({ webhookUrl, payload, timeoutMs, fetchImpl }));
     } catch (error) {
-      errors.push(`webhook:${error instanceof Error ? error.message : String(error)}`);
+      errors.push(`webhook:${sanitizeAlertError(error, [webhookUrl])}`);
     }
   }
 
@@ -386,7 +448,7 @@ async function deliverAlert({
       const result = deliverEmail({ env, payload, spawnSyncImpl });
       if (result) channels.push(result);
     } catch (error) {
-      errors.push(`email:${error instanceof Error ? error.message : String(error)}`);
+      errors.push(`email:${sanitizeAlertError(error)}`);
     }
   }
 
@@ -421,6 +483,7 @@ async function persistState({
   nowIso,
   fingerprint,
   status,
+  publisher,
   delivery,
   previousState,
 }) {
@@ -441,6 +504,9 @@ async function persistState({
       : previousState?.lastDeliveredAt ?? null,
     lastDeliveryStatus: delivery.status,
     lastDeliveryReason: delivery.reason,
+    lastPublisherNRestarts: Number.isFinite(publisher?.nRestarts)
+      ? publisher.nRestarts
+      : previousState?.lastPublisherNRestarts ?? null,
   };
   await writeJson(stateFile, state);
   return state;
@@ -462,8 +528,10 @@ export async function runPublicFeedAlertWatch({
   const freshnessRaw = await freshnessMonitorImpl({ env, repoRoot, now });
   const freshness = summarizeFreshness(freshnessRaw);
   const publisher = inspectPublisherUnit({ env, systemctlShowText, spawnSyncImpl });
+  const restartChurn = restartChurnBlocker({ publisher, previousState });
   const observedBlockers = [
     ...publisher.blockers,
+    ...(restartChurn ? [restartChurn] : []),
     ...(freshness.status === 'pass'
       ? []
       : freshness.blockers.length > 0
@@ -471,6 +539,11 @@ export async function runPublicFeedAlertWatch({
         : [`public_feed_status:${freshness.status ?? 'missing'}`]),
   ];
   const observedStatus = observedBlockers.length === 0 ? 'pass' : 'fail';
+  const observedSeverity = maxSeverity(
+    publisher.severity,
+    restartChurn ? 'warning' : 'none',
+    freshness.status === 'pass' ? 'none' : 'critical',
+  );
   const fingerprint = fingerprintFor({
     status: observedStatus,
     blockers: observedBlockers,
@@ -490,6 +563,7 @@ export async function runPublicFeedAlertWatch({
     generatedAt,
     status: observedStatus,
     observedStatus,
+    severity: observedSeverity,
     blockers: observedBlockers,
     fingerprint,
     stateFile,
@@ -518,6 +592,7 @@ export async function runPublicFeedAlertWatch({
   };
   if (['failed', 'missing_channel'].includes(delivery.status)) {
     summary.status = 'fail';
+    summary.severity = maxSeverity(summary.severity, 'critical');
     summary.blockers.push(`alert_delivery_${delivery.status}`);
   }
 
@@ -526,6 +601,7 @@ export async function runPublicFeedAlertWatch({
     nowIso: generatedAt,
     fingerprint,
     status: observedStatus,
+    publisher,
     delivery,
     previousState,
   });
@@ -539,6 +615,7 @@ async function main() {
   console.info(JSON.stringify({
     status: summary.status,
     observedStatus: summary.observedStatus,
+    severity: summary.severity,
     blockers: summary.blockers,
     fingerprint: summary.fingerprint,
     delivery: summary.delivery,
@@ -555,6 +632,7 @@ export const publicFeedAlertWatchInternal = {
   boolEnv,
   fingerprintFor,
   inspectPublisherUnit,
+  maxSeverity,
   runPublicFeedAlertWatch,
   shouldDeliverAlert,
   summarizeFreshness,

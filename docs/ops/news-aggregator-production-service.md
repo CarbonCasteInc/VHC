@@ -82,14 +82,15 @@ Current intended-live posture:
   the stagger while all three public-news relay votes remain co-located on A6.
 
 This launch state proves raw-fresh, v4-signed, product-visible cards with
-pending lifecycle rows, exit-69 restartability for the total relay transport
-class, and bounded first-tick recovery from a parked publisher. The post-#687
-bake still proves the known StoryCluster rerank truncation failure no longer
-interrupts the launched raw path. It does not prove alert delivery, unattended
-operation, current 48-hour sustained operation after outages #2/#3,
-retention/heap boundedness, accepted synthesis, frame tables, storyline overlays,
-topic synthesis, full public-beta readiness, mesh `release_ready`, production app
-canary readiness, or legal/commercial approval.
+pending lifecycle rows and bounded first-tick recovery from a parked publisher.
+Exit-69 restartability for the total relay transport class is configured and
+regression-tested, but it is not yet live-proven by an observed 69-to-restart
+cycle on A6. The post-#687 bake still proves the known StoryCluster rerank
+truncation failure no longer interrupts the launched raw path. It does not prove
+alert delivery, unattended operation, current 48-hour sustained operation after
+outages #2/#3, retention/heap boundedness, accepted synthesis, frame tables,
+storyline overlays, topic synthesis, full public-beta readiness, mesh
+`release_ready`, production app canary readiness, or legal/commercial approval.
 
 ## Hard Boundaries
 
@@ -417,16 +418,20 @@ seconds. A persistent outage that fails again immediately at startup parks the
 unit after three attempts inside the 10-minute burst window; failures spaced
 at tick cadence (beyond the burst window) re-attempt indefinitely — each
 attempt is a clean unacknowledged-everywhere fail-close, so the publisher
-self-heals without operator action whenever the network returns. The publisher
-liveness watch classifies this state as `exit_69_transport_unavailable` (from
+self-heals without operator action whenever the network returns before the
+start-limit window is exhausted. The publisher liveness watch classifies the
+bounded auto-restart state as `exit_69_transport_unavailable` (from
 `ExecMainStatus` only, never journal text, so a stale transport line cannot
-relabel a later genuine `78` park), and an `nrestarts_increased` blocker after
-a transport blip is the expected self-recovery signal. Investigate the network
-event — check the **relay fleet as well as host DNS/network**, since
-all-relays-unreachable classifies identically — but the publisher does not
-need a manual restart. Mixed outcomes (any relay acked, or any relay returned
-an HTTP error) never take this path: they keep the non-restarting exit `78`
-write-safety contract.
+relabel a later genuine `78` park). The public alert watch escalates a parked
+69 after start-limit exhaustion as `exit_69_start_limit_parked`, because that
+state is no longer self-recovering and requires operator restart after the
+network is healthy. An `nrestarts_increased` blocker after a transport blip is
+the expected self-recovery signal. Investigate the network event — check the
+**relay fleet as well as host DNS/network**, since all-relays-unreachable
+classifies identically — but the publisher does not need a manual restart while
+systemd remains in the bounded restart window. Mixed outcomes (any relay acked,
+or any relay returned an HTTP error) never take this path: they keep the
+non-restarting exit `78` write-safety contract.
 
 Verify the installed unit before an attended start:
 

@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-03
+> Last Reviewed: 2026-07-05
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -57,8 +57,17 @@ Publisher exit classification is intentionally split:
 - `exit_69_transport_unavailable` is warning-severity. It means the daemon saw a
   branded all-relay transport-total REST failure and exited with `69`, which is
   restartable by the managed systemd unit (`Restart=on-failure`;
-  `RestartPreventExitStatus=78`). The alert exists so the operator can confirm
+  `RestartPreventExitStatus=78`) and systemd is still in the bounded
+  auto-restart window. The alert exists so the operator can confirm
   self-recovery instead of discovering a stale feed later.
+- `exit_69_start_limit_parked` is critical-severity. It means the same
+  transport-total class repeated until systemd exhausted `StartLimitBurst`, so
+  the publisher is no longer self-recovering and needs operator action after the
+  host/network path is healthy again.
+- `exit_75_wrapper_refusal` is critical-severity. It means the production
+  wrapper refused to start before the daemon owned the process, such as a
+  sibling-service or approval/preflight refusal, and requires operator
+  inspection.
 - `exit_78_fail_closed` is critical-severity. It remains the non-restarting
   write-safety park and requires operator inspection before publisher writes
   resume.
@@ -98,9 +107,15 @@ The service unit includes `TimeoutStartSec=180`, which bounds a hung
 freshness/publisher probe without making normal 15-second HTTP timeouts race the
 systemd start deadline.
 
-Operator enablement, after explicit approval:
+Operator enablement, after explicit approval.
+
+Block A: configure, install, test-fire, and stop on any failed or stale
+readback. Set `TEST_FIRE_STARTED_AT` immediately before the test-fire so the
+readback can prove the output was produced by this block.
 
 ```bash
+TEST_FIRE_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 mkdir -p ~/.config/vhc
 install -m 0600 /dev/null ~/.config/vhc/public-feed-alert.env
 $EDITOR ~/.config/vhc/public-feed-alert.env
@@ -117,14 +132,18 @@ systemctl --user daemon-reload
 systemctl --user set-environment VH_PUBLIC_FEED_ALERT_TEST_FIRE=1
 systemctl --user start vh-public-feed-alert-watch.service || true
 systemctl --user unset-environment VH_PUBLIC_FEED_ALERT_TEST_FIRE
+! systemctl --user show-environment | grep -q '^VH_PUBLIC_FEED_ALERT_TEST_FIRE='
 
 node - <<'NODE'
 const fs = require('node:fs');
 const path = `${process.env.HOME}/.local/state/vhc/public-feed-alert/latest.json`;
 const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+const startedAt = Date.parse(process.env.TEST_FIRE_STARTED_AT || '');
 console.log(JSON.stringify({
   status: summary.status,
   observedStatus: summary.observedStatus,
+  severity: summary.severity,
+  generatedAt: summary.generatedAt,
   blockers: summary.blockers,
   delivery: summary.delivery && {
     status: summary.delivery.status,
@@ -143,13 +162,34 @@ console.log(JSON.stringify({
 }, null, 2));
 if (summary.delivery?.status !== 'sent') {
   process.exitCode = 1;
+} else if (!Number.isFinite(startedAt) || Date.parse(summary.generatedAt || '') < startedAt) {
+  process.exitCode = 1;
 }
 NODE
 
 systemctl --user reset-failed vh-public-feed-alert-watch.service
+```
 
-# Enable only after the node readback shows delivery.status="sent" and the
-# operator confirms receipt on a device outside the A6 host.
+Block B: run only after the node readback in Block A shows
+`delivery.status="sent"` from this test-fire and the operator confirms receipt
+on a device outside the A6 host.
+
+```bash
+node - <<'NODE'
+const fs = require('node:fs');
+const path = `${process.env.HOME}/.local/state/vhc/public-feed-alert/latest.json`;
+const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+if (summary.delivery?.status !== 'sent') {
+  throw new Error(`alert delivery is not sent: ${summary.delivery?.status || 'missing'}`);
+}
+if (summary.delivery?.reason !== 'test_fire') {
+  throw new Error(`latest alert output is not a test-fire: ${summary.delivery?.reason || 'missing'}`);
+}
+if (!summary.generatedAt || Date.now() - Date.parse(summary.generatedAt) > 10 * 60 * 1000) {
+  throw new Error(`latest alert output is stale: ${summary.generatedAt || 'missing'}`);
+}
+NODE
+
 systemctl --user enable --now vh-public-feed-alert-watch.timer
 systemctl --user status vh-public-feed-alert-watch.timer --no-pager
 ```
@@ -164,11 +204,13 @@ timer until the channel returns a sent receipt and the operator receives it.
 Rollback:
 
 ```bash
+systemctl --user unset-environment VH_PUBLIC_FEED_ALERT_TEST_FIRE || true
 systemctl --user disable --now vh-public-feed-alert-watch.timer
 systemctl --user reset-failed vh-public-feed-alert-watch.service
 rm -f ~/.config/systemd/user/vh-public-feed-alert-watch.service
 rm -f ~/.config/systemd/user/vh-public-feed-alert-watch.timer
 systemctl --user daemon-reload
+! systemctl --user show-environment | grep -q '^VH_PUBLIC_FEED_ALERT_TEST_FIRE='
 ```
 
 Host-local relay snapshot freshness is covered separately by
