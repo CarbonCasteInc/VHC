@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-03
+> Last Reviewed: 2026-07-05
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-07-03
-**Version:** 0.9.6 (MVP readiness state aligned after #701)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A recovered after outage #2, fresh again on A6, and running the capped raw-only Scope A profile with relay-memory diagnostics, early heap capture wiring, fresh-bundle publisher priority, and staggered relay watchdog heap ceilings. The 2026-06-24 launch closeout and 2026-06-28 StoryCluster stability bake remain historical evidence for the raw path, but the 2026-06-29 fail-close outage reset the clean-window ledger. The 2026-07-03 driver verdict now classifies the observed heap growth as `heap_driver_off_graph_likely`: graph live bytes are effectively flat at heap scale, tombstones are absent, and graph soul count is too small to explain the slope. The next Scope A development step is early-capture threshold retuning and secret-safe retainer identification, not publisher-visible retention or relay compaction. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
+**Last Updated:** 2026-07-05
+**Version:** 0.9.7 (Scope A recovery state aligned after #708)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A restored on A6 after outage #3 and deployed at `main@3713bd6f` (`Bound first publisher tick ingest workload (#708)`). The live publisher is active/running, the first post-restart tick completed with `ingested_item_limit=24`, `raw_wrote_count=8`, and `raw_write_failed_count=0`, public freshness passed across the origin plus all three relay origins, and publisher/relay/snapshot liveness checks passed. #706 makes total relay transport failures restartable via exit `69`, #707 classifies that state distinctly in alert watching, and #708 bounds cold-start ingestion. The system is still not unattended-distribution-ready: the alert unit files are installed but A6 has no configured webhook/email delivery channel, so the alert timer remains disabled and the test-fire fails closed with `alert_delivery_missing_channel`; the off-graph heap retainer is still unnamed; and a fresh 48-hour/14-day sustained window is not yet banked. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #2: capped raw-only A6 publisher, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #691 graph diagnostics, #692 early heap capture wiring, #693 fresh-bundle priority, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered; off-graph heap retainer not yet named; Scope B enrichment pending |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #3 on A6: capped raw-only publisher at `main@3713bd6f`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered/fresh; alert delivery channel not configured; off-graph heap retainer not yet named; sustained unattended window not yet proven; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -51,9 +51,26 @@ Current policy state:
   broke 2-of-3 critical write quorum, remained parked by design, and was
   recovered on 2026-07-02 after #691-#694. This was a safety success and an
   availability failure; it resets sustained-operation evidence.
-- Current deployed Scope A posture is recovered/fresh, not stability-proven:
-  #691 graph scan metrics are enabled for the current A6 climb, #692 early heap
-  capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
+- Outage #3 parked the publisher on 2026-07-04 under pre-#706 semantics after a
+  total relay transport/DNS failure to all three REST write endpoints. #706 now
+  treats the zero-success all-transport class as retryable in-process and
+  restartable through exit `69`; #707 makes that exit class visible to the alert
+  watch; #708 bounds the first post-reset StoryCluster ingest workload.
+- Current deployed Scope A posture is recovered/fresh after the 2026-07-05
+  operator session, not stability-proven: `main@3713bd6f` is deployed on A6,
+  the publisher first tick completed with `ingested_item_limit=24`,
+  `raw_wrote_count=8`, and `raw_write_failed_count=0`, public freshness passed
+  on `2026-07-05T21:11:34Z` across `venn.carboncaste.io` plus `gun-a/b/c`, and
+  publisher liveness, relay liveness, and relay snapshot freshness all passed
+  on `2026-07-05T21:13Z`.
+- The alert watch unit/timer files are installed on A6, but
+  `~/.config/vhc/public-feed-alert.env` is absent. A test-fire on
+  `2026-07-05T21:15:48Z` observed publisher/freshness `pass` but failed closed
+  with `alert_delivery_missing_channel`; do not enable the timer until a real
+  webhook or email channel is configured and receipt is confirmed on an operator
+  device.
+- #691 graph scan metrics are enabled for the current A6 climb, #692/#703 early
+  heap capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
   priority, and #694 staggers relay heap watchdog ceilings at `850000000`,
   `1000000000`, and `1150000000`.
 - The current read-only driver verdict is
@@ -116,17 +133,22 @@ Current policy state:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
   - current MVP readiness state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
-  - current `main`: `b9007531` (`Align MVP readiness state after Scope A driver verdict (#702)`);
-  - current relay image: `vhc-public-beta-relay:20260702-main-v96488ca0-amd64`;
+  - current `main`: `3713bd6f` (`Bound first publisher tick ingest workload (#708)`);
+  - current relay image: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
+  - current origin image: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
   - current live raw profile: synthesis disabled, replay disabled, storylines
     disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
     interval `86400000`, prune disabled, relay min-success `2`;
   - deployed relay diagnostics at the recovery image: graph scan enabled on A6,
     early heap capture at `800000000`, watchdog heap ceilings `850000000` /
     `1000000000` / `1150000000`;
-  - post-recovery checks: publisher liveness `pass`, relay liveness `pass`,
-    relay snapshot freshness `pass`, public freshness `pass`, watchdog trips
-    `0`, graph scan errors `0`, graph scan truncation `0`;
+  - post-2026-07-05 recovery checks: publisher liveness `pass`, relay liveness
+    `pass`, relay snapshot freshness `pass`, public freshness `pass`, first
+    post-restart tick `completed`, `raw_wrote_count=8`,
+    `raw_write_failed_count=0`, watchdog trips `0`, graph scan errors `0`, graph
+    scan truncation `0`;
+  - alert status: unit files installed, timer disabled, delivery channel missing,
+    test-fire fails closed with `alert_delivery_missing_channel`;
   - current gate: early-capture threshold retune with per-relay stagger
     (`a=500000000,700000000`; `b=520000000,720000000`;
     `c=540000000,740000000`) and secret-safe retainer summary before any
@@ -255,14 +277,18 @@ Current policy state:
 
 Current truth for the news bundler and feed hardening lane:
 
-- Phase 5 Scope A is recovered and intended-live on A6 after outage #2:
+- Phase 5 Scope A is recovered and intended-live on A6 after outages #2 and #3:
   - raw publication is capped at 8 bundles per tick with raw write concurrency 2;
+  - first post-reset ingest is capped by
+    `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24`;
   - raw story, latest-index, hot-index, and pending lifecycle writes use relay
     REST 2-of-3 quorum;
   - accepted synthesis, topic synthesis, and storyline overlays are outside the
     launched path and remain post-launch enrichment;
   - publisher liveness, relay liveness, and relay snapshot freshness monitors
     are operating monitors for the intended-live service;
+  - alert watch units are installed, but alert delivery is not live until a
+    webhook/email channel is configured, test-fired, and the timer is enabled;
   - the current stability question is off-graph relay heap behavior: #691
     graph metrics are the negative control, and #692 early heap capture must be
     retuned so the next climb yields a secret-safe retainer summary.
@@ -270,9 +296,10 @@ Current truth for the news bundler and feed hardening lane:
   raw path as of the 2026-06-28 stability bake:
   - #687 first deployed the durable rerank fix at
     `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - current `main` is `215b5c8f`, with later #691-#701 diagnostics,
-    publisher-priority, relay-stagger, alerting, LUMA, and driver-verdict
-    changes layered on top;
+  - current `main` is `3713bd6f`, with later #691-#708 diagnostics,
+    publisher-priority, relay-stagger, total-transport restartability, alert
+    classification, first-tick ingest-cap, LUMA, and driver-verdict changes
+    layered on top;
   - rerank output uses strict fixed-key object structured output instead of an
     array/max-items shape;
   - recoverable rerank output failures omit supplemental rerank results so the
@@ -376,8 +403,9 @@ Current truth for the news bundler and feed hardening lane:
      publisher clear, or relay compaction;
    - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
      investigation item before trusting future threshold math;
-   - keep A6 public-feed alert enablement operator-owned and require a reachable
-     webhook/email delivery channel before enabling the timer;
+   - keep A6 public-feed alert enablement operator-owned, require a reachable
+     webhook/email delivery channel, run a successful test-fire, and only then
+     enable the timer;
    - do not re-enable accepted synthesis, topic synthesis, storyline writes,
      verify/refresh, higher raw caps, or pruning without a separate attended
      soak and an updated runbook entry.
