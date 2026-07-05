@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -123,6 +123,112 @@ function baseEnv(root, extra = {}) {
   };
 }
 
+function writeJson(filePath, value) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function relayLivenessReport(overrides = {}) {
+  return {
+    schemaVersion: 'vh-news-relay-liveness-watch-v1',
+    generatedAt: '2026-07-02T17:58:00.000Z',
+    status: 'pass',
+    blockers: [],
+    relays: [
+      {
+        name: 'vhc-relay-a',
+        origin: 'http://127.0.0.1:8765',
+        status: 'pass',
+        blockers: [],
+        docker: { restartCount: 0 },
+        metrics: {
+          rssBytes: 420_000_000,
+          heapUsedBytes: 320_000_000,
+          watchdogTrips: 0,
+          eventLoopLagP99Ms: 20,
+          criticalReadbacksQueued: 0,
+        },
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function relaySnapshotReport(overrides = {}) {
+  const file = '/home/humble/.local/share/vhc/vhc-relay-a/data/news-latest-index-snapshot.json';
+  return {
+    schemaVersion: 'vh-relay-latest-index-snapshot-watch-v1',
+    generatedAt: '2026-07-02T17:58:00.000Z',
+    status: 'pass',
+    blockers: [],
+    snapshots: [
+      {
+        file,
+        status: 'pass',
+        failures: [],
+        entryCount: 80,
+        cachedAgeMs: 60_000,
+        newestEntryAgeMs: 120_000,
+        freshnessFailures: [],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function watchClosureVerdict(overrides = {}) {
+  return {
+    schemaVersion: 'vh-phase5-scope-a-watch-closure-verdict-v1',
+    generatedAt: '2026-07-02T17:58:00.000Z',
+    status: 'in_progress',
+    severity: 'info',
+    blockers: ['window_short:10.00/24'],
+    window: {
+      startAt: '2026-07-02T08:00:00.000Z',
+      cleanStartAt: '2026-07-02T08:00:00.000Z',
+      hoursObserved: 10,
+    },
+    thresholds: {
+      twentyFourHour: { thresholdHours: 24, status: 'not_ready', blockers: ['window_short:10.00/24'] },
+      fortyEightHour: { thresholdHours: 48, status: 'not_ready', blockers: ['window_short:10.00/48'] },
+    },
+    relayMemory: {
+      status: 'pass',
+      heapPlateauVerdict: 'heap_driver_unknown',
+      relays: [
+        {
+          name: 'vhc-relay-a',
+          trendStatus: 'pass',
+          heapPlateauVerdict: 'heap_driver_unknown',
+          shortestProjectedLimitHours: null,
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+function writeAuxReports(root, {
+  relay = relayLivenessReport(),
+  snapshot = relaySnapshotReport(),
+  closure = watchClosureVerdict(),
+} = {}) {
+  const relayFile = path.join(root, 'relay-liveness/latest.json');
+  const snapshotFile = path.join(root, 'relay-snapshot/latest.json');
+  const closureFile = path.join(root, 'watch-closure/verdict.json');
+  writeJson(relayFile, relay);
+  writeJson(snapshotFile, snapshot);
+  writeJson(closureFile, closure);
+  return {
+    VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS: '1',
+    VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE: relayFile,
+    VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT: '1',
+    VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE: snapshotFile,
+    VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE: '1',
+    VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE: closureFile,
+  };
+}
+
 test('passing feed and active publisher do not require an alert channel', async () => {
   const root = tempRoot();
   try {
@@ -140,6 +246,246 @@ test('passing feed and active publisher do not require an alert channel', async 
     assert.equal(summary.delivery.status, 'suppressed');
     assert.equal(summary.blockers.includes('alert_delivery_missing_channel'), false);
     assert.equal(summary.freshness.latestIndexReadbacks[0].storyIds, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('required relay, snapshot, and watch-closure reports pass without an alert channel', async () => {
+  const root = tempRoot();
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, writeAuxReports(root)),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+    });
+
+    assert.equal(summary.status, 'pass');
+    assert.equal(summary.severity, 'none');
+    assert.equal(summary.relayLiveness.status, 'pass');
+    assert.equal(summary.relaySnapshot.status, 'pass');
+    assert.equal(summary.watchClosure.status, 'pass');
+    assert.equal(summary.watchClosure.verdictStatus, 'in_progress');
+    assert.equal(summary.delivery.status, 'suppressed');
+    assert.equal(JSON.stringify(summary).includes('127.0.0.1'), false);
+    assert.equal(JSON.stringify(summary).includes('/home/humble'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay liveness failures page through the existing alert delivery path', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        relay: relayLivenessReport({
+          status: 'fail',
+          blockers: ['vhc-relay-b:readyz_failed:fetch failed'],
+          relays: [
+            {
+              name: 'vhc-relay-b',
+              origin: 'http://127.0.0.1:8766/private',
+              status: 'fail',
+              blockers: ['readyz_failed:fetch failed'],
+              docker: { restartCount: 1 },
+              metrics: {
+                rssBytes: 1_200_000_000,
+                heapUsedBytes: 920_000_000,
+                watchdogTrips: 1,
+                eventLoopLagP99Ms: 30,
+                criticalReadbacksQueued: 0,
+              },
+            },
+          ],
+        }),
+      }),
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'critical');
+    assert.match(summary.blockers.join('\n'), /relay_liveness:vhc-relay-b:readyz_failed/);
+    assert.equal(summary.delivery.status, 'sent');
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.relayLiveness.status, 'fail');
+    assert.equal(body.relayLiveness.relays[0].name, 'vhc-relay-b');
+    assert.equal(body.relayLiveness.relays[0].origin, undefined);
+    assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay snapshot failures redact absolute snapshot paths', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const snapshotPath = '/home/humble/.local/share/vhc/vhc-relay-a/data/news-latest-index-snapshot.json';
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        snapshot: relaySnapshotReport({
+          status: 'fail',
+          blockers: [`${snapshotPath}:newest_entry_stale:30000000/21600000`],
+          snapshots: [
+            {
+              file: snapshotPath,
+              status: 'fail',
+              failures: ['newest_entry_stale:30000000/21600000'],
+              entryCount: 80,
+              cachedAgeMs: 60_000,
+              newestEntryAgeMs: 30_000_000,
+              freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+            },
+          ],
+        }),
+      }),
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.relaySnapshot.status, 'fail');
+    assert.match(summary.blockers.join('\n'), /snapshot_file_hash:/);
+    assert.equal(JSON.stringify(summary).includes(snapshotPath), false);
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.relaySnapshot.snapshots[0].fileHash.length, 16);
+    assert.equal(body.relaySnapshot.snapshots[0].relay, 'vhc-relay-a');
+    assert.equal(JSON.stringify(body).includes('/home/humble'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('watch-closure fail verdict pages with threshold provenance', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        closure: watchClosureVerdict({
+          status: 'fail',
+          severity: 'critical',
+          blockers: ['relay_memory_trend_fail'],
+          thresholds: {
+            twentyFourHour: { thresholdHours: 24, status: 'pass', blockers: [] },
+            fortyEightHour: { thresholdHours: 48, status: 'fail', blockers: ['relay_memory_trend_fail'] },
+          },
+          relayMemory: {
+            status: 'fail',
+            heapPlateauVerdict: 'heap_still_linear',
+            relays: [
+              {
+                name: 'vhc-relay-c',
+                trendStatus: 'fail',
+                heapPlateauVerdict: 'heap_still_linear',
+                shortestProjectedLimitHours: 18,
+              },
+            ],
+          },
+        }),
+      }),
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.watchClosure.status, 'fail');
+    assert.match(summary.blockers.join('\n'), /watch_closure:relay_memory_trend_fail/);
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.watchClosure.thresholds.fortyEightHour.status, 'fail');
+    assert.equal(body.watchClosure.relayMemory.heapPlateauVerdict, 'heap_still_linear');
+    assert.equal(body.watchClosure.relayMemory.relays[0].name, 'vhc-relay-c');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('missing required auxiliary reports fail closed before alert timer enablement', async () => {
+  const root = tempRoot();
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS: '1',
+        VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT: '1',
+        VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE: '1',
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+      }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async () => ({ ok: true, status: 204 }),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'critical');
+    assert.deepEqual(summary.blockers.filter((blocker) => blocker.endsWith('_missing')).sort(), [
+      'relay_liveness_report_missing',
+      'relay_snapshot_report_missing',
+      'watch_closure_verdict_missing',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('explicit auxiliary require false overrides configured default file paths', async () => {
+  const root = tempRoot();
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_LIVENESS: 'false',
+        VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_FILE: path.join(root, 'missing-relay.json'),
+        VH_PUBLIC_FEED_ALERT_REQUIRE_RELAY_SNAPSHOT: 'false',
+        VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_FILE: path.join(root, 'missing-snapshot.json'),
+        VH_PUBLIC_FEED_ALERT_REQUIRE_WATCH_CLOSURE: 'false',
+        VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE: path.join(root, 'missing-verdict.json'),
+      }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+    });
+
+    assert.equal(summary.status, 'pass');
+    assert.equal(summary.relayLiveness.status, 'skipped');
+    assert.equal(summary.relaySnapshot.status, 'skipped');
+    assert.equal(summary.watchClosure.status, 'skipped');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
