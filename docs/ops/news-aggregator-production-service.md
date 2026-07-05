@@ -363,7 +363,50 @@ runtime write violation, and `vh-news-aggregator.service` uses
 `Restart=on-failure` plus `RestartPreventExitStatus=78` so that state stays down
 for operator inspection. The unit also sets `StartLimitIntervalSec=10min` and
 `StartLimitBurst=3` as a backstop for genuine process crashes or unexpected
-non-78 failures. Verify the installed unit before an attended start:
+non-78 failures.
+
+One fail-close cause is deliberately restartable: a **relay transport-total
+failure**, where a critical relay REST write got zero relay successes and every
+per-relay failure was network-level (the fetch itself threw — DNS resolution,
+connection refused, connection reset — with no HTTP response received from any
+relay). No relay **acknowledged** the write. That is not proof nothing was
+published (a response-leg reset can land after a relay applied the write), and
+the network-level cause can be relay-side (whole fleet down, TLS failure)
+rather than host-side — but retrying is safe regardless: the record is re-sent
+byte-identical and all relay news writes are id-keyed idempotent upserts, so a
+re-send cannot double-publish or diverge state. The write path first retries
+the fan-out in-process
+(`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT`, default `2`, with
+`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS`, default `5000,15000`; only the
+zero-success all-transport case retries — any relay-returned response,
+including `503` backpressure, and any abort/timeout, including undici
+dispatcher header/body timeouts, keeps single-pass semantics). If retries
+exhaust, the daemon still fail-closes (writes blocked, teardown, halt) but
+exits `69` (`EX_UNAVAILABLE`) instead of `78`, so systemd restarts it after
+`RestartSec=30`, bounded by the same
+`StartLimitBurst=3`/`StartLimitIntervalSec=10min`. Exit `69` is emitted by no
+other publisher tooling — the wrapper's own refusal paths use `75` — so
+`ExecMainStatus=69` identifies this class unambiguously at the unit layer.
+
+Recovery timing: a blip short enough for the in-process retries clears in
+seconds and the tick completes normally. If the daemon exits `69`, recovery
+runs through the full wrapper preflights on restart, so expect minutes, not
+seconds. A persistent outage that fails again immediately at startup parks the
+unit after three attempts inside the 10-minute burst window; failures spaced
+at tick cadence (beyond the burst window) re-attempt indefinitely — each
+attempt is a clean unacknowledged-everywhere fail-close, so the publisher
+self-heals without operator action whenever the network returns. The publisher
+liveness watch classifies this state as `exit_69_transport_unavailable` (from
+`ExecMainStatus` only, never journal text, so a stale transport line cannot
+relabel a later genuine `78` park), and an `nrestarts_increased` blocker after
+a transport blip is the expected self-recovery signal. Investigate the network
+event — check the **relay fleet as well as host DNS/network**, since
+all-relays-unreachable classifies identically — but the publisher does not
+need a manual restart. Mixed outcomes (any relay acked, or any relay returned
+an HTTP error) never take this path: they keep the non-restarting exit `78`
+write-safety contract.
+
+Verify the installed unit before an attended start:
 
 ```bash
 systemctl --user show vh-news-aggregator.service \

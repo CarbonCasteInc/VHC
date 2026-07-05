@@ -34,6 +34,26 @@ interface LaneState {
   failedCount: number;
   durations: number[];
   stopped: boolean;
+  stoppedByTransportTotalFailure: boolean;
+}
+
+// Mirrors the RelayRestTransportTotalFailureError brand from @vh/gun-client.
+// Lane-stopped rejection errors must carry the brand of the error that stopped
+// the lane, or the daemon's fail-close exit-code classification sees a plain
+// Error and a transport-total event loses its bounded-restart exit code.
+const TRANSPORT_TOTAL_BRAND = 'relayRestTransportTotalFailure';
+
+function isTransportTotalBrandedError(error: unknown): boolean {
+  return error instanceof Error
+    && (error as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure === true;
+}
+
+function laneStoppedError(writeClass: string, transportTotal: boolean): Error {
+  const error = new Error(`daemon write lane stopped after failure: ${writeClass}`);
+  if (transportTotal) {
+    (error as { relayRestTransportTotalFailure?: boolean })[TRANSPORT_TOTAL_BRAND] = true;
+  }
+  return error;
 }
 
 export interface DaemonWriteLaneOptions {
@@ -83,6 +103,7 @@ export function createDaemonWriteLaneRegistry(
       failedCount: 0,
       durations: [],
       stopped: false,
+      stoppedByTransportTotalFailure: false,
     };
     lanes.set(writeClass, created);
     return created;
@@ -162,9 +183,10 @@ export function createDaemonWriteLaneRegistry(
           });
           if (shouldStopClassOnFailure(writeClass) && !state.stopped) {
             state.stopped = true;
+            state.stoppedByTransportTotalFailure = isTransportTotalBrandedError(error);
             const pending = state.pending.splice(0);
             for (const pendingItem of pending) {
-              pendingItem.reject(new Error(`daemon write lane stopped after failure: ${writeClass}`));
+              pendingItem.reject(laneStoppedError(writeClass, state.stoppedByTransportTotalFailure));
             }
             logger.error('[vh:news-daemon] write lane stopped after failure', {
               write_class: writeClass,
@@ -189,7 +211,7 @@ export function createDaemonWriteLaneRegistry(
       }
       const state = stateFor(writeClass);
       if (state.stopped) {
-        return Promise.reject(new Error(`daemon write lane stopped after failure: ${writeClass}`));
+        return Promise.reject(laneStoppedError(writeClass, state.stoppedByTransportTotalFailure));
       }
       return new Promise<T>((resolve, reject) => {
         state.pending.push({

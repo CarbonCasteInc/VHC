@@ -61,7 +61,13 @@ import {
   isTruthyFlag,
   shouldEnableBundleSynthesisFromEnv,
 } from './bundleSynthesisDaemonConfig';
-import { NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE, isDirectExecution, runFromCli } from './daemonCli';
+import {
+  NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE,
+  NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE,
+  isDirectExecution,
+  resolveFailClosedExitCode,
+  runFromCli,
+} from './daemonCli';
 import {
   createDaemonWriteLaneRegistry,
   type DaemonWriteLaneRegistry,
@@ -1135,7 +1141,13 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       failClosedOnRuntimeError,
       onFailClosedRuntimeError: (error) => {
         console.error('[vh:news-daemon] fail-closed runtime error shutting down process', error);
-        closeExitCode = NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
+        closeExitCode = resolveFailClosedExitCode(error);
+        if (closeExitCode === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE) {
+          console.error(
+            '[vh:news-daemon] fail-close cause is relay transport-total (no relay acknowledged the write); exiting EX_UNAVAILABLE for bounded systemd restart',
+            { exit_code: NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE },
+          );
+        }
         setTimeout(() => {
           void processHandle?.stop().catch((stopError) => {
             console.error('[vh:news-daemon] fail-closed process shutdown failed', stopError);
@@ -1225,6 +1237,8 @@ export const __internal = {
   resolveLeaseHolderId,
   runFromCli,
   NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE,
+  NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE,
+  resolveFailClosedExitCode,
   startNewsAggregatorDaemonFromEnv,
   verifyStoryClusterHealth,
   isTruthyFlag,
