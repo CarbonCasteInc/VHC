@@ -114,12 +114,52 @@ cp infra/systemd/user/vh-public-feed-alert-watch.service ~/.config/systemd/user/
 cp infra/systemd/user/vh-public-feed-alert-watch.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 
-VH_PUBLIC_FEED_ALERT_TEST_FIRE=1 systemctl --user start vh-public-feed-alert-watch.service
-cat ~/.local/state/vhc/public-feed-alert/latest.json
+systemctl --user set-environment VH_PUBLIC_FEED_ALERT_TEST_FIRE=1
+systemctl --user start vh-public-feed-alert-watch.service || true
+systemctl --user unset-environment VH_PUBLIC_FEED_ALERT_TEST_FIRE
 
+node - <<'NODE'
+const fs = require('node:fs');
+const path = `${process.env.HOME}/.local/state/vhc/public-feed-alert/latest.json`;
+const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+console.log(JSON.stringify({
+  status: summary.status,
+  observedStatus: summary.observedStatus,
+  blockers: summary.blockers,
+  delivery: summary.delivery && {
+    status: summary.delivery.status,
+    reason: summary.delivery.reason,
+    channels: summary.delivery.channels?.map((channel) => channel.channel),
+    error: summary.delivery.error,
+  },
+  publisher: summary.publisher && {
+    status: summary.publisher.status,
+    failureClass: summary.publisher.failureClass,
+    activeState: summary.publisher.activeState,
+    subState: summary.publisher.subState,
+    execMainStatus: summary.publisher.execMainStatus,
+  },
+  freshnessStatus: summary.freshness?.status,
+}, null, 2));
+if (summary.delivery?.status !== 'sent') {
+  process.exitCode = 1;
+}
+NODE
+
+systemctl --user reset-failed vh-public-feed-alert-watch.service
+
+# Enable only after the node readback shows delivery.status="sent" and the
+# operator confirms receipt on a device outside the A6 host.
 systemctl --user enable --now vh-public-feed-alert-watch.timer
 systemctl --user status vh-public-feed-alert-watch.timer --no-pager
 ```
+
+If the test-fire readback reports `delivery.status="missing_channel"` with
+`alert_delivery_missing_channel`, the watch is correctly failing closed: leave
+the timer disabled, add a real `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` or
+`VH_PUBLIC_FEED_ALERT_EMAIL_TO` to the host env file, and repeat the test-fire.
+If delivery is `failed`, treat it as a channel outage and do not enable the
+timer until the channel returns a sent receipt and the operator receives it.
 
 Rollback:
 
