@@ -391,6 +391,8 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
       'VH_PUBLIC_ORIGIN_FAIL_IF_MISSING_STATIC=true',
       'VH_PUBLIC_ORIGIN_RELAY_TARGETS=http://127.0.0.1:8777,http://127.0.0.1:8778,http://127.0.0.1:8779',
       "VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC='self' https://venn.carboncaste.io wss://gun-a.carboncaste.io",
+      'VH_PUBLIC_ORIGIN_BUILD_REVISION=old-image-revision',
+      'VH_PUBLIC_ORIGIN_BUILD_CREATED=2026-06-14T00:00:00.000Z',
       'SECRET_VALUE=do-not-print',
     ];
     const containers = [
@@ -444,6 +446,17 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.match(result.stdout, /origin\.healthz\.json/);
     assert.match(result.stdout, /build_revision.*expected/);
     assert.match(result.stdout, /"origin_healthz": "pass"/);
+    const originDeploySection = result.stdout.slice(
+      result.stdout.indexOf('## Origin Deploy'),
+      result.stdout.indexOf('## Rollback'),
+    );
+    assert.match(originDeploySection, /set -euo pipefail/);
+    assert.match(originDeploySection, /origin_revision="\$\(sudo docker inspect vhc-public-origin/);
+    assert.match(originDeploySection, /exit 78/);
+    assert.match(originDeploySection, /while \[\[ "\$\{origin_attempt\}" -le 60 \]\]; do/);
+    assert.match(originDeploySection, /origin \/healthz did not pass after 60s/);
+    const rollbackSection = result.stdout.slice(result.stdout.indexOf('## Rollback'));
+    assert.match(rollbackSection, /set -euo pipefail/);
     assert.match(result.stdout, /len\(entries\) == 0/);
     assert.match(result.stdout, /"entry_count": len\(entries\)/);
     assert.doesNotMatch(result.stdout, /entries != 15/);
@@ -524,6 +537,8 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.ok(originRewriteLine, result.stdout);
     assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_STATIC_DIR=\//);
     assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=\//);
+    assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_BUILD_REVISION=\//);
+    assert.match(originRewriteLine, /\/\^VH_PUBLIC_ORIGIN_BUILD_CREATED=\//);
     const originRewriteMatch = originRewriteLine.match(/^awk '([^']+)' \/tmp\/vhc-public-beta-deploy\/vhc-public-origin\.env\.current > \/tmp\/vhc-public-beta-deploy\/vhc-public-origin\.env$/);
     assert.ok(originRewriteMatch, originRewriteLine);
     const currentEnvPath = path.join(root, 'vhc-public-origin.env.current');
@@ -532,6 +547,8 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.equal(transformed.status, 0, transformed.stderr);
     assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_STATIC_DIR=/m);
     assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/m);
+    assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_BUILD_REVISION=/m);
+    assert.doesNotMatch(transformed.stdout, /^VH_PUBLIC_ORIGIN_BUILD_CREATED=/m);
     assert.match(transformed.stdout, /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=http:\/\/127\.0\.0\.1:3001$/m);
     assert.match(transformed.stdout, /^HOST=127\.0\.0\.1$/m);
     assert.match(transformed.stdout, /^PORT=8080$/m);

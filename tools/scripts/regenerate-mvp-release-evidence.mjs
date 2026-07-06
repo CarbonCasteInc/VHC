@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -66,13 +67,14 @@ export const RELEASE_EVIDENCE_STEPS = Object.freeze([
 
 function usage() {
   return [
-    'Usage: node tools/scripts/regenerate-mvp-release-evidence.mjs [--check] [--allow-dirty]',
+    'Usage: node tools/scripts/regenerate-mvp-release-evidence.mjs [--check] [--allow-dirty] [--commit <sha>]',
     '',
     'Regenerates the reports consumed by pnpm check:mvp-closeout and writes a',
     'secret-safe pipeline report under .tmp/release-evidence-pipeline/latest.',
     '',
     'The report records command identity, exit status, artifact paths/statuses,',
-    'and closeout blockers. It does not store command stdout or stderr.',
+    'artifact sha256 values, and closeout blockers. It does not store command',
+    'stdout or stderr.',
   ].join('\n');
 }
 
@@ -80,12 +82,19 @@ function parseArgs(argv = process.argv.slice(2)) {
   const options = {
     check: false,
     allowDirty: false,
+    commit: null,
   };
-  for (const token of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
     if (token === '--check') {
       options.check = true;
     } else if (token === '--allow-dirty') {
       options.allowDirty = true;
+    } else if (token === '--commit') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--commit requires a value');
+      options.commit = value;
+      index += 1;
     } else if (token === '--help' || token === '-h') {
       options.help = true;
     } else {
@@ -111,6 +120,17 @@ function commandText(command) {
 
 function relativePath(repoRoot, filePath) {
   return path.relative(repoRoot, filePath).split(path.sep).join('/');
+}
+
+function sha256File(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function commitMatches(actual, expected) {
+  if (!expected) return true;
+  const actualText = String(actual ?? '');
+  const expectedText = String(expected ?? '');
+  return actualText.length > 0 && expectedText.length > 0 && actualText.startsWith(expectedText);
 }
 
 function reportStatus(stepId, report) {
@@ -153,6 +173,7 @@ function readReportSummary(repoRoot, step) {
       path: step.reportPath,
       exists: false,
       status: null,
+      sha256: null,
     };
   }
   try {
@@ -160,6 +181,7 @@ function readReportSummary(repoRoot, step) {
     return {
       path: step.reportPath,
       exists: true,
+      sha256: sha256File(fullPath),
       ...reportStatus(step.id, report),
       repo_commit: report.repo?.commit ?? report.repo?.source_commit ?? report.source_commit ?? null,
       generated_at: report.generated_at ?? report.generatedAt ?? null,
@@ -168,6 +190,7 @@ function readReportSummary(repoRoot, step) {
     return {
       path: step.reportPath,
       exists: true,
+      sha256: sha256File(fullPath),
       status: 'unreadable',
       parse_error: error instanceof Error ? error.message : String(error),
     };
@@ -274,10 +297,21 @@ function pipelineBlockers({ initialRepo, finalRepo, steps, closeoutReport, allow
   return blockers;
 }
 
+function artifactManifest(commands) {
+  return commands.map((command) => ({
+    id: command.id,
+    path: command.report_path,
+    exists: command.report?.exists === true,
+    sha256: command.report?.sha256 ?? null,
+    status: command.report?.status ?? null,
+  }));
+}
+
 export async function runReleaseEvidencePipeline(options = {}, deps = {}) {
   const {
     allowDirty = false,
     check = false,
+    commit = null,
     env = process.env,
     repoRoot = defaultRepoRoot,
   } = options;
@@ -288,6 +322,30 @@ export async function runReleaseEvidencePipeline(options = {}, deps = {}) {
 
   const initialRepo = currentRepoStateImpl();
   const runId = buildRunId(initialRepo, nowMs);
+  const expectedCommit = commit;
+
+  if (expectedCommit && !commitMatches(initialRepo.commit, expectedCommit)) {
+    const report = {
+      schema_version: RELEASE_EVIDENCE_PIPELINE_SCHEMA_VERSION,
+      run_id: runId,
+      generated_at: nowIso(),
+      status: 'blocked',
+      check,
+      allow_dirty: allowDirty,
+      expected_commit: expectedCommit,
+      release_commit_verified: false,
+      repo: {
+        before: initialRepo,
+        after: initialRepo,
+      },
+      commands: [],
+      artifacts: [],
+      closeout: null,
+      blockers: [`repo_commit_mismatch:${initialRepo.commit ?? 'missing'}:${expectedCommit}`],
+    };
+    const paths = await writeReport(repoRoot, report);
+    return { report, ...paths };
+  }
 
   if (!allowDirty && initialRepo.dirty !== false) {
     const report = {
@@ -297,12 +355,14 @@ export async function runReleaseEvidencePipeline(options = {}, deps = {}) {
       status: 'blocked',
       check,
       allow_dirty: false,
+      expected_commit: expectedCommit,
       release_commit_verified: false,
       repo: {
         before: initialRepo,
         after: initialRepo,
       },
       commands: [],
+      artifacts: [],
       closeout: null,
       blockers: ['repo_dirty_before_release_evidence_regeneration'],
     };
@@ -318,18 +378,21 @@ export async function runReleaseEvidencePipeline(options = {}, deps = {}) {
   }));
   const closeoutReport = await runMvpCloseoutImpl({ check: false });
   const finalRepo = currentRepoStateImpl();
+  const closeoutReportPath = '.tmp/mvp-closeout/latest/mvp-closeout-report.json';
+  const closeoutReportFullPath = path.join(repoRoot, closeoutReportPath);
   const closeoutStep = {
     id: 'mvp_closeout',
     label: 'MVP consolidated closeout',
     command: 'pnpm check:mvp-closeout',
-    report_path: '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
+    report_path: closeoutReportPath,
     exit_status: closeoutReport?.status === 'pass' ? 0 : 1,
     required_exit_zero: true,
     accepted_boundary_exit: false,
     pipeline_exit_ok: closeoutReport?.status === 'pass',
     report: {
-      path: '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
-      exists: true,
+      path: closeoutReportPath,
+      exists: existsSync(closeoutReportFullPath),
+      sha256: existsSync(closeoutReportFullPath) ? sha256File(closeoutReportFullPath) : null,
       status: closeoutReport?.status ?? null,
       failure_count: Array.isArray(closeoutReport?.failures) ? closeoutReport.failures.length : null,
     },
@@ -349,16 +412,22 @@ export async function runReleaseEvidencePipeline(options = {}, deps = {}) {
     status: blockers.length === 0 ? 'pass' : 'blocked',
     check,
     allow_dirty: allowDirty,
-    release_commit_verified: !allowDirty && initialRepo.dirty === false && finalRepo.dirty === false && initialRepo.commit === finalRepo.commit,
+    expected_commit: expectedCommit,
+    release_commit_verified: !allowDirty
+      && initialRepo.dirty === false
+      && finalRepo.dirty === false
+      && initialRepo.commit === finalRepo.commit
+      && commitMatches(initialRepo.commit, expectedCommit),
     repo: {
       before: initialRepo,
       after: finalRepo,
     },
     commands: allCommands,
+    artifacts: artifactManifest(allCommands),
     closeout: {
       status: closeoutReport?.status ?? null,
       failures: Array.isArray(closeoutReport?.failures) ? closeoutReport.failures : [],
-      report_path: '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
+      report_path: closeoutReportPath,
     },
     blockers,
   };

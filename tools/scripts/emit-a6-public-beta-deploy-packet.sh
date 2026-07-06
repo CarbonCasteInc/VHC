@@ -318,7 +318,7 @@ function envCaptureCommand(name, rewriteAnalysisTarget = false, relay = false) {
   }
   return [
     `sudo docker inspect ${name} --format '{{range .Config.Env}}{{println .}}{{end}}' > ${envPath}.current`,
-    `awk 'BEGIN{done=0} /^VH_PUBLIC_ORIGIN_STATIC_DIR=/{next} /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/{next} /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=/{print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"; done=1; next} {print} END{if(!done) print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"}' ${envPath}.current > ${envPath}`,
+    `awk 'BEGIN{done=0} /^VH_PUBLIC_ORIGIN_STATIC_DIR=/{next} /^VH_PUBLIC_ORIGIN_PEER_CONFIG_PATH=/{next} /^VH_PUBLIC_ORIGIN_BUILD_REVISION=/{next} /^VH_PUBLIC_ORIGIN_BUILD_CREATED=/{next} /^VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=/{print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"; done=1; next} {print} END{if(!done) print "VH_PUBLIC_ORIGIN_ANALYSIS_TARGET=${analysisTarget}"}' ${envPath}.current > ${envPath}`,
     ...relayDefaults,
     `chmod 600 ${envPath}`,
     `rm -f ${envPath}.current`,
@@ -591,12 +591,29 @@ if (includeRecreate) {
   lines.push('Deploy origin only after all relays prove the #638 image and safe persist probes pass.');
   lines.push('');
   lines.push('```bash');
+  lines.push('set -euo pipefail');
   lines.push(`sudo docker rm -f ${originName}`);
   lines.push(runCommandFor(originName, newOriginImage, false));
   lines.push(`sudo docker inspect ${originName} --format '{{.Config.Image}} {{.Image}} {{index .Config.Labels "org.opencontainers.image.revision"}}'`);
-  lines.push(`test "$(sudo docker inspect ${originName} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = ${shellSingleQuote(expectedOriginRevision)}`);
-  lines.push('curl -fsS http://127.0.0.1:8080/healthz > /tmp/vhc-public-beta-deploy/origin.healthz.json');
-  lines.push(`python3 - /tmp/vhc-public-beta-deploy/origin.healthz.json ${shellSingleQuote(expectedOriginRevision)} <<'PY'`);
+  lines.push(`origin_revision="$(sudo docker inspect ${originName} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"`);
+  lines.push(`if [[ "\${origin_revision}" != ${shellSingleQuote(expectedOriginRevision)} ]]; then`);
+  lines.push(`  echo "${originName}: revision label \${origin_revision} did not match expected ${expectedOriginRevision}" >&2`);
+  lines.push('  exit 78');
+  lines.push('fi');
+  lines.push('origin_healthz=/tmp/vhc-public-beta-deploy/origin.healthz.json');
+  lines.push('origin_attempt=1');
+  lines.push('while [[ "${origin_attempt}" -le 60 ]]; do');
+  lines.push('  if curl -fsS http://127.0.0.1:8080/healthz > "${origin_healthz}"; then');
+  lines.push('    break');
+  lines.push('  fi');
+  lines.push('  if [[ "${origin_attempt}" -eq 60 ]]; then');
+  lines.push('    echo "origin /healthz did not pass after 60s" >&2');
+  lines.push('    exit 78');
+  lines.push('  fi');
+  lines.push('  sleep 1');
+  lines.push('  origin_attempt=$((origin_attempt + 1))');
+  lines.push('done');
+  lines.push(`python3 - "\${origin_healthz}" ${shellSingleQuote(expectedOriginRevision)} <<'PY'`);
   lines.push('import json, sys');
   lines.push('path, expected = sys.argv[1], sys.argv[2]');
   lines.push('with open(path, "r", encoding="utf-8") as handle: payload = json.load(handle)');
@@ -612,6 +629,7 @@ if (includeRecreate) {
   lines.push('## Rollback');
   lines.push('');
   lines.push('```bash');
+  lines.push('set -euo pipefail');
   for (const name of relayNames) {
     const container = byName.get(name);
     lines.push(`sudo docker rm -f ${name}`);

@@ -106,7 +106,7 @@ test('release evidence pipeline regenerates closeout inputs and accepts boundary
   let tick = 1000;
   try {
     const result = await runReleaseEvidencePipeline(
-      { repoRoot: root, check: true, env: {} },
+      { repoRoot: root, check: true, env: {}, commit: 'abc1234567890' },
       {
         spawnSyncImpl: fakeSuccessfulSpawn(root, calls),
         currentRepoStateImpl: () => cleanRepoState(),
@@ -119,6 +119,7 @@ test('release evidence pipeline regenerates closeout inputs and accepts boundary
     );
 
     assert.equal(result.report.status, 'pass');
+    assert.equal(result.report.expected_commit, 'abc1234567890');
     assert.equal(result.report.release_commit_verified, true);
     assert.deepEqual(calls, [
       'pnpm check:news-sources:health',
@@ -136,10 +137,57 @@ test('release evidence pipeline regenerates closeout inputs and accepts boundary
     const persisted = readJson(result.latestReportPath);
     assert.equal(persisted.schema_version, 'vh-mvp-release-evidence-pipeline-v1');
     assert.equal(persisted.status, 'pass');
+    assert.equal(persisted.artifacts.length, 6);
+    assert.deepEqual(
+      persisted.artifacts.map((artifact) => artifact.id),
+      [
+        'source_health',
+        'luma_mvp',
+        'mesh',
+        'production_app_canary',
+        'mvp_release_gates',
+        'mvp_closeout',
+      ],
+    );
+    for (const artifact of persisted.artifacts) {
+      assert.equal(artifact.exists, true);
+      assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
+    }
     for (const command of persisted.commands) {
       assert.equal(Object.hasOwn(command, 'stdout'), false);
       assert.equal(Object.hasOwn(command, 'stderr'), false);
+      assert.match(command.report.sha256, /^[a-f0-9]{64}$/);
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('release evidence pipeline refuses a mismatched named release commit before running commands', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-release-evidence-commit-'));
+  const calls = [];
+  try {
+    const result = await runReleaseEvidencePipeline(
+      { repoRoot: root, check: true, env: {}, commit: 'expected-release-sha' },
+      {
+        spawnSyncImpl: (...args) => {
+          calls.push(args);
+          return { status: 0, signal: null };
+        },
+        currentRepoStateImpl: () => cleanRepoState('actual-release-sha'),
+        runMvpCloseoutImpl: fakeCloseout(root, 'pass'),
+        nowMs: () => 1500,
+      },
+    );
+
+    assert.equal(result.report.status, 'blocked');
+    assert.equal(result.report.expected_commit, 'expected-release-sha');
+    assert.deepEqual(result.report.commands, []);
+    assert.deepEqual(result.report.artifacts, []);
+    assert.deepEqual(result.report.blockers, [
+      'repo_commit_mismatch:actual-release-sha:expected-release-sha',
+    ]);
+    assert.deepEqual(calls, []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
