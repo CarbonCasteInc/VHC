@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { redactSecretText } from '../../services/vhc-pager/src/incident-contract.mjs';
+import { incidentKeyForAlert } from '../../services/vhc-pager/src/pager-core.mjs';
 
 function readJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
@@ -38,9 +39,14 @@ export function validatePublicFeedAlertPagerOutput({ alertSummary, pagerReadback
   if (alertSummary?.delivery?.status !== 'sent') blockers.push(`alert_delivery_not_sent:${alertSummary?.delivery?.status ?? 'missing'}`);
   const channels = alertSummary?.delivery?.channels ?? [];
   if (!Array.isArray(channels) || channels.length === 0) blockers.push('alert_delivery_channel_missing');
+  if (!channels.some((entry) => entry?.channel === 'webhook' && entry?.status === 'sent')) blockers.push('alert_webhook_channel_not_sent');
   if (alertSummary?.delivery?.reason !== 'test_fire') blockers.push(`alert_reason_not_test_fire:${alertSummary?.delivery?.reason ?? 'missing'}`);
   if (!timestampAtOrAfter(alertSummary?.generatedAt, startedAt)) blockers.push('alert_summary_not_after_test_start');
   if (!['ok', 'accepted'].includes(pagerReadback?.status)) blockers.push(`pager_readback_not_ok:${pagerReadback?.status ?? 'missing'}`);
+  const expectedIncidentKey = incidentKeyForAlert(alertSummary);
+  if (pagerReadback?.incidentKey !== expectedIncidentKey) {
+    blockers.push(`pager_incident_key_mismatch:${pagerReadback?.incidentKey ?? 'missing'}:${expectedIncidentKey}`);
+  }
   if (!hasPagerIssue(pagerReadback)) blockers.push('pager_issue_missing');
 
   const safeOutput = redactSecretText(JSON.stringify({ alertSummary, pagerReadback }));
@@ -53,6 +59,7 @@ export function validatePublicFeedAlertPagerOutput({ alertSummary, pagerReadback
     status: blockers.length === 0 ? 'pass' : 'fail',
     blockers,
     incidentKey: pagerReadback?.incidentKey ?? null,
+    expectedIncidentKey,
     issueUrl: pagerReadback?.issue?.url ?? pagerReadback?.issueUrl ?? null,
   };
 }

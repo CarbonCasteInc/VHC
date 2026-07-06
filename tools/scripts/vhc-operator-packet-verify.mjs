@@ -39,6 +39,34 @@ function actionIds(packet) {
   return (packet.actions ?? []).map((action) => typeof action === 'string' ? action : action.id);
 }
 
+function trustedPhase({ trustPhase, env = {} }) {
+  const raw = trustPhase ?? env.VH_INCIDENT_TRUST_PHASE;
+  const parsed = Number.parseInt(String(raw ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function validateReviewActionCoverage({ actionIds: ids = [], review }) {
+  const approved = new Set((review?.approvedActionIds ?? []).map(String));
+  const blocked = new Set((review?.blockedActionIds ?? []).map(String));
+  const blockers = [];
+  for (const id of ids) {
+    if (blocked.has(id)) blockers.push(`review_action_blocked:${id}`);
+    if (!approved.has(id)) blockers.push(`review_action_not_approved:${id}`);
+  }
+  return blockers;
+}
+
+function validateReviewReadbackCoverage({ actions = [], review }) {
+  const required = new Set((review?.requiredReadbacks ?? []).map(String));
+  const blockers = [];
+  for (const action of actions) {
+    for (const readback of action?.requiredReadbacks ?? []) {
+      if (!required.has(String(readback))) blockers.push(`review_readback_not_required:${readback}`);
+    }
+  }
+  return blockers;
+}
+
 export function verifyOperatorPacket({
   packetText,
   review,
@@ -76,10 +104,13 @@ export function verifyOperatorPacket({
   }
 
   if (packet) {
-    const selectedTrustPhase = trustPhase ?? packet.trustPhase ?? 1;
+    const ids = actionIds(packet);
+    blockers.push(...validateReviewActionCoverage({ actionIds: ids, review }));
+    blockers.push(...validateReviewReadbackCoverage({ actions: packet.actions ?? [], review }));
+    const selectedTrustPhase = trustedPhase({ trustPhase, env });
     const packetActions = validatePacketActions({ actions: packet.actions ?? [], trustPhase: selectedTrustPhase });
     blockers.push(...packetActions.blockers);
-    for (const id of actionIds(packet)) {
+    for (const id of ids) {
       const exitGuard = validateExitClassGuard({ actionId: id, systemctl });
       blockers.push(...exitGuard.blockers);
     }

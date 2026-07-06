@@ -25,6 +25,12 @@ notification settings, network state, and Apple delivery behavior.
 6. Allow notifications when iOS asks.
 7. Tap Check Pager Health.
 
+For an iPhone-only pager, configure the worker before enrollment with:
+
+```bash
+VH_PAGER_PUSH_ENDPOINT_HOST_ALLOWLIST="web.push.apple.com *.push.apple.com"
+```
+
 The setup is only complete when:
 
 - the app reports `notifications_enabled`;

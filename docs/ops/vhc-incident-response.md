@@ -69,6 +69,9 @@ The pager needs these secret or environment values in its hosting environment:
 | `VH_PAGER_ENROLLMENT_SECRET` | Allows a phone to enroll for push. |
 | `VH_PAGER_VAPID_PUBLIC_KEY` | Public Web Push key served to the PWA. |
 | `VH_PAGER_VAPID_PRIVATE_JWK` | Private Web Push key; never put in repo. |
+| `VH_PAGER_KV` | Durable pager state binding for alerts, incident records, nonces, subscriptions, outbox, and bootstrap latch state. Production must not use volatile memory. |
+| `VH_PAGER_PUSH_ENDPOINT_HOST_ALLOWLIST` | Optional allowlist for push-service endpoint hosts, for example `web.push.apple.com *.push.apple.com`. |
+| `VH_PAGER_MAX_BODY_BYTES` | Optional request body cap for alert and enrollment endpoints; defaults to 128 KiB. |
 | `GITHUB_TOKEN` or equivalent | Issue-write token scoped to this repository. |
 
 On A6, the existing alert watch can sign pager webhooks with:
@@ -84,7 +87,9 @@ After pager deployment, the enablement session should prove:
 
 - the alert watch generated a post-start test-fire summary;
 - the webhook delivery status is `sent`;
+- the sent channel is the pager webhook, not only email;
 - the pager accepted and persisted it;
+- the pager readback incident key matches the alert class/family;
 - a GitHub issue URL or number exists;
 - the operator received the phone/email alert.
 
@@ -128,6 +133,10 @@ automation still needs alerts.
 `VH_PACKET_EXECUTOR_ENABLE_LIVE=1` is present. Even with live execution enabled,
 it refuses packets that fail verification and refuses publisher restarts for
 exit 75 or exit 78.
+
+`VH_INCIDENT_TRUST_PHASE` is trusted local executor configuration. Packet JSON
+may document its intended phase, but the verifier does not use packet-controlled
+`trustPhase` to expand the allowed action set.
 
 The shipped user-systemd files are:
 

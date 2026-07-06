@@ -22,7 +22,21 @@ test('fable adapter uses Anthropic messages shape without exposing API key', asy
     env: { ANTHROPIC_API_KEY: 'anthropic_secret', VH_INCIDENT_FABLE_MODEL: 'fable-test' },
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
-      return { ok: true, status: 200, text: async () => '{"content":[{"text":"pass"}]}' };
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          content: [{
+            text: JSON.stringify({
+              verdict: 'pass',
+              risk: 'medium',
+              approvedActionIds: ['run_heap_analyzer'],
+              blockedActionIds: [],
+              requiredReadbacks: ['heap_analyzer_summary'],
+            }),
+          }],
+        }),
+      };
     },
   });
   assert.equal(result.status, 'pass');
@@ -38,7 +52,17 @@ test('sol adapter shells through codex exec with injected command', () => {
     env: { VH_INCIDENT_CODEX_BIN: 'codex-test' },
     spawnSyncImpl: (cmd, args) => {
       calls.push({ cmd, args });
-      return { status: 0, stdout: '{"verdict":"pass"}', stderr: '' };
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          verdict: 'pass',
+          risk: 'medium',
+          approvedActionIds: ['run_heap_analyzer'],
+          blockedActionIds: [],
+          requiredReadbacks: ['heap_analyzer_summary'],
+        }),
+        stderr: '',
+      };
     },
   });
   assert.equal(result.status, 'pass');
@@ -69,8 +93,39 @@ test('reviewPacket can switch to sol through labels', async () => {
     packet: { actions: [{ id: 'run_heap_analyzer' }] },
     triage: { proposerProvider: 'fable' },
     labels: ['reviewer:sol'],
-    spawnSyncImpl: () => ({ status: 0, stdout: 'ok', stderr: '' }),
+    spawnSyncImpl: () => ({
+      status: 0,
+      stdout: JSON.stringify({
+        verdict: 'pass',
+        risk: 'medium',
+        approvedActionIds: ['run_heap_analyzer'],
+        blockedActionIds: [],
+        requiredReadbacks: ['heap_analyzer_summary'],
+      }),
+      stderr: '',
+    }),
   });
   assert.equal(result.provider, 'sol');
   assert.equal(result.status, 'pass');
+});
+
+test('review adapters fail closed when transport succeeds but verdict fails or is malformed', async () => {
+  const fable = await callFableReview({
+    prompt: 'review packet',
+    env: { ANTHROPIC_API_KEY: 'key' },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ content: [{ text: '{"verdict":"fail","approvedActionIds":[],"blockedActionIds":["x"],"requiredReadbacks":[]}' }] }),
+    }),
+  });
+  assert.equal(fable.status, 'fail');
+  assert.match(fable.reason, /review_verdict_fail/);
+
+  const sol = callSolReview({
+    prompt: 'review packet',
+    spawnSyncImpl: () => ({ status: 0, stdout: 'ok', stderr: '' }),
+  });
+  assert.equal(sol.status, 'fail');
+  assert.match(sol.reason, /review_json_invalid/);
 });

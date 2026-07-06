@@ -21,6 +21,24 @@ function timedFetch(fetchImpl, url, timeoutMs) {
   return fetchImpl(url, { signal: controller.signal }).finally(() => clearTimeout(timeout));
 }
 
+function validatePagerHealth(health) {
+  const blockers = [];
+  if (!health || typeof health !== 'object') {
+    return ['pager_health_shape_invalid'];
+  }
+  if (health.schemaVersion !== 'vhc-pager-health-v1') blockers.push('pager_health_schema_invalid');
+  if (health.status !== 'ok') blockers.push(`pager_health_status:${health.status ?? 'missing'}`);
+  if (!Number.isInteger(health.activeSubscriptions) || health.activeSubscriptions <= 0) {
+    blockers.push(`pager_active_subscriptions_invalid:${health.activeSubscriptions ?? 'missing'}`);
+  }
+  if (!health.heartbeat || typeof health.heartbeat !== 'object') {
+    blockers.push('pager_heartbeat_missing:shape_missing');
+  } else if (health.heartbeat.missing !== false) {
+    blockers.push(`pager_heartbeat_missing:${health.heartbeat.reason ?? 'unknown'}`);
+  }
+  return blockers;
+}
+
 export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = null, fetchImpl = fetch }) {
   const blockers = [];
   let health = null;
@@ -39,9 +57,7 @@ export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = 
       }
     }
   }
-  if (health?.status && health.status !== 'ok') blockers.push(`pager_health_status:${health.status}`);
-  if (health?.activeSubscriptions === 0) blockers.push('pager_zero_active_subscriptions');
-  if (health?.heartbeat?.missing) blockers.push(`pager_heartbeat_missing:${health.heartbeat.reason ?? 'unknown'}`);
+  blockers.push(...validatePagerHealth(health));
   return {
     schemaVersion: 'vhc-pager-deadman-v1',
     status: blockers.length === 0 ? 'pass' : 'fail',

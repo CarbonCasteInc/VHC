@@ -94,6 +94,10 @@ includes:
 The signature is an Ed25519 signature over the stable JSON payload emitted by
 `canonicalReviewPayload` in `services/vhc-pager/src/incident-contract.mjs`.
 The executor rejects expired, failed, missing, or invalid review signatures.
+The executor also requires every packet action to appear in signed
+`approvedActionIds`, no packet action to appear in signed `blockedActionIds`,
+and every packet-declared required readback to appear in signed
+`requiredReadbacks`.
 
 `fable` and `sol` are switchable reviewer lanes. Reviewer selection defaults to
 the provider that did not propose the packet unless an explicit
@@ -122,6 +126,25 @@ Always forbidden:
 
 For `restart_publisher_exit69_only`, the executor refuses if local readback shows
 `ExecMainStatus=78` or `ExecMainStatus=75`. Those classes remain operator-owned.
+
+The active phase is trusted executor configuration (`VH_INCIDENT_TRUST_PHASE` or
+`--trust-phase`). Packet-controlled `trustPhase` is never authoritative.
+
+## Pager State And Health
+
+Pager production state is durable. Alerts, incident records, nonce replay state,
+subscriptions, outbox events, acknowledgements, and unsigned-bootstrap latch
+state must use the configured durable store binding. A worker without durable
+state fails closed instead of accepting alerts into volatile memory.
+
+Alert and enrollment endpoints enforce an application-level request body cap
+before parsing or hashing request bodies. Push subscription endpoints must be
+HTTPS, must not contain URL credentials, must not target localhost/private
+network hosts, and may be restricted by an operator host allowlist.
+
+The pager dead-man fails closed unless `/api/health` returns
+`schemaVersion: vhc-pager-health-v1`, `status: ok`, a positive active
+subscription count, and a present heartbeat object with `missing === false`.
 
 ## Pager Honesty
 

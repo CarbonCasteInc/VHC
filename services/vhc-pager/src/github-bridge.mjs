@@ -1,5 +1,9 @@
 import { redactSecretText } from './incident-contract.mjs';
 
+const BRIDGE_SENTINEL = '<!-- vhc-incident:v1 -->';
+const BRIDGE_OWNED_LABEL = 'vhc-pager-bridge';
+const BRIDGE_REQUIRED_LABELS = Object.freeze(['incident', 'a6', 'public-feed', 'needs-codex-triage', BRIDGE_OWNED_LABEL]);
+
 function githubHeaders(token) {
   return {
     accept: 'application/vnd.github+json',
@@ -10,7 +14,7 @@ function githubHeaders(token) {
 
 function labelSetForAlert(alert) {
   const severity = alert.severity === 'critical' ? 'severity:critical' : 'severity:warning';
-  return ['incident', 'a6', 'public-feed', severity, 'needs-codex-triage', 'reviewer:fable'];
+  return [...BRIDGE_REQUIRED_LABELS, severity, 'reviewer:fable'];
 }
 
 export function incidentIssueTitle({ incidentKey, alert }) {
@@ -19,7 +23,7 @@ export function incidentIssueTitle({ incidentKey, alert }) {
 
 export function incidentIssueBody({ incidentKey, alert, sourceFingerprint }) {
   return [
-    '<!-- vhc-incident:v1 -->',
+    BRIDGE_SENTINEL,
     `Incident key: \`${incidentKey}\``,
     `Schema: \`vhc-incident-v1\``,
     '',
@@ -59,6 +63,17 @@ export function incidentIssueBody({ incidentKey, alert, sourceFingerprint }) {
     '- Execution packet hash: `none`',
     '- Readback state: `not_started`',
   ].map(redactSecretText).join('\n');
+}
+
+export function isBridgeOwnedIncidentIssue(issue, incidentKey) {
+  const body = String(issue?.body ?? '');
+  const labels = new Set((issue?.labels ?? []).map((label) => typeof label === 'string' ? label : label.name).filter(Boolean));
+  const hasBridgeLabels = BRIDGE_REQUIRED_LABELS.every((label) => labels.has(label))
+    && [...labels].some((label) => label === 'severity:critical' || label === 'severity:warning');
+  return body.includes(BRIDGE_SENTINEL)
+    && body.includes(`Incident key: \`${incidentKey}\``)
+    && body.includes('Schema: `vhc-incident-v1`')
+    && hasBridgeLabels;
 }
 
 export function recoveryComment({ incidentKey, alert }) {
@@ -113,9 +128,9 @@ export class GitHubIncidentBridge {
   }
 
   async findOpenIncidentIssue(incidentKey) {
-    const query = encodeURIComponent(`repo:${this.owner}/${this.repo} is:issue is:open label:incident "${incidentKey}"`);
-    const result = await this.request(`/issues?state=open&labels=incident&per_page=50`);
-    return result.find((issue) => String(issue.body ?? '').includes(`Incident key: \`${incidentKey}\``)) ?? null;
+    const labels = encodeURIComponent(BRIDGE_REQUIRED_LABELS.join(','));
+    const result = await this.request(`/issues?state=open&labels=${labels}&per_page=50`);
+    return result.find((issue) => isBridgeOwnedIncidentIssue(issue, incidentKey)) ?? null;
   }
 
   async createIssue({ incidentKey, alert }) {

@@ -10,8 +10,7 @@ import {
   parseVhcCommand,
   redactSecretText,
 } from '../../services/vhc-pager/src/incident-contract.mjs';
-
-const SAFE_COMMENT_LABELS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+import { isBridgeOwnedIncidentIssue } from '../../services/vhc-pager/src/github-bridge.mjs';
 
 function readJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
@@ -47,14 +46,19 @@ export function incidentKeyFromIssue(issue) {
 export function selectIncidentIssues(issues) {
   return issues.filter((issue) => {
     const labels = new Set((issue.labels ?? []).map((label) => typeof label === 'string' ? label : label.name));
-    return labels.has('incident') && labels.has('a6') && labels.has('needs-codex-triage') && issue.state !== 'closed';
+    const key = incidentKeyFromIssue(issue);
+    return labels.has('incident')
+      && labels.has('a6')
+      && labels.has('needs-codex-triage')
+      && issue.state !== 'closed'
+      && key
+      && isBridgeOwnedIncidentIssue(issue, key);
   });
 }
 
 export function safeIssueContext({ issue, allowlist }) {
   const comments = (issue.comments ?? []).filter((comment) => {
-    if (isAllowlistedLogin(comment.user?.login, allowlist) && isUneditedComment(comment)) return true;
-    return SAFE_COMMENT_LABELS.has(comment.author_association);
+    return isAllowlistedLogin(comment.user?.login, allowlist) && isUneditedComment(comment);
   });
   const commands = comments
     .map((comment) => ({ commentId: comment.id, author: comment.user?.login ?? null, command: parseVhcCommand(comment.body) }))

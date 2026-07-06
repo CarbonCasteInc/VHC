@@ -1,4 +1,5 @@
 import {
+  createKvPagerStore,
   createMemoryPagerStore,
   handleA6Alert,
   handleAck,
@@ -7,6 +8,7 @@ import {
 } from './pager-core.mjs';
 
 const memoryStore = createMemoryPagerStore();
+const encoder = new TextEncoder();
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body, null, 2), {
@@ -19,8 +21,40 @@ function json(body, status = 200, headers = {}) {
   });
 }
 
-async function requestText(request) {
-  return await request.text();
+function maxBodyBytes(env) {
+  const parsed = Number.parseInt(String(env.VH_PAGER_MAX_BODY_BYTES ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 128 * 1024;
+}
+
+async function requestText(request, env) {
+  const limit = maxBodyBytes(env);
+  const contentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
+  if (Number.isFinite(contentLength) && contentLength > limit) throw new Error('request_body_too_large');
+  if (!request.body?.getReader) {
+    const text = await request.text();
+    if (encoder.encode(text).byteLength > limit) throw new Error('request_body_too_large');
+    return text;
+  }
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel();
+      throw new Error('request_body_too_large');
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
 }
 
 function authToken(headers) {
@@ -33,7 +67,7 @@ async function readIncident({ incidentKey, request, env, store }) {
   if (authToken(request.headers) !== env.VH_PAGER_DEVICE_TOKEN) {
     return json({ status: 'rejected', reason: 'device_token_required' }, 401);
   }
-  const incident = store.state?.incidents?.get?.(incidentKey);
+  const incident = await store.getIncident(incidentKey);
   if (!incident) return json({ status: 'missing', reason: 'incident_not_found' }, 404);
   return json({
     status: 'ok',
@@ -51,7 +85,24 @@ async function readIncident({ incidentKey, request, env, store }) {
 
 function selectedStore(env) {
   if (env.__TEST_STORE) return env.__TEST_STORE;
-  return memoryStore;
+  if (env.VH_PAGER_KV) return createKvPagerStore(env.VH_PAGER_KV);
+  if (env.VH_PAGER_ALLOW_VOLATILE_STORE === '1' || env.VH_PAGER_ALLOW_VOLATILE_STORE === 'true') return memoryStore;
+  return null;
+}
+
+function durableStoreRequired() {
+  return json({ status: 'rejected', reason: 'durable_store_required' }, 503);
+}
+
+async function limitedBodyOrResponse(request, env) {
+  try {
+    return { bodyText: await requestText(request, env) };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'request_body_too_large') {
+      return { response: json({ status: 'rejected', reason: 'request_body_too_large' }, 413) };
+    }
+    throw error;
+  }
 }
 
 export async function handleRequest(request, env = {}, ctx = {}) {
@@ -59,6 +110,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
   const store = selectedStore(env);
 
   if (request.method === 'GET' && url.pathname === '/api/health') {
+    if (!store) return durableStoreRequired();
     const heartbeat = missingHeartbeatIncident({
       latestHeartbeatAt: env.VH_PAGER_LAST_HEARTBEAT_AT,
       heartbeatMs: Number.parseInt(env.VH_PAGER_HEARTBEAT_MS ?? '900000', 10),
@@ -67,10 +119,8 @@ export async function handleRequest(request, env = {}, ctx = {}) {
     return json({
       status: heartbeat.missing ? 'degraded' : 'ok',
       schemaVersion: 'vhc-pager-health-v1',
-      activeSubscriptions: store.state?.subscriptions
-        ? [...store.state.subscriptions.values()].filter((entry) => entry.status === 'active').length
-        : null,
-      outboxDepth: store.state?.outbox?.length ?? null,
+      activeSubscriptions: await store.activeSubscriptionCount(),
+      outboxDepth: await store.outboxDepth(),
       heartbeat,
     }, heartbeat.missing ? 503 : 200);
   }
@@ -83,8 +133,11 @@ export async function handleRequest(request, env = {}, ctx = {}) {
   }
 
   if (request.method === 'POST' && url.pathname === '/api/a6-alert') {
+    if (!store) return durableStoreRequired();
+    const body = await limitedBodyOrResponse(request, env);
+    if (body.response) return body.response;
     const result = await handleA6Alert({
-      bodyText: await requestText(request),
+      bodyText: body.bodyText,
       headers: request.headers,
       env,
       store,
@@ -94,8 +147,11 @@ export async function handleRequest(request, env = {}, ctx = {}) {
   }
 
   if (request.method === 'POST' && url.pathname === '/api/push-subscribe') {
+    if (!store) return durableStoreRequired();
+    const body = await limitedBodyOrResponse(request, env);
+    if (body.response) return body.response;
     const result = await handlePushSubscribe({
-      bodyText: await requestText(request),
+      bodyText: body.bodyText,
       headers: request.headers,
       env,
       store,
@@ -105,6 +161,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
 
   const ackMatch = url.pathname.match(/^\/api\/ack\/([^/]+)$/);
   if (request.method === 'POST' && ackMatch) {
+    if (!store) return durableStoreRequired();
     const result = await handleAck({
       incidentKey: decodeURIComponent(ackMatch[1]),
       headers: request.headers,
@@ -117,6 +174,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
 
   const incidentMatch = url.pathname.match(/^\/api\/incidents\/([^/]+)$/);
   if (request.method === 'GET' && incidentMatch) {
+    if (!store) return durableStoreRequired();
     return readIncident({
       incidentKey: decodeURIComponent(incidentMatch[1]),
       request,
@@ -139,7 +197,7 @@ export default {
   fetch: handleRequest,
   async scheduled(_event, env = {}, ctx = {}) {
     const store = selectedStore(env);
-    if (!store.enqueueOutbox) return;
+    if (!store?.enqueueOutbox) return;
     ctx.waitUntil?.(store.enqueueOutbox({
       type: 'pager_deadman_check',
       createdAt: new Date().toISOString(),

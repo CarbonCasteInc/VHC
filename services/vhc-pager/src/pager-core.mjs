@@ -18,6 +18,18 @@ function safeJsonParse(text) {
   }
 }
 
+async function kvGetJson(kv, key, fallback = null) {
+  if (typeof kv.get !== 'function') return fallback;
+  const text = await kv.get(key);
+  if (!text) return fallback;
+  const parsed = safeJsonParse(text);
+  return parsed.ok ? parsed.value : fallback;
+}
+
+async function kvPutJson(kv, key, value) {
+  await kv.put(key, JSON.stringify(value));
+}
+
 function headerValue(headers, name) {
   const lower = name.toLowerCase();
   if (!headers) return null;
@@ -49,6 +61,59 @@ function normalizeAlertClassFamily(alertClass) {
   if (text.includes('relay_liveness')) return 'relay_liveness';
   if (text.includes('watch_closure')) return 'watch_closure';
   return text.replace(/[^a-zA-Z0-9_-]+/g, '_').toLowerCase();
+}
+
+function allowedPushEndpointHosts(value) {
+  return String(value ?? '')
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function hostMatchesPattern(hostname, pattern) {
+  if (!pattern) return false;
+  if (pattern.startsWith('*.')) {
+    const suffix = pattern.slice(1);
+    return hostname.endsWith(suffix) && hostname.length > suffix.length;
+  }
+  return hostname === pattern;
+}
+
+function isPrivateEndpointHost(hostname) {
+  const host = String(hostname ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return true;
+  const ipv4 = host.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  if (!ipv4) return false;
+  const octets = host.split('.').map((entry) => Number.parseInt(entry, 10));
+  if (octets.some((entry) => !Number.isInteger(entry) || entry < 0 || entry > 255)) return true;
+  const [a, b] = octets;
+  return a === 0
+    || a === 10
+    || a === 127
+    || (a === 169 && b === 254)
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168);
+}
+
+export function validatePushSubscription({ subscription, allowedHosts = '' }) {
+  const endpoint = String(subscription?.endpoint ?? '');
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return { ok: false, reason: 'push_endpoint_url_invalid' };
+  }
+  if (url.protocol !== 'https:') return { ok: false, reason: 'push_endpoint_https_required' };
+  if (url.username || url.password) return { ok: false, reason: 'push_endpoint_credentials_forbidden' };
+  if (isPrivateEndpointHost(url.hostname)) return { ok: false, reason: 'push_endpoint_private_host_forbidden' };
+  const hostAllowlist = allowedPushEndpointHosts(allowedHosts);
+  if (hostAllowlist.length > 0 && !hostAllowlist.some((pattern) => hostMatchesPattern(url.hostname.toLowerCase(), pattern))) {
+    return { ok: false, reason: 'push_endpoint_host_not_allowed' };
+  }
+  return { ok: true, endpoint };
 }
 
 function alertClassFromPayload(payload) {
@@ -226,6 +291,9 @@ export function createMemoryPagerStore() {
       incident.ackedByDeviceId = deviceId;
       return incident;
     },
+    async getIncident(incidentKey) {
+      return state.incidents.get(incidentKey) ?? null;
+    },
     async saveSubscription(subscription) {
       state.subscriptions.set(subscription.id, { ...subscription, status: 'active' });
     },
@@ -238,6 +306,89 @@ export function createMemoryPagerStore() {
     },
     async activeSubscriptionCount() {
       return [...state.subscriptions.values()].filter((entry) => entry.status === 'active').length;
+    },
+    async outboxDepth() {
+      return state.outbox.length;
+    },
+  };
+}
+
+export function createKvPagerStore(kv) {
+  return {
+    async hasNonce(nonce, nowMs = Date.now()) {
+      const record = await kvGetJson(kv, `nonce:${nonce}`);
+      return Number.isFinite(record?.expiresAt) && record.expiresAt > nowMs;
+    },
+    async rememberNonce(nonce, expiresAt) {
+      await kvPutJson(kv, `nonce:${nonce}`, { expiresAt });
+    },
+    async unsignedBootstrapDisabled() {
+      return (await kv.get('flag:unsigned-bootstrap-disabled')) === 'true';
+    },
+    async setUnsignedBootstrapDisabled(value) {
+      await kv.put('flag:unsigned-bootstrap-disabled', value ? 'true' : 'false');
+    },
+    async persistAlert(record) {
+      await kvPutJson(kv, `alert:${record.requestHash}`, record);
+      const incidentKey = `incident:${record.incidentKey}`;
+      const existing = await kvGetJson(kv, incidentKey, {
+        incidentKey: record.incidentKey,
+        firstSeenAt: record.receivedAt,
+        latestSeenAt: record.receivedAt,
+        status: 'open',
+        severity: 'info',
+        fingerprintHistory: [],
+        ackedAt: null,
+      });
+      const incident = {
+        ...existing,
+        latestSeenAt: record.receivedAt,
+        severity: record.alert.severity ?? existing.severity,
+        fingerprintHistory: record.alert.fingerprint && !existing.fingerprintHistory?.includes(record.alert.fingerprint)
+          ? [...(existing.fingerprintHistory ?? []), record.alert.fingerprint]
+          : (existing.fingerprintHistory ?? []),
+        alert: record.alert,
+      };
+      await kvPutJson(kv, incidentKey, incident);
+      return incident;
+    },
+    async enqueueOutbox(event) {
+      const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+      await kvPutJson(kv, `outbox:${Date.now()}:${id}`, event);
+    },
+    async ackIncident(incidentKey, deviceId, nowIso) {
+      const key = `incident:${incidentKey}`;
+      const incident = await kvGetJson(kv, key);
+      if (!incident) return null;
+      const updated = { ...incident, ackedAt: nowIso, ackedByDeviceId: deviceId };
+      await kvPutJson(kv, key, updated);
+      return updated;
+    },
+    async getIncident(incidentKey) {
+      return await kvGetJson(kv, `incident:${incidentKey}`);
+    },
+    async saveSubscription(subscription) {
+      await kvPutJson(kv, `subscription:${subscription.id}`, { ...subscription, status: 'active' });
+    },
+    async deleteSubscription(id) {
+      await kv.delete(`subscription:${id}`);
+    },
+    async markSubscriptionDead(id) {
+      const current = await kvGetJson(kv, `subscription:${id}`);
+      if (current) await kvPutJson(kv, `subscription:${id}`, { ...current, status: 'dead' });
+    },
+    async activeSubscriptionCount() {
+      const list = await kv.list({ prefix: 'subscription:' });
+      let count = 0;
+      for (const key of list.keys ?? []) {
+        const current = await kvGetJson(kv, key.name);
+        if (current?.status === 'active') count += 1;
+      }
+      return count;
+    },
+    async outboxDepth() {
+      const list = await kv.list({ prefix: 'outbox:' });
+      return list.keys?.length ?? 0;
     },
   };
 }
@@ -296,8 +447,13 @@ export async function handlePushSubscribe({ bodyText, headers = {}, env = {}, st
   }
   const parsed = safeJsonParse(bodyText);
   if (!parsed.ok || !parsed.value?.endpoint) return { status: 400, body: { status: 'rejected', reason: 'invalid_subscription' } };
-  const id = await sha256Hex(parsed.value.endpoint);
-  await store.saveSubscription({ id, endpoint: parsed.value.endpoint, keys: parsed.value.keys ?? {} });
+  const validation = validatePushSubscription({
+    subscription: parsed.value,
+    allowedHosts: env.VH_PAGER_PUSH_ENDPOINT_HOST_ALLOWLIST,
+  });
+  if (!validation.ok) return { status: 400, body: { status: 'rejected', reason: validation.reason } };
+  const id = await sha256Hex(validation.endpoint);
+  await store.saveSubscription({ id, endpoint: validation.endpoint, keys: parsed.value.keys ?? {} });
   return { status: 201, body: { status: 'subscribed', id } };
 }
 

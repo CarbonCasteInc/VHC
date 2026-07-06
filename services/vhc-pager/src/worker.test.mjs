@@ -82,3 +82,27 @@ test('worker requires device token for incident readback', async () => {
   const body = await authenticated.json();
   assert.equal(body.incident.alert.alertClass, 'exit_69_transport_unavailable');
 });
+
+test('worker fails closed without durable store outside tests', async () => {
+  const health = await handleRequest(new Request('https://pager.example.invalid/api/health'), {});
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).reason, 'durable_store_required');
+});
+
+test('worker rejects oversized alert body before core handling', async () => {
+  const store = createMemoryPagerStore();
+  const response = await handleRequest(new Request('https://pager.example.invalid/api/a6-alert', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'content-length': '20',
+    },
+    body: '{"too":"large"}',
+  }), {
+    __TEST_STORE: store,
+    VH_PAGER_MAX_BODY_BYTES: '4',
+    VH_PAGER_A6_WEBHOOK_SECRET: 'secret',
+  });
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).reason, 'request_body_too_large');
+});

@@ -58,6 +58,32 @@ export function buildReviewerPrompt({ packet, triage, provider }) {
   ].join('\n');
 }
 
+function parseReviewerJson(text) {
+  try {
+    const parsed = JSON.parse(String(text ?? '').trim());
+    if (!['pass', 'fail'].includes(parsed.verdict)) return { ok: false, reason: 'review_verdict_missing' };
+    if (!Array.isArray(parsed.approvedActionIds)) return { ok: false, reason: 'approved_actions_missing' };
+    if (!Array.isArray(parsed.blockedActionIds)) return { ok: false, reason: 'blocked_actions_missing' };
+    if (!Array.isArray(parsed.requiredReadbacks)) return { ok: false, reason: 'required_readbacks_missing' };
+    if (parsed.verdict !== 'pass') return { ok: false, reason: `review_verdict_${parsed.verdict}`, review: parsed };
+    return { ok: true, review: parsed };
+  } catch {
+    return { ok: false, reason: 'review_json_invalid' };
+  }
+}
+
+function anthropicReviewText(responseText) {
+  try {
+    const body = JSON.parse(responseText);
+    return (body.content ?? [])
+      .map((entry) => entry?.text ?? '')
+      .join('\n')
+      .trim();
+  } catch {
+    return '';
+  }
+}
+
 export async function callFableReview({ prompt, env = process.env, fetchImpl = fetch }) {
   const apiKey = env.ANTHROPIC_API_KEY;
   if (!apiKey) return { status: 'skipped', reason: 'anthropic_api_key_missing' };
@@ -77,7 +103,14 @@ export async function callFableReview({ prompt, env = process.env, fetchImpl = f
   });
   const text = await response.text();
   if (!response.ok) return { status: 'fail', reason: `anthropic_http_${response.status}`, body: redactSecretText(text) };
-  return { status: 'pass', provider: 'fable', body: redactSecretText(text) };
+  const parsed = parseReviewerJson(anthropicReviewText(text));
+  return {
+    status: parsed.ok ? 'pass' : 'fail',
+    provider: 'fable',
+    reason: parsed.ok ? 'review_verdict_pass' : parsed.reason,
+    review: parsed.review ?? null,
+    body: redactSecretText(text),
+  };
 }
 
 export function callSolReview({ prompt, env = process.env, spawnSyncImpl = spawnSync }) {
@@ -87,9 +120,11 @@ export function callSolReview({ prompt, env = process.env, spawnSyncImpl = spawn
     maxBuffer: 10 * 1024 * 1024,
   });
   return {
-    status: result.status === 0 ? 'pass' : 'fail',
+    status: result.status === 0 && parseReviewerJson(result.stdout).ok ? 'pass' : 'fail',
     provider: 'sol',
     exitStatus: result.status,
+    reason: result.status === 0 ? parseReviewerJson(result.stdout).reason ?? 'review_verdict_pass' : 'codex_exit_failed',
+    review: parseReviewerJson(result.stdout).review ?? null,
     body: redactSecretText(result.stdout ?? ''),
     stderr: redactSecretText(result.stderr ?? ''),
   };

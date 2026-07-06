@@ -93,14 +93,17 @@ export function buildExecutorPlan({ packet, verification, execute = false, env =
 export function runExecutorPlan({ plan, spawnSyncImpl = spawnSync }) {
   if (plan.status !== 'ready') return { status: 'blocked', results: [], blockers: plan.blockers };
   if (plan.mode !== 'execute') return { status: 'dry_run', results: plan.commands.map((command) => ({ id: command.id, skipped: true })) };
-  const results = plan.commands.map((command) => {
+  const results = [];
+  for (const command of plan.commands) {
     const result = spawnSyncImpl(command.cmd, command.args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
-    return {
+    const entry = {
       id: command.id,
       exitStatus: result.status,
       status: result.status === 0 ? 'pass' : 'fail',
     };
-  });
+    results.push(entry);
+    if (entry.status !== 'pass') break;
+  }
   return {
     status: results.every((entry) => entry.status === 'pass') ? 'pass' : 'fail',
     results,

@@ -39,3 +39,26 @@ test('executor does not render commands when verification failed', () => {
   assert.equal(plan.status, 'blocked');
   assert.deepEqual(plan.commands, []);
 });
+
+test('live executor stops after first failed command', () => {
+  const plan = buildExecutorPlan({
+    packet: {
+      packetId: 'pkt-4',
+      actions: [{ id: 'enable_alert_watch_timers' }, { id: 'restart_publisher_exit69_only' }],
+    },
+    verification: { status: 'pass', blockers: [] },
+    execute: true,
+    env: { VH_PACKET_EXECUTOR_ENABLE_LIVE: '1' },
+  });
+  const calls = [];
+  const execution = runExecutorPlan({
+    plan,
+    spawnSyncImpl: (cmd, args) => {
+      calls.push([cmd, args]);
+      return { status: 1 };
+    },
+  });
+  assert.equal(execution.status, 'fail');
+  assert.equal(calls.length, 1);
+  assert.equal(execution.results.length, 1);
+});
