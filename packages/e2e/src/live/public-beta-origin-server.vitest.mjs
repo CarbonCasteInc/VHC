@@ -83,6 +83,40 @@ describe('public beta origin server', () => {
     expect(await peerConfig.json()).toEqual({ payload: { peers: [] } });
   });
 
+  it('exposes the public origin build stamp on healthz', async () => {
+    const previousRevision = process.env.VH_PUBLIC_ORIGIN_BUILD_REVISION;
+    const previousCreated = process.env.VH_PUBLIC_ORIGIN_BUILD_CREATED;
+    process.env.VH_PUBLIC_ORIGIN_BUILD_REVISION = '0123456789abcdef';
+    process.env.VH_PUBLIC_ORIGIN_BUILD_CREATED = '2026-07-05T00:00:00Z';
+    try {
+      const staticDir = await makeStaticRoot();
+      const origin = await startOrigin({
+        staticDir,
+        peerConfigPath: join(staticDir, 'mesh-peer-config.json'),
+      });
+
+      const health = await fetch(`${origin}/healthz`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toMatchObject({
+        ok: true,
+        service: 'vh-public-beta-origin',
+        build_revision: '0123456789abcdef',
+        build_created: '2026-07-05T00:00:00Z',
+      });
+    } finally {
+      if (previousRevision === undefined) {
+        delete process.env.VH_PUBLIC_ORIGIN_BUILD_REVISION;
+      } else {
+        process.env.VH_PUBLIC_ORIGIN_BUILD_REVISION = previousRevision;
+      }
+      if (previousCreated === undefined) {
+        delete process.env.VH_PUBLIC_ORIGIN_BUILD_CREATED;
+      } else {
+        process.env.VH_PUBLIC_ORIGIN_BUILD_CREATED = previousCreated;
+      }
+    }
+  });
+
   it('reverse-proxies analysis and article-text routes without exposing a wildcard CSP', async () => {
     const staticDir = await makeStaticRoot();
     const upstream = createServer((req, res) => {

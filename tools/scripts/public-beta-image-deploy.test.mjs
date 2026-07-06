@@ -408,9 +408,12 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
       'vhc-public-beta-origin:new',
       '--new-relay-image',
       'vhc-public-beta-relay:new',
+      '--expected-origin-revision',
+      '0123456789abcdef',
       '--include-recreate-commands',
     ]);
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /expected origin revision: `0123456789abcdef`/);
     assert.match(result.stdout, /GUN_FILE destination: `\/data`/);
     assert.match(result.stdout, /\/home\/humble\/\.local\/share\/vhc\/vhc-relay-a\/data:\/data:rw/);
     assert.match(result.stdout, /verify_rolling_relay\(\) \{/);
@@ -437,6 +440,10 @@ test('deploy packet preserves relay bind mounts and rewrites origin env safely',
     assert.ok(verifyA < removeB && removeB < verifyB, relayDeploySection);
     assert.ok(verifyB < removeC && removeC < verifyC, relayDeploySection);
     assert.match(result.stdout, /grep -E 'vhc\\-public\\-origin\|vhc\\-relay\\-a\|vhc\\-relay\\-b\|vhc\\-relay\\-c'/);
+    assert.match(result.stdout, /org\.opencontainers\.image\.revision/);
+    assert.match(result.stdout, /origin\.healthz\.json/);
+    assert.match(result.stdout, /build_revision.*expected/);
+    assert.match(result.stdout, /"origin_healthz": "pass"/);
     assert.match(result.stdout, /len\(entries\) == 0/);
     assert.match(result.stdout, /"entry_count": len\(entries\)/);
     assert.doesNotMatch(result.stdout, /entries != 15/);
@@ -565,6 +572,8 @@ test('deploy packet supports host-network relays using GUN_PORT verifier URLs', 
       'vhc-public-beta-origin:new',
       '--new-relay-image',
       'vhc-public-beta-relay:new',
+      '--expected-origin-revision',
+      '0123456789abcdef',
       '--include-recreate-commands',
     ]);
     assert.equal(result.status, 0, result.stderr);
@@ -574,6 +583,34 @@ test('deploy packet supports host-network relays using GUN_PORT verifier URLs', 
     assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-a' 'http:\/\/127\.0\.0\.1:8765' '\/data' '500000000' '700000000'/);
     assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-b' 'http:\/\/127\.0\.0\.1:8766' '\/data' '520000000' '720000000'/);
     assert.match(result.stdout, /verify_rolling_relay 'vhc-relay-c' 'http:\/\/127\.0\.0\.1:8767' '\/data' '540000000' '740000000'/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('deploy packet requires expected origin revision for recreate commands', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-packet-revision-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    const containers = [
+      makeContainer('vhc-public-origin', 'vhc-public-beta-origin:old', ['NODE_ENV=production'], [], {}),
+      makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data'),
+      makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
+      makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
+    ];
+    writeFileSync(inspectPath, JSON.stringify(containers), 'utf8');
+    const result = run('bash', [
+      PACKET_SCRIPT,
+      '--inspect-json',
+      inspectPath,
+      '--new-origin-image',
+      'vhc-public-beta-origin:new',
+      '--new-relay-image',
+      'vhc-public-beta-relay:new',
+      '--include-recreate-commands',
+    ]);
+    assert.equal(result.status, 64);
+    assert.match(result.stderr, /--expected-origin-revision is required with --include-recreate-commands/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

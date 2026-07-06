@@ -13,7 +13,7 @@ const repoRoot = path.resolve(__dirname, '../../..');
 const latestDir = path.join(repoRoot, '.tmp/mvp-closeout/latest');
 const latestReportPath = path.join(latestDir, 'mvp-closeout-report.json');
 
-const REQUIRED_REPORTS = Object.freeze({
+export const REQUIRED_REPORTS = Object.freeze({
   mvpReleaseGates: {
     id: 'mvp_release_gates',
     command: 'pnpm check:mvp-release-gates',
@@ -31,7 +31,7 @@ const REQUIRED_REPORTS = Object.freeze({
   },
 });
 
-const OPTIONAL_BOUNDARY_REPORTS = Object.freeze({
+export const OPTIONAL_BOUNDARY_REPORTS = Object.freeze({
   mesh: {
     id: 'mesh',
     command: 'pnpm check:mesh:production-readiness',

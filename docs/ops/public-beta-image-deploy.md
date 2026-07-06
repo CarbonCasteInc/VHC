@@ -345,9 +345,15 @@ tools/scripts/emit-a6-public-beta-deploy-packet.sh \
   --inspect-json ./containers.json \
   --new-origin-image vhc-public-beta-origin:<tag-or-digest> \
   --new-relay-image vhc-public-beta-relay:<tag-or-digest> \
+  --expected-origin-revision <release-commit-sha> \
   --include-recreate-commands \
   --output .tmp/a6-public-beta-deploy-packet-approved.md
 ```
+
+`--expected-origin-revision` is required when recreate commands are emitted.
+The approved origin block asserts both the Docker
+`org.opencontainers.image.revision` label and `/healthz.build_revision` before
+the deploy packet can pass.
 
 The packet corrects only:
 
