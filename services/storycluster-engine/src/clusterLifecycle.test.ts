@@ -228,7 +228,24 @@ describe('clusterLifecycle', () => {
     ];
 
     const incoming = makeWorkingDocument('doc-9', 'Port attack expands further', 'port_attack', 'attack', [1, 0]);
-    incoming.candidate_matches = [];
+    incoming.candidate_matches = [
+      {
+        story_id: 'story-b',
+        candidate_score: 0.4,
+        hybrid_score: 0.4,
+        rerank_score: 0.4,
+        adjudication: 'rejected',
+        reason: 'pre-retrieved-candidate',
+      },
+      {
+        story_id: 'story-a',
+        candidate_score: 0.4,
+        hybrid_score: 0.4,
+        rerank_score: 0.4,
+        adjudication: 'rejected',
+        reason: 'pre-retrieved-candidate',
+      },
+    ];
     const next = await assignClusters({
       topicId: 'topic-news',
       referenceNowMs: 1000,
@@ -240,6 +257,55 @@ describe('clusterLifecycle', () => {
     }, undefined);
 
     expect(next.documents[0]?.assigned_story_id).toBe('story-a');
+    expect(next.stage_metrics.dynamic_cluster_assignment?.bounded_fallback_candidate_pool_max).toBe(2);
+  });
+
+  it('does not sweep historical clusters when no bounded retrieval candidates were returned', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const existing = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    topicState.clusters = [
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(existing, existing.source_variants[0]!)], 'story-historical'),
+    ];
+    const incoming = makeWorkingDocument('doc-9', 'Port attack expands further', 'port_attack', 'attack', [1, 0]);
+    incoming.candidate_matches = [];
+
+    const next = await assignClusters({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [incoming],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, {
+      providerId: 'unused-provider',
+      async translate() {
+        return [];
+      },
+      async embed() {
+        return [];
+      },
+      async analyzeDocuments() {
+        return [];
+      },
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
+        throw new Error('historical clusters should not be sent for fallback adjudication');
+      },
+      async summarize() {
+        return [];
+      },
+    });
+
+    expect(next.stage_metrics.dynamic_cluster_assignment?.bounded_fallback_candidate_pool_max).toBe(0);
+    expect(next.stage_metrics.dynamic_cluster_assignment?.bounded_fallback_candidate_pool_total).toBe(0);
   });
 
   it('uses provider adjudication to attach same-batch documents to newly created clusters', async () => {

@@ -166,6 +166,48 @@ describe('clusterTopology', () => {
     ]);
   });
 
+  it('limits hot-path reconciliation to changed clusters', () => {
+    const topicState = makeTopicState('topic-bounded-hot-path');
+    const stalePrimary = makeDocument('doc-stale-primary', 'Port attack expands');
+    const staleSecondary = makeDocument('doc-stale-secondary', 'Metro blackout spreads', {
+      source_id: 'wire-blackout',
+      url_hash: 'hash-blackout',
+      entities: ['metro_blackout'],
+      linked_entities: ['metro_blackout'],
+      trigger: 'blackout',
+      coarse_vector: [0, 1],
+      full_vector: [0, 1, 0],
+    });
+    const archivedParent = deriveClusterRecord(topicState, topicState.topic_id, [
+      toStoredSource(stalePrimary, stalePrimary.source_variants[0]!),
+      toStoredSource(staleSecondary, staleSecondary.source_variants[0]!),
+    ], 'story-archived-parent');
+    const touchedDoc = makeDocument('doc-touched', 'Court ruling expands', {
+      entities: ['court_ruling'],
+      linked_entities: ['court_ruling'],
+      trigger: 'ruling',
+      coarse_vector: [0.2, 0.8],
+      full_vector: [0.2, 0.8, 0],
+    });
+    const touched = deriveClusterRecord(
+      topicState,
+      topicState.topic_id,
+      [toStoredSource(touchedDoc, touchedDoc.source_variants[0]!)],
+      'story-touched',
+    );
+
+    const clusters = new Map<string, StoredClusterRecord>([
+      [archivedParent.story_id, archivedParent],
+      [touched.story_id, touched],
+    ]);
+    const changed = new Set<string>(['story-touched']);
+
+    reconcileClusterTopology(topicState, topicState.topic_id, clusters, changed);
+
+    expect(clusters.get('story-archived-parent')?.source_documents).toHaveLength(2);
+    expect([...clusters.values()].filter((cluster) => cluster.lineage.split_from === 'story-archived-parent')).toHaveLength(0);
+  });
+
   it('splits a same-tournament singleton out of a persisted bundle without deleting it', () => {
     const topicState = makeTopicState('topic-pga-singleton');
     const raiGuardian = makeDocument('doc-rai-guardian', 'Aaron Rai keeps celebrations low-key after PGA Championship win', {
