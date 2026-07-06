@@ -605,6 +605,8 @@ export function createPublicBetaOriginHandler(options) {
       sendJson(res, 200, {
         ok: true,
         service: 'vh-public-beta-origin',
+        build_revision: process.env.VH_PUBLIC_ORIGIN_BUILD_REVISION || null,
+        build_created: process.env.VH_PUBLIC_ORIGIN_BUILD_CREATED || null,
         static_dir_present: existsSync(staticDir),
         peer_config_present: existsSync(peerConfigPath),
         analysis_proxy_configured: Boolean(analysisTarget),

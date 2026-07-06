@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INSPECT_JSON=""
 NEW_ORIGIN_IMAGE=""
 NEW_RELAY_IMAGE=""
+EXPECTED_ORIGIN_REVISION=""
 ANALYSIS_TARGET="http://127.0.0.1:3001"
 ORIGIN_NAME="vhc-public-origin"
 RELAY_NAMES="vhc-relay-a,vhc-relay-b,vhc-relay-c"
@@ -22,6 +23,10 @@ Required:
   --inspect-json <path>       docker inspect JSON for origin and relay containers
   --new-origin-image <image>  Rebuilt origin image tag/digest to deploy
   --new-relay-image <image>   Rebuilt relay image tag/digest to deploy
+
+Required with --include-recreate-commands:
+  --expected-origin-revision <sha>
+                              Release commit expected from origin /healthz after deploy
 
 Options:
   --analysis-target <url>     Corrected origin analysis target (default http://127.0.0.1:3001)
@@ -45,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --new-relay-image)
       NEW_RELAY_IMAGE="${2:-}"
+      shift 2
+      ;;
+    --expected-origin-revision)
+      EXPECTED_ORIGIN_REVISION="${2:-}"
       shift 2
       ;;
     --analysis-target)
@@ -87,11 +96,16 @@ if [[ -z "${NEW_ORIGIN_IMAGE}" || -z "${NEW_RELAY_IMAGE}" ]]; then
   echo "--new-origin-image and --new-relay-image are required" >&2
   exit 64
 fi
+if [[ "${INCLUDE_RECREATE}" == "true" && -z "${EXPECTED_ORIGIN_REVISION}" ]]; then
+  echo "--expected-origin-revision is required with --include-recreate-commands" >&2
+  exit 64
+fi
 
 emit_packet() {
   INSPECT_JSON="${INSPECT_JSON}" \
   NEW_ORIGIN_IMAGE="${NEW_ORIGIN_IMAGE}" \
   NEW_RELAY_IMAGE="${NEW_RELAY_IMAGE}" \
+  EXPECTED_ORIGIN_REVISION="${EXPECTED_ORIGIN_REVISION}" \
   ANALYSIS_TARGET="${ANALYSIS_TARGET}" \
   ORIGIN_NAME="${ORIGIN_NAME}" \
   RELAY_NAMES="${RELAY_NAMES}" \
@@ -102,6 +116,7 @@ import { readFileSync } from 'node:fs';
 const inspectJson = process.env.INSPECT_JSON;
 const newOriginImage = process.env.NEW_ORIGIN_IMAGE;
 const newRelayImage = process.env.NEW_RELAY_IMAGE;
+const expectedOriginRevision = process.env.EXPECTED_ORIGIN_REVISION || '';
 const analysisTarget = process.env.ANALYSIS_TARGET;
 const originName = process.env.ORIGIN_NAME;
 const relayNames = (process.env.RELAY_NAMES || '').split(',').map((name) => name.trim()).filter(Boolean);
@@ -454,6 +469,7 @@ lines.push('## Images');
 lines.push('');
 lines.push(`- new origin image: \`${newOriginImage}\``);
 lines.push(`- new relay image: \`${newRelayImage}\``);
+lines.push(`- expected origin revision: \`${expectedOriginRevision || 'not asserted'}\``);
 lines.push(`- corrected analysis target: \`${analysisTarget}\``);
 lines.push('');
 lines.push('## Current Containers');
@@ -577,8 +593,20 @@ if (includeRecreate) {
   lines.push('```bash');
   lines.push(`sudo docker rm -f ${originName}`);
   lines.push(runCommandFor(originName, newOriginImage, false));
-  lines.push(`sudo docker inspect ${originName} --format '{{.Config.Image}} {{.Image}}'`);
-  lines.push(`curl -fsS http://127.0.0.1:8080/healthz`);
+  lines.push(`sudo docker inspect ${originName} --format '{{.Config.Image}} {{.Image}} {{index .Config.Labels "org.opencontainers.image.revision"}}'`);
+  lines.push(`test "$(sudo docker inspect ${originName} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = ${shellSingleQuote(expectedOriginRevision)}`);
+  lines.push('curl -fsS http://127.0.0.1:8080/healthz > /tmp/vhc-public-beta-deploy/origin.healthz.json');
+  lines.push(`python3 - /tmp/vhc-public-beta-deploy/origin.healthz.json ${shellSingleQuote(expectedOriginRevision)} <<'PY'`);
+  lines.push('import json, sys');
+  lines.push('path, expected = sys.argv[1], sys.argv[2]');
+  lines.push('with open(path, "r", encoding="utf-8") as handle: payload = json.load(handle)');
+  lines.push('if payload.get("ok") is not True: raise SystemExit(f"origin healthz ok={payload.get(\'ok\')}")');
+  lines.push('if payload.get("service") != "vh-public-beta-origin": raise SystemExit(f"origin service={payload.get(\'service\')}")');
+  lines.push('if payload.get("static_dir_present") is not True: raise SystemExit("origin static dir missing")');
+  lines.push('if payload.get("peer_config_present") is not True: raise SystemExit("origin peer config missing")');
+  lines.push('if str(payload.get("build_revision") or "") != expected: raise SystemExit(f"origin build_revision={payload.get(\'build_revision\')} expected={expected}")');
+  lines.push('print(json.dumps({"origin_healthz": "pass", "build_revision": payload.get("build_revision"), "relay_proxy_target_count": payload.get("relay_proxy_target_count")}, sort_keys=True))');
+  lines.push('PY');
   lines.push('```');
   lines.push('');
   lines.push('## Rollback');
