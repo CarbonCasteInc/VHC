@@ -578,12 +578,20 @@ dozens of sequential remote StoryCluster requests or a large raw publication
 blast before the first successful write can be observed. The steady-state
 publication cap defaults to 96 bundles, while
 `VH_NEWS_RUNTIME_FIRST_TICK_MAX_PUBLISHED_BUNDLES` defaults to 8 and applies
-only to tick 1. `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL` defaults
-to 24 and applies only to tick 1, capping the feed items sent into remote
-StoryCluster before the first post-reset raw write. These first-tick caps are
-intentionally narrow so the post-reset live start lands a small, inspectable
-batch before the daemon opens to the steady-state publication and ingest
-limits. `VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS`
+until the first runtime tick completes successfully.
+`VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL` defaults to 24 and also
+applies until that first successful completion, capping the feed
+items sent into remote StoryCluster before the first post-reset raw write. A
+pre-publication failure on tick 1 keeps the next retry bounded; the daemon opens
+to the steady-state publication and ingest limits only after one completed
+runtime tick. These first-tick caps are intentionally narrow so the post-reset
+live start lands a small, inspectable batch before steady state. Tick-1 content
+can understate corroboration or mixed-source composition because the capped
+freshness-priority sample may include a singleton before its corroborating pair
+enters the selected recovery batch. Treat tick-1 composition as a transient
+recovery read, not a release-quality composition verdict; verify the next
+steady-state tick before drawing content-mix conclusions.
+`VH_NEWS_RUNTIME_PUBLICATION_FRESHNESS_MAX_AGE_MS`
 defaults to 21600000, matching the 6-hour public freshness SLO: bundles inside
 that window are selected before stale high-corroboration bundles, while normal
 corroboration ordering still applies within the fresh set. Raw bundle writes

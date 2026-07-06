@@ -634,6 +634,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   let inFlight = false;
   let lastRunAt: Date | null = null;
   let tickSequence = 0;
+  let firstTickCompleted = false;
   let publishedStoryIds = new Set<string>();
   let publishedStorylineIds = new Set<string>();
 
@@ -649,7 +650,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     inFlight = true;
     tickSequence += 1;
     const currentTickSequence = tickSequence;
-    const firstTick = currentTickSequence === 1;
+    const firstTick = !firstTickCompleted;
     const publishedBundleLimit = resolvePublishedBundleLimit(
       firstTick,
       maxPublishedBundles,
@@ -1086,6 +1087,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         first_selected_story_ids: bundlesToPublish.slice(0, 10).map((bundle) => bundle.story_id),
         last_stage: lastStage,
       }, config.onTickSummary);
+      firstTickCompleted = true;
     } catch (error) {
       const failedStage = lastStage;
       const prePublicationFailure = isPrePublicationFailureStage(failedStage);
