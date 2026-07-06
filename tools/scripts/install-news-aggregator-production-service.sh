@@ -252,6 +252,36 @@ Unit=vh-phase5-scope-a-watch-closure.service
 WantedBy=timers.target
 EOF
 
+lint_user_units() {
+  if ! command -v systemd-analyze >/dev/null 2>&1; then
+    echo "systemd-analyze not available; skipping user unit verification"
+    return 0
+  fi
+
+  local units=(
+    "${UNIT_DIR}/vh-news-aggregator.service"
+    "${UNIT_DIR}/vh-relay-snapshot-freshness-watch.service"
+    "${UNIT_DIR}/vh-relay-snapshot-freshness-watch.timer"
+    "${UNIT_DIR}/vh-news-aggregator-liveness-watch.service"
+    "${UNIT_DIR}/vh-news-aggregator-liveness-watch.timer"
+    "${UNIT_DIR}/vh-news-relay-liveness-watch.service"
+    "${UNIT_DIR}/vh-news-relay-liveness-watch.timer"
+    "${UNIT_DIR}/vh-phase5-scope-a-soak-archive.service"
+    "${UNIT_DIR}/vh-phase5-scope-a-soak-archive.timer"
+    "${UNIT_DIR}/vh-phase5-scope-a-watch-closure.service"
+    "${UNIT_DIR}/vh-phase5-scope-a-watch-closure.timer"
+  )
+
+  if systemd-analyze verify --user "${units[@]}"; then
+    echo "Verified generated user units with systemd-analyze"
+    return 0
+  fi
+
+  echo "Generated user unit verification failed" >&2
+  exit 78
+}
+
+lint_user_units
 systemctl --user daemon-reload
 
 echo "Installed user units:"

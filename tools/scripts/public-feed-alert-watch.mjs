@@ -11,7 +11,7 @@ import { runPublicFeedFreshnessMonitor } from './public-feed-freshness-monitor.m
 import { newsAggregatorPublisherLivenessWatchInternal } from './news-aggregator-publisher-liveness-watch.mjs';
 
 const REPORT_SCHEMA_VERSION = 'vh-public-feed-alert-watch-v1';
-const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v1';
+const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v2';
 const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -180,7 +180,7 @@ function reportFreshnessBlockers({ label, report, maxAgeMs, now }) {
   if (ageMs === null) {
     blockers.push(`${label}_generated_at_missing`);
   } else if (ageMs > maxAgeMs) {
-    blockers.push(`${label}_report_stale:${ageMs}/${maxAgeMs}`);
+    blockers.push(`${label}_output_stale:${ageMs}/${maxAgeMs}`);
   }
   return {
     ageMs,
@@ -194,6 +194,10 @@ function reportStatusBlockers({ label, report, sanitizeBlocker = sanitizeAlertTe
     ? report.blockers.map((blocker) => `${label}:${sanitizeBlocker(blocker)}`)
     : [`${label}_status:${sanitizeAlertText(report?.status ?? 'missing')}`];
   return blockers;
+}
+
+function hasBlockers(value) {
+  return Array.isArray(value) && value.length > 0;
 }
 
 function relayLivenessFile(env) {
@@ -255,14 +259,19 @@ function summarizeRelayLivenessReport({ env, now }) {
     maxAgeMs,
     now,
   });
+  const statusBlockers = reportStatusBlockers({ label: 'relay_liveness', report: read.parsed });
   const blockers = [
     ...freshness.blockers,
-    ...reportStatusBlockers({ label: 'relay_liveness', report: read.parsed }),
+    ...statusBlockers,
   ];
   return {
     schemaVersion: read.parsed.schemaVersion ?? null,
     status: blockers.length > 0 ? 'fail' : 'pass',
-    severity: blockers.length > 0 ? 'critical' : 'none',
+    severity: hasBlockers(statusBlockers)
+      ? 'critical'
+      : hasBlockers(freshness.blockers)
+        ? 'warning'
+        : 'none',
     required: true,
     sourceFileHash: hashValue(filePath),
     generatedAt: read.parsed.generatedAt ?? null,
@@ -344,18 +353,19 @@ function summarizeRelaySnapshotReport({ env, now }) {
     maxAgeMs,
     now,
   });
+  const statusBlockers = reportStatusBlockers({
+    label: 'relay_snapshot',
+    report: read.parsed,
+    sanitizeBlocker: sanitizeSnapshotBlocker,
+  });
   const blockers = [
     ...freshness.blockers,
-    ...reportStatusBlockers({
-      label: 'relay_snapshot',
-      report: read.parsed,
-      sanitizeBlocker: sanitizeSnapshotBlocker,
-    }),
+    ...statusBlockers,
   ];
   return {
     schemaVersion: read.parsed.schemaVersion ?? null,
     status: blockers.length > 0 ? 'fail' : 'pass',
-    severity: blockers.length > 0 ? 'critical' : 'none',
+    severity: blockers.length > 0 ? 'warning' : 'none',
     required: true,
     sourceFileHash: hashValue(filePath),
     generatedAt: read.parsed.generatedAt ?? null,
@@ -379,6 +389,32 @@ function summarizeRelaySnapshotReport({ env, now }) {
 
 function sanitizeWatchClosureBlocker(blocker) {
   return sanitizeAlertText(blocker);
+}
+
+function defaultLimitSource(value) {
+  return String(value ?? '').startsWith('default:');
+}
+
+function watchClosureProvenanceBlockers(verdict) {
+  const relayMemory = verdict?.relayMemory;
+  if (!relayMemory) return [];
+  const blockers = [];
+  if (defaultLimitSource(relayMemory.heapLimitSource)) {
+    blockers.push([
+      'watch_closure_heap_limit_source_default',
+      'aggregate',
+      sanitizeWatchClosureBlocker(relayMemory.heapLimitSource),
+    ].join(':'));
+  }
+  if (Array.isArray(relayMemory.relays)) {
+    for (const relay of relayMemory.relays) {
+      if (!defaultLimitSource(relay?.heapLimitSource)) continue;
+      blockers.push(
+        `watch_closure_heap_limit_source_default:${sanitizeWatchClosureBlocker(relay?.name ?? 'unknown')}:${sanitizeWatchClosureBlocker(relay.heapLimitSource)}`,
+      );
+    }
+  }
+  return blockers;
 }
 
 function summarizeWatchClosureVerdict({ env, now }) {
@@ -431,11 +467,12 @@ function summarizeWatchClosureVerdict({ env, now }) {
       ? read.parsed.blockers.map((blocker) => `watch_closure:${sanitizeWatchClosureBlocker(blocker)}`)
       : ['watch_closure_status:fail']
     : [];
-  const blockers = [...freshness.blockers, ...verdictBlockers];
+  const provenanceBlockers = watchClosureProvenanceBlockers(read.parsed);
+  const blockers = [...freshness.blockers, ...verdictBlockers, ...provenanceBlockers];
   return {
     schemaVersion: read.parsed.schemaVersion ?? null,
     status: blockers.length > 0 ? 'fail' : 'pass',
-    severity: blockers.length > 0 ? 'critical' : 'none',
+    severity: blockers.length > 0 ? 'warning' : 'none',
     required: true,
     sourceFileHash: hashValue(filePath),
     generatedAt: read.parsed.generatedAt ?? null,
@@ -467,11 +504,14 @@ function summarizeWatchClosureVerdict({ env, now }) {
       ? {
           status: read.parsed.relayMemory.status ?? null,
           heapPlateauVerdict: read.parsed.relayMemory.heapPlateauVerdict ?? null,
+          heapLimitSource: read.parsed.relayMemory.heapLimitSource ?? null,
+          rssLimitSource: read.parsed.relayMemory.rssLimitSource ?? null,
           relays: Array.isArray(read.parsed.relayMemory.relays)
             ? read.parsed.relayMemory.relays.map((relay) => ({
                 name: relay.name ?? null,
                 trendStatus: relay.trendStatus ?? null,
                 heapPlateauVerdict: relay.heapPlateauVerdict ?? null,
+                heapLimitSource: relay.heapLimitSource ?? null,
                 shortestProjectedLimitHours: Number.isFinite(relay.shortestProjectedLimitHours)
                   ? relay.shortestProjectedLimitHours
                   : null,
@@ -685,6 +725,9 @@ function shouldDeliverAlert({
   const previousStatus = previousState?.lastObservedStatus ?? null;
   const previousDeliveredFingerprint = previousState?.lastDeliveredFingerprint ?? null;
   const lastDeliveredAtMs = Date.parse(String(previousState?.lastDeliveredAt ?? ''));
+  const previousStateSchemaVersion = previousState?.schemaVersion ?? null;
+  const stateSchemaMismatch = previousStateSchemaVersion !== null
+    && previousStateSchemaVersion !== STATE_SCHEMA_VERSION;
   const heartbeatDue = heartbeatMs > 0
     && (!Number.isFinite(lastDeliveredAtMs) || now - lastDeliveredAtMs >= heartbeatMs);
   const changed = previousFingerprint !== null && previousFingerprint !== fingerprint;
@@ -702,14 +745,37 @@ function shouldDeliverAlert({
     reason = 'retry_failed_delivery';
   } else if (failureOrRecoveryChanged) {
     reason = 'state_changed';
+  } else if (stateSchemaMismatch && status === 'fail') {
+    reason = 'state_changed';
   } else if (heartbeatDue) {
     reason = 'heartbeat_due';
   }
   return {
-    deliver: testFire || firstFailure || retryUndeliveredFailure || failureOrRecoveryChanged || heartbeatDue,
+    deliver: testFire
+      || firstFailure
+      || retryUndeliveredFailure
+      || failureOrRecoveryChanged
+      || (stateSchemaMismatch && status === 'fail')
+      || heartbeatDue,
     reason,
     heartbeatMs,
     status,
+  };
+}
+
+function sourceStatusesFor({
+  publisher,
+  freshness,
+  relayLiveness,
+  relaySnapshot,
+  watchClosure,
+}) {
+  return {
+    publisher: publisher?.status ?? null,
+    freshness: freshness?.status ?? null,
+    relayLiveness: relayLiveness?.status ?? null,
+    relaySnapshot: relaySnapshot?.status ?? null,
+    watchClosure: watchClosure?.status ?? null,
   };
 }
 
@@ -859,6 +925,7 @@ async function persistState({
   fingerprint,
   status,
   publisher,
+  sourceStatuses,
   delivery,
   previousState,
 }) {
@@ -882,6 +949,7 @@ async function persistState({
     lastPublisherNRestarts: Number.isFinite(publisher?.nRestarts)
       ? publisher.nRestarts
       : previousState?.lastPublisherNRestarts ?? null,
+    sourceStatuses,
   };
   await writeJson(stateFile, state);
   return state;
@@ -992,6 +1060,13 @@ export async function runPublicFeedAlertWatch({
     fingerprint,
     status: observedStatus,
     publisher,
+    sourceStatuses: sourceStatusesFor({
+      publisher,
+      freshness,
+      relayLiveness,
+      relaySnapshot,
+      watchClosure,
+    }),
     delivery,
     previousState,
   });
@@ -1029,6 +1104,7 @@ export const publicFeedAlertWatchInternal = {
   summarizeRelayLivenessReport,
   summarizeRelaySnapshotReport,
   summarizeWatchClosureVerdict,
+  watchClosureProvenanceBlockers,
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
