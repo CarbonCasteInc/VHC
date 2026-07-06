@@ -474,6 +474,8 @@ describe('newsRuntime', () => {
       status: 'failed',
       tick_sequence: 1,
       first_tick: true,
+      skipped: true,
+      failed_stage: 'orchestrating',
       published_bundle_limit: 1,
       ingested_item_limit: 24,
     }));

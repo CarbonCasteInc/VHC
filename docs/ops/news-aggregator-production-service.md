@@ -70,6 +70,11 @@ Current intended-live posture:
   and an operator confirms receipt from a `VH_PUBLIC_FEED_ALERT_TEST_FIRE=1`
   run. The 2026-07-05 test-fire observed publisher/freshness `pass` but failed
   closed with `alert_delivery_missing_channel` because no channel was configured.
+  Missing or invalid required watch inputs remain critical fail-closed
+  prechecks; relay liveness failure and publisher park classes are critical;
+  snapshot freshness failure, stale watch outputs, watch-closure regression,
+  restart churn, and default heap-limit provenance page as warnings through the
+  same deduped alert channel.
 - The hourly Scope A soak archive timer is intended to stay enabled during the
   post-#701 off-graph relay-memory diagnostic window so each hour preserves
   publisher liveness, relay liveness, relay snapshot freshness, public feed
@@ -148,8 +153,10 @@ PY
 ```
 
 Archive the JSON plus the relay name, image tag/digest, restart timestamp, and
-the two non-target relay `/readyz` readbacks. The artifact is operational
-evidence only; it is not approval to batch relay restarts.
+the two non-target relay `/readyz` readbacks. Only that captured bundle is
+sufficient to mark serve-stale as live-observed; image ancestry or an isolated
+latest-index response is not. The artifact is operational evidence only; it is
+not approval to batch relay restarts.
 
 ### 13:04Z Host-Event Evidence Bundle
 
@@ -344,6 +351,10 @@ systemctl --user start vh-phase5-scope-a-watch-closure.service
 jq '{status, severity, blockers, window, thresholds, relayMemory}' \
   ~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json
 ```
+
+The installer verifies generated user units with `systemd-analyze verify --user`
+when `systemd-analyze` is available; a verification failure exits `78` before
+daemon reload or timer enablement.
 
 Enable the timer only after the one-shot writes a fresh
 `vh-phase5-scope-a-watch-closure-verdict-v1` verdict for the intended clean

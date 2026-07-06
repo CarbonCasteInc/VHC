@@ -195,11 +195,14 @@ function watchClosureVerdict(overrides = {}) {
     relayMemory: {
       status: 'pass',
       heapPlateauVerdict: 'heap_driver_unknown',
+      heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+      rssLimitSource: 'VH_RELAY_WATCHDOG_MAX_RSS_BYTES',
       relays: [
         {
           name: 'vhc-relay-a',
           trendStatus: 'pass',
           heapPlateauVerdict: 'heap_driver_unknown',
+          heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
           shortestProjectedLimitHours: null,
         },
       ],
@@ -369,7 +372,9 @@ test('relay snapshot failures redact absolute snapshot paths', async () => {
     });
 
     assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'warning');
     assert.equal(summary.relaySnapshot.status, 'fail');
+    assert.equal(summary.relaySnapshot.severity, 'warning');
     assert.match(summary.blockers.join('\n'), /snapshot_file_hash:/);
     assert.equal(JSON.stringify(summary).includes(snapshotPath), false);
     const body = JSON.parse(calls[0].init.body);
@@ -381,7 +386,49 @@ test('relay snapshot failures redact absolute snapshot paths', async () => {
   }
 });
 
-test('watch-closure fail verdict pages with threshold provenance', async () => {
+test('stale auxiliary report output is warning severity and dedupes across age drift', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        relay: relayLivenessReport({ generatedAt: '2026-07-02T17:20:00.000Z' }),
+      }),
+      VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS: '600000',
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const options = {
+      env,
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:05:00.000Z'),
+    });
+
+    assert.equal(first.status, 'fail');
+    assert.equal(first.severity, 'warning');
+    assert.equal(first.relayLiveness.severity, 'warning');
+    assert.match(first.blockers.join('\n'), /relay_liveness_output_stale:/);
+    assert.equal(second.fingerprint, first.fingerprint);
+    assert.equal(second.delivery.status, 'suppressed');
+    assert.equal(calls.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('watch-closure fail verdict pages as warning with threshold provenance', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -424,12 +471,112 @@ test('watch-closure fail verdict pages with threshold provenance', async () => {
     });
 
     assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'warning');
     assert.equal(summary.watchClosure.status, 'fail');
+    assert.equal(summary.watchClosure.severity, 'warning');
     assert.match(summary.blockers.join('\n'), /watch_closure:relay_memory_trend_fail/);
     const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.severity, 'warning');
     assert.equal(body.watchClosure.thresholds.fortyEightHour.status, 'fail');
     assert.equal(body.watchClosure.relayMemory.heapPlateauVerdict, 'heap_still_linear');
     assert.equal(body.watchClosure.relayMemory.relays[0].name, 'vhc-relay-c');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('watch-closure default heap limit provenance pages as warning', async () => {
+  const root = tempRoot();
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        closure: watchClosureVerdict({
+          relayMemory: {
+            status: 'pass',
+            heapPlateauVerdict: 'heap_plateau_observed',
+            heapLimitSource: 'default:public-beta-compose',
+            rssLimitSource: 'VH_RELAY_WATCHDOG_MAX_RSS_BYTES',
+            relays: [
+              {
+                name: 'vhc-relay-a',
+                trendStatus: 'pass',
+                heapPlateauVerdict: 'heap_plateau_observed',
+                heapLimitSource: 'default:public-beta-compose:relay-a',
+                shortestProjectedLimitHours: 240,
+              },
+            ],
+          },
+        }),
+      }),
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async () => ({ ok: true, status: 204 }),
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.severity, 'warning');
+    assert.equal(summary.watchClosure.severity, 'warning');
+    assert.match(summary.blockers.join('\n'), /watch_closure_heap_limit_source_default:aggregate/);
+    assert.match(summary.blockers.join('\n'), /watch_closure_heap_limit_source_default:vhc-relay-a/);
+    assert.equal(summary.watchClosure.relayMemory.heapLimitSource, 'default:public-beta-compose');
+    assert.equal(summary.watchClosure.relayMemory.relays[0].heapLimitSource, 'default:public-beta-compose:relay-a');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('state schema migration redelivers an unchanged failure once', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, {
+      ...writeAuxReports(root, {
+        snapshot: relaySnapshotReport({
+          status: 'fail',
+          blockers: ['newest_entry_stale:30000000/21600000'],
+        }),
+      }),
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const options = {
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+    const state = JSON.parse(readFileSync(path.join(root, 'state.json'), 'utf8'));
+    assert.equal(state.schemaVersion, 'vh-public-feed-alert-state-v2');
+    assert.deepEqual(state.sourceStatuses, {
+      publisher: 'pass',
+      freshness: 'pass',
+      relayLiveness: 'pass',
+      relaySnapshot: 'fail',
+      watchClosure: 'pass',
+    });
+    writeJson(path.join(root, 'state.json'), {
+      ...state,
+      schemaVersion: 'vh-public-feed-alert-state-v1',
+    });
+
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+
+    assert.equal(first.fingerprint, second.fingerprint);
+    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.reason, 'state_changed');
+    assert.equal(calls.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
