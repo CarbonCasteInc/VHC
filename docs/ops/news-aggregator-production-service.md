@@ -1188,6 +1188,15 @@ These commands are read-only until the final restart/deploy line. Do not run any
 public latest-index HTTP probe before this packet proves the #638 relay image is
 running.
 
+For the generated A6 public-beta deploy packet
+(`tools/scripts/emit-a6-public-beta-deploy-packet.sh`), pass the intended release
+commit with `--expected-origin-revision` before printing recreate commands. The
+origin env rewrite intentionally drops `VH_PUBLIC_ORIGIN_BUILD_REVISION` and
+`VH_PUBLIC_ORIGIN_BUILD_CREATED` from the old container env capture so the new
+image-baked build stamp wins. The origin recreate block uses `set -euo
+pipefail`, checks the Docker revision label with exit `78` on mismatch, and
+polls `/healthz` for up to 60 seconds before asserting `build_revision`.
+
 Read-only precheck:
 
 ```bash
@@ -1300,6 +1309,20 @@ release-grade command is intentionally not the publisher restart preflight
 because a long publisher outage can otherwise create a deadlock: the feed cannot
 restart until it has recent release-evidence runs, but it cannot generate those
 runs while the publisher is stopped.
+
+For a release packet, regenerate the full MVP evidence manifest on the intended
+commit rather than reusing stale artifacts:
+
+```bash
+expected_commit="$(git rev-parse HEAD)"
+node tools/scripts/regenerate-mvp-release-evidence.mjs --check --commit "${expected_commit}"
+jq '{status, expected_commit, release_commit_verified, artifacts}' \
+  .tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json
+```
+
+The manifest fails before running commands if the checkout does not match
+`--commit`, records every command identity without stdout/stderr, and includes a
+sha256 for each report consumed by `mvp-closeout`.
 
 ## Publisher Start Abort Criteria
 
