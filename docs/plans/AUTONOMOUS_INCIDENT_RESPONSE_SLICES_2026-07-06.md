@@ -1,577 +1,513 @@
-# VHC Autonomous Incident Response - Slice Plan
+# VHC Autonomous Incident Response - Slice Plan (v2, reviewed)
 
-> Status: Proposed implementation plan
+> Status: Reviewed implementation plan (v2 — supersedes the v1 draft in this PR)
 > Owner: coordinating agent + VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-06 (six-lens adversarial review: security trust-chain,
+> iOS/push platform, external API grounding, repo grounding, operational
+> failure modes, scope/sequencing — all findings incorporated below)
 > Depends On: docs/ops/public-feed-freshness-monitor.md, docs/ops/news-aggregator-production-service.md, docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md, docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md
 
 ## Target System
 
-Build the incident response loop that distribution readiness now needs:
-
 ```text
-A6 alert/watch output
--> VHC proprietary pager outside A6
--> iPhone push notification
--> GitHub incident issue as the case file
--> Codex triage worker reads the issue and gathers read-only evidence
--> Codex opens a PR or drafts an exact operator packet
--> independent SOTA review gate approves or blocks the packet
--> Lou approves the plain-English business action
--> automation executes only the exact approved packet
+A6 alert/watch output (signed)
+-> VHC pager outside A6 (durable-persist, then fan out)
+-> iPhone Web Push + email fallback
+-> GitHub incident issue as the public-safe case file
+-> Codex triage worker: read-only evidence, draft PRs, DRAFT operator packets
+-> independent review gate (fable/sol, reviewer != proposer by default)
+   -> SIGNED review verdict bound to the packet hash
+-> Lou approves the plain-English action (identity-gated comment)
+-> A6-side PULL executor verifies the full artifact chain locally
+   and executes only the exact approved packet
 -> readback verifier updates the issue and closes the loop
 ```
 
-The reviewer must be switchable at any time:
+Provider aliases (never hard-code public model strings in source):
 
-- `fable`: Anthropic API path, configured by environment. Treat "Fable" as a
-  VHC provider alias; do not hard-code a public model string in source.
-- `sol`: Codex OAuth / ChatGPT-managed Codex path on a trusted private runner.
-  Treat "Sol" as a VHC provider alias; do not hard-code a public model string
-  in source.
+- `fable`: Anthropic Messages API path; model alias in operator env
+  (`VH_INCIDENT_FABLE_MODEL`), key auth via `ANTHROPIC_API_KEY` per official
+  docs.
+- `sol`: Codex non-interactive path (`codex exec` / SDK, output schemas,
+  explicit sandbox modes) with ChatGPT-managed auth on a trusted private
+  runner only. Note: ChatGPT-managed Codex access requires an eligible plan,
+  and cached auth can expire silently on an idle headless runner — Slice 7
+  must detect and escalate that, not stall.
 
-The switch is issue-local and reversible by label or command. A human can move
-an incident from Fable to Sol, or Sol to Fable, without redeploying the pager or
-responder.
+The reviewer is switchable per incident by identity-gated command, with a
+reviewer-independence default (§Security Architecture, rule 5).
+
+## Review Provenance
+
+A v1 of this plan was adversarially reviewed on 2026-07-06. Verdict across all
+six lenses: sound_with_required_changes. The blockers were: (1) the
+issue-comment control plane had no commenter-identity verification in a PUBLIC
+repo; (2) the pager's human endpoints (`/api/ack` etc.) were unauthenticated,
+letting an attacker silence repeat-paging; (3) the executor trusted mutable
+GitHub state from a push-model runner holding standing production credentials;
+(4) iOS Web Push cannot wake a silent/Focus iPhone and the plan did not say
+so; (5) nothing watched the pager itself — recreating the silent-failure mode
+this system exists to kill; (6) the build put a multi-week tranche in front of
+alert enablement, leaving A6 dark meanwhile. All are addressed structurally
+below; the remaining highs (HMAC/producer contradiction, incident-key
+fragmentation, scheduling primitive, reviewer stalls, restart exit-class
+guard, prompt-injection containment, budgets, kill switch) are folded into the
+slices they belong to.
 
 ## Grounded Current State
 
-Repo state observed for this plan:
-
-- `main` is at `e665dd71` (`Harden origin deploy and release evidence manifest (#721)`).
-- No open GitHub PRs were present during this grounding pass.
-- The two distribution-readiness plan docs remain untracked workspace material:
-  `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
-  `docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md`. Do not silently
-  overwrite or commit them as part of this plan.
-
-Existing repo primitives to reuse:
-
-- Alert producer: `tools/scripts/public-feed-alert-watch.mjs` already emits
-  `vh-public-feed-alert-watch-v1` JSON with publisher, freshness, relay
-  liveness, relay snapshot, watch-closure verdict, severity, blockers,
-  fingerprint, and delivery state. It posts JSON to
-  `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` and supports email delivery.
-- Alert classifications: the alert watch distinguishes exit 69 self-recovery
-  from exit 69 start-limit parking, exit 75 wrapper refusal, and exit 78
-  fail-closed parking. It already dedupes by fingerprint and can heartbeat
-  unchanged state with `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS`.
-- Watch-closure evidence: `tools/scripts/phase5-scope-a-watch-closure-packet.mjs`
-  writes a compact alert-safe verdict at
-  `~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json` and preserves
-  24h/48h blockers, relay memory trend status, and heap/RSS limit provenance.
-- Heap retainer intake: `tools/scripts/analyze-early-heap-captures.mjs` reads
-  only `*.heap-summary.json` plus optional soak archive summaries and refuses
-  `.heapsnapshot` paths.
-- Release evidence: `tools/scripts/regenerate-mvp-release-evidence.mjs`
-  regenerates the reports consumed by `pnpm check:mvp-closeout`, records
-  artifact sha256 values, and supports `--commit`.
-- Systemd install surface: `tools/scripts/install-news-aggregator-production-service.sh`
-  installs publisher, liveness, soak archive, watch-closure, and alert units,
-  and verifies generated user units with `systemd-analyze verify --user` when
-  available.
-- GitHub support surface: `.github/ISSUE_TEMPLATE/public-beta-support.yml`
-  exists for public beta support, but there is no operational incident issue
-  template, incident label contract, pager receiver, or Codex responder
-  workflow yet.
-
-External API grounding:
-
-- Codex supports non-interactive `codex exec`, JSON output, output schemas,
-  explicit sandbox modes, the Codex GitHub Action, SDK control, automations,
-  and ChatGPT-managed access tokens for trusted non-interactive workflows.
-  For the Sol path, use ChatGPT-managed Codex auth only on a private trusted
-  runner; do not paste or commit `~/.codex/auth.json`.
-- Anthropic's Claude API supports official SDKs, the Messages API, API-key
-  auth through `ANTHROPIC_API_KEY` / `x-api-key`, and Workload Identity
-  Federation for production workloads. For the Fable path, put the exact model
-  alias in operator-owned env, not source.
-
-## Standing Boundaries
-
-- No live A6 mutation without an explicit approved packet. This includes
-  restarts, deploys, timer changes, env changes, compaction, retention,
-  eviction, publisher clear, and mesh writes.
-- Read-only A6 checks are allowed only through a locked-down evidence collector
-  that emits secret-safe summaries. No raw heap snapshots, tokens, webhook
-  URLs, private env values, signatures, or payload bodies may enter GitHub
-  issues or model context.
-- Preserve 2-of-3 relay write quorum. Never count successes across attempts.
-- Exit 78 remains the non-restarting write-safety park. Exit 69 remains the
-  transport-total restartable class. Do not soften fail-close behavior.
-- No retention, compaction, eviction, or memory remediation until early heap
-  summary evidence names the retainer class.
-- GitHub issues are public-safe case files. Anything private must be represented
-  by hashes, counts, timestamps, status classes, or links to host-private paths
-  that are not themselves copied into the issue body.
-
-## Slice 1 - Incident Contract And Case-File Template
-
-Goal: define the durable GitHub issue shape before any automation writes issues.
-
-Implement:
-
-- Add `.github/ISSUE_TEMPLATE/a6-incident.yml` for operator/system-created A6
-  incidents. It must warn that issues are public-safe records and must not
-  request secrets, raw heap artifacts, private payloads, or private env values.
-- Add a spec file under docs/specs for the VHC incident-response contract with:
-  - incident schema `vhc-incident-v1`;
-  - required fields: severity, alert class, source fingerprint, first seen,
-    last seen, affected service, current status, safe evidence, runbook links,
-    SOTA reviewer, approval state, execution packet hash, readback state;
-  - allowed labels and state transitions.
-- Add `tools/scripts/check-vhc-incident-response.mjs` plus a package script
-  `check:vhc-incident-response` to verify the issue template, labels in docs,
-  required redaction warnings, and no forbidden private-data prompts.
-- Add fixtures under `tools/fixtures/incidents/` for critical, warning,
-  recovered, and test-fire incidents.
-
-Tests:
-
-- `corepack pnpm@9.7.1 check:vhc-incident-response`
-- `corepack pnpm@9.7.1 docs:check`
-- `git diff --check`
-
-Done when:
-
-- A GitHub issue can function as the incident record without exposing private
-  material.
-- Automation has one schema to validate before creating or updating issues.
-
-## Slice 2 - Proprietary Pager Receiver Outside A6
-
-Goal: replace third-party paging with a small VHC-owned receiver that can run
-outside the A6 failure domain.
-
-Implement:
-
-- Add `services/vhc-pager/` as a Cloudflare Worker-compatible TypeScript
-  service, with a Node test harness. The service must not require A6 to be
-  healthy once an alert has already left A6.
-- Endpoints:
-  - `GET /healthz`
-  - `POST /api/a6-alert`
-  - `POST /api/a6-heartbeat`
-  - `POST /api/test-fire`
-  - `POST /api/ack`
-  - `POST /api/push/subscribe`
-  - `DELETE /api/push/subscribe/:id`
-- Authenticate A6 calls with HMAC over the raw request body using
-  `VH_PAGER_A6_WEBHOOK_SECRET`. Persist only sanitized alert summaries and
-  request hashes.
-- Store incident state by normalized incident key:
-  `a6:<source>:<severity>:<fingerprint>`.
-- Implement dedupe and repeat rules:
-  - first critical: push immediately and create/update issue;
-  - unchanged critical: repeat until acknowledged at configured interval;
-  - warning: push once, then digest unless it worsens;
-  - recovered: update issue and send recovery push;
-  - missing heartbeat: critical if no A6 heartbeat within the configured window.
-- Add a local in-memory storage adapter for tests and a production storage
-  adapter for the chosen worker platform.
-
-Tests:
-
-- Unit tests for HMAC verification, dedupe, repeat, ack, recovery, and missing
-  heartbeat.
-- Fixture replay using real `public-feed-alert-watch` summary shapes.
-
-Done when:
-
-- The pager can receive today's `public-feed-alert-watch` JSON without changing
-  the producer.
-- The pager can alert when A6 goes silent after heartbeats were previously
-  healthy.
-
-## Slice 3 - iPhone Web Push PWA
-
-Goal: give Lou a private iPhone notification surface without a paid pager.
-
-Implement:
-
-- Add a private pager PWA under `services/vhc-pager/pwa/` or an equivalent
-  static bundle served by the pager worker.
-- Support:
-  - add-to-Home-Screen onboarding;
-  - push permission request;
-  - subscription registration;
-  - current incident list;
-  - acknowledge button;
-  - test-fire button;
-  - recovery status.
-- Use Web Push with VAPID keys stored outside source control. Do not commit
-  private keys.
-- Keep notification content short and safe:
-  `[VHC A6] critical: publisher exit_78_fail_closed` plus issue link.
-- Add a visual "last pager heartbeat" and "last A6 heartbeat" status so the
-  human can tell whether the pager itself is alive.
-
-Tests:
-
-- Unit tests for push payload construction and redaction.
-- Browser smoke for subscription UI using mocked Push APIs.
-- Manual iPhone acceptance test recorded in docs: install PWA, enable alerts,
-  receive test-fire, acknowledge test incident.
-
-Done when:
-
-- Lou's iPhone receives a test push from the VHC pager.
-- The push links to the GitHub incident case file.
-
-## Slice 4 - GitHub Incident Bridge
-
-Goal: make the GitHub issue the durable case file.
-
-Implement:
-
-- Add a GitHub client module inside `services/vhc-pager/` that can:
-  - create an incident issue from a sanitized alert;
-  - update an existing issue by fingerprint or open incident key;
-  - add labels;
-  - append timeline comments;
-  - post recovery comments;
-  - avoid duplicate issues during repeated alerts.
-- Required labels:
-  - `incident`
-  - `a6`
-  - `public-feed`
-  - `severity:critical` or `severity:warning`
-  - `needs-codex-triage`
-  - `reviewer:fable` or `reviewer:sol`
-  - `operator-action-needed`
-  - `waiting-for-readback`
-  - `resolved`
-- Issue body sections:
-  - alert summary;
-  - current state;
-  - safe evidence;
-  - blocked/forbidden actions;
-  - Codex triage checklist;
-  - SOTA review state;
-  - approved packet hash;
-  - readback log.
-- Use a GitHub token scoped to issue write only for the pager service. The
-  pager must not have code-write permission.
-
-Tests:
-
-- Mock GitHub REST tests for create/update/dedupe/recovery.
-- Redaction tests proving webhook URLs, tokens, private env names, raw payload
-  bodies, and raw heap paths are not written.
-
-Done when:
-
-- A test-fire alert creates or updates exactly one issue.
-- Repeated identical alerts update the timeline without issue spam.
-
-## Slice 5 - Alert Egress And Heartbeat Runbook
-
-Goal: connect the existing A6 alert producer to the pager without weakening
-current alert fail-close behavior.
-
-Implement:
-
-- Update `docs/ops/public-feed-freshness-monitor.md` with a pager-specific
-  Block A/Block B:
-  - configure `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` to the pager endpoint;
-  - configure `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS` for positive heartbeat;
-  - run `VH_PUBLIC_FEED_ALERT_TEST_FIRE=1`;
-  - require pager push receipt and GitHub issue creation before enabling timer.
-- Add a small `tools/scripts/validate-public-feed-alert-pager-output.mjs`
-  helper that checks local alert output plus pager issue/readback summary.
-- Do not change the alert watch's existing webhook/email behavior unless tests
-  prove a compatibility gap.
-
-Tests:
-
-- Existing `check:public-feed:alert-watch`.
-- New validation helper tests using mocked pager/GitHub responses.
-- `docs:check`.
-
-Done when:
-
-- A6 can be configured to send the existing alert JSON to the VHC pager.
-- The enablement runbook fails closed unless iPhone push and GitHub issue
-  creation are both confirmed.
-
-## Slice 6 - Codex Incident Triage Worker
-
-Goal: let Codex continuously inspect incident issues and produce useful work
-without unattended production-write authority.
-
-Implement:
-
-- Add `tools/scripts/vhc-incident-triage-worker.mjs`.
-- It polls GitHub issues with:
-  - `incident`
-  - `a6`
-  - `needs-codex-triage`
-  - not `codex-investigating`
-  - not `resolved`
-- It creates a dedicated worktree or temporary clone per issue.
-- It runs a read-only evidence collection phase first:
-  - repo state and current head;
-  - relevant docs/code grep;
-  - public endpoint checks when configured;
-  - safe alert/watch JSON summaries from the issue;
-  - optional locked-down read-only A6 collector output, if separately
-    provisioned.
-- It then invokes Codex through the Sol path when code work is needed:
-  - `codex exec` or Codex SDK;
-  - `Sandbox.read_only` for diagnosis;
-  - `Sandbox.workspace_write` only for repo-side fixes;
-  - output schema for diagnosis and action proposal.
-- It may open a branch and draft PR for repo-side changes. Branches must use
-  `coord/incident-<issue-number>-<slug>`.
-- It may draft an operator packet. It may not execute it.
-
-Runner:
-
-- Preferred: trusted private runner outside A6 with ChatGPT-managed Codex auth
-  or Codex access token. Do not use a public GitHub-hosted runner for the OAuth
-  auth cache.
-- Acceptable fallback: GitHub Action using OpenAI API key through
-  `openai/codex-action@v1`, but that is not the "Sol via Codex OAuth" path and
-  should be recorded as a fallback.
-
-Tests:
-
-- Mock GitHub issue polling and label transitions.
-- Fixture incident -> read-only diagnosis comment.
-- Fixture incident -> branch + draft PR without production commands.
-- Prompt-injection tests against issue body content.
-
-Done when:
-
-- A new incident issue gets a Codex diagnosis comment within the configured
-  polling interval.
-- Repo-side fixes become draft PRs with tests.
-- Live actions become exact packets, not executed commands.
-
-## Slice 7 - Switchable Fable/Sol Review Gate
-
-Goal: replace the missing technical human review with an independent structured
-model review that Lou can switch at any time.
-
-Implement:
-
-- Add `tools/scripts/vhc-incident-reviewer.mjs`.
-- Add provider adapters:
-  - `fable-anthropic`: direct Anthropic Messages API via `ANTHROPIC_API_KEY`
-    or Workload Identity Federation. Env: `VH_INCIDENT_FABLE_MODEL`.
-  - `sol-codex`: Codex non-interactive or SDK path using ChatGPT-managed Codex
-    auth on the trusted runner. Env: `VH_INCIDENT_SOL_MODEL`.
-- Add provider selection:
-  - default env: `VH_INCIDENT_REVIEW_PROVIDER=fable|sol`;
-  - issue labels: `reviewer:fable`, `reviewer:sol`;
-  - issue commands: `/vhc reviewer fable`, `/vhc reviewer sol`.
-- Add normalized review packet:
-  - incident issue body and safe comments;
-  - Codex diagnosis;
-  - diff or PR URL;
-  - proposed operator packet;
-  - forbidden action checklist;
-  - evidence-preservation risks;
-  - expected readbacks;
-  - rollback/stop conditions.
-- Required structured verdict:
-  - `pass`, `block`, or `needs_more_evidence`;
-  - risk: `low`, `medium`, `high`;
-  - approved action IDs;
-  - blocked action IDs;
-  - required readbacks;
-  - plain-English summary for Lou.
-- Fail closed on malformed JSON, missing required fields, provider timeout,
-  provider mismatch, or review of a stale packet hash.
-
-Tests:
-
-- Provider-switch tests without changing issue content.
-- Fable and Sol stub adapters returning pass/block/malformed verdicts.
-- Packet hash mismatch blocks approval.
-- Forbidden actions are blocked even if a model says pass.
-
-Done when:
-
-- Lou can switch reviewer by label/comment.
-- No execution packet can advance without a passing structured review from the
-  currently selected provider.
-
-## Slice 8 - Plain-English Approval And Exact-Packet Executor
-
-Goal: let a non-technical human approve a reviewed action without judging logs
-or commands.
-
-Implement:
-
-- Add an execution packet schema `vhc-operator-packet-v1`.
-- Add `tools/scripts/vhc-operator-packet-verify.mjs`:
-  - validates action IDs against an allowlist;
-  - validates packet hash;
-  - validates SOTA review pass against the same hash;
-  - validates Lou's approval comment references the same hash;
-  - refuses forbidden actions.
-- Approval command:
-  - `/vhc approve packet <packet-id> <sha256>`
-- Executor runs only on a trusted private runner with scoped production access.
-  It must execute the exact packet body whose hash was approved.
-- Initial allowlist:
-  - run read-only A6 collector;
-  - enable alert/watch timers after test-fire proof;
-  - restart publisher after network recovery proof;
-  - deploy a named already-merged commit using an emitted deploy packet;
-  - run heap analyzer on summary files.
-- Explicitly forbidden until separately reviewed:
-  - retention;
-  - compaction;
-  - eviction;
-  - publisher clear;
-  - quorum reduction;
-  - fail-close weakening;
-  - raw heap snapshot export;
-  - mesh production write.
-
-Tests:
-
-- Approval parser tests.
-- Hash mismatch blocks.
-- Missing SOTA pass blocks.
-- Forbidden action blocks.
-- Dry-run executor test with a no-op command.
-
-Done when:
-
-- Lou's approval responsibility is reduced to approving a named, reviewed,
-  bounded business action.
-- The executor cannot drift from the reviewed packet.
-
-## Slice 9 - Readback Verifier And Incident Closure
-
-Goal: make recovery proof automatic and issue-based.
-
-Implement:
-
-- Add `tools/scripts/vhc-incident-readback-verifier.mjs`.
-- For each packet action, define required readbacks:
-  - alert enablement: latest alert output is test-fire, delivery sent, iPhone
-    receipt confirmed, timer active;
-  - publisher restart: unit active/running, first clean tick, public freshness
-    under SLO, no exit 78/75/parked 69;
-  - heap analyzer: summary-only input, classified retainer or named missing
-    measurement, no raw heap path in output;
-  - release evidence: chosen commit matches, pipeline report exists, sha256s
-    present, closeout blockers recorded.
-- Post readback summaries to the issue.
-- Move labels:
-  - `operator-action-needed` -> `waiting-for-readback`;
-  - `waiting-for-readback` -> `resolved` only when readbacks pass;
-  - add `needs-more-evidence` on inconclusive results.
-- Do not auto-close an incident while the pager still reports critical state or
-  watch-closure verdict is failing.
-
-Tests:
-
-- Fixture readbacks for pass/fail/inconclusive.
-- Label transition tests.
-- Secret-safety tests.
-
-Done when:
-
-- Every executed packet leaves an auditable issue timeline.
-- Incidents cannot close on "command ran" alone; they close on readback proof.
-
-## Slice 10 - End-To-End Drill And Operating Docs
-
-Goal: prove the whole loop before trusting it with production incidents.
-
-Implement:
-
-- Add an end-to-end dry-run fixture:
-  - synthetic critical alert;
-  - pager receives and sends mock push;
-  - GitHub issue created;
-  - Codex triage comment posted;
-  - Fable review pass;
-  - Sol review pass after switching labels;
-  - Lou approval command parsed;
-  - no-op packet executed;
-  - readback verifier resolves issue.
-- Add ops docs for VHC incident response, pager iPhone setup, and the Codex
-  responder.
-- Add a one-page lay operator version:
-  - what the phone alert means;
-  - what button/comment Lou uses;
-  - what actions are always forbidden;
-  - how to switch Fable/Sol;
-  - how to pause automation.
-
-Tests:
-
-- `corepack pnpm@9.7.1 check:vhc-incident-response`
-- `corepack pnpm@9.7.1 check:public-feed:alert-watch`
-- `corepack pnpm@9.7.1 check:scope-a-watch-closure`
-- `corepack pnpm@9.7.1 check:early-heap-captures`
-- `corepack pnpm@9.7.1 docs:check`
-- `git diff --check`
-
-Done when:
-
-- A synthetic incident completes the full loop without touching live A6.
-- The first live enablement session has a documented dry-run proof.
+- `main` is `e665dd71`; this plan lives on `coord/incident-response-slices-2026-07-06`
+  (draft PR #722, the only open PR).
+- Distribution readiness is blocked ONLY on (a) an alert delivery channel +
+  test-fire receipt, and (b) heap captures accruing. Slice 0 exists so this
+  build never blocks (a).
+- Alert producer: `tools/scripts/public-feed-alert-watch.mjs` emits
+  `vh-public-feed-alert-watch-v1` JSON to ONE webhook URL
+  (`VH_PUBLIC_FEED_ALERT_WEBHOOK_URL`) plus optional sendmail email; it
+  fingerprint-dedupes (state_changed / recovery / heartbeat via
+  `VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS`), classifies exit 69 restarting vs
+  parked, exit 75, exit 78, and marks `delivery.status='sent'` on ANY 2xx —
+  after which that fingerprint is not resent except by heartbeat. It sends NO
+  signature header today, and it has no separate heartbeat/test-fire URLs:
+  everything arrives on the one URL, distinguished by payload `alertReason`.
+  Two consequences this plan must honor: the pager may 2xx ONLY after durable
+  persistence, and A6-call authentication requires a small, explicit
+  producer-side change (Slice 5) — the v1 claim "without changing the
+  producer" was self-contradictory and is withdrawn.
+- Watch-closure verdict: written where
+  `VH_PHASE5_SCOPE_A_WATCH_VERDICT_FILE` points (the installer unit sets the
+  canonical `~/.local/state/vhc/phase5-scope-a-watch-closure/verdict.json`;
+  the script has no built-in default).
+- Heap analyzer `analyze-early-heap-captures.mjs` refuses `.heapsnapshot`
+  inputs; release pipeline `regenerate-mvp-release-evidence.mjs` supports
+  `--commit` + per-artifact sha256; systemd installer verifies units with
+  `systemd-analyze verify --user` when available.
+- `.github/ISSUE_TEMPLATE/public-beta-support.yml` exists; there is no
+  incident template, label contract, pager, or responder workflow yet.
+- The repo is PUBLIC. Every security decision below assumes hostile readers
+  and hostile commenters on every issue.
+
+## Security Architecture (non-negotiable, applies to every slice)
+
+1. **Identity gating.** Every `/vhc` command (approve, reviewer switch, pause,
+   reopen) is honored only when the comment author's GitHub login is in the
+   operator-owned allowlist (`VH_INCIDENT_APPROVER_LOGINS`,
+   `VH_INCIDENT_OPERATOR_LOGINS`) AND the comment is unedited
+   (`updated_at == created_at` via the API). Comments from all other users
+   are quarantined: never parsed as commands, never fed to model context.
+2. **Immutable/signed artifact chain.** The executor trusts only:
+   (a) the packet FILE at a pinned git commit SHA (immutable by construction);
+   (b) a review verdict SIGNED by the reviewer runner's private key, where the
+   signature covers the packet sha256 + verdict fields (public key
+   pre-provisioned on A6);
+   (c) an approval comment fetched live from the GitHub API and verified for
+   author allowlist + unedited + exact packet sha256 reference.
+   Issue BODIES and unsigned comments are display surface only — nothing
+   trusts them. This makes the pager's issues-write token unable to forge an
+   execution, even if fully compromised.
+3. **Pull-model executor.** No standing inbound production credential exists
+   anywhere. An A6-local agent (systemd timer) polls for candidate packets,
+   performs ALL chain verification from rule 2 locally, checks the kill
+   switch, enforces the action allowlist for its current trust phase, and
+   executes on the host it already lives on. Compromising the pager, the
+   triage runner, or the reviewer runner yields no path to A6 execution
+   without also breaking the signature chain and the GitHub identity checks.
+4. **Untrusted-content quarantine.** Model context (triage AND review) is
+   assembled ONLY from: the sanitized alert payloads the pager itself wrote,
+   allowlisted-author comments, repo files, and collector outputs. Non-
+   allowlisted comments are excluded wholesale (not sanitized — excluded).
+   Prompt-injection tests exist in BOTH Slice 6 and Slice 7, but the control
+   is the exclusion, not the tests.
+5. **Reviewer independence.** Default: the reviewer provider must differ from
+   the proposer provider (Codex-drafted packets are reviewed by `fable`).
+   Overriding to same-provider review requires an identity-gated command and
+   stamps a visible `same-provider-review` label on the issue.
+6. **Kill switch, first-class.** A single repo-level control
+   (`automation: paused` repo variable, mirrored as a pager flag) is checked
+   by the pager's issue-writing, the triage worker, the reviewer, and the
+   executor before every action. Paused = paging continues (never pause
+   paging), automation halts. Any allowlisted operator can set it with one
+   command; the drill in Slice 10 exercises it.
+7. **Budgets and rate bounds.** Triage worker: max Codex invocations per
+   issue, max draft PRs per day. Pager: max pushes per incident per hour
+   (repeat-until-ack has a floor interval), max timeline comments per
+   incident per hour (coalesce). GitHub writes go through an outbox with
+   retry, not fire-and-forget.
+8. **Layered notification honesty.** iOS Web Push (from a Home-Screen PWA,
+   iOS 16.4+, permission via user gesture) does NOT override silent/Focus
+   mode and offers no critical-alert entitlement — a silent iPhone at 3am
+   does not wake. Therefore: push is the primary channel, the producer's
+   existing EMAIL channel stays enabled in parallel indefinitely, repeat-
+   until-ack keeps re-paging, and the operator doc tells Lou to allow the
+   pager PWA notifications with sound and to consider scheduled Focus
+   breakthrough for it. Anything stronger (phone call, native app critical
+   alerts) is explicitly out of scope and listed as a future upgrade.
+9. **Secret discipline (unchanged from v1).** Issues are public-safe: hashes,
+   counts, classes, timestamps, links only. No tokens, webhook URLs, env
+   values, payload bodies, or heap paths in issues or model context. The A6
+   read-only collector emits secret-safe summaries only.
+10. **Standing A6 invariants (unchanged).** No live mutation without an
+    approved packet; 2-of-3 quorum never weakened; exit 78 stays a
+    non-restarting write-safety park — see the exit-class guard in Slice 8;
+    exit 69 stays the transport-total restartable class; no memory
+    remediation until heap evidence names the retainer.
+
+## Slice 0 - Interim Alert Channel (do this FIRST, independent of the build)
+
+Goal: A6 must not run dark while this plan is built. Three prior outages were
+silent multi-hour/day events; the build below is weeks-scale.
+
+Implement (operator session, existing tooling only — no new code):
+
+- Enable the existing alert watch TODAY using the already-hardened #710
+  Block A/Block B runbook with the EMAIL channel
+  (`VH_PUBLIC_FEED_ALERT_EMAIL_TO` to an address that pages Lou's phone via
+  mail VIP/alert settings), plus any simple webhook if desired.
+- Test-fire, confirm receipt on the phone, enable the timer.
+- Record in the runbook that the webhook URL will later be repointed to the
+  VHC pager (Slice 5) with zero producer redeploy beyond env + one signing
+  addition.
+
+Done when: a real A6 alert reaches a human device within one timer interval,
+starting now — not after Slice 5.
+
+## Tranche A — Paging MVP (Slices 1-5)
+
+Tranche exit gate: pager live for 14 days, weekly test-fires received on
+iPhone, at least one synthetic end-to-end incident (alert → push → issue →
+ack → recovery), pager dead-man proven by a deliberate pager outage drill.
+Tranche B components may merge earlier but must not touch live incidents
+until this gate passes.
+
+### Slice 1 - Incident Contract And Case-File Template
+
+As v1, plus the review deltas:
+
+- `.github/ISSUE_TEMPLATE/a6-incident.yml` (public-safe warnings; no secret
+  prompts) and `docs/specs` contract `vhc-incident-v1` with required fields:
+  severity, alert class, source fingerprint, first/last seen, affected
+  service, status, safe evidence, runbook links, reviewer, approval state,
+  packet hash, readback state.
+- **Incident correlation key (revised):** the open-incident key is
+  `a6:<source>:<alert_class_family>` — severity and volatile fingerprint are
+  ATTRIBUTES, not key parts. Escalation (warning→critical) and recovery
+  correlate to the SAME open issue; the fingerprint history is a timeline.
+  (v1's `a6:<source>:<severity>:<fingerprint>` fragmented one incident across
+  issues on every transition.)
+- **Flap/reopen rule:** a recurrence within `VH_INCIDENT_REOPEN_WINDOW`
+  (default 24h) of a `resolved` issue REOPENS it; later recurrences open a new
+  issue that links the prior one.
+- **Label contract:** as v1 (`incident`, `a6`, `public-feed`,
+  `severity:*`, `needs-codex-triage`, `reviewer:*`,
+  `operator-action-needed`, `waiting-for-readback`, `resolved`) plus
+  `codex-investigating` (defined as a LEASE: carries an expiry timestamp in a
+  marker comment; expired leases are reclaimable so a crashed worker cannot
+  orphan an issue), `same-provider-review`, `needs-more-evidence`,
+  `automation-paused` awareness.
+- **Identity config contract:** the spec defines
+  `VH_INCIDENT_APPROVER_LOGINS` / `VH_INCIDENT_OPERATOR_LOGINS` and the
+  unedited-comment rule (§Security 1) so every later component implements the
+  same gate.
+- `tools/scripts/check-vhc-incident-response.mjs` + package script
+  `check:vhc-incident-response` validating template, labels, redaction
+  warnings, key/lease/reopen rules present in the spec; fixtures under
+  `tools/fixtures/incidents/` (critical, warning, escalation, recovered,
+  test-fire, reopen).
+
+Tests: `check:vhc-incident-response`, `docs:check`, `git diff --check`.
+Done when: automation has one schema + one identity/lease/key contract to
+validate against before any issue is written.
+
+### Slice 2 - VHC Pager Receiver Outside A6
+
+As v1, plus the review deltas:
+
+- Platform reference design named: Cloudflare Worker + **Durable Objects with
+  Alarms** for per-incident repeat-until-ack timers and the missing-heartbeat
+  dead-man; a Cron Trigger as the coarse backstop sweep. In-memory state is
+  test-only; production state lives in the DO. (A request-driven worker
+  without alarms cannot wake itself — v1's "storage adapter" alone was
+  unimplementable for the heartbeat dead-man.)
+- **Ingestion contract:** single endpoint `POST /api/a6-alert` accepting
+  today's producer payload; heartbeat and test-fire are demuxed from payload
+  `alertReason` (the producer only ever calls one URL). The separate
+  `/api/a6-heartbeat` endpoint is dropped.
+- **Durable-persist-before-2xx:** the handler persists the sanitized summary
+  + request hash in the DO BEFORE returning 200; push/issue fan-out is async
+  afterward via an outbox. (The producer marks `delivery.status='sent'` on
+  any 2xx and will not resend that fingerprint — a respond-then-process pager
+  silently loses criticals.)
+- **A6-call auth:** HMAC over raw body with `VH_PAGER_A6_WEBHOOK_SECRET`,
+  PLUS timestamp + nonce fields with a freshness window (replay defense).
+  This REQUIRES the small producer-side signing change delivered in Slice 5 —
+  acknowledged producer change, no longer denied. Until Slice 5 deploys, the
+  pager runs in `ingest-unsigned` bootstrap mode behind an unguessable path
+  secret, and refuses unsigned ingest once signing is enabled (one-way
+  latch).
+- **Human/device endpoint auth (new, closes a blocker):** `/api/ack`,
+  `/api/test-fire`: require a per-device bearer token issued at enrollment;
+  `/api/push/subscribe`: requires a one-time enrollment secret handed to Lou
+  out-of-band; `DELETE /api/push/subscribe/:id` requires the device token.
+  Unauthenticated ack is how an attacker silences a live critical.
+- Dedupe/repeat rules as v1 (first-critical immediate; unchanged critical
+  repeats until ack at configured floor interval; warning once + digest;
+  recovery push; missing A6 heartbeat within
+  `max(2 × VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS, 35min)` → critical). Enablement
+  fails closed if the producer heartbeat env is unset.
+- **Pager dead-man (new, closes a blocker):** a scheduled GitHub Action
+  (outside both A6 and the pager) curls `GET /healthz` every 15 minutes and
+  on failure opens/updates a `pager-down` issue AND sends the fallback email
+  directly. The pager watching A6 is itself watched.
+
+Tests: HMAC + replay-window, unsigned-bootstrap latch, durable-persist-
+before-200 (fault-injected crash between persist and fan-out), ack auth,
+enrollment auth, dedupe/repeat/ack/recovery/missing-heartbeat via DO-alarm
+simulation, producer-fixture replay (real `vh-public-feed-alert-watch-v1`
+shapes incl. `alertReason` demux).
+
+Done when: the pager ingests today's producer JSON durably, repeats unacked
+criticals, alarms on A6 silence, and is itself covered by an external
+dead-man.
+
+### Slice 3 - iPhone Web Push PWA
+
+As v1, plus the review deltas:
+
+- Constraints documented in the PWA onboarding AND the ops doc: iOS 16.4+,
+  push only from a Home-Screen-installed PWA, permission requires a user
+  gesture, and **no silent/Focus override** (§Security 8). The acceptance
+  test includes the honest statement of what this pager can and cannot do.
+- **Workers-compatible Web Push:** VAPID JWT (ES256) built with WebCrypto in
+  the worker — the standard `web-push` npm package does not run on Cloudflare
+  Workers. Keys live as platform secrets; never in source.
+- **Subscription lifecycle (new):** handle 404/410 on push send by marking the
+  subscription dead; when live subscriptions reach ZERO, the pager raises its
+  own alert through the fallback email + `pager-down` issue path and the PWA
+  shows re-onboarding. iOS evicts subscriptions more aggressively than
+  desktop; assume it will happen.
+- Push content stays short/safe (`[VHC A6] critical: publisher
+  exit_78_fail_closed` + issue link); if issue creation failed, the push
+  links to the pager's own incident view instead of a dead GitHub link.
+- Ack lives in the PWA (correct for iOS; do not migrate ack onto notification
+  action buttons later).
+- **Enablement is NOT hard-gated on the PWA:** Tranche A's gate accepts
+  iPhone receipt via PWA push; if the PWA slips, GitHub mobile notifications
+  on the incident issue + email are an accepted bootstrap receipt path so
+  Slice 5 enablement is never blocked by PWA polish.
+
+Tests: payload construction/redaction, mocked-Push subscription UI smoke,
+dead-subscription (410) handling, zero-subscription alarm, manual iPhone
+acceptance recorded in docs (install, permission, test-fire receipt, ack).
+
+### Slice 4 - GitHub Incident Bridge
+
+As v1, plus the review deltas:
+
+- Issue create/update keyed by the REVISED incident key (Slice 1); escalation
+  and recovery update the same open issue; reopen-window honored; timeline
+  comments coalesced under the comment budget (§Security 7) with an outbox +
+  retry for GitHub API failures after the pager already 200'd A6.
+- Token: FINE-GRAINED PAT, single repository, Issues read/write ONLY, stored
+  as a platform secret, with a documented rotation + revocation runbook and a
+  90-day expiry calendar note. The bridge never holds code-write. Nothing the
+  executor trusts is forgeable with this token (§Security 2).
+- Redaction tests as v1 (no URLs/tokens/env names/payloads/heap paths), plus
+  a test that non-allowlisted-author comments are never echoed into
+  bridge-authored issue content.
+
+Done when: one alert stream = one open issue with an escalation-safe
+timeline, no spam under flapping, and a token whose theft cannot authorize
+execution.
+
+### Slice 5 - Alert Egress, Producer Signing, Heartbeat Runbook
+
+As v1, plus the review deltas:
+
+- **Producer change is explicit now:** a small PR to
+  `public-feed-alert-watch.mjs` adding optional
+  `VH_PUBLIC_FEED_ALERT_WEBHOOK_HMAC_SECRET` (signature + timestamp + nonce
+  headers on the existing single-URL POST). Default-off; without the env the
+  producer behaves byte-identically. This is the only producer change and it
+  is on the critical path deliberately — unauthenticated ingest was a
+  contradiction v1 papered over.
+- **Extend, do not rewrite, the #710 Block A/Block B runbook** (it was
+  verified and hardened two days ago): add the pager-specific env lines
+  (webhook URL → pager, heartbeat ms, HMAC secret) and one additional gate to
+  Block B: pager push receipt AND GitHub issue creation confirmed, alongside
+  the existing `delivery.status === "sent"` + receipt gate. Keep the EMAIL
+  channel configured in parallel permanently (§Security 8).
+- Add `tools/scripts/validate-public-feed-alert-pager-output.mjs` checking
+  local alert output + pager issue/readback summary consistency.
+- Migration note from Slice 0: repoint the webhook env from the interim
+  channel to the pager; the interim email stays as the fallback channel.
+
+Tests: existing `check:public-feed:alert-watch` (producer signing covered by
+new unit tests, default-off proven byte-identical), validation helper against
+mocked pager/GitHub, `docs:check`.
+
+Done when: A6 sends signed alerts to the pager; enablement fails closed
+unless push receipt AND issue creation are proven; email fallback remains.
+
+## Tranche B — Autonomy (Slices 6-10; live enablement gated on Tranche A exit)
+
+### Slice 6 - Codex Incident Triage Worker
+
+As v1, plus the review deltas:
+
+- Polls issues labeled `incident`+`a6`+`needs-codex-triage`, honoring the
+  `codex-investigating` LEASE (reclaim on expiry) and the kill switch.
+- **Context assembly per §Security 4:** pager-authored body/comments +
+  allowlisted-author comments + repo files + collector outputs ONLY.
+  Non-allowlisted comments are structurally excluded. Prompt-injection tests
+  assert exclusion, not sanitization.
+- Read-only evidence phase, then Codex via Sol path (`codex exec`/SDK,
+  `read_only` sandbox for diagnosis, `workspace_write` only for repo-side
+  fixes, output schemas). Draft PRs on `coord/incident-<n>-<slug>`. May draft
+  operator packets as FILES committed on the incident branch (this pins the
+  packet at a commit SHA for the §Security 2 chain); never executes.
+- Budgets: `VH_INCIDENT_TRIAGE_MAX_RUNS_PER_ISSUE`,
+  `VH_INCIDENT_TRIAGE_MAX_PRS_PER_DAY`; on budget exhaustion, label
+  `needs-more-evidence` and stop.
+- Runner: trusted private runner (not A6, not a public GH runner) for
+  ChatGPT-managed auth; **auth-expiry detection**: on auth failure the worker
+  posts a `triage-stalled` comment through the bridge and the pager raises a
+  warning — stalls must page, not rot (see also Slice 7 stall escalation).
+  Fallback: API-key Codex GitHub Action, recorded as the non-Sol path.
+
+### Slice 7 - Switchable Fable/Sol Review Gate
+
+As v1, plus the review deltas:
+
+- Provider adapters as v1 (`fable-anthropic` via `ANTHROPIC_API_KEY` +
+  `VH_INCIDENT_FABLE_MODEL`, structured verdict via forced tool/schema
+  output; `sol-codex` via Codex on the trusted runner +
+  `VH_INCIDENT_SOL_MODEL`).
+- **Reviewer independence default (§Security 5):** packets proposed by the
+  Codex triage worker default to `fable` review; selecting `sol` for a
+  Codex-proposed packet requires an identity-gated override command and
+  stamps `same-provider-review`.
+- Reviewer switching (`/vhc reviewer fable|sol`) is identity-gated
+  (§Security 1).
+- **Signed verdicts (§Security 2):** the reviewer runner signs
+  `{packet_sha256, verdict, risk, approved_action_ids, blocked_action_ids,
+  required_readbacks, expires_at}` with its provisioned key; the signature —
+  not the issue text — is what the executor verifies. Verdicts expire
+  (`expires_at`, default 24h) so a stale pass cannot authorize a later
+  changed context.
+- Fail-closed as v1 (malformed JSON, missing fields, timeout, provider
+  mismatch, stale packet hash), plus **stall escalation**: any incident
+  sitting in `needs-review` (or `needs-codex-triage`, or
+  `waiting-for-readback`) beyond `VH_INCIDENT_STAGE_STALL_HOURS` (default 4h
+  critical / 24h warning) triggers a pager warning. Reviewer-unavailable must
+  page, not silently stall.
+- Prompt-injection tests HERE too (v1 had them only in Slice 6): the review
+  packet assembly obeys §Security 4.
+
+### Slice 8 - Identity-Gated Approval And A6 Pull Executor
+
+Rewritten around the pull model (§Security 2-3):
+
+- Packet schema `vhc-operator-packet-v1`: action IDs from the allowlist,
+  exact commands, target commit (for deploys), expected readbacks, stop
+  conditions. Packets are FILES committed on the incident branch; the packet
+  hash is the sha256 of the file bytes at a pinned commit SHA.
+- Approval: `/vhc approve packet <packet-id> <sha256>` — honored only from
+  `VH_INCIDENT_APPROVER_LOGINS`, unedited comments, exact-hash match
+  (§Security 1). The plain-English summary Lou approves is the reviewer's
+  signed `summary_for_operator` field, quoted by the bridge next to the
+  approval instructions.
+- **Executor = `vhc-packet-executor` ON A6** (systemd timer, local user):
+  polls the GitHub API read-only (public repo; no token needed) for
+  candidate approvals; verifies locally: packet file at pinned SHA hashes to
+  the approved sha256 → reviewer signature valid, verdict `pass`, not
+  expired, same hash → approval comment author allowlisted + unedited + same
+  hash → action IDs within the CURRENT TRUST PHASE allowlist → kill switch
+  not set → executes locally, streams a secret-safe transcript summary to a
+  host-private log, posts result hashes/statuses via the bridge. No inbound
+  credential to A6 exists anywhere in the system.
+- **Progressive trust phases (new):**
+  - Phase 1: read-only A6 collector; alert/watch timer enablement after
+    test-fire proof.
+  - Phase 2 (after ≥2 clean Phase-1 executions + one drill): publisher
+    restart WITH EXIT-CLASS GUARD — the packet executor independently reads
+    `ExecMainStatus`/`Result` and refuses restart when the park is exit 78 or
+    exit 75 (write-safety and wrapper-refusal parks are operator-terrain;
+    only exit-69-class transport parks and clean starts are automatable).
+    This guard is executor-side and cannot be waived by packet content,
+    review, or approval.
+  - Phase 3 (after ≥2 clean Phase-2 executions + one drill): deploy of a
+    named already-merged commit via the emitted deploy packet.
+  - Phase transitions are operator-owned config changes on A6, not GitHub
+    state.
+- Forbidden list as v1 (retention, compaction, eviction, publisher clear,
+  quorum reduction, fail-close weakening, raw heap export, mesh write) —
+  enforced executor-side, cannot be allowlisted by any packet/review.
+
+Tests: approval parser + identity/unedited gates; hash mismatch; missing/
+expired/wrong-hash signature; forbidden action; exit-class guard (78/75
+refused, 69 allowed); phase gating; kill switch; dry-run no-op end to end.
+
+### Slice 9 - Readback Verifier And Incident Closure
+
+As v1, plus: readbacks REUSE existing watch outputs (publisher liveness,
+freshness monitor, watch-closure verdict, alert output) rather than
+re-deriving checks; per-action required readbacks as v1; labels
+`operator-action-needed` → `waiting-for-readback` → `resolved` only on
+passing readbacks; `needs-more-evidence` on inconclusive; never auto-close
+while pager state is critical or the watch-closure verdict fails; closure
+comments include result hashes only.
+
+### Slice 10 - End-To-End Drill And Operating Docs
+
+As v1 (synthetic critical → push → issue → triage → fable pass → switch →
+sol pass → approval → no-op packet → readback → resolve), plus:
+
+- **Kill-switch drill** and **pager-outage drill** (dead-man page proven).
+- **Approval-spoof drill:** a non-allowlisted account posts a well-formed
+  approval; the executor must refuse and the issue must show the quarantine.
+- Lay one-pager for Lou: what the phone alert means, the one approval command
+  format, what is always forbidden, how to switch reviewers, how to pause
+  everything (the kill switch), and the honest note about silent/Focus mode.
+
+Tests: full check suite (`check:vhc-incident-response`,
+`check:public-feed:alert-watch`, `check:scope-a-watch-closure`,
+`check:early-heap-captures`, `docs:check`, `git diff --check`).
 
 ## Dependency Order
 
 ```text
-Slice 1 incident contract
-  -> Slice 2 pager receiver
-  -> Slice 3 iPhone PWA
-  -> Slice 4 GitHub incident bridge
-  -> Slice 5 A6 alert egress/heartbeat runbook
-  -> Slice 6 Codex triage worker
-  -> Slice 7 Fable/Sol review gate
-  -> Slice 8 approval/executor
-  -> Slice 9 readback verifier
-  -> Slice 10 end-to-end drill/docs
-```
+Slice 0 (interim channel, operator, NOW — independent of everything)
 
-Slices 6 and 7 can begin after Slice 1 if they use issue fixtures, but they
-cannot be enabled against live incidents until Slices 2-5 prove the alert and
-case-file path.
+Tranche A: 1 -> 2 -> {3, 4} -> 5 -> [14-day operating gate + drills]
+Tranche B: 6 -> 7 -> 8 -> 9 -> 10
+  (6/7 may develop against Slice-1 fixtures in parallel with Tranche A,
+   but must not touch live incidents until the Tranche A gate passes;
+   8's live phases additionally gate on drills as specified.)
+```
 
 ## First Physical PR
 
-Start with Slice 1. It is the lowest-risk PR and prevents later automation from
-inventing incompatible issue formats.
-
-Expected first branch:
-
-```text
-coord/incident-response-contract
-```
-
-Expected first checks:
-
-```bash
-corepack pnpm@9.7.1 check:vhc-incident-response
-corepack pnpm@9.7.1 docs:check
-git diff --check
-```
+Slice 1, branch `coord/incident-response-contract`, checks:
+`check:vhc-incident-response`, `docs:check`, `git diff --check`.
+(Slice 0 is an operator session, not a PR, and should happen before or
+alongside it.)
 
 ## Sources Checked
 
-- Current repo alert producer and delivery code:
-  `tools/scripts/public-feed-alert-watch.mjs`
-- Current watch-closure packet:
-  `tools/scripts/phase5-scope-a-watch-closure-packet.mjs`
-- Current heap analyzer:
-  `tools/scripts/analyze-early-heap-captures.mjs`
-- Current release evidence pipeline:
-  `tools/scripts/regenerate-mvp-release-evidence.mjs`
-- Current A6 production docs:
-  `docs/ops/public-feed-freshness-monitor.md`,
-  `docs/ops/news-aggregator-production-service.md`
-- Codex non-interactive, SDK, automations, GitHub Action, and auth docs:
+- Repo primitives (verified at `e665dd71`): `tools/scripts/public-feed-alert-watch.mjs`
+  (single-URL webhook, no signature today, 2xx⇒sent semantics, fingerprint
+  dedupe, heartbeat), `tools/scripts/phase5-scope-a-watch-closure-packet.mjs`
+  (+ installer-unit verdict path), `tools/scripts/analyze-early-heap-captures.mjs`,
+  `tools/scripts/regenerate-mvp-release-evidence.mjs`,
+  `tools/scripts/install-news-aggregator-production-service.sh`,
+  `.github/ISSUE_TEMPLATE/public-beta-support.yml`.
+- Codex docs (non-interactive exec, output schemas, sandbox modes, GitHub
+  Action, ChatGPT-managed auth + plan eligibility):
   https://developers.openai.com/codex/
-- Anthropic API auth and SDK docs:
-  https://platform.claude.com/docs/en/manage-claude/authentication,
+- Anthropic API docs (SDKs, Messages API, `ANTHROPIC_API_KEY` auth):
+  https://platform.claude.com/docs/en/manage-claude/authentication ,
   https://platform.claude.com/docs/en/cli-sdks-libraries/overview
+- iOS Web Push constraints (Home-Screen PWA requirement, no Focus override)
+  and Cloudflare Durable Object Alarms / Cron Triggers: platform
+  documentation reviewed 2026-07-06; the silent/Focus limitation is treated
+  as a hard product constraint, not an implementation detail.

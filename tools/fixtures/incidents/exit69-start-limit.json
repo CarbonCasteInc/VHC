@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "vh-public-feed-alert-watch-v1",
+  "generatedAt": "2026-07-06T10:00:00.000Z",
+  "alertReason": "state_change",
+  "status": "fail",
+  "observedStatus": "fail",
+  "severity": "critical",
+  "blockers": ["publisher:exit_69_start_limit_parked"],
+  "fingerprint": "publisher:exit_69_start_limit_parked",
+  "publisher": {
+    "status": "fail",
+    "failureClass": "exit_69_start_limit_parked",
+    "activeState": "failed",
+    "subState": "failed",
+    "execMainStatus": "69",
+    "result": "start-limit-hit",
+    "recoveryHint": "operator_restart_after_network_readback"
+  },
+  "freshness": { "status": "unknown", "blockerCount": 0 },
+  "relayLiveness": { "status": "pass", "blockerCount": 0 },
+  "relaySnapshot": { "status": "pass", "blockerCount": 0 },
+  "watchClosure": { "status": "pass", "verdictStatus": "in_progress", "blockerCount": 0 }
+}

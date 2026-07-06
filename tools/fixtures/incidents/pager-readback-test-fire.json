@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "vhc-pager-readback-v1",
+  "status": "ok",
+  "acceptedAt": "2026-07-06T10:00:05.000Z",
+  "incidentKey": "a6:public-feed:exit_69",
+  "issue": {
+    "number": 7220,
+    "url": "https://github.com/CarbonCasteInc/VHC/issues/7220"
+  },
+  "delivery": {
+    "push": "queued",
+    "email": "sent"
+  }
+}

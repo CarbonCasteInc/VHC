@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -328,7 +329,44 @@ test('relay liveness failures page through the existing alert delivery path', as
     assert.equal(body.relayLiveness.status, 'fail');
     assert.equal(body.relayLiveness.relays[0].name, 'vhc-relay-b');
     assert.equal(body.relayLiveness.relays[0].origin, undefined);
+    assert.equal(calls[0].init.headers['x-vhc-alert-signature'], undefined);
     assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('webhook alerts include pager HMAC headers only when configured', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const env = baseEnv(root, {
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://pager.example.invalid/a6',
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_HMAC_SECRET: 'unit-test-pager-secret',
+    });
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env,
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit78Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.delivery.status, 'sent');
+    const headers = calls[0].init.headers;
+    assert.equal(headers['content-type'], 'application/json');
+    assert.match(headers['x-vhc-alert-timestamp'], /^\d+$/);
+    assert.match(headers['x-vhc-alert-nonce'], /^[0-9a-f-]{36}$/i);
+    assert.match(headers['x-vhc-alert-signature'], /^sha256=[0-9a-f]{64}$/);
+    const expected = createHmac('sha256', 'unit-test-pager-secret')
+      .update(`${headers['x-vhc-alert-timestamp']}.${headers['x-vhc-alert-nonce']}.${calls[0].init.body}`)
+      .digest('hex');
+    assert.equal(headers['x-vhc-alert-signature'], `sha256=${expected}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

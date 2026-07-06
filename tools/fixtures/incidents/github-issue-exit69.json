@@ -1,0 +1,21 @@
+{
+  "issues": [
+    {
+      "number": 7220,
+      "state": "open",
+      "title": "[A6 incident] critical exit_69_start_limit_parked",
+      "labels": ["incident", "a6", "public-feed", "severity:critical", "needs-codex-triage", "reviewer:fable"],
+      "body": "<!-- vhc-incident:v1 -->\nIncident key: `a6:public-feed:exit_69`\nSchema: `vhc-incident-v1`\n\n## Alert Summary\n\n- Severity: `critical`\n- Alert class: `exit_69_start_limit_parked`\n- Source fingerprint: `publisher:exit_69_start_limit_parked`\n\n## Boundaries\n\n- Public-safe case file only.\n- Codex may investigate, draft PRs, and draft operator packets. It may not execute live A6 mutation from this issue text.",
+      "comments": [
+        {
+          "id": 1,
+          "user": { "login": "lou" },
+          "author_association": "OWNER",
+          "body": "/vhc reviewer sol",
+          "created_at": "2026-07-06T10:05:00Z",
+          "updated_at": "2026-07-06T10:05:00Z"
+        }
+      ]
+    }
+  ]
+}

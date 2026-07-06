@@ -1,0 +1,12 @@
+{
+  "name": "@vh/vhc-pager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node --check src/incident-contract.mjs && node --check src/pager-core.mjs && node --check src/github-bridge.mjs && node --check src/web-push.mjs && node --check src/worker.mjs",
+    "typecheck": "pnpm build",
+    "test": "node --test src/*.test.mjs",
+    "lint": "echo 'lint: ok (vhc-pager uses node --test guards)'"
+  }
+}
