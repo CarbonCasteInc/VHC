@@ -1,4 +1,4 @@
-import type { ClusterBucket, PipelineState } from './stageState';
+import type { ClusterBucket, PipelineState, StoredClusterRecord, WorkingDocument } from './stageState';
 import type { PairJudgementWorkResult, PairRerankWorkResult, StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
@@ -245,6 +245,17 @@ export async function assignClusters(
   let providerRejectedDocs = 0;
   let relatedDocsDeferred = 0;
   let exactSourceReuses = 0;
+  let boundedFallbackCandidatePoolMax = 0;
+  let boundedFallbackCandidatePoolTotal = 0;
+  const candidateClustersForDocument = (document: WorkingDocument): StoredClusterRecord[] => {
+    const storyIds = new Set([
+      ...document.candidate_matches.map((match) => match.story_id),
+      ...changedStoryIds,
+    ]);
+    return [...storyIds]
+      .map((storyId) => clusters.get(storyId))
+      .filter((cluster): cluster is StoredClusterRecord => Boolean(cluster));
+  };
   for (const document of state.documents) {
     const sourceDocuments = document.source_variants.map((variant) => toStoredSource(document, variant));
     const exactSourceCluster = findExactSourceCluster(clusters.values(), document);
@@ -263,7 +274,10 @@ export async function assignClusters(
     }
     let accepted = document.candidate_matches.find((match) => match.adjudication === 'accepted');
     if (!accepted) {
-      const candidateMatches = [...clusters.values()]
+      const candidatePool = candidateClustersForDocument(document);
+      boundedFallbackCandidatePoolMax = Math.max(boundedFallbackCandidatePoolMax, candidatePool.length);
+      boundedFallbackCandidatePoolTotal += candidatePool.length;
+      const candidateMatches = candidatePool
         .filter((cluster) => candidateEligible(document, cluster))
         .map((cluster) => buildCandidateMatch(document, cluster))
         .sort((left, right) => right.rerank_score - left.rerank_score || left.story_id.localeCompare(right.story_id))
@@ -340,6 +354,8 @@ export async function assignClusters(
         provider_rejected_docs: providerRejectedDocs,
         related_docs_deferred: relatedDocsDeferred,
         exact_source_reuses: exactSourceReuses,
+        bounded_fallback_candidate_pool_max: boundedFallbackCandidatePoolMax,
+        bounded_fallback_candidate_pool_total: boundedFallbackCandidatePoolTotal,
       },
     },
   };
