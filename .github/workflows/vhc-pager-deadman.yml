@@ -1,0 +1,58 @@
+name: VHC Pager Dead-Man
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-pager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check pager health
+        id: deadman
+        env:
+          VH_PAGER_HEALTH_URL: ${{ secrets.VH_PAGER_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/vhc-pager-deadman
+          if node tools/scripts/vhc-pager-deadman.mjs --health-url "$VH_PAGER_HEALTH_URL" > .tmp/vhc-pager-deadman/result.json; then
+            echo "status=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=fail" >> "$GITHUB_OUTPUT"
+            cat .tmp/vhc-pager-deadman/result.json
+          fi
+      - name: Upload dead-man evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhc-pager-deadman
+          path: .tmp/vhc-pager-deadman/result.json
+      - name: Open pager dead-man issue
+        if: steps.deadman.outputs.status == 'fail'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BODY="$(cat .tmp/vhc-pager-deadman/result.json)"
+          gh issue create \
+            --title "[A6 incident] pager dead-man failed" \
+            --label incident \
+            --label a6 \
+            --label public-feed \
+            --label severity:critical \
+            --label needs-codex-triage \
+            --body "$BODY"

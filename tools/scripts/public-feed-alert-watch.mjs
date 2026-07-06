@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -797,19 +797,43 @@ function alertPayload(summary, reason) {
   };
 }
 
+function signedWebhookHeaders({ body, secret, nowMs = Date.now(), nonce = randomUUID() }) {
+  if (!secret) return { headers: { 'content-type': 'application/json' }, signature: null };
+  const timestamp = String(nowMs);
+  const signature = createHmac('sha256', secret)
+    .update(`${timestamp}.${nonce}.${body}`)
+    .digest('hex');
+  return {
+    headers: {
+      'content-type': 'application/json',
+      'x-vhc-alert-timestamp': timestamp,
+      'x-vhc-alert-nonce': nonce,
+      'x-vhc-alert-signature': `sha256=${signature}`,
+    },
+    signature: {
+      algorithm: 'hmac-sha256',
+      timestamp,
+      nonce,
+    },
+  };
+}
+
 async function deliverWebhook({
   webhookUrl,
   payload,
   timeoutMs,
+  hmacSecret = null,
   fetchImpl = fetch,
 }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const body = JSON.stringify(payload);
+  const signed = signedWebhookHeaders({ body, secret: hmacSecret });
   try {
     const response = await fetchImpl(webhookUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers: signed.headers,
+      body,
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -874,11 +898,12 @@ async function deliverAlert({
   const errors = [];
   const timeoutMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   const webhookUrl = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_WEBHOOK_URL);
+  const hmacSecret = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_WEBHOOK_HMAC_SECRET);
   const hasEmail = Boolean(firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_EMAIL_TO));
 
   if (webhookUrl) {
     try {
-      channels.push(await deliverWebhook({ webhookUrl, payload, timeoutMs, fetchImpl }));
+      channels.push(await deliverWebhook({ webhookUrl, payload, timeoutMs, hmacSecret, fetchImpl }));
     } catch (error) {
       errors.push(`webhook:${sanitizeAlertError(error, [webhookUrl])}`);
     }
@@ -1105,6 +1130,7 @@ export const publicFeedAlertWatchInternal = {
   summarizeRelaySnapshotReport,
   summarizeWatchClosureVerdict,
   watchClosureProvenanceBlockers,
+  signedWebhookHeaders,
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

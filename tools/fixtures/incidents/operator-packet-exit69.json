@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "vhc-operator-packet-v1",
+  "packetId": "pkt-exit69-restart",
+  "createdAt": "2026-07-06T10:10:00.000Z",
+  "commit": "e665dd71",
+  "trustPhase": 2,
+  "incidentKey": "a6:public-feed:exit_69",
+  "actions": [
+    {
+      "id": "restart_publisher_exit69_only",
+      "description": "Restart publisher only if readback still proves exit 69 and not exit 75 or 78.",
+      "requiredReadbacks": ["systemctl_show_before", "first_clean_tick", "public_freshness"]
+    }
+  ]
+}

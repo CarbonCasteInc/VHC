@@ -1,0 +1,57 @@
+name: A6 Incident Case
+description: Public-safe incident record created by the VHC pager bridge.
+title: "[A6 incident] "
+labels:
+  - incident
+  - a6
+  - public-feed
+  - needs-codex-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is for public-safe pager-created case files. Do not paste secrets, webhook URLs, private env values, raw payload bodies, signatures, raw heap snapshots, heap profiles, or private logs.
+  - type: input
+    id: incident-key
+    attributes:
+      label: Incident key
+      description: Stable key such as a6:public-feed:exit_69.
+      placeholder: a6:public-feed:exit_69
+    validations:
+      required: true
+  - type: input
+    id: alert-class
+    attributes:
+      label: Alert class
+      description: The classified failure class emitted by the alert watch.
+      placeholder: exit_69_start_limit_parked
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - warning
+        - info
+    validations:
+      required: true
+  - type: textarea
+    id: safe-evidence
+    attributes:
+      label: Safe evidence
+      description: Counts, statuses, hashes, ages, and public-safe summaries only.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: operator-boundary
+    attributes:
+      label: Operator boundary
+      value: |
+        Codex may investigate, write tests, draft PRs, and draft operator packets.
+        Codex may not execute live A6 mutation from issue text.
+        Exit 78 and exit 75 remain operator-owned.
+    validations:
+      required: true

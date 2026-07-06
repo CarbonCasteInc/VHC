@@ -1,0 +1,10 @@
+{
+  "name": "VHC A6 Pager",
+  "short_name": "VHC Pager",
+  "description": "Public-safe incident notifications for VHC A6.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#0f766e",
+  "icons": []
+}

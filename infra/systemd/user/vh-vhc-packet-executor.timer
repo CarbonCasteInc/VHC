@@ -1,0 +1,12 @@
+[Unit]
+Description=VHC incident packet pull executor timer
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=5m
+AccuracySec=30s
+Persistent=true
+Unit=vh-vhc-packet-executor.service
+
+[Install]
+WantedBy=timers.target

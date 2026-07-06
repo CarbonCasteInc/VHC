@@ -88,6 +88,7 @@ The script supports two delivery channels configured by environment only:
 | Variable | Notes |
 | --- | --- |
 | `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` | HTTPS webhook target. Keep the value in the host env file, not the repo. |
+| `VH_PUBLIC_FEED_ALERT_WEBHOOK_HMAC_SECRET` | Optional shared secret for pager-bound webhook signatures. Set when `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` points at the VHC pager. |
 | `VH_PUBLIC_FEED_ALERT_EMAIL_TO` | Recipient for host-MTA delivery via `sendmail -t`. |
 | `VH_PUBLIC_FEED_ALERT_EMAIL_FROM` | Optional sender, default `vhc-public-feed-alert@localhost`. |
 | `VH_PUBLIC_FEED_ALERT_SENDMAIL` | Optional sendmail path, default `/usr/sbin/sendmail`. |
