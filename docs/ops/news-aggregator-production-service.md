@@ -92,6 +92,83 @@ outages #2/#3, retention/heap boundedness, accepted synthesis, frame tables,
 storyline overlays, topic synthesis, full public-beta readiness, mesh
 `release_ready`, production app canary readiness, or legal/commercial approval.
 
+## A6 Host Setup Closures
+
+### Host DNS Pin Standard
+
+Outage #3 proved that DNS failure across `gun-a.carboncaste.io`,
+`gun-b.carboncaste.io`, and `gun-c.carboncaste.io` can become a correlated
+total-transport event for publisher relay REST writes. On the single-host A6
+topology, the operator should pin those names in `/etc/hosts` to the
+operator-confirmed local A6 ingress address before enabling unattended Scope A
+operation:
+
+```bash
+getent hosts gun-a.carboncaste.io gun-b.carboncaste.io gun-c.carboncaste.io
+sudo cp /etc/hosts /etc/hosts.vhc-pre-scope-a-pin.$(date -u +%Y%m%dT%H%M%SZ)
+sudoedit /etc/hosts
+getent hosts gun-a.carboncaste.io gun-b.carboncaste.io gun-c.carboncaste.io
+```
+
+The pinned address is operator-owned; do not invent it in a deploy packet. The
+post-edit `getent hosts` readback must show the intended local A6 address for
+all three relay hostnames. Revisit and remove or update this pin before any
+failure-domain rebalance that moves relays off the A6 host.
+
+### Relay Serve-Stale Verification
+
+The current relay image contains the #686 serve-stale latest-index path by
+ancestry, but live A6 behavior still needs an operator-observed verification
+record. Do not mark serve-stale as observed in status docs until the operator
+captures it during an explicitly approved single-relay restart.
+
+Use only one relay at a time and keep the other two relays passing `/readyz` so
+the public feed retains 2-of-3 availability:
+
+```bash
+curl -fsS http://127.0.0.1:8766/readyz
+curl -fsS http://127.0.0.1:8767/readyz
+
+# After the approved restart of the target relay, before fresh cache rebuild:
+curl -fsS 'http://127.0.0.1:8765/vh/news/latest-index?limit=1&scan_limit=3&persist=false' \
+  >/tmp/vhc-serve-stale-gun-a-latest-index.json
+python3 - /tmp/vhc-serve-stale-gun-a-latest-index.json <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+served_from = (
+    payload.get("consistency", {})
+    .get("empty_read_cache", {})
+    .get("served_from")
+)
+if served_from != "stale_latest_index_snapshot":
+    raise SystemExit(f"serve-stale not observed: {served_from!r}")
+print({"serve_stale": "pass", "served_from": served_from})
+PY
+```
+
+Archive the JSON plus the relay name, image tag/digest, restart timestamp, and
+the two non-target relay `/readyz` readbacks. The artifact is operational
+evidence only; it is not approval to batch relay restarts.
+
+### 13:04Z Host-Event Evidence Bundle
+
+The unexplained all-relay restart around `2026-07-03T13:04Z` remains an
+operator-owned risk item. To collect a bounded, host-private packet without
+sharing raw logs, run:
+
+```bash
+tools/scripts/collect-host-event-window.sh \
+  --timestamp 2026-07-03T13:04:00Z \
+  --window-minutes 20 \
+  --output-dir /tmp/vhc-host-event-window-20260703T1304Z
+```
+
+Share only `summary.json` by default. The `raw/` subdirectory may contain
+host-private journal, Docker, and kernel log text and requires a separate
+secret-review approval before disclosure. Fold the summary verdict into the
+single-host residual-risk statement before any distribution claim.
+
 ## Hard Boundaries
 
 - Do not start production publisher writes without explicit operator approval.
