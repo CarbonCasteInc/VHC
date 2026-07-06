@@ -410,9 +410,11 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
-  it('applies the first-tick ingest cap only to the first orchestrator run', async () => {
+  it('applies the first-tick ingest cap only until the first successful orchestrator run', async () => {
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
+      writeStoryBundle,
       firstTickMaxIngestedItemsTotal: 24,
       pollIntervalMs: 1_000,
       runOnStart: true,
@@ -438,6 +440,84 @@ describe('newsRuntime', () => {
         maxIngestedItemsTotal: expect.any(Number),
       }),
     );
+
+    handle.stop();
+  });
+
+  it('keeps first-tick caps on the retry after a failed first orchestrator run', async () => {
+    orchestrateNewsPipelineMock
+      .mockRejectedValueOnce(new Error('remote cluster request timed out after 300000ms'))
+      .mockResolvedValue(batch([STORY_BUNDLE]));
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onTickSummary = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      maxPublishedBundles: 3,
+      firstTickMaxPublishedBundles: 1,
+      firstTickMaxIngestedItemsTotal: 24,
+      pollIntervalMs: 1_000,
+      runOnStart: true,
+      onTickSummary,
+    });
+
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        maxIngestedItemsTotal: 24,
+      }),
+    );
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'failed',
+      tick_sequence: 1,
+      first_tick: true,
+      published_bundle_limit: 1,
+      ingested_item_limit: 24,
+    }));
+
+    orchestrateNewsPipelineMock.mockClear();
+    onTickSummary.mockClear();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        maxIngestedItemsTotal: 24,
+      }),
+    );
+    expect(writeStoryBundle).toHaveBeenCalledTimes(1);
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'completed',
+      tick_sequence: 2,
+      first_tick: true,
+      published_bundle_limit: 1,
+      ingested_item_limit: 24,
+    }));
+
+    orchestrateNewsPipelineMock.mockClear();
+    onTickSummary.mockClear();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushTasks();
+
+    expect(orchestrateNewsPipelineMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({
+        maxIngestedItemsTotal: expect.any(Number),
+      }),
+    );
+    expect(onTickSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'completed',
+      tick_sequence: 3,
+      first_tick: false,
+      published_bundle_limit: 3,
+      ingested_item_limit: null,
+    }));
 
     handle.stop();
   });
