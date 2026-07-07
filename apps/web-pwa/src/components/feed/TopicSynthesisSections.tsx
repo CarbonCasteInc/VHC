@@ -1,5 +1,6 @@
 import React from 'react';
 import type { TopicSynthesisV2 } from '@vh/data-model';
+import { DivergenceBadge } from './DivergenceBadge';
 
 export interface TopicSynthesisSectionProps {
   readonly synthesis: TopicSynthesisV2 | null;
@@ -75,14 +76,7 @@ export const SynthesisSection: React.FC<TopicSynthesisSectionProps> = ({
             ))}
           </div>
         )}
-        {synthesis.divergence_metrics.disagreement_score > 0.5 && (
-          <span
-            className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700"
-            data-testid="synthesis-divergence"
-          >
-            High divergence
-          </span>
-        )}
+        <DivergenceBadge score={synthesis.divergence_metrics.disagreement_score} />
       </div>
     );
   }

@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 
+type TopicSynthesisReadResult =
+  | { readonly state: 'valid'; readonly synthesis: TopicSynthesisV2 }
+  | { readonly state: 'legacy-invalid' }
+  | { readonly state: 'blocked' };
+
 const hydrateSynthesisStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const releaseSynthesisHydrationMock = vi.fn<(...args: unknown[]) => void>();
 const hasForbiddenSynthesisPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
-const readTopicLatestSynthesisMock = vi.fn<(client: unknown, topicId: string) => Promise<TopicSynthesisV2 | null>>();
+const readTopicLatestSynthesisMock = vi.fn<
+  (client: unknown, topicId: string) => Promise<TopicSynthesisReadResult>
+>();
 const readTopicLatestSynthesisCorrectionMock = vi.fn<
   (client: unknown, topicId: string) => Promise<TopicSynthesisCorrection | null>
 >();
@@ -17,8 +24,12 @@ vi.mock('./hydration', () => ({
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenSynthesisPayloadFields: hasForbiddenSynthesisPayloadFieldsMock,
   readTopicLatestSynthesisCorrection: readTopicLatestSynthesisCorrectionMock,
-  readTopicLatestSynthesisWithRelayRestFallback: readTopicLatestSynthesisMock
+  readTopicLatestSynthesisStatusWithRelayRestFallback: readTopicLatestSynthesisMock
 }));
+
+function validRead(payload: TopicSynthesisV2): TopicSynthesisReadResult {
+  return { state: 'valid', synthesis: payload };
+}
 
 function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 {
   return {
@@ -99,7 +110,7 @@ describe('synthesis store', () => {
 
     hydrateSynthesisStoreMock.mockReturnValue(false);
     hasForbiddenSynthesisPayloadFieldsMock.mockReturnValue(false);
-    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'legacy-invalid' });
     readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
 
     vi.resetModules();
@@ -123,6 +134,7 @@ describe('synthesis store', () => {
       synthesis: null,
       correction: null,
       effectiveStatus: 'synthesis_unavailable',
+      invalid: false,
       hydrated: false,
       loading: false,
       error: null
@@ -134,6 +146,7 @@ describe('synthesis store', () => {
       synthesis: null,
       correction: null,
       effectiveStatus: 'synthesis_unavailable',
+      invalid: false,
       hydrated: false,
       loading: false,
       error: null
@@ -255,6 +268,7 @@ describe('synthesis store', () => {
         synthesis: null,
         correction: null,
         effectiveStatus: 'synthesis_unavailable',
+        invalid: false,
         hydrated: true,
         loading: true,
         error: 'oops'
@@ -318,7 +332,7 @@ describe('synthesis store', () => {
     const client = { id: 'client' };
 
     readTopicLatestSynthesisMock.mockResolvedValue(
-      synthesis({ topic_id: 'topic-x', epoch: 8, synthesis_id: 'synth-8' })
+      validRead(synthesis({ topic_id: 'topic-x', epoch: 8, synthesis_id: 'synth-8' }))
     );
 
     const { createSynthesisStore } = await import('./index');
@@ -347,7 +361,7 @@ describe('synthesis store', () => {
       protocol: 'https:',
     });
     const meshClient = { id: 'mesh-client' };
-    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead(synthesis()));
 
     const { createSynthesisStore } = await import('./index');
     const store = createSynthesisStore({ enabled: true, resolveClient: () => meshClient as never });
@@ -390,7 +404,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic hydrates correction state and exposes effective unavailable/suppressed state', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead(synthesis()));
     readTopicLatestSynthesisCorrectionMock.mockResolvedValue(correction({ status: 'unavailable' }));
 
     const { createSynthesisStore } = await import('./index');
@@ -406,7 +420,7 @@ describe('synthesis store', () => {
   it('refreshTopic exposes latest synthesis even when correction read stalls', async () => {
     vi.stubEnv('VITE_VH_SYNTHESIS_REFRESH_CORRECTION_TIMEOUT_MS', '5');
     vi.resetModules();
-    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead(synthesis()));
     readTopicLatestSynthesisCorrectionMock.mockReturnValue(new Promise(() => undefined));
 
     const { createSynthesisStore } = await import('./index');
@@ -422,7 +436,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic handles null latest (no synthesis available)', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'legacy-invalid' });
 
     const { createSynthesisStore } = await import('./index');
     const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
@@ -438,7 +452,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic preserves an accepted synthesis across transient null latest reads', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'legacy-invalid' });
     readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
 
     const { createSynthesisStore } = await import('./index');
@@ -456,7 +470,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic preserves durable corrections across transient null correction reads', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'legacy-invalid' });
     readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
 
     const { createSynthesisStore } = await import('./index');
@@ -475,7 +489,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic drops invalid latest payloads after defensive parse', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue({ invalid: true } as unknown as TopicSynthesisV2);
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead({ invalid: true } as unknown as TopicSynthesisV2));
 
     const { createSynthesisStore } = await import('./index');
     const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
@@ -488,7 +502,7 @@ describe('synthesis store', () => {
   });
 
   it('refreshTopic drops cross-topic latest synthesis payloads', async () => {
-    readTopicLatestSynthesisMock.mockResolvedValue(synthesis({ topic_id: 'topic-2' }));
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead(synthesis({ topic_id: 'topic-2' })));
     readTopicLatestSynthesisCorrectionMock.mockResolvedValue(correction());
 
     const { createSynthesisStore } = await import('./index');
@@ -501,6 +515,60 @@ describe('synthesis store', () => {
     expect(topic.epoch).toBeNull();
     expect(topic.correction?.correction_id).toBe('correction-1');
     expect(topic.effectiveStatus).toBe('synthesis_suppressed');
+  });
+
+  it('refreshTopic marks the topic invalid when the latest read is blocked and clears it on a valid read', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'blocked' });
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    let topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis).toBeNull();
+    expect(topic.invalid).toBe(true);
+    expect(topic.effectiveStatus).toBe('synthesis_unavailable');
+
+    readTopicLatestSynthesisMock.mockResolvedValue(validRead(synthesis()));
+    await store.getState().refreshTopic('topic-1');
+
+    topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis?.synthesis_id).toBe('synth-1');
+    expect(topic.invalid).toBe(false);
+    expect(topic.effectiveStatus).toBe('accepted_available');
+  });
+
+  it('refreshTopic keeps the invalid flag across transient legacy-invalid reads', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'blocked' });
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+    expect(store.getState().getTopicState('topic-1').invalid).toBe(true);
+
+    readTopicLatestSynthesisMock.mockResolvedValue({ state: 'legacy-invalid' });
+    await store.getState().refreshTopic('topic-1');
+    expect(store.getState().getTopicState('topic-1').invalid).toBe(true);
+  });
+
+  it('setTopicInvalid marks and clears the invalid flag and ignores empty topic ids', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    store.getState().setTopicInvalid('topic-1', true);
+    expect(store.getState().getTopicState('topic-1').invalid).toBe(true);
+
+    store.getState().setTopicInvalid('topic-1', false);
+    expect(store.getState().getTopicState('topic-1').invalid).toBe(false);
+
+    store.getState().setTopicInvalid('   ', true);
+    expect(store.getState().topics['   ']).toBeUndefined();
+
+    store.getState().setTopicInvalid('topic-2', true);
+    store.getState().setTopicSynthesis('topic-2', synthesis({ topic_id: 'topic-2' }));
+    expect(store.getState().getTopicState('topic-2').invalid).toBe(false);
   });
 
   it('refreshTopic captures thrown errors', async () => {

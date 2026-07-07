@@ -217,6 +217,21 @@ describe('TopicCard', () => {
     expect(screen.getByTestId('bias-table-row-1')).toHaveTextContent('Fiscal impact');
   });
 
+  it('keeps the topic frame table non-votable and explains why', () => {
+    const synthesis = makeSynthesis();
+    mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
+    const { container } = render(<TopicCard item={makeTopicItem()} />);
+    expandTopicCard();
+
+    // Topic cards never join the story lifecycle/accepted-current record,
+    // so no vote controls may render even with persisted point ids present.
+    expect(screen.getByTestId('bias-table-row-0')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
+    expect(screen.getByTestId('topic-card-stance-unavailable-topic-42')).toHaveTextContent(
+      'not joined to an accepted-current story synthesis',
+    );
+  });
+
   it('shows divergence indicator when disagreement_score > 0.5', () => {
     const synthesis = makeSynthesis({
       divergence_metrics: { disagreement_score: 0.7, source_dispersion: 0.4, candidate_count: 5 },

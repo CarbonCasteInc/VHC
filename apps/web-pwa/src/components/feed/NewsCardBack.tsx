@@ -6,9 +6,11 @@ import { useNewsReportStore } from '../../store/newsReports';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
 import { BiasTable, type BiasTableFrameRow } from './BiasTable';
+import { DivergenceBadge } from './DivergenceBadge';
 import { FeedDiscussionSection } from './FeedDiscussionSection';
 import { RemovalIndicator } from './RemovalIndicator';
 import { SourceViewerFrame } from './SourceViewerFrame';
+import { deriveAcceptedSynthesisReadState } from './useAcceptedSynthesis';
 
 export interface NewsCardMediaAsset {
   readonly sourceId: string;
@@ -65,11 +67,13 @@ export interface NewsCardBackProps {
   readonly analysisNeedsRegeneration?: boolean;
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
+  readonly synthesisInvalid?: boolean;
   readonly synthesisUnavailable?: boolean;
   readonly synthesisReadinessTimedOut?: boolean;
   readonly synthesisLifecycleStatus?: NewsSynthesisLifecycleStatus | null;
   readonly synthesisLifecycleReason?: string | null;
   readonly synthesisCorrection?: TopicSynthesisCorrection | null;
+  readonly synthesisDisagreementScore?: number | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
   readonly synthesisId?: string | null;
@@ -117,11 +121,13 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysisNeedsRegeneration = false,
   synthesisLoading,
   synthesisError,
+  synthesisInvalid = false,
   synthesisUnavailable = false,
   synthesisReadinessTimedOut = false,
   synthesisLifecycleStatus = null,
   synthesisLifecycleReason = null,
   synthesisCorrection = null,
+  synthesisDisagreementScore = null,
   analysis,
   analysisId,
   synthesisId,
@@ -142,26 +148,25 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
     ? 'Accepted synthesis suppressed'
     : 'Accepted synthesis unavailable';
-  const acceptedSynthesisState = (() => {
-    if (synthesisCorrection) {
-      return synthesisCorrection.status === 'suppressed'
-        ? 'accepted_synthesis_suppressed_by_correction'
-        : 'accepted_synthesis_terminal_unavailable';
-    }
-    if (synthesisId) return 'accepted_synthesis_available';
-    if (synthesisLifecycleStatus === 'terminal_unavailable') return 'accepted_synthesis_terminal_unavailable';
-    if (synthesisLifecycleStatus === 'retryable_failure') return 'accepted_synthesis_retryable_failure';
-    if (synthesisLoading) return 'accepted_synthesis_loading';
-    return 'accepted_synthesis_pending';
-  })();
-  const frameEmptyMessage = acceptedSynthesisState === 'accepted_synthesis_loading'
+  const acceptedSynthesisState = deriveAcceptedSynthesisReadState({
+    loading: synthesisLoading,
+    invalid: synthesisInvalid,
+    hasAcceptedCurrentSynthesis: Boolean(synthesisId),
+    lifecycleStatus: synthesisLifecycleStatus,
+    correction: synthesisCorrection,
+  });
+  const frameEmptyMessage = acceptedSynthesisState === 'loading'
     ? 'Accepted synthesis frame rows are loading.'
-    : acceptedSynthesisState === 'accepted_synthesis_retryable_failure'
+    : acceptedSynthesisState === 'retryable_failure'
       ? 'Accepted synthesis is retrying after a transient failure; stance controls remain unavailable until frame rows are ready.'
-    : acceptedSynthesisState === 'accepted_synthesis_terminal_unavailable'
+    : acceptedSynthesisState === 'terminal_unavailable'
       ? 'Accepted synthesis is unavailable for this story.'
-      : acceptedSynthesisState === 'accepted_synthesis_suppressed_by_correction'
+      : acceptedSynthesisState === 'suppressed_by_correction'
         ? 'Accepted synthesis was suppressed; frame rows are hidden.'
+        : acceptedSynthesisState === 'invalid'
+          ? 'Accepted synthesis failed validation and is not shown; stance controls remain unavailable until a valid record is published.'
+        : acceptedSynthesisState === 'acceptedCurrentSynthesis'
+          ? 'Accepted synthesis has no votable frame rows for this story.'
         : synthesisReadinessTimedOut
           ? 'Accepted synthesis did not become available within the readiness window; stance controls remain unavailable until synthesis or a terminal reason is published.'
           : 'Accepted synthesis frame rows are pending for this story.';
@@ -258,6 +263,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               ))}
             </div>
           )}
+          <DivergenceBadge score={synthesisDisagreementScore} />
           {synthesisCorrection && (
             <div
               className="space-y-1 rounded-lg border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-100"
@@ -491,6 +497,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             data-testid={`news-card-synthesis-retryable-${topicId}`}
           >
             Accepted synthesis is retrying after a transient failure{synthesisLifecycleReason ? `: ${synthesisLifecycleReason}` : '.'}
+          </p>
+        )}
+        {acceptedSynthesisState === 'invalid' && !analysis && (
+          <p
+            className="mt-2 text-xs text-rose-700 dark:text-rose-100"
+            data-testid={`news-card-synthesis-invalid-${topicId}`}
+          >
+            Accepted synthesis failed validation and is not shown. Stance controls remain unavailable until a valid record is published.
           </p>
         )}
         {synthesisUnavailable && !analysis && !correctionBlocksSynthesis && (

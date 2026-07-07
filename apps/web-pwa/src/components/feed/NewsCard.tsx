@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
-import type { FeedItem, StorylineGroup } from '@vh/data-model';
+import type { FeedItem, StorylineGroup, TopicSynthesisV2 } from '@vh/data-model';
 import {
   readNewsSynthesisLifecycleStatusWithRelayRestFallback,
+  readTopicEpochSynthesis,
   type NewsSynthesisLifecycleRecord,
 } from '@vh/gun-client';
 import { useNewsStore } from '../../store/news';
@@ -66,17 +67,17 @@ function acceptedSynthesisMatchesStoryRevision({
   if (!story?.provenance_hash?.trim()) {
     return false;
   }
+  // Lifecycle synthesis_id AND epoch must both name the TopicSynthesisV2;
+  // a lifecycle record missing its epoch never yields an accepted-current
+  // votable state (docs/specs/topic-synthesis-v2.md join semantics).
   return Boolean(
     lifecycle
     && lifecycle.status === 'accepted_available'
     && lifecycle.story_id === story.story_id
     && lifecycle.source_set_revision === story.provenance_hash
     && lifecycle.synthesis_id === synthesis?.synthesis_id
-    && (
-      lifecycle.epoch === undefined
-      || lifecycle.epoch === null
-      || lifecycle.epoch === synthesis?.epoch
-    ),
+    && typeof lifecycle.epoch === 'number'
+    && lifecycle.epoch === synthesis?.epoch,
   );
 }
 
@@ -159,30 +160,66 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisCorrection = synthesisTopicState?.correction ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
+  const synthesisInvalid = synthesisTopicState?.invalid ?? false;
   const [synthesisLifecycle, setSynthesisLifecycle] = useState<NewsSynthesisLifecycleRecord | null>(null);
   const [synthesisLifecycleLoading, setSynthesisLifecycleLoading] = useState(false);
+  const [epochScopedSynthesis, setEpochScopedSynthesis] = useState<TopicSynthesisV2 | null>(null);
   const lifecycleStatus = synthesisLifecycle?.status ?? null;
   const lifecycleReason = synthesisLifecycle?.reason ?? null;
   const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
   const storySourceSetRevision = story?.provenance_hash ?? null;
-  const acceptedSynthesisCurrent = acceptedSynthesisMatchesStoryRevision({
+  const lifecycleSynthesisId =
+    typeof synthesisLifecycle?.synthesis_id === 'string' && synthesisLifecycle.synthesis_id.trim()
+      ? synthesisLifecycle.synthesis_id
+      : null;
+  const lifecycleEpoch =
+    typeof synthesisLifecycle?.epoch === 'number' && Number.isFinite(synthesisLifecycle.epoch)
+      ? synthesisLifecycle.epoch
+      : null;
+  const latestMatchesLifecycle = acceptedSynthesisMatchesStoryRevision({
     synthesis,
     story,
     storyId,
     lifecycle: synthesisLifecycle,
   });
-  const correctionAppliesToLatestSynthesis = Boolean(
+  // A lagging topics/latest pointer must not hide an accepted-current record:
+  // when the lifecycle names a synthesis_id+epoch the hydrated latest does not
+  // match, verify against the epoch node before treating the story as pending.
+  const shouldReadEpochScopedSynthesis = Boolean(
+    synthesisLifecycle
+    && synthesisLifecycle.status === 'accepted_available'
+    && lifecycleSynthesisId
+    && lifecycleEpoch !== null
+    && story?.provenance_hash?.trim()
+    && synthesisLifecycle.story_id === story?.story_id
+    && synthesisLifecycle.source_set_revision === story?.provenance_hash
+    && !latestMatchesLifecycle
+  );
+  const epochScopedMatchesLifecycle = acceptedSynthesisMatchesStoryRevision({
+    synthesis: epochScopedSynthesis,
+    story,
+    storyId,
+    lifecycle: synthesisLifecycle,
+  });
+  const acceptedCurrentSynthesis = latestMatchesLifecycle
+    ? synthesis
+    : epochScopedMatchesLifecycle
+      ? epochScopedSynthesis
+      : null;
+  const acceptedSynthesisCurrent = acceptedCurrentSynthesis !== null;
+  const displayedSynthesis = acceptedCurrentSynthesis ?? synthesis;
+  const correctionAppliesToDisplayedSynthesis = Boolean(
     synthesisCorrection
-    && synthesis !== null
-    && synthesisCorrection.synthesis_id === synthesis.synthesis_id
-    && synthesisCorrection.epoch === synthesis.epoch
-    && synthesisCorrection.topic_id === synthesis.topic_id
+    && displayedSynthesis !== null
+    && synthesisCorrection.synthesis_id === displayedSynthesis.synthesis_id
+    && synthesisCorrection.epoch === displayedSynthesis.epoch
+    && synthesisCorrection.topic_id === displayedSynthesis.topic_id
   );
   const correctionBlocksSynthesis = Boolean(
-    correctionAppliesToLatestSynthesis
+    correctionAppliesToDisplayedSynthesis
     && (acceptedSynthesisCurrent || lifecycleStatus === 'suppressed')
   );
-  const effectiveSynthesis = correctionBlocksSynthesis || !acceptedSynthesisCurrent ? null : synthesis;
+  const effectiveSynthesis = correctionBlocksSynthesis || !acceptedSynthesisCurrent ? null : acceptedCurrentSynthesis;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const synthesisId = effectiveSynthesis?.synthesis_id ?? null;
@@ -216,6 +253,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const summaryBasisLabel = (() => {
     if (correctionBlocksSynthesis) return 'Operator correction';
     if (hasSynthesisSummary) return 'Topic synthesis v2';
+    if (synthesisInvalid) return 'Publish-time synthesis failed validation';
     if (synthesisLoading || synthesisLifecycleLoading || lifecycleStatus === 'in_progress') {
       return 'Publish-time synthesis loading';
     }
@@ -236,6 +274,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     && !synthesisLifecycleLoading
     && !effectiveSynthesis
     && !synthesisError
+    && !synthesisInvalid
     && !correctionBlocksSynthesis
     && lifecycleStatus !== 'terminal_unavailable'
     && lifecycleStatus !== 'retryable_failure';
@@ -307,6 +346,42 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   }, [isExpanded, storyId, storySourceSetRevision]);
 
   useEffect(() => {
+    if (!isExpanded || !shouldReadEpochScopedSynthesis || lifecycleEpoch === null || !lifecycleSynthesisId) {
+      return;
+    }
+
+    const client = resolveClientFromAppStore();
+    if (!client) {
+      return;
+    }
+
+    let cancelled = false;
+    // readTopicEpochSynthesis applies the same fail-closed system-writer
+    // validation as the latest read; a record that does not name the
+    // lifecycle synthesis_id+epoch is discarded so the story stays non-votable.
+    void readTopicEpochSynthesis(client, item.topic_id, lifecycleEpoch)
+      .then((record) => {
+        if (cancelled) {
+          return;
+        }
+        setEpochScopedSynthesis(
+          record && record.synthesis_id === lifecycleSynthesisId && record.epoch === lifecycleEpoch
+            ? record
+            : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEpochScopedSynthesis(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isExpanded, item.topic_id, lifecycleEpoch, lifecycleSynthesisId, shouldReadEpochScopedSynthesis]);
+
+  useEffect(() => {
     if (!isExpanded || effectiveSynthesis || synthesisCorrection || synthesisLoading || synthesisError) {
       return;
     }
@@ -364,6 +439,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   useEffect(() => {
     setSynthesisLifecycle(null);
     setSynthesisLifecycleLoading(false);
+    setEpochScopedSynthesis(null);
   }, [storyId, storySourceSetRevision]);
 
   useEffect(() => {
@@ -481,11 +557,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               analysisNeedsRegeneration={false}
               synthesisLoading={synthesisLoading}
               synthesisError={synthesisError}
+              synthesisInvalid={synthesisInvalid}
               synthesisUnavailable={synthesisUnavailable}
               synthesisReadinessTimedOut={synthesisReadinessTimedOut}
               synthesisLifecycleStatus={lifecycleStatus}
               synthesisLifecycleReason={lifecycleReason}
               synthesisCorrection={correctionBlocksSynthesis ? synthesisCorrection : null}
+              synthesisDisagreementScore={effectiveSynthesis?.divergence_metrics.disagreement_score ?? null}
               analysis={null}
               analysisId={null}
               synthesisId={synthesisId}

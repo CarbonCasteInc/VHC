@@ -91,7 +91,15 @@ function ExpandableRow({
     (analysis?.biasClaimQuotes?.length ?? 0) > 0 ||
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
-  const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
+  // Vote controls are restricted to accepted-synthesis point-id mode;
+  // text-derived legacy/analysis-fallback ids must never be votable.
+  const showVoting = !!(
+    votingEnabled
+    && votingPointIdMode === 'accepted-synthesis'
+    && topicId
+    && synthesisId
+    && epoch !== undefined
+  );
   const voteFramePointId = votingPointIdMode === 'accepted-synthesis'
     ? synthesisFramePointId
     : framePointId ?? synthesisFramePointId;
@@ -213,8 +221,14 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     : analysisId;
   const effectiveSynthesisId = stableVotingContextId;
   const effectiveEpoch = epoch ?? 0;
+  // Vote controls require accepted-synthesis point-id mode and an explicit
+  // synthesis context; legacy-compatible and analysisId-fallback contexts
+  // derive point ids from mutable display text and must never be votable.
+  const votingAllowed = votingEnabled
+    && votingPointIdMode === 'accepted-synthesis'
+    && hasExplicitSynthesisContext;
   const hasVotingContext = Boolean(
-    votingEnabled &&
+    votingAllowed &&
       topicId &&
       effectiveSynthesisId &&
       Number.isFinite(effectiveEpoch),

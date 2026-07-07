@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from './index';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
 import {
+  readTopicLatestSynthesisStatusWithRelayRestFallback,
   readTopicLatestSynthesisViaRelayRest,
   readTopicLatestSynthesisWithRelayRestFallback,
 } from './synthesisAdapters';
@@ -301,6 +302,102 @@ describe('readTopicLatestSynthesisViaRelayRest', () => {
     try {
       await expect(readTopicLatestSynthesisWithRelayRestFallback(client, 'topic-1'))
         .resolves.toBeNull();
+    } finally {
+      await client.shutdown();
+    }
+  }, 10_000);
+
+  it('status fallback keeps legacy-invalid when both direct and relay reads miss', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false }), { status: 404 })));
+    const client = createClient({
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      requireSession: false,
+      gunLocalStorage: false,
+      gunRadisk: false,
+    });
+    client.markSessionReady();
+
+    try {
+      await expect(readTopicLatestSynthesisStatusWithRelayRestFallback(client, 'topic-1'))
+        .resolves.toEqual({ state: 'legacy-invalid' });
+    } finally {
+      await client.shutdown();
+    }
+  }, 10_000);
+
+  it('status fallback recovers a valid relay record when the direct read misses', async () => {
+    vi.stubGlobal('location', {
+      href: 'https://venn.carboncaste.io/',
+      origin: 'https://venn.carboncaste.io',
+      protocol: 'https:',
+    });
+    const synthesis = {
+      schemaVersion: 'topic-synthesis-v2',
+      topic_id: 'topic-1',
+      epoch: 2,
+      synthesis_id: 'synth-2',
+      inputs: { story_bundle_ids: ['story-1'] },
+      quorum: {
+        required: 1,
+        received: 1,
+        reached_at: 100,
+        timed_out: false,
+        selection_rule: 'deterministic',
+      },
+      facts_summary: 'Status fallback synthesis summary.',
+      frames: [
+        {
+          frame_point_id: 'frame-1',
+          frame: 'Frame',
+          reframe_point_id: 'reframe-1',
+          reframe: 'Reframe',
+        },
+      ],
+      warnings: [],
+      divergence_metrics: {
+        disagreement_score: 0,
+        source_dispersion: 0,
+        candidate_count: 1,
+      },
+      provenance: {
+        candidate_ids: ['candidate-1'],
+        provider_mix: [{ provider_id: 'provider-1', count: 1 }],
+      },
+      created_at: 200,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      record: {
+        __topic_synthesis_json: JSON.stringify(synthesis),
+        schemaVersion: synthesis.schemaVersion,
+        topic_id: synthesis.topic_id,
+        epoch: synthesis.epoch,
+        synthesis_id: synthesis.synthesis_id,
+        created_at: synthesis.created_at,
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    const client = createClient({
+      peers: ['wss://gun-a.carboncaste.io/gun'],
+      requireSession: false,
+      gunLocalStorage: false,
+      gunRadisk: false,
+    });
+    client.markSessionReady();
+
+    try {
+      await expect(readTopicLatestSynthesisStatusWithRelayRestFallback(client, 'topic-1'))
+        .resolves.toMatchObject({
+          state: 'valid',
+          synthesis: {
+            topic_id: 'topic-1',
+            synthesis_id: 'synth-2',
+            facts_summary: 'Status fallback synthesis summary.',
+          },
+        });
     } finally {
       await client.shutdown();
     }

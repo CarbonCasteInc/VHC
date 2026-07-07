@@ -529,6 +529,8 @@ describe('newsAdapters', () => {
     expect(hasForbiddenNewsPayloadFields({ custom_token: 'x' })).toBe(true);
     expect(hasForbiddenNewsPayloadFields({ nested: { identity_session: 'x' } })).toBe(true);
     expect(hasForbiddenNewsPayloadFields({ list: [{ published: true }, { bearer: 'x' }] })).toBe(true);
+    expect(hasForbiddenNewsPayloadFields({ client_secret: 'x' })).toBe(true);
+    expect(hasForbiddenNewsPayloadFields({ nested: { provider_secret: 'x' } })).toBe(true);
 
     const cyclic: Record<string, unknown> = { safe: true };
     cyclic.self = cyclic;
