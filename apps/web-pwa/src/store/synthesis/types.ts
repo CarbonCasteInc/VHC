@@ -21,6 +21,13 @@ export interface SynthesisTopicState {
   /** Effective story-detail state after applying correction records. */
   readonly effectiveStatus: SynthesisEffectiveStatus;
 
+  /**
+   * Whether the latest topic record failed fail-closed system-writer
+   * validation (`state: 'blocked'`). Distinguishes invalid records from
+   * merely absent/pending synthesis.
+   */
+  readonly invalid: boolean;
+
   /** Whether live hydration has been attached for this topic. */
   readonly hydrated: boolean;
 
@@ -41,6 +48,7 @@ export interface SynthesisState {
   getTopicState(topicId: string): SynthesisTopicState;
   setTopicSynthesis(topicId: string, synthesis: TopicSynthesisV2 | null): void;
   setTopicCorrection(topicId: string, correction: TopicSynthesisCorrection | null): void;
+  setTopicInvalid(topicId: string, invalid: boolean): void;
   setTopicHydrated(topicId: string, hydrated: boolean): void;
   setTopicLoading(topicId: string, loading: boolean): void;
   setTopicError(topicId: string, error: string | null): void;

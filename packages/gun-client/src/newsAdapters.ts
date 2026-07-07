@@ -713,7 +713,12 @@ function isForbiddenNewsKey(key: string): boolean {
   if (normalized.endsWith('_token')) {
     return true;
   }
-  if (normalized.includes('oauth') || normalized.includes('bearer') || normalized.includes('nullifier')) {
+  if (
+    normalized.includes('oauth')
+    || normalized.includes('bearer')
+    || normalized.includes('nullifier')
+    || normalized.includes('secret')
+  ) {
     return true;
   }
   return false;
