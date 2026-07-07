@@ -79,6 +79,29 @@ function isPersonIdentifierKey(key) {
     'principalnullifier',
     'nullifier',
     'voterid',
+    'forumauthorid',
+    'identitydirectorykey',
+  ].includes(normalized);
+}
+
+// Account-provider identity/token material (Apple/Google/X sign-in).
+// Vault/local-only per spec-data-topology-privacy-v0 §3; never in vh/* public
+// records and never co-published with LUMA person-level identifiers.
+function isAccountProviderKey(key) {
+  const normalized = normalizedKey(key);
+  return [
+    'providersubject',
+    'provideraccountid',
+    'providerlabel',
+    'displaylabel',
+    'accesstoken',
+    'refreshtoken',
+    'idtoken',
+    'clientsecret',
+    'applesub',
+    'googlesub',
+    'xsub',
+    'accountbinding',
   ].includes(normalized);
 }
 
@@ -97,6 +120,7 @@ function isForbiddenSensitiveKey(key) {
     'privatekeyhex',
     'epriv',
     'priv',
+    'regioncode',
   ].includes(normalized);
 }
 
@@ -128,6 +152,18 @@ function validatePublicRecord(recordPath, record) {
   for (const [keyPath, key] of entries) {
     if (isForbiddenSensitiveKey(key)) {
       errors.push(`${recordPath}: forbidden sensitive key ${keyPath.join('.')}`);
+    }
+  }
+
+  const accountProviderEntries = entries.filter(([, key]) => isAccountProviderKey(key));
+  if (accountProviderEntries.length > 0) {
+    for (const [keyPath] of accountProviderEntries) {
+      errors.push(`${recordPath}: forbidden account-provider key ${keyPath.join('.')}`);
+    }
+    if (entries.some(([, key]) => isPersonIdentifierKey(key))) {
+      errors.push(
+        `${recordPath}: account-provider key is co-published with a person-level identifier (forbidden pairing)`,
+      );
     }
   }
 
@@ -276,6 +312,37 @@ const redFixtures = [
       emitted_at: 1,
     },
     match: /VoteIntentRecord fields/,
+  },
+  {
+    name: 'bare provider subject in public record',
+    path: 'vh/forum/threads/thread-1',
+    record: { schemaVersion: 'hermes-thread-v1', providerSubject: 'apple:000123.abc' },
+    match: /forbidden account-provider key providerSubject/,
+  },
+  {
+    name: 'provider label co-published with forum author id',
+    path: 'vh/forum/threads/thread-1',
+    record: {
+      schemaVersion: 'hermes-thread-v1',
+      forumAuthorId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      provider_label: 'Jane D.',
+    },
+    match: /account-provider key is co-published with a person-level identifier/,
+  },
+  {
+    name: 'nested provider token in public record',
+    path: 'vh/news/reports/report-1',
+    record: {
+      schemaVersion: 'hermes-news-report-v2',
+      accountBinding: { access_token: 'raw-oauth-token' },
+    },
+    match: /forbidden account-provider key accountBinding\.access_token/,
+  },
+  {
+    name: 'region code in public record',
+    path: 'vh/forum/threads/thread-1',
+    record: { schemaVersion: 'hermes-thread-v1', region_code: 'US-CA' },
+    match: /forbidden sensitive key region_code/,
   },
 ];
 
