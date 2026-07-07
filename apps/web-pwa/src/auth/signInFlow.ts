@@ -296,7 +296,7 @@ function toSessionPayload(json: unknown): SignInSessionPayload {
 /**
  * Begin a sign-in: generate PKCE material, ask the boundary for a bound
  * `state` + authorize URL, and stash the verifier transiently. The
- * caller opens `authorizeUrl`. For the `mock` provider the round-trip is
+ * caller opens `authorizeUrl`. Under VITE_E2E_MODE the round-trip is
  * local; a synthetic authorize URL routes straight to the PWA callback.
  */
 export async function startSignIn(
