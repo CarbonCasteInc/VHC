@@ -11,6 +11,7 @@ import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
 import { clearPublishedIdentity, publishIdentity } from '../store/identityProvider';
 import { POINT_AGGREGATE_REFRESH_EVENT } from './pointAggregateRefreshEvents';
+import { legacyWeightForActiveCount } from '../components/feed/voteSemantics';
 
 vi.mock('@vh/identity-vault', () => ({
   signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
@@ -758,6 +759,54 @@ describe('useSentimentState', () => {
     useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: 'p2', analysisId: ANALYSIS, desired: -1, constituency_proof: proof });
     expect(useSentimentState.getState().getAgreement(TOPIC, 'p2')).toBe(0);
     expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBeCloseTo(1.285, 5);
+  });
+
+  it('anti-toggle-gaming: repeated toggles on one cell never exceed the active-count closed form', () => {
+    const proof = proofFor();
+    // Hammer the SAME cell many times: agree -> switch -> agree -> ... The
+    // Lightbulb weight must be driven only by the active non-neutral cell count
+    // (legacyWeightForActiveCount), never by raw click/toggle count.
+    let maxObserved = 0;
+    for (let i = 0; i < 20; i += 1) {
+      const desired = i % 2 === 0 ? 1 : -1;
+      useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        analysisId: ANALYSIS,
+        desired,
+        constituency_proof: proof,
+      });
+      maxObserved = Math.max(maxObserved, useSentimentState.getState().getLightbulbWeight(TOPIC));
+    }
+
+    // One cell is active throughout (switching sign never adds a second cell),
+    // so the weight is pinned at the closed form for exactly one active cell.
+    expect(maxObserved).toBeCloseTo(legacyWeightForActiveCount(1), 5);
+    expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBeCloseTo(
+      legacyWeightForActiveCount(1),
+      5,
+    );
+    // And it never approaches the cap from a single cell.
+    expect(maxObserved).toBeLessThan(1.95);
+  });
+
+  it('anti-toggle-gaming: toggling a cell to neutral and back does not inflate weight', () => {
+    const proof = proofFor();
+    // A steady active cell plus one cell that is toggled on/off repeatedly must
+    // converge to the two-active-cell closed form, not an inflated value.
+    useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proof });
+    for (let i = 0; i < 10; i += 1) {
+      // Toggle p2 on...
+      useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: 'p2', analysisId: ANALYSIS, desired: 1, constituency_proof: proof });
+      // ...and back to neutral.
+      useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: 'p2', analysisId: ANALYSIS, desired: 1, constituency_proof: proof });
+    }
+    // p2 ends neutral -> one active cell.
+    expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBeCloseTo(legacyWeightForActiveCount(1), 5);
+
+    // Leave p2 active -> exactly two active cells -> two-count closed form.
+    useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: 'p2', analysisId: ANALYSIS, desired: 1, constituency_proof: proof });
+    expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBeCloseTo(legacyWeightForActiveCount(2), 5);
   });
 
   it('calls setActiveNullifier with proof nullifier before budget check', () => {
