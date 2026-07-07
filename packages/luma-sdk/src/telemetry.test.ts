@@ -79,6 +79,36 @@ describe('LUMA telemetry', () => {
     expect(() => assertLumaTelemetrySafe({ mesh: '/vh/news/story/demo' })).toThrow(/raw mesh path/);
   });
 
+  it('red test: rejects district hash fields in both naming forms', () => {
+    expect(() => assertLumaTelemetrySafe({ district_hash: 'd-123' })).toThrow(/forbidden field/);
+    expect(() => assertLumaTelemetrySafe({ districtHash: 'd-123' })).toThrow(/forbidden field/);
+  });
+
+  it('red test: rejects account-provider identity and token fields before they exist', () => {
+    const forbiddenProviderFields = [
+      'accessToken',
+      'access_token',
+      'refreshToken',
+      'refresh_token',
+      'idToken',
+      'id_token',
+      'providerSubject',
+      'provider_subject',
+      'providerLabel',
+      'provider_label',
+      'displayLabel',
+      'display_label',
+      'clientSecret',
+      'client_secret',
+      'oauthCode',
+      'oauth_code',
+    ];
+    for (const field of forbiddenProviderFields) {
+      expect(() => assertLumaTelemetrySafe({ [field]: 'leaked' }), field).toThrow(/forbidden field/);
+      expect(redactLumaTelemetryContext({ [field]: 'leaked' })).toEqual({ [field]: '[REDACTED:field]' });
+    }
+  });
+
   it('accepts primitives, arrays, repeated references, and malformed non-token URLs', () => {
     const repeated: Record<string, unknown> = { safe: true };
     repeated.self = repeated;

@@ -78,6 +78,16 @@ const FORBIDDEN_FIELD_NAMES = Object.freeze([
   'vaultMasterKey',
   'privateKey',
   'secretKey',
+  // Account-provider identity/token material (Apple/Google/X sign-in).
+  // Normalization makes each entry cover camelCase and snake_case forms.
+  'accessToken',
+  'refreshToken',
+  'idToken',
+  'providerSubject',
+  'providerLabel',
+  'displayLabel',
+  'clientSecret',
+  'oauthCode',
 ] as const);
 const FORBIDDEN_FIELD_NAME_SET = new Set(FORBIDDEN_FIELD_NAMES.map(normalizeFieldName));
 const TOKEN_QUERY_KEYS = new Set([
