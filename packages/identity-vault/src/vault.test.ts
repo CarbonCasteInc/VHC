@@ -878,7 +878,7 @@ describe('M0.D-1 vault v2 compartments', () => {
     expect(remaining).toBeDefined();
   });
 
-  it('rejects malformed wallet binding compartments through v2 shape guards and public writers', async () => {
+  it('fails closed when a v2 vault contains a malformed wallet binding compartment', async () => {
     expect(isWalletBindingCompartment(null)).toBe(false);
     expect(isWalletBindingCompartment([])).toBe(false);
     // The strict write-side guard keeps rejecting unknown keys (the
