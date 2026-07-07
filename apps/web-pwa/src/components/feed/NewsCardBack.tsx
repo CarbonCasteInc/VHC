@@ -12,6 +12,17 @@ import { RemovalIndicator } from './RemovalIndicator';
 import { SourceViewerFrame } from './SourceViewerFrame';
 import { deriveAcceptedSynthesisReadState } from './useAcceptedSynthesis';
 
+/**
+ * Format an epoch-ms timestamp as ISO, returning null for values outside the
+ * representable Date range. `created_at` is an unbounded nonnegative integer
+ * from a mesh record, so `new Date(n).toISOString()` throws a RangeError on
+ * absurd values; a null render degrades gracefully instead of crashing the card.
+ */
+function toIsoOrNull(epochMs: number): string | null {
+  const date = new Date(epochMs);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export interface NewsCardMediaAsset {
   readonly sourceId: string;
   readonly publisher: string;
@@ -144,7 +155,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
     (row) => Boolean(row.frame_point_id?.trim() && row.reframe_point_id?.trim()),
   );
   const correctionBlocksSynthesis = Boolean(synthesisCorrection);
-  const correctionTimestamp = synthesisCorrection ? new Date(synthesisCorrection.created_at).toISOString() : null;
+  const correctionTimestamp = synthesisCorrection ? toIsoOrNull(synthesisCorrection.created_at) : null;
   const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
     ? 'Accepted synthesis suppressed'
     : 'Accepted synthesis unavailable';

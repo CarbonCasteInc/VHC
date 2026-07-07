@@ -8,6 +8,7 @@ const {
   completeSignInMock,
   bindSignInSessionMock,
   loadSignInSessionMock,
+  clearSignInSessionMock,
   matchesPrincipalMock,
   SignInErrorClass,
 } = vi.hoisted(() => {
@@ -24,6 +25,7 @@ const {
     completeSignInMock: vi.fn(),
     bindSignInSessionMock: vi.fn(),
     loadSignInSessionMock: vi.fn(),
+    clearSignInSessionMock: vi.fn(),
     matchesPrincipalMock: vi.fn(),
     SignInErrorClass,
   };
@@ -42,6 +44,7 @@ vi.mock('../auth/signInBinding', () => ({
 
 vi.mock('@vh/identity-vault', () => ({
   loadSignInSession: (...a: unknown[]) => loadSignInSessionMock(...(a as [])),
+  clearSignInSession: (...a: unknown[]) => clearSignInSessionMock(...(a as [])),
   signInSessionMatchesPrincipal: (...a: unknown[]) => matchesPrincipalMock(...(a as [])),
 }));
 
@@ -64,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   availableSignInProvidersMock.mockReturnValue(['apple']);
   loadSignInSessionMock.mockResolvedValue(null);
+  clearSignInSessionMock.mockResolvedValue(undefined);
   matchesPrincipalMock.mockReturnValue(false);
 });
 
@@ -178,6 +182,87 @@ describe('useSignIn', () => {
       });
     });
     expect(getSignInAccount('apple')?.status).toBe('signed-out');
+  });
+
+  it('signOutProvider clears the vault session so disconnect survives reload', async () => {
+    const { result } = renderHook(() => useSignIn(bridge()));
+    act(() => {
+      result.current.signOutProvider({
+        schemaVersion: 'sign-in-account-v1',
+        providerId: 'apple',
+        displayLabel: 'a@b.com',
+        status: 'signed-in',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    expect(getSignInAccount('apple')?.status).toBe('signed-out');
+    // The vault compartment must be cleared, otherwise the hydration effect
+    // re-upserts `signed-in` on the next mount/reload (silent reconnect).
+    await waitFor(() => expect(clearSignInSessionMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not clear a different provider vault session when signing out a stale account row', async () => {
+    loadSignInSessionMock.mockResolvedValue({
+      providerId: 'google',
+      boundPrincipalNullifier: 'principal-1',
+      providerSubject: 'subject-google',
+      boundAt: 1,
+      updatedAt: 1,
+      schemaVersion: 1,
+    });
+    const { result } = renderHook(() => useSignIn(bridge({ activeNullifier: 'principal-1' })));
+
+    act(() => {
+      result.current.signOutProvider({
+        schemaVersion: 'sign-in-account-v1',
+        providerId: 'apple',
+        status: 'signed-in',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+
+    await waitFor(() => expect(loadSignInSessionMock).toHaveBeenCalledTimes(2));
+    expect(clearSignInSessionMock).not.toHaveBeenCalled();
+    expect(getSignInAccount('apple')?.status).toBe('signed-out');
+  });
+
+  it('signOutProvider tolerates a vault clear failure', async () => {
+    clearSignInSessionMock.mockRejectedValue(new Error('vault locked'));
+    const { result } = renderHook(() => useSignIn(bridge()));
+    act(() => {
+      result.current.signOutProvider({
+        schemaVersion: 'sign-in-account-v1',
+        providerId: 'apple',
+        status: 'signed-in',
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    await Promise.resolve();
+    expect(getSignInAccount('apple')?.status).toBe('signed-out');
+  });
+
+  it('reflects an expired vault session as expired, not connected', async () => {
+    loadSignInSessionMock.mockResolvedValue({
+      providerId: 'google',
+      displayLabel: 'g@e.com',
+      expiresAt: 1,
+    });
+    matchesPrincipalMock.mockReturnValue(true);
+    renderHook(() => useSignIn(bridge({ activeNullifier: 'principal-1' })));
+    await waitFor(() => expect(getSignInAccount('google')?.status).toBe('expired'));
+  });
+
+  it('reflects a session with a future expiry as connected', async () => {
+    loadSignInSessionMock.mockResolvedValue({
+      providerId: 'google',
+      expiresAt: Date.now() + 3_600_000,
+    });
+    matchesPrincipalMock.mockReturnValue(true);
+    renderHook(() => useSignIn(bridge({ activeNullifier: 'principal-1' })));
+    await waitFor(() => expect(getSignInAccount('google')?.status).toBe('signed-in'));
   });
 
   it('signOutProvider handles a record without a display label', () => {

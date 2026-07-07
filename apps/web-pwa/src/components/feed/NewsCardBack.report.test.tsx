@@ -89,4 +89,65 @@ describe('NewsCardBack report intake', () => {
     expect(screen.getByTestId('news-card-summary-topic-1')).toHaveTextContent('Accepted synthesis summary.');
     expect(screen.queryByTestId('news-card-synthesis-correction-topic-1')).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['in-range', 1_700_000_000_000, true],
+    ['out-of-range (RangeError source)', 1e16, false],
+  ])('renders a %s correction timestamp without crashing', (_label, createdAt, expectIso) => {
+    const correction = {
+      schemaVersion: 'topic-synthesis-correction-v1' as const,
+      correction_id: 'corr-1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synthesis-1',
+      epoch: 3,
+      status: 'suppressed' as const,
+      reason_code: 'bad_frame' as const,
+      operator_id: 'op-1',
+      created_at: createdAt,
+      audit: { action: 'synthesis_correction' as const },
+    };
+
+    expect(() =>
+      render(
+        <NewsCardBack
+          headline="Launch housing bundle"
+          topicId="topic-1"
+          storyId="story-1"
+          summary="Accepted synthesis summary."
+          summaryBasisLabel="Topic synthesis v2"
+          frameRows={[]}
+          frameBasisLabel="Topic synthesis frames"
+          analysisProvider={null}
+          galleryImages={[]}
+          relatedCoverage={[]}
+          relatedLinks={[]}
+          storylineHeadline={null}
+          storylineStoryCount={0}
+          analysisFeedbackStatus={null}
+          analysisError={null}
+          retryAnalysis={() => undefined}
+          synthesisLoading={false}
+          synthesisError={null}
+          synthesisUnavailable={false}
+          analysis={null}
+          analysisId={null}
+          synthesisId="synthesis-1"
+          synthesisProvenance={null}
+          synthesisCorrection={correction}
+          epoch={3}
+          sourceViewer={null}
+          discussionThread={null}
+          fallbackCommentCount={0}
+          createThread={null}
+          onCollapse={() => undefined}
+        />,
+      ),
+    ).not.toThrow();
+
+    const block = screen.getByTestId('news-card-synthesis-correction-topic-1');
+    expect(block).toHaveTextContent('Operator op-1');
+    // In-range renders an ISO timestamp (2023-…); the out-of-range value
+    // degrades to no timestamp rather than throwing a RangeError during render.
+    expect(block.textContent?.includes('2023-11-14T')).toBe(expectIso);
+  });
 });

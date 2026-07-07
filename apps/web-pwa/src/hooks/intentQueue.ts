@@ -15,7 +15,13 @@ export interface IntentQueueOptions<T> {
 }
 
 export interface IntentQueue<T> {
-  enqueue(record: T): void;
+  /**
+   * Persist a record. Returns `true` when the record is durably queued
+   * (written, or already present from a prior enqueue), `false` when the
+   * durable write failed — so callers can surface a persistence failure rather
+   * than assume success.
+   */
+  enqueue(record: T): boolean;
   markProjected(intentId: string): void;
   getPending(): T[];
   replay(
@@ -33,11 +39,13 @@ function loadQueue<T>(storageKey: string): T[] {
   }
 }
 
-function persistQueue<T>(storageKey: string, queue: readonly T[]): void {
+function persistQueue<T>(storageKey: string, queue: readonly T[]): boolean {
   try {
-    safeSetItem(storageKey, JSON.stringify(queue));
+    return safeSetItem(storageKey, JSON.stringify(queue));
   } catch {
-    /* ignore — quota exceeded, disabled storage, etc. */
+    // Serialization failed (unexpected for plain intent records) — treat as a
+    // non-durable write so the caller can surface it.
+    return false;
   }
 }
 
@@ -46,7 +54,7 @@ export function createIntentQueue<T>(options: IntentQueueOptions<T>): IntentQueu
   const persist = (queue: readonly T[]) => persistQueue(options.storageKey, queue);
 
   return {
-    enqueue(record: T): void {
+    enqueue(record: T): boolean {
       const queue = load();
       const intentId = options.getId(record);
       const existingIndex = queue.findIndex((queued) => options.getId(queued) === intentId);
@@ -57,16 +65,17 @@ export function createIntentQueue<T>(options: IntentQueueOptions<T>): IntentQueu
         // first-enqueued record (pure idempotency).
         if (options.compareLww && options.compareLww(record, queue[existingIndex]!) > 0) {
           queue[existingIndex] = record;
-          persist(queue);
+          return persist(queue);
         }
-        return;
+        // Already durably queued; nothing new to write.
+        return true;
       }
 
       queue.push(record);
       while (queue.length > options.maxQueueSize) {
         queue.shift();
       }
-      persist(queue);
+      return persist(queue);
     },
 
     markProjected(intentId: string): void {

@@ -17,6 +17,35 @@ export interface CellVoteControlsProps {
   readonly pointLabel?: string;
 }
 
+/**
+ * Map an admission-denial reason to user-facing cell copy. Every canonical
+ * `VOTE_DENIAL_REASONS` value gets an actionable message; budget/daily-cap
+ * denials arrive as free-form reasons and are matched by `limit`. The catch-all
+ * is a neutral retry prompt — never the daily-limit copy, so a signed-out or
+ * expired user is not falsely told they hit a vote cap.
+ */
+function denialCopy(reason: string): string {
+  switch (reason) {
+    case VOTE_DENIAL_REASONS.MISSING_SYNTHESIS_CONTEXT:
+      return 'Waiting for synthesis context';
+    case VOTE_DENIAL_REASONS.NON_CURRENT_SYNTHESIS:
+      return 'This synthesis just updated — reopen to save your stance';
+    case VOTE_DENIAL_REASONS.MISSING_PROOF:
+    case VOTE_DENIAL_REASONS.INVALID_PROOF:
+    case VOTE_DENIAL_REASONS.MISSING_IDENTITY:
+      return 'Create or sign in to save your stance';
+    case VOTE_DENIAL_REASONS.EXPIRED_IDENTITY:
+      return 'Your session expired — sign in again to save your stance';
+    case VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE:
+    case VOTE_DENIAL_REASONS.MISSING_POINT_ID:
+      return 'Could not save your stance — please try again';
+    default:
+      return reason.toLowerCase().includes('limit')
+        ? 'Daily vote limit reached'
+        : 'Could not save your stance — please try again';
+  }
+}
+
 function biasTableDiagnosticsEnabled(): boolean {
   const viteValue = (import.meta as unknown as { env?: Record<string, unknown> }).env
     ?.VITE_BIAS_TABLE_DIAGNOSTICS;
@@ -220,13 +249,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     ],
   );
 
-  const denialText = denial
-    ? denial.includes('synthesis context')
-      ? 'Waiting for synthesis context'
-      : denial.includes('constituency') || denial.includes('proof')
-        ? 'Create or sign in to save your stance'
-        : 'Daily vote limit reached'
-    : null;
+  const denialText = denial ? denialCopy(denial) : null;
 
   return (
     <div

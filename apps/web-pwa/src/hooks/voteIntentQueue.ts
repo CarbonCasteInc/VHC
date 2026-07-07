@@ -58,9 +58,13 @@ const queue = createIntentQueue<VoteIntentRecord>({
  * a same-intent_id record that wins compareIntentLww replaces the queued one so
  * a mutate-while-pending vote is not lost. When the queue exceeds
  * MAX_QUEUE_SIZE, the oldest intent is evicted.
+ *
+ * Returns `true` when the intent is durably queued and `false` when the durable
+ * write failed, so the admission path can emit a `Write queue failure` denial
+ * instead of reporting a persisted vote that was silently dropped.
  */
-export function enqueueIntent(record: VoteIntentRecord): void {
-  queue.enqueue(record);
+export function enqueueIntent(record: VoteIntentRecord): boolean {
+  return queue.enqueue(record);
 }
 
 /**

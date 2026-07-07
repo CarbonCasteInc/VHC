@@ -2401,9 +2401,11 @@ describe('useSentimentState', () => {
 
     await flushProjection();
 
+    // The warning logs the reason string only — never the raw Error object,
+    // which could carry proof/nullifier-derived material.
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:sentiment] Failed to enqueue vote intent:',
-      expect.any(Error),
+      'intent-derive-failed',
     );
     expect(localStorage.getItem('vh_vote_intent_queue_v1')).toBeNull();
     expect(scheduleReplaySpy).not.toHaveBeenCalled();

@@ -175,6 +175,39 @@ describe('voteAdmission', () => {
       }
     });
 
+    it('reports a Write queue failure when derivation succeeds but the durable write fails', async () => {
+      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // Derivation succeeds (valid nullifier) but the persist fails (quota):
+      // the intent must not be reported as durable.
+      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('QuotaExceededError');
+      });
+
+      const result = await enqueueDurableVoteIntent({
+        constituencyProof: proofFor('valid-nullifier'),
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+        agreement: 1,
+        weight: 1,
+        emittedAt: 123,
+      });
+
+      expect(result).toEqual({ ok: false, error: 'vote intent persistence failed' });
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:vote:admission]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          point_id: 'point-1',
+          admitted: false,
+          reason: VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE,
+        }),
+      );
+      setItemSpy.mockRestore();
+    });
+
     it('stringifies a non-Error rejection into the failure result', async () => {
       vi.spyOn(console, 'info').mockImplementation(() => {});
       vi.spyOn(console, 'warn').mockImplementation(() => {});
