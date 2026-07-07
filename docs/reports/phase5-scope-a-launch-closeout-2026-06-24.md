@@ -200,6 +200,30 @@ This closes the StoryCluster truncation track for Scope A raw publication. It
 does not complete the full 24-72 hour sustained-operation watch or expand the
 launch claim beyond controlled raw Scope A.
 
+## Post-Slice-0 Alert And Timeout Recovery Addendum - 2026-07-06
+
+Slice 0 interim alerting is complete: the host-local email channel is configured
+outside git, the test-fire reached the operator device, and both the public-feed
+alert watch and Scope A watch-closure timers are enabled on A6.
+
+The first real alert after enablement correctly reported a real stale-feed
+condition. Read-only diagnosis showed the publisher active/running, relays
+healthy, and failure before raw relay writes because the StoryCluster remote
+request timed out. PR #723 bounded the production StoryCluster hot path, A6 was
+updated to `main@47ba218d`, and the normal recovery tick completed at
+`2026-07-06T22:44:08.567Z` with `raw_wrote_count=8` and
+`raw_write_failed_count=0`. Public freshness, relay liveness, relay snapshot
+freshness, watch closure, and alert watch passed afterward, including a recovery
+email.
+
+This addendum proves the alert channel can report a real stale-feed incident and
+the #723 timeout fix restored raw publication under the current first-tick
+budget. It does not prove unattended stability, heap boundedness, accepted
+synthesis, broader public-beta launch readiness, pager/PWA deployment, or Codex
+live execution. The clean evidence window starts at
+`2026-07-06T22:44:08.567Z`; the next action is a new alert or the first
+post-recovery 500 MB -> 700 MB heap-summary pair, not a service restart.
+
 ## Post-Launch Backlog
 
 1. Re-enable relay snapshot verify/refresh on A/B only under a separate

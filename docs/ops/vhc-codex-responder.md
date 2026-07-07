@@ -1,6 +1,6 @@
 # VHC Codex Incident Responder
 
-> Status: Draft
+> Status: Draft / Dry-Run-Only Live Boundary
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-06
 > Depends On: docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
@@ -17,6 +17,12 @@ work:
 - draft operator packets;
 - never execute live A6 mutation from the issue.
 
+As of 2026-07-06, the responder tooling exists in repo after #722, but live A6
+execution/autonomy is not enabled. The active guardrail is the Slice 0 email
+alert path: if no alert is firing and the feed remains fresh, the responder
+should not manufacture live work. The next allowed engineering triggers are a
+new alert or the first post-recovery 500 MB -> 700 MB heap-summary pair.
+
 ## First Checks
 
 From a fresh checkout:
@@ -30,6 +36,11 @@ corepack pnpm@9.7.1 check:vhc-incident-response
 If the issue points to a current alert-watch output, do not copy raw payloads or
 private logs into the repo. Use only the safe summary fields from the issue or
 from approved read-only A6 readback.
+
+If there is no active incident and the request is only to inspect the current
+proof window, stay read-only. No publisher restart, relay restart, alert-channel
+change, retention/compaction work, or executor enablement is implied by a stale
+historical issue.
 
 ## Triage Worker
 

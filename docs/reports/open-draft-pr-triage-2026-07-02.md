@@ -5,6 +5,11 @@
 > Last Reviewed: 2026-07-05
 > Current main reviewed: `25df495e`
 
+> 2026-07-06 addendum: this triage remains historical PR bookkeeping. Current
+> Scope A state has advanced through #722/#723 and is recorded in
+> `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`.
+> Alert delivery is no longer pending; the interim email alert path is enabled.
+
 This note re-triages old open PRs without resuming their branches. It is
 repo-side bookkeeping only; it does not change live Scope A/A6 behavior, relay
 quorum semantics, publisher state, alert state, retention, compaction, or any
@@ -40,7 +45,8 @@ For a constrained public-beta release claim, the old PR stack should therefore
 be treated as non-authoritative. The release path needs fresh artifacts from the
 intended release commit after:
 
-1. real alert delivery is configured, test-fired, received, and enabled;
+1. real alert delivery remains configured, received, and enabled through the
+   current proof window;
 2. post-recovery heap summaries name or bound the retainer without retention or
    compaction guesses;
 3. the sustained evidence window passes; and

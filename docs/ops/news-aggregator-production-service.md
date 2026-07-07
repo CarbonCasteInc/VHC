@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-07-05
+> Last Reviewed: 2026-07-06
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -23,30 +23,32 @@ Phase 5 Scope A launched on A6 on 2026-06-24. The launch closeout is
 extended post-#687 StoryCluster stability bake is
 `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`.
 
-Current state as of 2026-07-05 is recovered/fresh after outage #3, not
-unattended-distribution-ready and not stability-proven. Outage #2 and its
-recovery evidence are recorded in
+Current state as of 2026-07-06 is fresh after Slice 0 alert enablement and the
+post-Slice-0 stale-feed recovery, not unattended-distribution-ready and not
+stability-proven. Outage #2 and its recovery evidence are recorded in
 `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`. Outage #3
 parked the publisher on 2026-07-04 under pre-#706 behavior after a total
-transport/DNS failure to all three relay REST write endpoints. A6 was restored
-on `main@3713bd6f` on 2026-07-05 after #706, #707, and #708: total-transport
-relay writes are retryable/restartable through exit `69`, exit `69` is classified
-separately by the alert watch, and the first post-reset ingest workload is
-bounded.
+transport/DNS failure to all three relay REST write endpoints. The Slice 0
+alert session then proved the interim email channel and enabled the alert/watch
+closure timers. The first real alert after enablement reported a real stale-feed
+condition: the publisher was active/running but StoryCluster timed out before
+raw relay writes. PR #723 bounded that production path, A6 was updated to
+`main@47ba218d`, and the normal post-fix tick restored freshness.
 
 Current intended-live posture:
 
-- `vh-news-aggregator.service` is expected to be active/running, enabled, and at
-  `NRestarts=0`.
-- Current A6 checkout is `main@3713bd6f` (`Bound first publisher tick ingest
-  workload (#708)`).
+- `vh-news-aggregator.service` is expected to be active/running, enabled, and
+  not restart-churning.
+- `vh-storycluster-engine.service` is expected to be active/running.
+- Current A6 checkout is `main@47ba218d` (merge of #723,
+  `coord/storycluster-production-timeout-2026-07-06`).
 - Current relays run `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64` with
   Docker `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs,
-  bounded latest-index/story-body caches, #691 graph diagnostics, and #692 early
-  heap capture.
+  bounded latest-index/story-body caches, #691 graph diagnostics, and #692/#703
+  early heap capture.
 - Current public origin still runs
   `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`; do not claim a fresh
-  origin/PWA deploy from the 2026-07-05 publisher recovery.
+  origin/PWA deploy from the 2026-07-06 publisher recovery.
 - Raw story, latest-index, hot-index, and pending synthesis-lifecycle writes use
   relay REST quorum with required success count 2.
 - Accepted bundle synthesis, replay synthesis, topic synthesis, storyline writes,
@@ -54,27 +56,25 @@ Current intended-live posture:
 - Raw publication runs with `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2`
   after #693.
 - First post-reset ingest is capped by
-  `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24` after #708. The
-  2026-07-05 recovery tick completed with `ingested_item_limit=24`,
-  `ingested_item_count=24`, `selected_bundle_count=8`, `raw_wrote_count=8`, and
-  `raw_write_failed_count=0`.
+  `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24` after #708.
+  The 2026-07-06 normal post-fix recovery tick completed at
+  `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
+  `normalized_item_count=23`, `selected_bundle_count=8`, `raw_wrote_count=8`,
+  and `raw_write_failed_count=0`.
 - Product-feed repair is deferred until after the first completed runtime tick
   and then paced through dedicated non-fatal maintenance lanes.
 - Relay verify/refresh body maintenance is disabled for the launch profile;
   re-enabling it requires a separate attended soak and updated evidence.
-- Publisher liveness, relay liveness, and relay snapshot freshness timers are
-  intended to stay enabled during live operation.
-- Public-feed alert watch units are installed on A6, but the alert timer must
-  remain disabled until `~/.config/vhc/public-feed-alert.env` contains a real
-  `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` or `VH_PUBLIC_FEED_ALERT_EMAIL_TO` channel
-  and an operator confirms receipt from a `VH_PUBLIC_FEED_ALERT_TEST_FIRE=1`
-  run. The 2026-07-05 test-fire observed publisher/freshness `pass` but failed
-  closed with `alert_delivery_missing_channel` because no channel was configured.
-  Missing or invalid required watch inputs remain critical fail-closed
-  prechecks; relay liveness failure and publisher park classes are critical;
-  snapshot freshness failure, stale watch outputs, watch-closure regression,
-  restart churn, and default heap-limit provenance page as warnings through the
-  same deduped alert channel.
+- Publisher liveness, relay liveness, relay snapshot freshness, watch-closure,
+  and public-feed alert timers are intended to stay enabled during live
+  operation.
+- The interim public-feed alert email channel is configured in host-private env
+  and has sent both failure and recovery state changes. The active A6 alert path
+  is still email, not the custom pager/PWA. Missing or invalid required watch
+  inputs remain critical fail-closed prechecks; relay liveness failure and
+  publisher park classes are critical; snapshot freshness failure, stale watch
+  outputs, watch-closure regression, restart churn, and default heap-limit
+  provenance page as warnings through the same deduped alert channel.
 - The hourly Scope A soak archive timer is intended to stay enabled during the
   post-#701 off-graph relay-memory diagnostic window so each hour preserves
   publisher liveness, relay liveness, relay snapshot freshness, public feed
@@ -87,15 +87,27 @@ Current intended-live posture:
   the stagger while all three public-news relay votes remain co-located on A6.
 
 This launch state proves raw-fresh, v4-signed, product-visible cards with
-pending lifecycle rows and bounded first-tick recovery from a parked publisher.
-Exit-69 restartability for the total relay transport class is configured and
-regression-tested, but it is not yet live-proven by an observed 69-to-restart
-cycle on A6. The post-#687 bake still proves the known StoryCluster rerank
-truncation failure no longer interrupts the launched raw path. It does not prove
-alert delivery, unattended operation, current 48-hour sustained operation after
-outages #2/#3, retention/heap boundedness, accepted synthesis, frame tables,
-storyline overlays, topic synthesis, full public-beta readiness, mesh
-`release_ready`, production app canary readiness, or legal/commercial approval.
+pending lifecycle rows, bounded first-tick recovery from a parked publisher, and
+working interim email alert delivery. Exit-69 restartability for the total relay
+transport class is configured and regression-tested, but it is not yet
+live-proven by an observed 69-to-restart cycle on A6. The post-#687 bake still
+proves the known StoryCluster rerank truncation failure no longer interrupts the
+launched raw path. PR #723 proves the observed StoryCluster production-timeout
+regression has a bounded hot path under the normal first-tick budget. This state
+does not prove unattended operation, current 48-hour sustained operation after
+the 2026-07-06 clean-window reset, retention/heap boundedness, accepted
+synthesis, frame tables, storyline overlays, topic synthesis, full public-beta
+readiness, mesh `release_ready`, production app canary readiness, or
+legal/commercial approval.
+
+Current proof window:
+
+- clean window start: `2026-07-06T22:44:08.567Z`;
+- 48-hour target: `2026-07-08T22:44:08Z`;
+- 14-day unattended target, assuming no operator touch or anomaly:
+  `2026-07-20T22:44:08Z`;
+- next engineering trigger: a new alert email or the first post-recovery
+  500 MB -> 700 MB early heap-capture summary pair.
 
 ## A6 Host Setup Closures
 
@@ -341,8 +353,13 @@ Phase 5 Scope A watch-closure packet timer:
 ```bash
 mkdir -p ~/.config/vhc
 cat > ~/.config/vhc/phase5-scope-a-watch-closure.env <<'EOF'
-VH_PHASE5_SCOPE_A_WATCH_START_AT=2026-07-05T00:00:00.000Z
-VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=2026-07-05T00:00:00.000Z
+VH_PHASE5_SCOPE_A_WATCH_START_AT=2026-07-06T22:44:08.567Z
+VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=2026-07-06T22:44:08.567Z
+VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000
+VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES=850000000
+VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES=1000000000
+VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES=1150000000
+VH_RELAY_WATCHDOG_MAX_RSS_BYTES=1800000000
 EOF
 chmod 0600 ~/.config/vhc/phase5-scope-a-watch-closure.env
 
@@ -358,7 +375,9 @@ daemon reload or timer enablement.
 
 Enable the timer only after the one-shot writes a fresh
 `vh-phase5-scope-a-watch-closure-verdict-v1` verdict for the intended clean
-window:
+window. Keep the deployed relay heap/RSS ceiling values explicit in the watch
+environment, even when they match public-beta defaults, so the public-feed alert
+watch does not page on default-threshold provenance:
 
 ```bash
 ./tools/scripts/install-news-aggregator-production-service.sh --enable-watch-closure
@@ -376,7 +395,7 @@ present, the verdict is `status: "fail"` and the service exits nonzero so
 systemd records the failed run. The verdict preserves the threshold blockers and
 relay-memory projection provenance without absolute host paths.
 
-During the current post-#694 instrumented climb, treat the archive plus
+During the current post-#723 instrumented climb, treat the archive plus
 StoryCluster watch plus relay graph metrics as the Scope A health surface:
 
 - archive `manifest.json` remains `status: pass`;
@@ -389,14 +408,15 @@ StoryCluster watch plus relay graph metrics as the Scope A health surface:
   zero;
 - StoryCluster rerank degeneracy warning count remains zero or isolated enough
   to prove rerank is not degrading every nontrivial chunk;
-- publisher diagnostics continue to show completed ticks with
-  `nonfatal_prewrite_failure_count=0` outside attended maintenance overlap.
+- publisher diagnostics continue to show completed ticks with raw writes
+  succeeding 2-of-3 or better outside attended maintenance overlap.
 
 Early heap capture intake is intentionally summary-only. Raw `.heapsnapshot`
 and `.heapprofile` artifacts remain host-private diagnostic files; do not copy
-or paste them into tickets, PRs, reports, or agent context. When one or more
-relay `*.heap-summary.json` files appear after the staggered early-capture
-thresholds, classify them with:
+or paste them into tickets, PRs, reports, or agent context. Wait for the first
+post-recovery 500 MB -> 700 MB pair before selecting a memory fix. When the
+paired relay `*.heap-summary.json` files appear after the staggered
+early-capture thresholds, classify them with:
 
 ```bash
 cd /home/humble/VHC
@@ -1013,15 +1033,17 @@ The relay-memory watch and closure tools must project relay heap/RSS slope
 against the same watchdog ceilings. Export the deployed
 `VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES`,
 `VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES`, and
-`VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES` into the watch environment if A6
-overrides the compose defaults; otherwise the tools intentionally fall back to
-the public-beta per-relay defaults (`850000000`, `1000000000`, `1150000000`) and
-the relay server RSS default (`1800000000`). The relay liveness watch also reads
-the early-capture metrics. If a relay advertises early heap capture as enabled,
-heap has crossed the first configured threshold, no capture is in flight, and
-that threshold has not been recorded as captured, the watch fails with
-`early_heap_snapshot_missing:<heap>/<threshold>`. Treat that as a diagnostic
-assertion failure, not as a heap-retainer verdict.
+`VH_RELAY_C_WATCHDOG_MAX_HEAP_USED_BYTES` into the watch environment. The tools
+can intentionally fall back to the public-beta per-relay defaults
+(`850000000`, `1000000000`, `1150000000`) and the relay server RSS default
+(`1800000000`), but the public-feed alert watch treats default-threshold
+provenance as a warning until the operator makes those values explicit in
+`~/.config/vhc/phase5-scope-a-watch-closure.env`. The relay liveness watch also
+reads the early-capture metrics. If a relay advertises early heap capture as
+enabled, heap has crossed the first configured threshold, no capture is in
+flight, and that threshold has not been recorded as captured, the watch fails
+with `early_heap_snapshot_missing:<heap>/<threshold>`. Treat that as a
+diagnostic assertion failure, not as a heap-retainer verdict.
 
 The latest-index snapshot and story-body REST caches are bounded, but they do
 not prove the relay process heap is bounded. Public-news writes still create
