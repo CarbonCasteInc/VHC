@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "pnpm -w prebuild:guards",
+    "prebuild": "corepack pnpm@9.7.1 -w prebuild:guards",
     "build": "vite build",
     "preview": "vite preview --host --port 5173 --strictPort",
     "test": "vitest run src",

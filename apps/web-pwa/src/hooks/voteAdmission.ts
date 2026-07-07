@@ -193,20 +193,33 @@ export async function enqueueDurableVoteIntent(params: {
       seq: params.emittedAt,
       emitted_at: params.emittedAt,
     };
-    enqueueIntent(record);
+    if (!enqueueIntent(record)) {
+      // The durable write failed (quota exceeded, disabled/blocked storage).
+      // Surface it as a Write queue failure rather than reporting a persisted
+      // intent that was silently dropped — admission success must mean
+      // "receipt + durable intent", not "receipt + hope".
+      logWriteQueueFailure(params.topicId, params.pointId);
+      return { ok: false, error: 'vote intent persistence failed' };
+    }
     return { ok: true, record };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    console.warn('[vh:sentiment] Failed to enqueue vote intent:', err);
-    // Reason-only telemetry — never carries proof/nullifier material.
-    logVoteAdmission({
-      topic_id: params.topicId,
-      point_id: params.pointId,
-      admitted: false,
-      reason: VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE,
-    });
+    // Reason-only log — never carries the raw error object, which could hold
+    // proof/nullifier-derived material.
+    console.warn('[vh:sentiment] Failed to enqueue vote intent:', error);
+    logWriteQueueFailure(params.topicId, params.pointId);
     return { ok: false, error };
   }
+}
+
+/** Reason-only Write queue failure telemetry — never carries proof material. */
+function logWriteQueueFailure(topicId: string, pointId: string): void {
+  logVoteAdmission({
+    topic_id: topicId,
+    point_id: pointId,
+    admitted: false,
+    reason: VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE,
+  });
 }
 
 /**

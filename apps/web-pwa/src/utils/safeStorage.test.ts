@@ -29,7 +29,7 @@ describe('safeStorage', () => {
   });
 
   it('reads, writes, and removes values when localStorage exists', () => {
-    safeSetItem('k1', 'v1');
+    expect(safeSetItem('k1', 'v1')).toBe(true);
     expect(safeGetItem('k1')).toBe('v1');
 
     safeRemoveItem('k1');
@@ -44,7 +44,7 @@ describe('safeStorage', () => {
     vi.stubGlobal('localStorage', undefined);
 
     expect(safeGetItem('k1')).toBeNull();
-    expect(() => safeSetItem('k1', 'v1')).not.toThrow();
+    expect(safeSetItem('k1', 'v1')).toBe(false);
     expect(() => safeRemoveItem('k1')).not.toThrow();
   });
 
@@ -62,7 +62,7 @@ describe('safeStorage', () => {
     });
 
     expect(safeGetItem('k1')).toBeNull();
-    expect(() => safeSetItem('k1', 'v1')).not.toThrow();
+    expect(safeSetItem('k1', 'v1')).toBe(false);
     expect(() => safeRemoveItem('k1')).not.toThrow();
   });
 
@@ -79,7 +79,7 @@ describe('safeStorage', () => {
 
     try {
       expect(safeGetItem('k1')).toBeNull();
-      expect(() => safeSetItem('k1', 'v1')).not.toThrow();
+      expect(safeSetItem('k1', 'v1')).toBe(false);
       expect(() => safeRemoveItem('k1')).not.toThrow();
     } finally {
       if (original) {

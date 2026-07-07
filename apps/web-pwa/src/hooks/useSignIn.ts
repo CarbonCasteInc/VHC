@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { loadSignInSession, signInSessionMatchesPrincipal } from '@vh/identity-vault';
+import {
+  clearSignInSession,
+  loadSignInSession,
+  signInSessionMatchesPrincipal,
+} from '@vh/identity-vault';
 import type { SignInSessionCompartment } from '@vh/identity-vault';
 import {
   availableSignInProviders,
@@ -18,6 +22,18 @@ import type { SignInAccountRecord } from '@vh/data-model';
 import { getPublishedIdentity } from '../store/identityProvider';
 
 export type SignInPhase = 'idle' | 'starting' | 'completing' | 'error';
+
+/**
+ * A session is expired when it carries an `expiresAt` at or before now. A
+ * session with no `expiresAt` (provider returned no expiry) is treated as
+ * non-expiring — the conservative default that preserves prior behavior.
+ */
+function isSignInSessionExpired(
+  session: SignInSessionCompartment,
+  now: number = Date.now(),
+): boolean {
+  return typeof session.expiresAt === 'number' && session.expiresAt <= now;
+}
 
 /**
  * Identity actions this hook needs, satisfied by useIdentity(). Kept as a
@@ -69,13 +85,16 @@ export function useSignIn(identity: SignInIdentityBridge): UseSignInResult {
         session = null;
       }
       if (cancelled || !session) return;
-      if (signInSessionMatchesPrincipal(session, nullifier)) {
-        upsertSignInAccount({
-          providerId: session.providerId,
-          ...(session.displayLabel !== undefined ? { displayLabel: session.displayLabel } : {}),
-          status: 'signed-in',
-        });
-      }
+      if (!signInSessionMatchesPrincipal(session, nullifier)) return;
+      // An expired provider session must not read as "Connected": surface it as
+      // `expired` so the UI prompts a fresh sign-in instead of implying
+      // continuity that no longer holds.
+      const status = isSignInSessionExpired(session) ? 'expired' : 'signed-in';
+      upsertSignInAccount({
+        providerId: session.providerId,
+        ...(session.displayLabel !== undefined ? { displayLabel: session.displayLabel } : {}),
+        status,
+      });
     })();
     return () => {
       cancelled = true;
@@ -126,6 +145,23 @@ export function useSignIn(identity: SignInIdentityBridge): UseSignInResult {
       ...(record.displayLabel !== undefined ? { displayLabel: record.displayLabel } : {}),
       status: 'signed-out',
     });
+    // Disconnect must remove the on-device account link (SignInProviderSection
+    // copy), not just flip the in-memory status: without clearing the vault
+    // compartment the hydration effect re-upserts `signed-in` on the next mount
+    // or reload, so the account silently reconnects and providerSubject stays
+    // bound. Only clear the active vault session for the provider being
+    // disconnected so signing out a stale account row cannot disconnect a
+    // different provider that is currently bound to this LUMA identity.
+    void (async () => {
+      try {
+        const session = await loadSignInSession();
+        if (!session || session.providerId === record.providerId) {
+          await clearSignInSession();
+        }
+      } catch {
+        /* best-effort: vault unavailable — UI is already signed-out this session */
+      }
+    })();
   }, []);
 
   return {

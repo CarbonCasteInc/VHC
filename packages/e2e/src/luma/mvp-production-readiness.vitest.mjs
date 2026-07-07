@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evaluateEvidenceCommitCompatibility,
   meshPublicWssProofStatus,
+  resolveCommandInvocation,
   validateActionPolicySurface,
   validateEmbeddedMeshLumaCoverage,
   validateReleaseClaimSurface,
@@ -29,6 +30,17 @@ describe('LUMA MVP production-readiness static checks', () => {
       id: 'release_claim_boundaries',
       status: 'pass',
     });
+  });
+
+  it('runs child pnpm guards through the repo-pinned Corepack package manager', () => {
+    expect(resolveCommandInvocation('pnpm check:public-beta-compliance')).toEqual([
+      'corepack',
+      ['pnpm@9.7.1', 'check:public-beta-compliance'],
+    ]);
+    expect(resolveCommandInvocation(['git', ['status', '--short']])).toEqual([
+      'git',
+      ['status', '--short'],
+    ]);
   });
 
   it('accepts skipped synthetic mesh rows when explicit LUMA coverage is embedded and passing', () => {

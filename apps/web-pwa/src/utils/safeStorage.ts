@@ -21,12 +21,22 @@ export function safeGetItem(key: string): string | null {
   }
 }
 
-export function safeSetItem(key: string, value: string): void {
-  if (!canUseStorage()) return;
+/**
+ * Write to localStorage. Returns `true` when the value was written, `false`
+ * when storage is unavailable or the write failed (quota exceeded, disabled
+ * storage, private-mode restrictions). Callers that need durability (e.g. the
+ * vote-intent queue) inspect the result so a failed write surfaces instead of
+ * being silently dropped; callers that treat storage as best-effort can ignore
+ * it.
+ */
+export function safeSetItem(key: string, value: string): boolean {
+  if (!canUseStorage()) return false;
   try {
     localStorage.setItem(key, value);
+    return true;
   } catch {
-    // Silently ignore (quota exceeded, etc.)
+    // Quota exceeded, disabled/blocked storage, etc.
+    return false;
   }
 }
 

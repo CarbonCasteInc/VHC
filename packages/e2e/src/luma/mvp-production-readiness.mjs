@@ -19,6 +19,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const latestDir = path.join(repoRoot, '.tmp/luma-mvp-production-readiness/latest');
 const latestReportPath = path.join(latestDir, 'luma-mvp-production-readiness-report.json');
+const packageJsonPath = path.join(repoRoot, 'package.json');
 
 const lumaCoverageReportPath = path.join(
   repoRoot,
@@ -60,6 +61,7 @@ const REQUIRED_GUARDS = Object.freeze([
   'pnpm check:luma-topic-engagement-summary-system-v1',
   'pnpm check:luma-civic-reps-system-v1',
   'pnpm check:luma-discovery-index-system-v1',
+  'pnpm check:district-aggregate-thresholds',
   'pnpm check:public-beta-compliance',
 ]);
 
@@ -157,13 +159,37 @@ function splitCommand(command) {
   return [bin, args];
 }
 
-function runCommand(command, options = {}) {
+function repoPackageManagerSpec() {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    const packageManager = typeof packageJson.packageManager === 'string'
+      ? packageJson.packageManager.trim()
+      : '';
+    return packageManager.split('+')[0] || 'pnpm@9.7.1';
+  } catch {
+    return 'pnpm@9.7.1';
+  }
+}
+
+export function resolveCommandInvocation(command) {
   const [bin, args] = Array.isArray(command) ? command : splitCommand(command);
+  if (bin === 'pnpm') {
+    return ['corepack', [repoPackageManagerSpec(), ...args]];
+  }
+  return [bin, args];
+}
+
+function runCommand(command, options = {}) {
+  const [bin, args] = resolveCommandInvocation(command);
   const echo = options.echo ?? true;
   return new Promise((resolve) => {
     const child = spawn(bin, args, {
       cwd: repoRoot,
-      env: { ...process.env, CI: process.env.CI ?? 'true' },
+      env: {
+        ...process.env,
+        CI: process.env.CI ?? 'true',
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: process.env.COREPACK_ENABLE_DOWNLOAD_PROMPT ?? '0',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

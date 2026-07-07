@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type ViteDevServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -97,8 +97,8 @@ function htmlToReadableText(rawHtml: string): string {
 function createArticleTextProxyPlugin(): Plugin {
   return {
     name: 'vh-article-text-proxy',
-    configureServer(server) {
-      server.middlewares.use('/article-text', async (req, res) => {
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use('/article-text', async (req: IncomingMessage, res: ServerResponse) => {
         if (!req.url) {
           sendJson(res, 400, { error: 'Missing request URL' });
           return;
@@ -203,7 +203,7 @@ function createArticleTextProxyPlugin(): Plugin {
         }
       });
     },
-  };
+  } as Plugin;
 }
 
 function readBooleanEnv(value: string | undefined): boolean {
@@ -231,8 +231,8 @@ async function readJsonRequestBody(req: IncomingMessage): Promise<unknown> {
 function createAnalysisRelayPlugin(): Plugin {
   return {
     name: 'vh-analysis-relay',
-    configureServer(server) {
-      server.middlewares.use('/api/analyze/health', async (req, res) => {
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use('/api/analyze/health', async (req: IncomingMessage, res: ServerResponse) => {
         if ((req.method ?? 'GET').toUpperCase() !== 'GET') { sendJson(res, 405, { error: 'Method not allowed' }); return; }
         const c = resolveAnalysisRelayConfig(process.env as Record<string, string | undefined>);
         if (!c) { sendJson(res, 503, { ok: false, error: 'Relay not configured' }); return; }
@@ -261,12 +261,12 @@ function createAnalysisRelayPlugin(): Plugin {
           });
         }
       });
-      server.middlewares.use('/api/analyze/config', (req, res) => {
+      server.middlewares.use('/api/analyze/config', (req: IncomingMessage, res: ServerResponse) => {
         if ((req.method ?? 'GET').toUpperCase() !== 'GET') { sendJson(res, 405, { error: 'Method not allowed' }); return; }
         const c = resolveAnalysisRelayConfig(process.env as Record<string, string | undefined>);
         sendJson(res, 200, { configured: !!c, model: c?.modelOverride ?? 'default', provider_id: c?.providerId ?? 'not-configured', upstream_url: c ? '[configured]' : 'not-configured', analyses_limit: c?.analysesLimit ?? 0, analyses_per_topic_limit: c?.analysesPerTopicLimit ?? 0 });
       });
-      server.middlewares.use('/api/analyze', async (req, res) => {
+      server.middlewares.use('/api/analyze', async (req: IncomingMessage, res: ServerResponse) => {
         if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
           sendJson(res, 405, { error: 'Method not allowed' });
           return;
@@ -283,7 +283,7 @@ function createAnalysisRelayPlugin(): Plugin {
         }
       });
     },
-  };
+  } as Plugin;
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -297,7 +297,7 @@ function escapeHtmlAttribute(value: string): string {
 function createCspHtmlPlugin(): Plugin {
   return {
     name: 'vh-csp-html',
-    transformIndexHtml(html) {
+    transformIndexHtml(html: string) {
       const csp = escapeHtmlAttribute(buildCspContent(process.env.VITE_VH_CSP_CONNECT_SRC, {
         strictConnectSrc: readBooleanEnv(process.env.VITE_VH_CSP_STRICT_CONNECT_SRC),
       }));
@@ -306,7 +306,7 @@ function createCspHtmlPlugin(): Plugin {
         `$1${csp}$3`,
       );
     },
-  };
+  } as Plugin;
 }
 
 export default defineConfig({

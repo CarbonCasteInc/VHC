@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoteAdmissionReceipt } from '@vh/data-model';
 import { CellVoteControls } from './CellVoteControls';
 import { useSentimentState } from '../../hooks/useSentimentState';
+import { VOTE_DENIAL_REASONS } from '../../hooks/voteAdmission';
 
 const useConstituencyProofMock = vi.hoisted(() => vi.fn());
 const usePointAggregateMock = vi.hoisted(() => vi.fn());
@@ -161,6 +162,35 @@ describe('CellVoteControls', () => {
     fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
 
     expect(screen.getByTestId('cell-vote-denial-point-abc')).toHaveTextContent(
+      'Daily vote limit reached',
+    );
+  });
+
+  it.each([
+    [VOTE_DENIAL_REASONS.MISSING_SYNTHESIS_CONTEXT, 'Waiting for synthesis context'],
+    [
+      VOTE_DENIAL_REASONS.NON_CURRENT_SYNTHESIS,
+      'This synthesis just updated — reopen to save your stance',
+    ],
+    [VOTE_DENIAL_REASONS.MISSING_PROOF, 'Create or sign in to save your stance'],
+    [VOTE_DENIAL_REASONS.INVALID_PROOF, 'Create or sign in to save your stance'],
+    [VOTE_DENIAL_REASONS.MISSING_IDENTITY, 'Create or sign in to save your stance'],
+    [
+      VOTE_DENIAL_REASONS.EXPIRED_IDENTITY,
+      'Your session expired — sign in again to save your stance',
+    ],
+    [VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE, 'Could not save your stance — please try again'],
+    [VOTE_DENIAL_REASONS.MISSING_POINT_ID, 'Could not save your stance — please try again'],
+    ['some unrecognized reason', 'Could not save your stance — please try again'],
+  ])('maps denial reason %s to actionable copy (not a false rate-limit)', (reason, expected) => {
+    seedValidProof();
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(deniedReceipt(reason));
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+
+    expect(screen.getByTestId('cell-vote-denial-point-abc')).toHaveTextContent(expected);
+    expect(screen.getByTestId('cell-vote-denial-point-abc')).not.toHaveTextContent(
       'Daily vote limit reached',
     );
   });

@@ -5,7 +5,10 @@ const storage = new Map<string, string>();
 
 vi.mock('../utils/safeStorage', () => ({
   safeGetItem: (key: string) => storage.get(key) ?? null,
-  safeSetItem: (key: string, value: string) => storage.set(key, value),
+  safeSetItem: (key: string, value: string) => {
+    storage.set(key, value);
+    return true;
+  },
 }));
 
 interface TestIntent {
@@ -86,7 +89,7 @@ describe('createIntentQueue', () => {
     expect(queue.getPending()).toEqual([{ intent_id: 'b', seq: 20 }]);
   });
 
-  it('survives malformed persisted data and storage write failures', () => {
+  it('survives malformed persisted data and reports storage write failures', () => {
     storage.set('vh_corrupt_intent_queue_v1', '{bad json');
     const corruptQueue = createQueue('vh_corrupt_intent_queue_v1');
     expect(corruptQueue.getPending()).toEqual([]);
@@ -95,7 +98,33 @@ describe('createIntentQueue', () => {
       throw new Error('quota');
     });
     const queue = createQueue('vh_storage_failure_intent_queue_v1');
-    expect(() => queue.enqueue({ intent_id: 'safe', seq: 1 })).not.toThrow();
+    let persisted = true;
+    // A failed durable write is reported (false), not swallowed as success,
+    // and never throws.
+    expect(() => {
+      persisted = queue.enqueue({ intent_id: 'safe', seq: 1 });
+    }).not.toThrow();
+    expect(persisted).toBe(false);
     setItemSpy.mockRestore();
+  });
+
+  it('reports a persist failure (not a throw) when a record cannot be serialized', () => {
+    const queue = createQueue('vh_unserializable_intent_queue_v1');
+    let persisted = true;
+    // A BigInt makes JSON.stringify throw inside persist; the failure must be
+    // reported as a non-durable write rather than propagating.
+    expect(() => {
+      persisted = queue.enqueue({ intent_id: 'x', seq: 1, bad: 1n } as unknown as TestIntent);
+    }).not.toThrow();
+    expect(persisted).toBe(false);
+  });
+
+  it('returns true when a record is durably queued and for an idempotent no-op', () => {
+    const queue = createLwwQueue();
+    expect(queue.enqueue({ intent_id: 'a', seq: 1 })).toBe(true);
+    // Same id, not newer: idempotent no-op still reports durable.
+    expect(queue.enqueue({ intent_id: 'a', seq: 1 })).toBe(true);
+    // Same id, newer: LWW replace persists.
+    expect(queue.enqueue({ intent_id: 'a', seq: 5 })).toBe(true);
   });
 });

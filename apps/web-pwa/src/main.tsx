@@ -6,6 +6,7 @@ import { routeTree } from './routes';
 import './index.css';
 import { ThemeProvider } from './components/ThemeProvider';
 import { startHealthMonitor } from './hooks/useHealthMonitor';
+import { installVoteIntentReplayTriggers } from './hooks/voteIntentReplayTriggers';
 
 const DevModelPicker = import.meta.env.DEV
   ? lazy(() => import('./components/dev/DevModelPicker'))
@@ -23,6 +24,9 @@ if (typeof window !== 'undefined' && window.location.search) {
 console.info('[vh:web-pwa] main.tsx executing, mounting router...');
 if (typeof window !== 'undefined') {
   startHealthMonitor();
+  // Drain the durable vote-intent queue on startup / reconnect / tab-visible so
+  // intents left pending by a prior session materialize without another vote.
+  installVoteIntentReplayTriggers();
 }
 
 const router = createRouter({ routeTree });
