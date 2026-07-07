@@ -217,6 +217,18 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
         replayed: replaySummary.replayed,
         failed: replaySummary.failed,
       });
+      // A fully successful batch can still leave work pending: a same-id
+      // intent enqueued while its predecessor's projection was in flight is
+      // retained by the replay LWW guard (intentQueue.removeProjected) and
+      // would otherwise wait for the next external trigger. Re-arm one pass;
+      // each pass either drains or lands in the failed>0 retry above, so this
+      // cannot loop on an empty queue.
+      if (getPendingIntents().length > 0) {
+        replayRetryTimer = setTimeout(() => {
+          replayRetryTimer = null;
+          scheduleVoteIntentReplay(limit);
+        }, REPLAY_RETRY_DELAY_MS);
+      }
     }
   });
 }

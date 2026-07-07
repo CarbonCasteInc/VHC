@@ -5,6 +5,7 @@ import {
   type VoteIntentRecord,
 } from '@vh/data-model';
 import { logVoteAdmission } from '../utils/sentimentTelemetry';
+import { VOTE_DENIAL_REASONS, type VoteDenialReason } from './voteDenialReasons';
 import { enqueueIntent } from './voteIntentQueue';
 
 /**
@@ -14,26 +15,12 @@ import { enqueueIntent } from './voteIntentQueue';
  * All denial conditions and error messages are preserved exactly from the original.
  */
 
-/**
- * Canonical admission denial reasons.
- *
- * Every deny path funnels through one of these so support and telemetry can
- * classify blocked votes without ever inspecting proof/nullifier material
- * (`docs/specs/spec-civic-sentiment.md` §9.1 unified vote admission).
- */
-export const VOTE_DENIAL_REASONS = Object.freeze({
-  MISSING_PROOF: 'Missing constituency proof',
-  MISSING_POINT_ID: 'Missing point_id',
-  MISSING_SYNTHESIS_CONTEXT: 'Missing synthesis context',
-  NON_CURRENT_SYNTHESIS: 'Non-current synthesis',
-  MISSING_IDENTITY: 'Missing identity',
-  EXPIRED_IDENTITY: 'Expired identity',
-  INVALID_PROOF: 'Invalid proof',
-  WRITE_QUEUE_FAILURE: 'Write queue failure',
-} as const);
-
-export type VoteDenialReason =
-  (typeof VOTE_DENIAL_REASONS)[keyof typeof VOTE_DENIAL_REASONS];
+// Canonical denial reasons live in the leaf module `voteDenialReasons.ts`
+// (the vote intent queue needs them for eviction telemetry and this module
+// imports the queue — a direct import back would be a cycle). Re-exported
+// here so existing call sites keep importing from `voteAdmission`.
+export { VOTE_DENIAL_REASONS } from './voteDenialReasons';
+export type { VoteDenialReason } from './voteDenialReasons';
 
 /**
  * Caller-supplied accepted-current synthesis context (the story-detail join

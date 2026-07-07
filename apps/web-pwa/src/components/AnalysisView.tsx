@@ -97,6 +97,9 @@ function PerspectiveRow({
   ) => {
     // Same admission path as the feed (CellVoteControls): route the receipt so
     // a denial surfaces to the user instead of being silently dropped.
+    // Deliberately NO acceptedCurrency context: this legacy epoch-0 analysis
+    // surface has no accepted-current read model, and a fabricated context
+    // would either lie or deny every vote here.
     const receipt = setAgreement({
       topicId: itemId,
       pointId: legacyPointId,

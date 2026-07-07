@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import type { AcceptedCurrencyContext } from '../../hooks/voteAdmission';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { CellVoteControls } from './CellVoteControls';
 import { pointMapKey, useBiasPointIds } from './useBiasPointIds';
@@ -20,6 +21,12 @@ export interface BiasTableProps {
   readonly analysisId?: string;
   readonly synthesisId?: string;
   readonly epoch?: number;
+  /**
+   * Accepted-currency context from the story-detail join (NewsCardBack).
+   * Voting requires it: without a currency context, admission cannot verify
+   * the vote targets the accepted-current synthesis, so controls stay hidden.
+   */
+  readonly acceptedCurrency?: AcceptedCurrencyContext | null;
   readonly votingEnabled?: boolean;
   readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
   readonly emptyMessage?: string;
@@ -64,6 +71,7 @@ interface ExpandableRowProps {
   readonly reframePointId?: string;
   readonly synthesisFramePointId?: string;
   readonly synthesisReframePointId?: string;
+  readonly acceptedCurrency?: AcceptedCurrencyContext | null;
   readonly votingEnabled?: boolean;
   readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
 }
@@ -81,6 +89,7 @@ function ExpandableRow({
   reframePointId,
   synthesisFramePointId,
   synthesisReframePointId,
+  acceptedCurrency = null,
   votingEnabled,
   votingPointIdMode = 'legacy-compatible',
 }: ExpandableRowProps): React.ReactElement {
@@ -127,6 +136,7 @@ function ExpandableRow({
               synthesisId={synthesisId!}
               epoch={epoch!}
               analysisId={analysisId}
+              acceptedCurrency={acceptedCurrency}
               pointLabel={frame}
             />
           )}
@@ -141,6 +151,7 @@ function ExpandableRow({
               synthesisId={synthesisId!}
               epoch={epoch!}
               analysisId={analysisId}
+              acceptedCurrency={acceptedCurrency}
               pointLabel={reframe}
             />
           )}
@@ -211,6 +222,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   analysisId,
   synthesisId,
   epoch,
+  acceptedCurrency = null,
   votingEnabled = false,
   votingPointIdMode = 'legacy-compatible',
   emptyMessage = 'No frame/reframe pairs are available for this topic.',
@@ -221,14 +233,17 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     : analysisId;
   const effectiveSynthesisId = stableVotingContextId;
   const effectiveEpoch = epoch ?? 0;
-  // Vote controls require accepted-synthesis point-id mode and an explicit
-  // synthesis context; legacy-compatible and analysisId-fallback contexts
-  // derive point ids from mutable display text and must never be votable.
+  // Vote controls require accepted-synthesis point-id mode, an explicit
+  // synthesis context, and an accepted-currency context for admission;
+  // legacy-compatible and analysisId-fallback contexts derive point ids from
+  // mutable display text and must never be votable, and without a currency
+  // context admission cannot verify the accepted-current target.
   const votingAllowed = votingEnabled
     && votingPointIdMode === 'accepted-synthesis'
     && hasExplicitSynthesisContext;
   const hasVotingContext = Boolean(
     votingAllowed &&
+      acceptedCurrency != null &&
       topicId &&
       effectiveSynthesisId &&
       Number.isFinite(effectiveEpoch),
@@ -360,6 +375,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   reframePointId={legacyPointIds[pointMapKey(index, 'reframe')]}
                   synthesisFramePointId={synthesisPointIds[pointMapKey(index, 'frame')]}
                   synthesisReframePointId={synthesisPointIds[pointMapKey(index, 'reframe')]}
+                  acceptedCurrency={acceptedCurrency}
                   votingEnabled={hasVotingContext}
                   votingPointIdMode={votingPointIdMode}
                 />

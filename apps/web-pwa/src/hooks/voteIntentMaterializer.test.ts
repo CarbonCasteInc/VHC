@@ -960,6 +960,71 @@ describe('voteIntentMaterializer', () => {
     }
   });
 
+  it('re-arms one replay pass when a fully successful batch leaves intents pending', async () => {
+    vi.useFakeTimers();
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    // First completion sees a retained intent (e.g. superseded mid-flight and
+    // kept pending by the replay LWW guard); the second sees a drained queue.
+    const pendingSpy = vi
+      .spyOn(VoteIntentQueue, 'getPendingIntents')
+      .mockReturnValueOnce([makeIntent({ intent_id: 'retained-newer' })])
+      .mockReturnValue([]);
+    const replaySpy = vi
+      .spyOn(VoteIntentQueue, 'replayPendingIntents')
+      .mockResolvedValue({ replayed: 1, failed: 0 });
+
+    try {
+      scheduleVoteIntentReplay(5);
+
+      // Flush the microtask chain so the completion handler runs.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replaySpy).toHaveBeenCalledTimes(1);
+      expect(pendingSpy).toHaveBeenCalledTimes(1);
+
+      // The successful batch re-arms exactly one delayed pass for the
+      // retained intent instead of waiting for the next external trigger.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(replaySpy).toHaveBeenCalledTimes(2);
+
+      // Second pass completed with an empty queue: no further re-arm.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(replaySpy).toHaveBeenCalledTimes(2);
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not re-arm after a successful batch when the queue is drained', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const replaySpy = vi
+      .spyOn(VoteIntentQueue, 'replayPendingIntents')
+      .mockResolvedValue({ replayed: 0, failed: 0 });
+
+    try {
+      scheduleVoteIntentReplay(5);
+      // Real timers: drain the microtask/task chain via MessageChannel turns
+      // (not setTimeout, which is being asserted on).
+      await flushSignedWriteTasks();
+
+      expect(replaySpy).toHaveBeenCalledTimes(1);
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay]',
+        { replayed: 0, failed: 0 },
+      );
+      // Empty-queue completion must not arm a retry timer (no loop).
+      expect(setTimeoutSpy).not.toHaveBeenCalled();
+    } finally {
+      infoSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it('clearReplayRetryTimer cancels a pending retry timer', async () => {
     vi.useFakeTimers();
     const callback = vi.fn();

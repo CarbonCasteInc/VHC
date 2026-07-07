@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoteIntentRecord } from '@vh/data-model';
+import * as SentimentTelemetry from '../utils/sentimentTelemetry';
 import {
   enqueueIntent,
   markIntentProjected,
@@ -35,6 +36,7 @@ describe('voteIntentQueue', () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('enqueueIntent persists to safeStorage', () => {
@@ -166,6 +168,125 @@ describe('voteIntentQueue', () => {
     // Oldest (cap-1) should be evicted
     expect(pending[0].intent_id).toBe('cap-2');
     expect(pending[pending.length - 1].intent_id).toBe('cap-201');
+  });
+
+  it('queue cap eviction emits a reason-only Write queue failure admission event', () => {
+    const admissionSpy = vi
+      .spyOn(SentimentTelemetry, 'logVoteAdmission')
+      .mockImplementation(() => {});
+
+    for (let i = 1; i <= 200; i++) {
+      enqueueIntent(makeIntent({
+        intent_id: `evict-${i}`,
+        topic_id: `topic-${i}`,
+        point_id: `point-${i}`,
+        seq: i,
+        emitted_at: i,
+      }));
+    }
+    // Under the cap: enqueues emit no admission events from the queue.
+    expect(admissionSpy).not.toHaveBeenCalled();
+
+    enqueueIntent(makeIntent({
+      intent_id: 'evict-201',
+      topic_id: 'topic-201',
+      point_id: 'point-201',
+      seq: 201,
+      emitted_at: 201,
+    }));
+
+    // The evicted intent (evict-1) was an admitted, receipted vote — its
+    // discard surfaces as a Write queue failure denial event. Exact-equality
+    // asserts the payload carries ONLY these four keys: never voter_id,
+    // proof_ref, or intent_id.
+    expect(admissionSpy).toHaveBeenCalledTimes(1);
+    expect(admissionSpy).toHaveBeenCalledWith({
+      topic_id: 'topic-1',
+      point_id: 'point-1',
+      admitted: false,
+      reason: 'Write queue failure',
+    });
+    const payload = admissionSpy.mock.calls[0]![0] as unknown as Record<string, unknown>;
+    for (const key of Object.keys(payload)) {
+      expect(['topic_id', 'point_id', 'admitted', 'reason']).toContain(key);
+    }
+  });
+
+  it('mutate-while-replay-in-flight: the newer stance survives the first replay and projects on the second', async () => {
+    enqueueIntent(makeIntent({ intent_id: 'race', agreement: 1, seq: 100, emitted_at: 100 }));
+
+    let resolveProjection!: () => void;
+    const projectionGate = new Promise<void>((resolve) => {
+      resolveProjection = resolve;
+    });
+    const firstReplay = replayPendingIntents(async () => projectionGate);
+
+    // The user toggles their stance while the first projection is in flight:
+    // same deterministic intent_id, newer seq/emitted_at wins the LWW enqueue.
+    enqueueIntent(makeIntent({ intent_id: 'race', agreement: -1, seq: 200, emitted_at: 200 }));
+    resolveProjection();
+    await expect(firstReplay).resolves.toEqual({ replayed: 1, failed: 0 });
+
+    // The newer stance must still be pending — completion of the stale
+    // record's projection must not delete it un-projected.
+    expect(getPendingIntents()).toMatchObject([
+      { intent_id: 'race', agreement: -1, seq: 200, emitted_at: 200 },
+    ]);
+
+    const projected: Array<{ agreement: number; seq: number }> = [];
+    await replayPendingIntents(async (record) => {
+      projected.push({ agreement: record.agreement, seq: record.seq });
+    });
+    expect(projected).toEqual([{ agreement: -1, seq: 200 }]);
+    expect(getPendingIntents()).toHaveLength(0);
+  });
+
+  it('warns once, reason-only, when the persisted queue blob is corrupt', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem(STORAGE_KEY, '{corrupt-blob voter_id proof_ref');
+
+    // Fresh module instance: the corrupt-discard latch is per queue instance,
+    // and earlier tests in this file may already have consumed the shared one.
+    vi.resetModules();
+    const freshModule = await import('./voteIntentQueue');
+
+    expect(freshModule.getPendingIntents()).toEqual([]);
+    // Latched: repeat operations must not re-report.
+    expect(freshModule.getPendingIntents()).toEqual([]);
+
+    const corruptCalls = warnSpy.mock.calls.filter(
+      (call) => call[0] === '[vh:vote:intent-queue:corrupt-discarded]',
+    );
+    expect(corruptCalls).toHaveLength(1);
+    expect(corruptCalls[0]![1]).toEqual({
+      storage_key: STORAGE_KEY,
+      error: 'SyntaxError',
+    });
+    // Never the raw blob contents (they carry voter_id/proof_ref material).
+    expect(JSON.stringify(corruptCalls)).not.toContain('corrupt-blob');
+  });
+
+  it('stringifies a non-Error load failure into the corrupt-discard warning', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    localStorage.setItem(STORAGE_KEY, '[]');
+
+    vi.resetModules();
+    const freshModule = await import('./voteIntentQueue');
+
+    const parseSpy = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
+      throw 'string-load-failure';
+    });
+    expect(freshModule.getPendingIntents()).toEqual([]);
+    parseSpy.mockRestore();
+
+    const corruptCalls = warnSpy.mock.calls.filter(
+      (call) => call[0] === '[vh:vote:intent-queue:corrupt-discarded]',
+    );
+    expect(corruptCalls).toHaveLength(1);
+    expect(corruptCalls[0]![1]).toEqual({
+      storage_key: STORAGE_KEY,
+      error: 'string-load-failure',
+    });
   });
 
   it('replayPendingIntents processes all pending, marks projected on success', async () => {
