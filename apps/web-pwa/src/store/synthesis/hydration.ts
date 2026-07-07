@@ -1,6 +1,5 @@
 import {
   TopicSynthesisCorrectionSchema,
-  TopicSynthesisV2Schema,
   type TopicSynthesisCorrection,
   type TopicSynthesisV2,
 } from '@vh/data-model';
@@ -8,6 +7,7 @@ import {
   getTopicLatestSynthesisChain,
   getTopicLatestSynthesisCorrectionChain,
   hasForbiddenSynthesisPayloadFields,
+  parseTopicLatestSynthesisRecord,
   type ChainWithGet,
   type VennClient
 } from '@vh/gun-client';
@@ -71,16 +71,6 @@ function decodeGunJsonEnvelope(payload: unknown, key: string): unknown {
   } catch {
     return null;
   }
-}
-
-function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
-  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_SYNTHESIS_JSON_KEY);
-  if (hasForbiddenSynthesisPayloadFields(payload)) {
-    return null;
-  }
-
-  const parsed = TopicSynthesisV2Schema.safeParse(payload);
-  return parsed.success ? parsed.data : null;
 }
 
 function parseCorrection(data: unknown): TopicSynthesisCorrection | null {
@@ -229,17 +219,32 @@ function bindSynthesisSubscription<T>(
   };
 }
 
-function ingestSynthesis(
+async function ingestSynthesis(
+  client: VennClient,
   store: StoreApi<SynthesisState>,
   topicId: string,
   data: unknown
-): void {
-  const synthesis = parseSynthesis(data);
-  if (!synthesis || synthesis.topic_id !== topicId) {
+): Promise<void> {
+  // Same fail-closed system-writer validation as the pull read path;
+  // blocked records surface as an observable invalid state instead of
+  // being silently ignored.
+  let result: Awaited<ReturnType<typeof parseTopicLatestSynthesisRecord>>;
+  try {
+    result = await parseTopicLatestSynthesisRecord(client, topicId, data);
+  } catch {
+    // Unexpected validation error: leave state unchanged (the callers are
+    // fire-and-forget subscription callbacks that cannot observe rejections).
+    return;
+  }
+  if (result.state === 'blocked') {
+    store.getState().setTopicInvalid(topicId, true);
+    return;
+  }
+  if (result.state !== 'valid') {
     return;
   }
 
-  store.getState().setTopicSynthesis(topicId, synthesis);
+  store.getState().setTopicSynthesis(topicId, result.synthesis);
   store.getState().setTopicHydrated(topicId, true);
   store.getState().setTopicError(topicId, null);
 }
@@ -260,15 +265,16 @@ function ingestCorrection(
 }
 
 function pullSynthesisSnapshot(
+  client: VennClient,
   store: StoreApi<SynthesisState>,
   topicId: string,
   latestChain: ChainWithGet<TopicSynthesisV2>,
   correctionChain: ChainWithGet<TopicSynthesisCorrection>
 ): void {
-  latestChain.once?.((data: unknown) => ingestSynthesis(store, topicId, data));
+  latestChain.once?.((data: unknown) => void ingestSynthesis(client, store, topicId, data));
   correctionChain.once?.((data: unknown) => ingestCorrection(store, topicId, data));
   readJsonScalarFromChain(latestChain, TOPIC_SYNTHESIS_JSON_KEY, (payload) => {
-    ingestSynthesis(store, topicId, { [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(payload) });
+    void ingestSynthesis(client, store, topicId, { [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(payload) });
   });
   readJsonScalarFromChain(correctionChain, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY, (payload) => {
     ingestCorrection(store, topicId, { [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(payload) });
@@ -304,7 +310,7 @@ export function hydrateSynthesisStore(
 
   if (hydratedTopics.has(normalizedTopicId)) {
     touchTopic(store, normalizedTopicId);
-    pullSynthesisSnapshot(store, normalizedTopicId, latestChain, correctionChain);
+    pullSynthesisSnapshot(client, store, normalizedTopicId, latestChain, correctionChain);
     return true;
   }
 
@@ -314,7 +320,7 @@ export function hydrateSynthesisStore(
 
   if (canSubscribe(latestChain)) {
     cleanups.push(bindSynthesisSubscription(latestChain, (data: unknown) =>
-      ingestSynthesis(store, normalizedTopicId, data)
+      void ingestSynthesis(client, store, normalizedTopicId, data)
     ));
   }
 
@@ -325,7 +331,7 @@ export function hydrateSynthesisStore(
   }
   getSubscriptionMap(store).set(normalizedTopicId, { cleanups });
 
-  pullSynthesisSnapshot(store, normalizedTopicId, latestChain, correctionChain);
+  pullSynthesisSnapshot(client, store, normalizedTopicId, latestChain, correctionChain);
 
   return true;
 }

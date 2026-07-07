@@ -8,8 +8,9 @@ import {
 import {
   hasForbiddenSynthesisPayloadFields,
   readTopicLatestSynthesisCorrection,
-  readTopicLatestSynthesisWithRelayRestFallback,
+  readTopicLatestSynthesisStatusWithRelayRestFallback,
   type SystemWriterPin,
+  type TopicSynthesisReadResult,
   type VennClient
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
@@ -26,7 +27,7 @@ type InternalDeps = SynthesisDeps & {
     topicId: string
   ) => boolean;
   releaseTopic: (store: StoreApi<SynthesisState>, topicId: string) => void;
-  readLatest: (client: VennClient, topicId: string) => Promise<TopicSynthesisV2 | null>;
+  readLatestStatus: (client: VennClient, topicId: string) => Promise<TopicSynthesisReadResult>;
   readLatestCorrection: (client: VennClient, topicId: string) => Promise<TopicSynthesisCorrection | null>;
 };
 
@@ -43,6 +44,7 @@ function createEmptyTopicState(topicId: string): SynthesisTopicState {
     synthesis: null,
     correction: null,
     effectiveStatus: 'synthesis_unavailable',
+    invalid: false,
     hydrated: false,
     loading: false,
     error: null
@@ -230,7 +232,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
     enabled: true,
     hydrateTopic: hydrateSynthesisStore,
     releaseTopic: releaseSynthesisHydration,
-    readLatest: readTopicLatestSynthesisWithRelayRestFallback,
+    readLatestStatus: readTopicLatestSynthesisStatusWithRelayRestFallback,
     readLatestCorrection: readTopicLatestSynthesisCorrection
   };
 
@@ -270,6 +272,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
           synthesis: validated,
           epoch: validated?.epoch ?? null,
           effectiveStatus: resolveEffectiveStatus(validated, current.correction),
+          invalid: validated ? false : current.invalid,
           error: null
         }))
       }));
@@ -292,6 +295,23 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
           correction: validated,
           effectiveStatus: resolveEffectiveStatus(current.synthesis, validated),
           error: null
+        }))
+      }));
+    },
+
+    setTopicInvalid(topicId: string, invalid: boolean) {
+      const normalizedTopicId = normalizeTopicId(topicId);
+      if (!normalizedTopicId) {
+        return;
+      }
+      if ((get().topics[normalizedTopicId]?.invalid ?? false) === invalid) {
+        return;
+      }
+
+      set((state) => ({
+        topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
+          ...current,
+          invalid
         }))
       }));
     },
@@ -357,16 +377,16 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       get().setTopicLoading(normalizedTopicId, true);
       get().setTopicError(normalizedTopicId, null);
 
-      let latest: TopicSynthesisV2 | null = null;
       let latestError: unknown = null;
       try {
-        latest = await withReadTimeout(
-          deps.readLatest(client, normalizedTopicId),
+        const latestResult = await withReadTimeout(
+          deps.readLatestStatus(client, normalizedTopicId),
           SYNTHESIS_REFRESH_READ_TIMEOUT_MS,
           'synthesis latest read',
         );
-        const validatedLatest = latest === null ? null : parseSynthesis(latest);
+        const validatedLatest = latestResult.state === 'valid' ? parseSynthesis(latestResult.synthesis) : null;
         const topicLatest = validatedLatest?.topic_id === normalizedTopicId ? validatedLatest : null;
+        const latestBlocked = latestResult.state === 'blocked';
 
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
@@ -377,6 +397,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
               epoch: nextSynthesis?.epoch ?? null,
               loading: false,
               effectiveStatus: resolveEffectiveStatus(nextSynthesis, current.correction),
+              invalid: topicLatest ? false : latestBlocked ? true : current.invalid,
               error: null
             };
           })
@@ -468,7 +489,7 @@ export function createMockSynthesisStore(seedSynthesis: TopicSynthesisV2[] = [])
     enabled: true,
     hydrateTopic: () => false,
     releaseTopic: () => {},
-    readLatest: async () => null,
+    readLatestStatus: async () => ({ state: 'legacy-invalid' as const }),
     readLatestCorrection: async () => null
   });
 

@@ -8,11 +8,21 @@ const gunMocks = vi.hoisted(() => ({
   hasForbiddenSynthesisPayloadFields: vi.fn<(payload: unknown) => boolean>()
 }));
 
-vi.mock('@vh/gun-client', () => ({
-  getTopicLatestSynthesisChain: gunMocks.getTopicLatestSynthesisChain,
-  getTopicLatestSynthesisCorrectionChain: gunMocks.getTopicLatestSynthesisCorrectionChain,
-  hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields
-}));
+// The real parseTopicLatestSynthesisRecord stays in place so hydration
+// ingestion exercises the actual fail-closed system-writer validation.
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    getTopicLatestSynthesisChain: gunMocks.getTopicLatestSynthesisChain,
+    getTopicLatestSynthesisCorrectionChain: gunMocks.getTopicLatestSynthesisCorrectionChain,
+    hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields
+  };
+});
+
+async function flushIngest(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 {
   return {
@@ -140,6 +150,7 @@ function createStore() {
     getTopicState: vi.fn(),
     setTopicSynthesis: vi.fn(),
     setTopicCorrection: vi.fn(),
+    setTopicInvalid: vi.fn(),
     setTopicHydrated: vi.fn(),
     setTopicLoading: vi.fn(),
     setTopicError: vi.fn(),
@@ -224,6 +235,7 @@ describe('hydrateSynthesisStore', () => {
       epoch: 3
     });
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    await flushIngest();
 
     expect(chain.onSpy).toHaveBeenCalledTimes(1);
     expect(chain.onceSpy).toHaveBeenCalledTimes(2);
@@ -241,8 +253,7 @@ describe('hydrateSynthesisStore', () => {
     const { store, state } = createStore();
 
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushIngest();
 
     expect(chain.getSpy).toHaveBeenCalledWith('__topic_synthesis_json');
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-scalar' }));
@@ -283,8 +294,7 @@ describe('hydrateSynthesisStore', () => {
     const { store, state } = createStore();
 
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
     expect(state.setTopicCorrection).not.toHaveBeenCalled();
@@ -350,6 +360,7 @@ describe('hydrateSynthesisStore', () => {
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
     releaseSynthesisHydration(store, 'topic-1');
     chain.emit(synthesis());
+    await flushIngest();
 
     expect(chain.offSpy).toHaveBeenCalledTimes(2);
     expect(chain.offSpy).toHaveBeenNthCalledWith(1, expect.any(Function));
@@ -373,6 +384,7 @@ describe('hydrateSynthesisStore', () => {
     releaseSynthesisHydration(store, 'topic-1');
     releaseSynthesisHydration(store, '   ');
     chain.emit(synthesis());
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
   });
@@ -425,6 +437,7 @@ describe('hydrateSynthesisStore', () => {
     hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
 
     chain.emit({ _: { '#': 'meta' }, ...synthesis() });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
     expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
@@ -448,6 +461,7 @@ describe('hydrateSynthesisStore', () => {
       synthesis_id: 'synth-3',
       epoch: 3
     });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
     expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
@@ -544,10 +558,45 @@ describe('hydrateSynthesisStore', () => {
     chain.emit(synthesis({ topic_id: 'topic-2' }));
     chain.emit({ __topic_synthesis_json: '{' });
     chain.emit({ __topic_synthesis_json: JSON.stringify({ ...synthesis(), token: 'forbidden' }) });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
     expect(state.setTopicCorrection).not.toHaveBeenCalled();
+    expect(state.setTopicInvalid).not.toHaveBeenCalled();
     expect(state.setTopicHydrated).not.toHaveBeenCalled();
     expect(state.setTopicError).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on invalid system-writer latest records and flags the topic invalid', async () => {
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { hydrateSynthesisStore } = await import('./hydration');
+      const { store, state } = createStore();
+      const client = { config: {} };
+
+      hydrateSynthesisStore(() => client as never, store, 'topic-1');
+
+      chain.emit({
+        _writerKind: 'system',
+        _protocolVersion: 'luma-public-v1',
+        _systemWriterId: 'vh-system-writer-dev-v1',
+        _systemIssuedAt: 1_700_000_000_000,
+        _systemSignature: 'tampered-signature',
+        __topic_synthesis_json: JSON.stringify(synthesis()),
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-3',
+        epoch: 3
+      });
+      await flushIngest();
+
+      expect(state.setTopicInvalid).toHaveBeenCalledWith('topic-1', true);
+      expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
