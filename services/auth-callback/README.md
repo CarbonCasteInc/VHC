@@ -15,10 +15,16 @@ LUMA Semantics").
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/auth/:provider/start` | Validate origin + provider config, issue a single-use expiring HMAC-signed `state` bound to the browser's PKCE S256 `codeChallenge`, and return the provider authorize URL parameters. |
-| `GET`/`POST` | `/auth/:provider/callback` | Validate + consume `state`, verify `codeVerifier` against the challenge bound at `/start`, exchange the authorization code at the provider token endpoint (server-side, injecting the client secret), and return a **non-secret** session payload. |
+| `POST` | `/auth/:provider/start` | Validate origin + provider config, issue an expiring HMAC-signed `state` bound to the browser's PKCE S256 `codeChallenge`, and return the provider authorize URL parameters. |
+| `POST` | `/auth/:provider/callback` | Validate + consume `state`, verify the `codeVerifier` (body-only) against the challenge bound at `/start`, exchange the authorization code at the provider token endpoint (server-side, injecting the client secret), and return a **non-secret** session payload. This is the primary flow. |
+| `GET` | `/auth/:provider/callback` | Accepts the provider redirect (`code` + `state` in the query only). The `code_verifier` is **never** read from the query string — a GET callback therefore fails PKCE and steers the client to the POST flow. |
 | `OPTIONS` | `/auth/:provider/start\|callback` | CORS preflight for allow-listed origins. |
 | `GET` | `/api/health` | Configuration booleans only — never values. |
+
+> The PKCE `code_verifier` is a bearer secret and must travel only in
+> the POST request body. It is deliberately never accepted from a URL,
+> which would leak it into edge access logs, browser history, and
+> `Referer` headers.
 
 `:provider` is a closed set: `apple`, `google`, `x`. Anything else is
 `404 unknown_provider`.
@@ -48,14 +54,29 @@ bodies are never propagated.
 
 1. Browser generates a PKCE `code_verifier`, computes the S256
    `code_challenge`, and `POST /auth/:provider/start` with it.
-2. Service issues `state` (HMAC-signed, expiring, single-use; binds the
-   challenge) and returns the authorize URL parameters.
+2. Service issues `state` (HMAC-signed, expiring; binds the challenge)
+   and returns the authorize URL parameters.
 3. Browser navigates to the provider, authorizes, and is redirected to
    the PWA redirect URI with `code` + `state`.
-4. PWA calls `/auth/:provider/callback` with `code`, `state`, and its
-   `code_verifier`. The service consumes the state (replay-proof),
-   verifies `S256(code_verifier) == bound challenge`, exchanges the code
-   server-side, and returns the sanitized session payload.
+4. PWA `POST`s `/auth/:provider/callback` with `code`, `state`, and its
+   `code_verifier` in the body. The service verifies + consumes the
+   state, checks `S256(code_verifier) == bound challenge`, exchanges the
+   code server-side, and returns the sanitized session payload.
+
+### Single-use / replay backstop
+
+State carries a nonce recorded in a best-effort ledger
+(`VH_AUTH_KV` / volatile), so an already-seen state is normally rejected
+as `state_replayed`. This ledger is **not** strictly atomic — the
+`hasNonce`+`rememberNonce` check-then-set is two steps and KV get/put is
+not a compare-and-set, so a tight race is theoretically possible. A
+strict single-use guarantee would require a compare-and-set store
+(e.g. a Durable Object), which is out of scope for these repo
+foundations. The **authoritative** single-use guarantee is the
+provider's authorization code: any second exchange of the same code
+returns `provider_exchange_failed`. State signing (constant-time HMAC
+compare) plus PKCE binding remain the primary defenses; the nonce ledger
+is defense-in-depth.
 
 ## Environment
 
@@ -70,7 +91,7 @@ VH_AUTH_ALLOWED_ORIGINS=              # comma/space-separated exact origins (PWA
 VH_AUTH_STATE_TTL_MS=600000           # optional; state lifetime
 VH_AUTH_MAX_BODY_BYTES=65536          # optional; request body cap
 
-# Store for single-use state enforcement (pick one)
+# Store for the best-effort state-replay ledger (pick one; see "Single-use / replay backstop")
 # VH_AUTH_KV=<KV namespace binding>   # durable store (Workers KV)
 # VH_AUTH_ALLOW_VOLATILE_STORE=1      # explicit opt-in for dev only
 

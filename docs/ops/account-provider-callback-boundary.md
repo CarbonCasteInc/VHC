@@ -35,8 +35,9 @@ Considered options:
      token-custody behavior (drop provider tokens server-side) is our
      code, not a vendor default.
    - Cons: we own provider quirks (Apple's signed client secret, X's
-     basic-auth token endpoint) and future maintenance; we must run a
-     small state store (KV) for single-use state enforcement.
+     basic-auth token endpoint) and future maintenance; we run a small
+     state store (KV) as a best-effort state-replay ledger (see the
+     replay-backstop note below).
 2. **Hosted auth (Auth0/Firebase Auth/Supabase Auth or similar).**
    - Pros: provider registration/rotation UX, prebuilt flows.
    - Cons: introduces a third-party processor for personal profile
@@ -61,8 +62,8 @@ well-tested exchange logic.
 ## Deployment target and A6 non-touch boundary
 
 - Target: a Workers-family edge host (Cloudflare Workers or equivalent)
-  with a KV-style namespace bound as `VH_AUTH_KV` for single-use state
-  enforcement. This is the same platform family as the pager's
+  with a KV-style namespace bound as `VH_AUTH_KV` for the best-effort
+  state-replay ledger. This is the same platform family as the pager's
   deployment plan and is intentionally **not** A6.
 - **A6 non-touch rule:** standing up, configuring, testing, or rotating
   this service must not touch the A6 publisher/relay host during the
@@ -70,8 +71,22 @@ well-tested exchange logic.
   part of this boundary's lifecycle. The hard operational boundaries in
   `docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md` and
   `docs/ops/vhc-incident-response.md` apply unchanged.
-- Rollback: the service is stateless apart from consumed-state nonces;
-  rollback is a host-side redeploy/disable and never involves A6.
+- Rollback: the service holds no durable state beyond best-effort
+  replay-ledger nonces; rollback is a host-side redeploy/disable and
+  never involves A6.
+
+### State-replay backstop (not strictly atomic)
+
+The KV nonce ledger is defense-in-depth, not a strict single-use
+guarantee: the `hasNonce`+`rememberNonce` check-then-set is two steps
+and KV get/put is not a compare-and-set, so a tight race is
+theoretically possible. Achieving strict single-use would require a
+compare-and-set store (e.g. a Durable Object), which is out of scope for
+these foundations. The **authoritative** single-use guarantee is the
+provider's authorization code — any second exchange of the same code
+returns `provider_exchange_failed`. Signed, expiring state (verified
+with a constant-time HMAC compare) plus PKCE binding are the primary
+defenses.
 
 ## Env and secret custody
 

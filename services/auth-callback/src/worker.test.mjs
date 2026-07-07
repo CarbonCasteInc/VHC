@@ -294,20 +294,50 @@ test('method and body-size guards', async () => {
   assert.equal((await invalidJson.json()).reason, 'invalid_json');
 });
 
-test('GET callback accepts query parameters (state+PKCE protected)', async () => {
+test('GET callback ignores any code_verifier in the query string', async () => {
   const env = await baseEnv();
-  env.__TEST_FETCH = providerFetchStub(env, {});
+  let fetchCalls = 0;
+  env.__TEST_FETCH = async () => { fetchCalls += 1; throw new Error('must not be called'); };
   const start = await runStart(env, 'google');
 
+  // Even if a client wrongly puts the verifier in the URL, the worker
+  // must not read it: the request fails PKCE (verifier-less) before any
+  // provider contact, steering clients to the POST flow.
   const url = new URL('https://auth.example.invalid/auth/google/callback');
   url.searchParams.set('code', 'provider-auth-code');
   url.searchParams.set('state', start.parameters.state);
   url.searchParams.set('code_verifier', CODE_VERIFIER);
 
   const response = await handleRequest(new Request(url, { method: 'GET' }), env);
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.equal(body.session.providerId, 'google');
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).reason, 'code_verifier_invalid');
+  assert.equal(fetchCalls, 0);
+});
+
+test('Apple callback with a malformed private key returns a clean rejection (no throw)', async () => {
+  const env = await baseEnv();
+  // Structurally valid base64 that is NOT a PKCS#8 EC key -> the Apple
+  // ES256 client-secret build throws inside providerTokenRequest, before
+  // any network call. The contract requires a clean sanitized rejection.
+  env.VH_AUTH_APPLE_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----\n${Buffer.from('not-a-real-pkcs8-key').toString('base64')}\n-----END PRIVATE KEY-----`;
+  let fetchCalls = 0;
+  env.__TEST_FETCH = async () => { fetchCalls += 1; throw new Error('must not be called'); };
+
+  const start = await runStart(env, 'apple');
+  const response = await handleRequest(callbackRequest('apple', {
+    code: 'provider-auth-code',
+    state: start.parameters.state,
+    codeVerifier: CODE_VERIFIER,
+  }), env);
+
+  assert.equal(response.status, 503);
+  const text = await response.text();
+  assertNoSecrets(text, env);
+  const body = JSON.parse(text);
+  assert.equal(body.status, 'rejected');
+  assert.equal(body.reason, 'provider_not_configured');
+  assert.equal(body.session, undefined);
+  assert.equal(fetchCalls, 0);
 });
 
 test('fails closed without a durable store outside tests', async () => {

@@ -102,6 +102,24 @@ export async function hmacSha256Hex(secret, text) {
   return bytesToHex(await subtleCrypto().subtle.sign('HMAC', key, encoder.encode(text)));
 }
 
+/**
+ * Constant-time string equality for MAC verification. Compares lengths
+ * first, then accumulates the XOR of every byte so the loop cost does
+ * not depend on where the first mismatch is — closing the timing oracle
+ * on the state HMAC compare. Only use for secret/MAC comparisons; a
+ * plain === is fine for public-data compares.
+ */
+export function constantTimeEqual(a, b) {
+  const aBytes = encoder.encode(String(a ?? ''));
+  const bBytes = encoder.encode(String(b ?? ''));
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let index = 0; index < aBytes.length; index += 1) {
+    diff |= aBytes[index] ^ bBytes[index];
+  }
+  return diff === 0;
+}
+
 export async function computeS256Challenge(codeVerifier) {
   const digest = await subtleCrypto().subtle.digest('SHA-256', encoder.encode(codeVerifier));
   return bytesToBase64Url(digest);
@@ -255,7 +273,7 @@ export async function verifyAndConsumeState({ state, provider, secret, store, no
   const [encoded, signature] = parts;
 
   const expected = await hmacSha256Hex(secret, encoded);
-  if (expected !== signature) return { ok: false, reason: 'state_signature_mismatch' };
+  if (!constantTimeEqual(expected, signature)) return { ok: false, reason: 'state_signature_mismatch' };
 
   let payload;
   try {
@@ -276,6 +294,13 @@ export async function verifyAndConsumeState({ state, provider, secret, store, no
     return { ok: false, reason: 'state_invalid' };
   }
 
+  // Best-effort replay ledger. hasNonce+rememberNonce are two steps and
+  // the KV get/put is not atomic, so this is NOT a strict single-use
+  // guarantee — a compare-and-set store (e.g. a Durable Object) would be
+  // required for that and is out of scope for these foundations. The
+  // authoritative single-use backstop is the provider's authorization
+  // code: a concurrent second exchange of the same code returns
+  // `provider_exchange_failed`. Keep this ledger as defense-in-depth.
   const nonceKey = `auth-state:${payload.nonce}`;
   if (await store.hasNonce(nonceKey, nowMs)) {
     return { ok: false, reason: 'state_replayed' };
@@ -417,7 +442,19 @@ async function providerTokenRequest({ config, code, codeVerifier, nowMs }) {
  * bodies are never propagated.
  */
 export async function exchangeAuthorizationCode({ config, code, codeVerifier, fetchImpl, nowMs = Date.now() }) {
-  const request = await providerTokenRequest({ config, code, codeVerifier, nowMs });
+  // Building the request can throw before any network call — most
+  // notably Apple's ES256 client-secret build on a malformed .p8 or
+  // missing key config (apple_private_key_import_failed /
+  // apple_client_secret_config_missing). Map that to a stable
+  // sanitized reason so the "always a clean rejection" contract holds;
+  // never propagate the underlying error (it could reference secret
+  // material).
+  let request;
+  try {
+    request = await providerTokenRequest({ config, code, codeVerifier, nowMs });
+  } catch {
+    return { ok: false, reason: 'provider_not_configured' };
+  }
 
   let response;
   try {
@@ -457,6 +494,13 @@ export function decodeJwtPayloadUnsafe(token) {
   } catch {
     return null;
   }
+}
+
+export function audienceIncludes(aud, clientId) {
+  if (typeof clientId !== 'string' || clientId.length === 0) return false;
+  if (typeof aud === 'string') return aud === clientId;
+  if (Array.isArray(aud)) return aud.includes(clientId);
+  return false;
 }
 
 function expiryFromTokenJson(tokenJson, nowMs) {
@@ -515,7 +559,8 @@ export async function sessionFromTokenResponse({ config, tokenJson, fetchImpl, n
   if (config.issuers.length > 0 && !config.issuers.includes(claims.iss)) {
     return { ok: false, reason: 'provider_issuer_mismatch' };
   }
-  if (claims.aud !== config.clientId) {
+  // OIDC allows `aud` to be either a string or an array of audiences.
+  if (!audienceIncludes(claims.aud, config.clientId)) {
     return { ok: false, reason: 'provider_audience_mismatch' };
   }
   if (typeof claims.sub !== 'string' || claims.sub.length === 0) {
@@ -583,8 +628,13 @@ export async function handleCallback({ provider, code, state, codeVerifier, env,
     nowMs,
   });
   if (!exchange.ok) {
+    // A request-build failure (e.g. malformed Apple key) is a server
+    // config fault -> 503, matching the config-time semantics; provider
+    // exchange/network failures are upstream -> 502. Either way it is a
+    // clean rejection with no partial session and no secret material.
+    const status = exchange.reason === 'provider_not_configured' ? 503 : 502;
     return {
-      status: 502,
+      status,
       body: {
         status: 'rejected',
         reason: exchange.reason,

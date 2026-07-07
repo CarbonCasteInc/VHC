@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  audienceIncludes,
   computeS256Challenge,
+  constantTimeEqual,
   createKvAuthStore,
   createMemoryAuthStore,
   decodeJwtPayloadUnsafe,
@@ -315,6 +317,23 @@ test('oidc session shaping validates issuer, audience, and subject', async () =>
   });
   assert.deepEqual(badAud, { ok: false, reason: 'provider_audience_mismatch' });
 
+  // OIDC permits an array `aud`; a token listing our client id is valid.
+  const arrayAud = await sessionFromTokenResponse({
+    config,
+    tokenJson: { id_token: makeIdToken({ ...claims, aud: ['another-audience', GOOGLE_ENV.VH_AUTH_GOOGLE_CLIENT_ID] }) },
+    fetchImpl: async () => {},
+    nowMs: 1,
+  });
+  assert.equal(arrayAud.ok, true);
+  assert.equal(arrayAud.session.providerSubject, 'google-subject-1');
+
+  const arrayAudMissing = await sessionFromTokenResponse({
+    config,
+    tokenJson: { id_token: makeIdToken({ ...claims, aud: ['x-only', 'y-only'] }) },
+    fetchImpl: async () => {},
+  });
+  assert.deepEqual(arrayAudMissing, { ok: false, reason: 'provider_audience_mismatch' });
+
   const noSub = await sessionFromTokenResponse({
     config, tokenJson: { id_token: makeIdToken({ ...claims, sub: '' }) }, fetchImpl: async () => {},
   });
@@ -378,4 +397,25 @@ test('decodeJwtPayloadUnsafe fails closed on malformed tokens', () => {
   assert.equal(decodeJwtPayloadUnsafe('a.!!!.c'), null);
   const nonObject = `${Buffer.from('{}').toString('base64url')}.${Buffer.from('"str"').toString('base64url')}.x`;
   assert.equal(decodeJwtPayloadUnsafe(nonObject), null);
+});
+
+test('constantTimeEqual matches only equal strings and handles unequal lengths', () => {
+  assert.equal(constantTimeEqual('abc123', 'abc123'), true);
+  assert.equal(constantTimeEqual('abc123', 'abc124'), false);
+  assert.equal(constantTimeEqual('abc', 'abcd'), false);
+  assert.equal(constantTimeEqual('', ''), true);
+  assert.equal(constantTimeEqual('x', ''), false);
+  assert.equal(constantTimeEqual(undefined, undefined), true);
+  assert.equal(constantTimeEqual('a', undefined), false);
+});
+
+test('audienceIncludes accepts string or array aud', () => {
+  assert.equal(audienceIncludes('client-1', 'client-1'), true);
+  assert.equal(audienceIncludes('client-2', 'client-1'), false);
+  assert.equal(audienceIncludes(['a', 'client-1', 'b'], 'client-1'), true);
+  assert.equal(audienceIncludes(['a', 'b'], 'client-1'), false);
+  assert.equal(audienceIncludes([], 'client-1'), false);
+  assert.equal(audienceIncludes(undefined, 'client-1'), false);
+  assert.equal(audienceIncludes(42, 'client-1'), false);
+  assert.equal(audienceIncludes('client-1', ''), false);
 });

@@ -196,12 +196,16 @@ export async function handleRequest(request, env = {}, _ctx = {}) {
       codeVerifier: body.value.codeVerifier,
     };
   } else if (request.method === 'GET') {
-    // GET callback carries no browser Origin on top-level navigation;
-    // it is protected by the signed single-use state + PKCE verifier.
+    // The provider redirect carries only `code` + `state`. The PKCE
+    // `code_verifier` is a bearer secret and MUST NOT travel in a URL
+    // (it would land in edge access logs, browser history, and Referer
+    // headers), so the GET branch never reads it. A verifier-less
+    // callback fails PKCE verification, steering clients to the primary
+    // POST-with-verifier-in-body flow.
     params = {
       code: url.searchParams.get('code') ?? undefined,
       state: url.searchParams.get('state') ?? undefined,
-      codeVerifier: url.searchParams.get('code_verifier') ?? undefined,
+      codeVerifier: undefined,
     };
   } else {
     return json({ status: 'rejected', reason: 'method_not_allowed' }, 405, { allow: 'GET, POST, OPTIONS' });
