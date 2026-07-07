@@ -18,7 +18,10 @@ const FORBIDDEN_RENDERED_COPY = [
   'same human',
   'same person',
   'proves you are',
-  'proof of a unique person is',
+  // Affirmative uniqueness claim. The safe copy negates it ("not a proof of a
+  // unique person"), which does not contain "is a proof of a unique person",
+  // so this catches a future edit that drops the negation.
+  'is a proof of a unique person',
   'verified identity across devices',
   'linked to the same human',
 ];
@@ -222,6 +225,9 @@ test.describe('LUMA account sign-in provider binding', () => {
     for (const forbidden of FORBIDDEN_RENDERED_COPY) {
       await expect(page.getByTestId('signin-providers')).not.toContainText(forbidden);
     }
+    // Positively require the negating claim-boundary phrase so the guard cannot
+    // pass merely because an affirmative rephrase dodged the substring list.
+    await expect(page.getByTestId('signin-providers')).toContainText('not a proof of a unique person');
 
     await connectFirstProvider(page);
 

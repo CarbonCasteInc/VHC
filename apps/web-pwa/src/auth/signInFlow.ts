@@ -214,6 +214,9 @@ export function clearPendingSignIn(): void {
 async function postJson(url: string, body: unknown): Promise<{ status: number; json: unknown }> {
   let response: Response;
   try {
+    // No `credentials`: the boundary is authenticated by the signed state +
+    // PKCE verifier in the body, not cookies. Do NOT add credentials:'include'
+    // — it would widen the CSRF surface the state/PKCE binding closes.
     response = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
