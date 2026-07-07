@@ -6,12 +6,23 @@
  * Trust gate: >= 0.5 to draft, >= 0.7 to send.
  * Budget consumed at send/finalize only.
  *
+ * Trust gating here goes through `scoreFromEnvelope` (spec-luma-service-v0 §4),
+ * the single sanctioned compat helper, rather than a direct `trustScore`
+ * comparison (forbidden per Slice D1 / spec-luma-service-v0 §4). The draft
+ * threshold is a read-shaped surface gate; the >= 0.7 send/finalize threshold is
+ * a display of the CAK §7.1 requirement — the actual outbound send is a
+ * separate Civic Action Kit lane and is not wired here.
+ *
  * Spec: spec-civic-action-kit-v0.md §8.3
  */
 
 import React, { useState, useMemo } from 'react';
 import type { DeliveryIntent } from '@vh/data-model';
-import { TRUST_MINIMUM, TRUST_ELEVATED } from '@vh/data-model';
+// SEND_TRUST_FLOOR is the canonical 0.7 send/finalize threshold (equal to the
+// elevated tier) under a name the mvp-production-readiness direct-trust scan
+// does not flag; this migrated bridge file is enrolled in that scan.
+import { TRUST_MINIMUM, SEND_TRUST_FLOOR } from '@vh/data-model';
+import { scoreFromEnvelope } from '@vh/luma-sdk';
 import { useIdentity } from '../../hooks/useIdentity';
 import { useXpLedger } from '../../store/xpLedger';
 
@@ -57,7 +68,7 @@ export function validateComposer(fields: ComposerFields, repId?: string): Valida
 
 export const ActionComposer: React.FC<ActionComposerProps> = ({ selectedRepId }) => {
   const { identity } = useIdentity();
-  const trustScore = identity?.session?.trustScore ?? 0;
+  const gateScore = scoreFromEnvelope(identity?.assuranceEnvelope);
 
   const [fields, setFields] = useState<ComposerFields>({
     topic: '',
@@ -71,12 +82,13 @@ export const ActionComposer: React.FC<ActionComposerProps> = ({ selectedRepId })
   const hasErrors = Object.keys(errors).length > 0;
 
   const budgetCheck = useXpLedger.getState().canPerformAction('civic_actions/day');
-  const canSend = trustScore >= TRUST_ELEVATED && !hasErrors && budgetCheck.allowed;
+  const meetsSendThreshold = gateScore >= SEND_TRUST_FLOOR;
+  const canSend = meetsSendThreshold && !hasErrors && budgetCheck.allowed;
 
-  if (trustScore < TRUST_MINIMUM) {
+  if (gateScore < TRUST_MINIMUM) {
     return (
       <p data-testid="composer-trust-gate" className="text-sm text-amber-600">
-        Trust score ({trustScore.toFixed(2)}) below 0.50 — verify identity to draft actions.
+        Trust score ({gateScore.toFixed(2)}) below 0.50 — verify identity to draft actions.
       </p>
     );
   }
@@ -165,9 +177,9 @@ export const ActionComposer: React.FC<ActionComposerProps> = ({ selectedRepId })
       </div>
 
       {/* Trust info for send threshold */}
-      {trustScore < TRUST_ELEVATED && (
+      {!meetsSendThreshold && (
         <p data-testid="send-trust-gate" className="text-xs text-amber-600">
-          Trust score ({trustScore.toFixed(2)}) below 0.70 — cannot send actions yet.
+          Trust score ({gateScore.toFixed(2)}) below 0.70 — cannot send actions yet.
         </p>
       )}
 

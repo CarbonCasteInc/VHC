@@ -4,14 +4,33 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { AssuranceEnvelope } from '@vh/luma-sdk';
 import { RepresentativeSelector } from './RepresentativeSelector';
 import type { Representative } from '@vh/data-model';
 
-let trustScore = 1;
+// A minimal beta-local envelope: scoreFromEnvelope maps assuranceLevel to a
+// scalar, so only assuranceLevel matters for the view gate.
+const BETA_LOCAL_ENVELOPE = { assuranceLevel: 'beta_local' } as unknown as AssuranceEnvelope;
+const NONE_ENVELOPE = { assuranceLevel: 'none' } as unknown as AssuranceEnvelope;
+
+let assuranceEnvelope: AssuranceEnvelope | undefined = BETA_LOCAL_ENVELOPE;
+let proofDistrictHash: string | null = 'hash-ca-11';
 const onSelectMock = vi.fn();
 
 vi.mock('../../hooks/useIdentity', () => ({
-  useIdentity: () => ({ identity: { session: { trustScore } } }),
+  useIdentity: () => ({ identity: { assuranceEnvelope } }),
+}));
+
+vi.mock('../../hooks/useConstituencyProof', () => ({
+  useConstituencyProof: () => ({
+    proof: proofDistrictHash
+      ? { district_hash: proofDistrictHash, nullifier: 'n', merkle_root: 'r' }
+      : null,
+  }),
+}));
+
+vi.mock('../../store/bridge/districtConfig', () => ({
+  getConfiguredDistrict: () => 'configured-district',
 }));
 
 const mockReps: Representative[] = [
@@ -45,33 +64,67 @@ const mockReps: Representative[] = [
   },
 ];
 
-let mockRepsList: Representative[] = mockReps;
+// The mock captures the district hash the component passes to findRepresentatives
+// and returns reps only for the matching district (byDistrictHash behavior).
+let mockRepsByDistrict: Record<string, Representative[]> = { 'hash-ca-11': mockReps };
+const findRepresentativesArgs: string[] = [];
 
 vi.mock('../../store/bridge/representativeDirectory', () => ({
-  findRepresentatives: () => mockRepsList,
+  findRepresentatives: (districtHash: string) => {
+    findRepresentativesArgs.push(districtHash);
+    return mockRepsByDistrict[districtHash] ?? [];
+  },
 }));
 
 beforeEach(() => {
-  trustScore = 1;
-  mockRepsList = mockReps;
+  assuranceEnvelope = BETA_LOCAL_ENVELOPE;
+  proofDistrictHash = 'hash-ca-11';
+  mockRepsByDistrict = { 'hash-ca-11': mockReps };
+  findRepresentativesArgs.length = 0;
   onSelectMock.mockClear();
 });
 
 afterEach(() => cleanup());
 
 describe('RepresentativeSelector', () => {
-  it('renders rep cards when trust sufficient', () => {
+  it('passes the active proof district hash to findRepresentatives', () => {
+    render(<RepresentativeSelector onSelect={onSelectMock} />);
+    expect(findRepresentativesArgs).toContain('hash-ca-11');
+    expect(findRepresentativesArgs).not.toContain('');
+  });
+
+  it('falls back to the configured district when no proof is present', () => {
+    proofDistrictHash = null;
+    mockRepsByDistrict = { 'configured-district': mockReps };
+    render(<RepresentativeSelector onSelect={onSelectMock} />);
+    expect(findRepresentativesArgs).toContain('configured-district');
+  });
+
+  it('shows no matched offices for a wrong/empty district', () => {
+    proofDistrictHash = 'wrong-district';
+    render(<RepresentativeSelector onSelect={onSelectMock} />);
+    expect(findRepresentativesArgs).toContain('wrong-district');
+    expect(screen.getByTestId('rep-empty')).toBeInTheDocument();
+  });
+
+  it('renders rep cards when the beta-local envelope clears the view gate', () => {
     render(<RepresentativeSelector onSelect={onSelectMock} />);
     expect(screen.getByTestId('rep-selector')).toBeInTheDocument();
     expect(screen.getByTestId('rep-card-us-house-ca-11')).toBeInTheDocument();
     expect(screen.getByTestId('rep-card-us-senate-ca-1')).toBeInTheDocument();
   });
 
-  it('shows trust gate when score below 0.5', () => {
-    trustScore = 0.3;
+  it('shows trust gate when the envelope score is below 0.5 (none/missing)', () => {
+    assuranceEnvelope = NONE_ENVELOPE;
     render(<RepresentativeSelector onSelect={onSelectMock} />);
     expect(screen.getByTestId('rep-trust-gate')).toBeInTheDocument();
-    expect(screen.getByText(/0\.30/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.00/)).toBeInTheDocument();
+  });
+
+  it('shows trust gate when there is no assurance envelope at all', () => {
+    assuranceEnvelope = undefined;
+    render(<RepresentativeSelector onSelect={onSelectMock} />);
+    expect(screen.getByTestId('rep-trust-gate')).toBeInTheDocument();
   });
 
   it('renders rep details: name, title, office, party, district, state', () => {
@@ -87,7 +140,6 @@ describe('RepresentativeSelector', () => {
 
   it('renders channel badges', () => {
     render(<RepresentativeSelector onSelect={onSelectMock} />);
-    // Jane has email + phone + contactUrl
     const card = screen.getByTestId('rep-card-us-house-ca-11');
     expect(card.textContent).toContain('email');
     expect(card.textContent).toContain('phone');
@@ -95,16 +147,20 @@ describe('RepresentativeSelector', () => {
   });
 
   it('shows manual badge when no channels available', () => {
-    mockRepsList = [{
-      id: 'rep-no-contact',
-      name: 'No Contact',
-      title: 'Rep',
-      office: 'house',
-      country: 'US',
-      districtHash: 'h',
-      contactMethod: 'manual',
-      lastVerified: Date.now(),
-    }];
+    mockRepsByDistrict = {
+      'hash-ca-11': [
+        {
+          id: 'rep-no-contact',
+          name: 'No Contact',
+          title: 'Rep',
+          office: 'house',
+          country: 'US',
+          districtHash: 'hash-ca-11',
+          contactMethod: 'manual',
+          lastVerified: Date.now(),
+        },
+      ],
+    };
     render(<RepresentativeSelector onSelect={onSelectMock} />);
     const card = screen.getByTestId('rep-card-rep-no-contact');
     expect(card.textContent).toContain('manual');
@@ -117,7 +173,7 @@ describe('RepresentativeSelector', () => {
   });
 
   it('shows empty state when no reps loaded', () => {
-    mockRepsList = [];
+    mockRepsByDistrict = {};
     render(<RepresentativeSelector onSelect={onSelectMock} />);
     expect(screen.getByTestId('rep-empty')).toBeInTheDocument();
   });

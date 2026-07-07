@@ -9,10 +9,13 @@
 
 import React, { useState } from 'react';
 import { TRUST_MINIMUM } from '@vh/data-model';
+import { scoreFromEnvelope } from '@vh/luma-sdk';
 import { useIdentity } from '../../hooks/useIdentity';
 import { RepresentativeSelector } from './RepresentativeSelector';
 import { ActionComposer } from './ActionComposer';
 import { ActionHistory } from './ActionHistory';
+import { DistrictOfficeSentiment } from './DistrictOfficeSentiment';
+import { useRepresentativeDirectorySync } from '../../store/bridge/representativeDirectorySync';
 
 /* ── Feature flag ────────────────────────────────────────────── */
 
@@ -27,7 +30,14 @@ function isEnabled(): boolean {
   return (nodeValue ?? viteValue) === 'true';
 }
 
-export type BridgeSection = 'representatives' | 'compose' | 'history';
+export type BridgeSection = 'representatives' | 'compose' | 'history' | 'sentiment';
+
+const SECTION_LABELS: Record<BridgeSection, string> = {
+  representatives: 'Representatives',
+  compose: 'Compose Action',
+  history: 'History',
+  sentiment: 'Local Sentiment',
+};
 
 export interface BridgeLayoutProps {
   readonly initialSection?: BridgeSection;
@@ -35,9 +45,19 @@ export interface BridgeLayoutProps {
 
 export const BridgeLayout: React.FC<BridgeLayoutProps> = ({ initialSection = 'representatives' }) => {
   const { identity } = useIdentity();
-  const trustScore = identity?.session?.trustScore ?? 0;
+  // Read-surface entry gate: reconciled with Slice D1's no-direct-comparison
+  // rule by routing the §2 threshold through scoreFromEnvelope (§4) rather than
+  // comparing a raw session trustScore. Bridge entry is a read surface, so it is
+  // not canPerform-gated (spec-luma-service-v0 §5); write actions inside the
+  // Compose flow still carry their own LUMA envelopes.
+  const entryScore = scoreFromEnvelope(identity?.assuranceEnvelope);
   const [section, setSection] = useState<BridgeSection>(initialSection);
   const [selectedRepId, setSelectedRepId] = useState<string | undefined>();
+
+  // Pull the system-writer-validated representative directory into the local
+  // store when the bridge surface mounts. A validation failure leaves the
+  // existing local directory unchanged (fail-closed).
+  useRepresentativeDirectorySync();
 
   if (!isEnabled()) {
     return (
@@ -47,11 +67,11 @@ export const BridgeLayout: React.FC<BridgeLayoutProps> = ({ initialSection = 're
     );
   }
 
-  if (trustScore < TRUST_MINIMUM) {
+  if (entryScore < TRUST_MINIMUM) {
     return (
       <div data-testid="bridge-trust-gate" className="p-4">
         <p className="text-sm text-amber-600">
-          Your trust score ({trustScore.toFixed(2)}) is below the 0.50 threshold required
+          Your trust score ({entryScore.toFixed(2)}) is below the 0.50 threshold required
           to access the Civic Action Center. Complete identity verification to increase your score.
         </p>
       </div>
@@ -61,14 +81,14 @@ export const BridgeLayout: React.FC<BridgeLayoutProps> = ({ initialSection = 're
   return (
     <div data-testid="bridge-layout" className="space-y-4 p-4">
       <nav className="flex gap-2" data-testid="bridge-nav">
-        {(['representatives', 'compose', 'history'] as const).map((s) => (
+        {(['representatives', 'compose', 'history', 'sentiment'] as const).map((s) => (
           <button
             key={s}
             data-testid={`bridge-nav-${s}`}
             className={`rounded px-3 py-1 text-sm ${section === s ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-700'}`}
             onClick={() => setSection(s)}
           >
-            {s === 'representatives' ? 'Representatives' : s === 'compose' ? 'Compose Action' : 'History'}
+            {SECTION_LABELS[s]}
           </button>
         ))}
       </nav>
@@ -87,6 +107,8 @@ export const BridgeLayout: React.FC<BridgeLayoutProps> = ({ initialSection = 're
       )}
 
       {section === 'history' && <ActionHistory />}
+
+      {section === 'sentiment' && <DistrictOfficeSentiment />}
     </div>
   );
 };

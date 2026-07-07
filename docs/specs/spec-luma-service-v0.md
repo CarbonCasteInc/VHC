@@ -384,6 +384,8 @@ Allowed: aggregate or dashboard records that publish `district_hash` together wi
 
 Forbidden, fail-closed: any non-aggregate public record carrying `district_hash`. The topology lint refuses these regardless of any `cohortSize` annotation; cohort size is meaningful only for aggregate object classes. Lint rule: a write that contains `district_hash` MUST (a) target an aggregate-class path (allow-list), and (b) declare `cohortSize >= MIN_DISTRICT_COHORT_SIZE`. Either condition missing → reject at write time.
 
+The district/office aggregate read model publishes summaries at `vh/aggregates/topics/<topicId>/districts/<districtHash>/summary` (the sole allow-listed `district_hash`-bearing class alongside `vh/bridge/stats/`). Records are aggregate-only: per-point agree/disagree counts, `cohortSize`, office reference, topic/synthesis/epoch, computed time, and source snapshot version — never a per-user row, nullifier, proof, token, `voterId`, raw address, or region code. The runtime `TopologyGuard` carve-out enforces the allow-listed-path + `cohortSize >= MIN_DISTRICT_COHORT_SIZE` + no-person-identifier rule, mirroring the `check-public-namespace-leaks.mjs` tripwire. The named gate `check:district-aggregate-thresholds` covers the cohort-threshold and aggregate-only assertions for this read model.
+
 ## 10. Policy Engine
 
 `canPerform` is the single authority for write/vote/claim/familiar decisions. Surface-local threshold checks are forbidden; the lint `no-trust-score-direct-compare` enforces.

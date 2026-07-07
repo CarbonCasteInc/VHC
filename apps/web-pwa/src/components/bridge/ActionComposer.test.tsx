@@ -4,14 +4,25 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { AssuranceEnvelope } from '@vh/luma-sdk';
 import { ActionComposer, validateComposer } from './ActionComposer';
 
-let trustScore = 1;
+// scoreFromEnvelope maps assuranceLevel to a scalar trustScore:
+//   none -> 0, beta_local -> 0.5, bronze -> 0.6, silver -> 0.7.
+// Tests choose an assurance level to hit the < 0.5 draft gate, the 0.5..0.7
+// send-disabled band, and the >= 0.7 send-enabled state.
+function envelopeForScore(score: number): AssuranceEnvelope | undefined {
+  if (score < 0.5) return { assuranceLevel: 'none' } as unknown as AssuranceEnvelope;
+  if (score < 0.7) return { assuranceLevel: 'beta_local' } as unknown as AssuranceEnvelope;
+  return { assuranceLevel: 'silver' } as unknown as AssuranceEnvelope;
+}
+
+let assuranceEnvelope: AssuranceEnvelope | undefined = envelopeForScore(1);
 let budgetAllowed = true;
 let budgetReason = '';
 
 vi.mock('../../hooks/useIdentity', () => ({
-  useIdentity: () => ({ identity: { session: { trustScore } } }),
+  useIdentity: () => ({ identity: { assuranceEnvelope } }),
 }));
 
 vi.mock('../../store/xpLedger', () => ({
@@ -24,7 +35,7 @@ vi.mock('../../store/xpLedger', () => ({
 }));
 
 beforeEach(() => {
-  trustScore = 1;
+  assuranceEnvelope = envelopeForScore(1);
   budgetAllowed = true;
   budgetReason = '';
 });
@@ -84,20 +95,21 @@ describe('ActionComposer', () => {
   });
 
   it('shows trust gate when score below 0.5', () => {
-    trustScore = 0.3;
+    assuranceEnvelope = envelopeForScore(0.3);
     render(<ActionComposer />);
     expect(screen.getByTestId('composer-trust-gate')).toBeInTheDocument();
   });
 
   it('shows send trust gate when score between 0.5 and 0.7', () => {
-    trustScore = 0.6;
+    assuranceEnvelope = envelopeForScore(0.6);
     render(<ActionComposer selectedRepId="rep-1" />);
     expect(screen.getByTestId('send-trust-gate')).toBeInTheDocument();
-    expect(screen.getByText(/0\.60/)).toBeInTheDocument();
+    // beta_local maps to exactly 0.50.
+    expect(screen.getByText(/0\.50/)).toBeInTheDocument();
   });
 
   it('disables send when trust below 0.7', () => {
-    trustScore = 0.6;
+    assuranceEnvelope = envelopeForScore(0.6);
     render(<ActionComposer selectedRepId="rep-1" />);
     expect(screen.getByTestId('composer-send')).toBeDisabled();
   });
@@ -149,7 +161,7 @@ describe('ActionComposer', () => {
   });
 
   it('enables send when all conditions met', () => {
-    trustScore = 0.8;
+    assuranceEnvelope = envelopeForScore(0.8);
     render(<ActionComposer selectedRepId="rep-1" />);
     fireEvent.change(screen.getByTestId('composer-topic'), { target: { value: 'Topic' } });
     fireEvent.change(screen.getByTestId('composer-subject'), { target: { value: 'Subject' } });
@@ -159,7 +171,7 @@ describe('ActionComposer', () => {
   });
 
   it('disables send when budget exhausted even with valid form', () => {
-    trustScore = 0.8;
+    assuranceEnvelope = envelopeForScore(0.8);
     budgetAllowed = false;
     budgetReason = 'limit reached';
     render(<ActionComposer selectedRepId="rep-1" />);

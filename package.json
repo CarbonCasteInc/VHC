@@ -28,6 +28,7 @@
     "check:public-feed:fresh-propagation": "pnpm --filter @vh/e2e test:live:daemon-feed:build && node ./packages/e2e/src/live/public-feed-fresh-propagation-gate.mjs",
     "check:public-feed:freshness-monitor": "pnpm --filter @vh/gun-client... build && node ./tools/scripts/public-feed-freshness-monitor.mjs",
     "check:public-feed:alert-watch": "node --test ./tools/scripts/public-feed-alert-watch.test.mjs",
+    "check:district-aggregate-thresholds": "node ./tools/scripts/check-district-aggregate-thresholds.mjs",
     "check:early-heap-captures": "node --test ./tools/scripts/analyze-early-heap-captures.test.mjs",
     "check:scope-a-watch-closure": "node --test ./tools/scripts/phase5-scope-a-watch-closure-packet.test.mjs",
     "check:host-event-window": "node --test ./tools/scripts/collect-host-event-window.test.mjs",

@@ -25,3 +25,4 @@ export * from './schemas/hermes/docs';
 export * from './schemas/hermes/bridgeAction';
 export * from './schemas/hermes/bridgeReceipt';
 export * from './schemas/hermes/bridgeRepresentative';
+export * from './schemas/hermes/districtAggregate';
