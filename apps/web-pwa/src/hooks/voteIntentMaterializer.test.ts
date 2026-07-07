@@ -253,11 +253,106 @@ describe('voteIntentMaterializer', () => {
     expect(snapshot.source_window).toEqual({ from_seq: 45, to_seq: 50 });
   });
 
-  it('replayVoteIntentQueue reports pending failures when client is unavailable', async () => {
+  it('replayVoteIntentQueue reports pending failures and a deferral event when client is unavailable', async () => {
+    const deferSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
     enqueueIntent(makeIntent({ intent_id: 'pending-when-offline' }));
 
     const result = await replayVoteIntentQueue({ client: null });
     expect(result).toEqual({ replayed: 0, failed: 1 });
+    // No silent path: the client-unavailable batch emits a documented deferral.
+    expect(deferSpy).toHaveBeenCalledWith({ reason: 'client-unavailable', pending_count: 1 });
+  });
+
+  it('replayVoteIntentQueue does not emit a deferral event when the queue is empty', async () => {
+    const deferSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
+    const result = await replayVoteIntentQueue({ client: null });
+    expect(result).toEqual({ replayed: 0, failed: 0 });
+    expect(deferSpy).not.toHaveBeenCalled();
+  });
+
+  it('no-silent-success: every terminal projection outcome emits telemetry', async () => {
+    // Drives success, hard failure, timeout, and client-unavailable and asserts
+    // a terminal telemetry event (logMeshWriteResult or logMeshWriteDeferred)
+    // fires for EVERY outcome with the spec §9.5/§11.2 fields.
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+    const deferSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
+
+    // (a) success
+    {
+      const client = {} as VennClient;
+      vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+      vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+      vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(100).toISOString(),
+      });
+      vi.spyOn(GunClient, 'writePointAggregateSnapshot')
+        .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+      enqueueIntent(makeIntent({ intent_id: 'terminal-success', seq: 100, emitted_at: 100 }));
+      await replayVoteIntentQueue({ limit: 10, now: () => 500 });
+    }
+    expect(meshWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, timed_out: false }),
+    );
+
+    // (b) hard failure
+    {
+      vi.restoreAllMocks();
+      vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
+      const meshWriteFailSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+      const client = {} as VennClient;
+      vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+      vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('write-failed-hard'));
+      enqueueIntent(makeIntent({ intent_id: 'terminal-failure', seq: 100, emitted_at: 100 }));
+      await replayVoteIntentQueue({ limit: 10, now: () => 500 });
+      expect(meshWriteFailSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, error: 'write-failed-hard', timed_out: false }),
+      );
+    }
+
+    // (c) timeout (unrecovered → failure with timed_out marker)
+    {
+      vi.restoreAllMocks();
+      vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
+      const meshWriteTimeoutSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+      const client = {} as VennClient;
+      vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+      vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+      vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+      // Stale readback so timeout does not recover → terminal failure.
+      vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(1).toISOString(),
+      });
+      enqueueIntent(makeIntent({ intent_id: 'terminal-timeout', seq: 120, emitted_at: 120 }));
+      await replayVoteIntentQueue({ limit: 10, now: () => 500 });
+      expect(meshWriteTimeoutSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, timed_out: true }),
+      );
+    }
+
+    // (d) client-unavailable → deferral event
+    {
+      vi.restoreAllMocks();
+      const deferUnavailableSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteDeferred').mockImplementation(() => {});
+      enqueueIntent(makeIntent({ intent_id: 'terminal-unavailable', seq: 100, emitted_at: 100 }));
+      const result = await replayVoteIntentQueue({ client: null });
+      expect(result.failed).toBeGreaterThan(0);
+      expect(deferUnavailableSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'client-unavailable' }),
+      );
+    }
+
+    // silence the unused-warning for the outer spies
+    expect(meshWriteSpy).toBeDefined();
+    expect(deferSpy).toBeDefined();
   });
 
   it('replayVoteIntentQueue replaces existing voter row when incoming record wins LWW', async () => {

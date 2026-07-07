@@ -1,5 +1,6 @@
 import type { VoteIntentRecord } from '@vh/data-model';
 import { createIntentQueue } from './intentQueue';
+import { compareIntentLww } from './voteIntentProjection';
 
 /**
  * Durable local intent queue for vote intents.
@@ -8,7 +9,9 @@ import { createIntentQueue } from './intentQueue';
  * Invariants:
  * - Every admitted vote gets a VoteIntentRecord in the queue
  * - Queue survives app restart (safeStorage-backed)
- * - Idempotent: duplicate intent_ids are silently deduped
+ * - Idempotent with LWW: a duplicate intent_id replaces the queued record only
+ *   when it wins compareIntentLww (newer seq/emitted_at); otherwise it is
+ *   deduped. A mutate-while-pending vote therefore projects the newer agreement.
  * - No silent drops: every enqueued intent reaches terminal state (projected or failed)
  */
 
@@ -45,11 +48,16 @@ const queue = createIntentQueue<VoteIntentRecord>({
   maxQueueSize: MAX_QUEUE_SIZE,
   getId: (record) => record.intent_id,
   compareReplayOrder,
+  // LWW on enqueue: a mutate-while-pending vote (same intent_id, newer
+  // seq/emitted_at) replaces the stale queued record instead of being deduped.
+  compareLww: compareIntentLww,
 });
 
 /**
- * Enqueue a vote intent record. Idempotent: duplicate intent_ids are silently deduped.
- * When the queue exceeds MAX_QUEUE_SIZE, the oldest intent is evicted.
+ * Enqueue a vote intent record. Idempotent per intent_id, with last-write-wins:
+ * a same-intent_id record that wins compareIntentLww replaces the queued one so
+ * a mutate-while-pending vote is not lost. When the queue exceeds
+ * MAX_QUEUE_SIZE, the oldest intent is evicted.
  */
 export function enqueueIntent(record: VoteIntentRecord): void {
   queue.enqueue(record);

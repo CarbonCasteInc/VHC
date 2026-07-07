@@ -2608,6 +2608,12 @@ describe('aggregateAdapters', () => {
     expect(hasForbiddenAggregatePayloadFields({ nested: { identity_session: 'x' } })).toBe(true);
     expect(hasForbiddenAggregatePayloadFields({ nested: { district_hash: 'd' } })).toBe(true);
     expect(hasForbiddenAggregatePayloadFields({ list: [{ ok: true }, { nullifier: 'n' }] })).toBe(true);
+    // Raw address / wallet material is forbidden in public aggregates (B2).
+    expect(hasForbiddenAggregatePayloadFields({ address: '1600 Penn Ave' })).toBe(true);
+    expect(hasForbiddenAggregatePayloadFields({ wallet_address: '0xabc' })).toBe(true);
+    expect(hasForbiddenAggregatePayloadFields({ nested: { wallet: '0xdef' } })).toBe(true);
+    // Case-insensitive match.
+    expect(hasForbiddenAggregatePayloadFields({ Address: '1600 Penn Ave' })).toBe(true);
 
     const cyclic: Record<string, unknown> = { safe: true };
     cyclic.self = cyclic;
