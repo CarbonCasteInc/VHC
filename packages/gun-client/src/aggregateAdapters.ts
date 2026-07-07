@@ -53,6 +53,11 @@ const FORBIDDEN_PUBLIC_AGGREGATE_KEYS = new Set<string>([
   'auth_token',
   'oauth_token',
   'bearer_token',
+  // Raw address / wallet material must never appear in public aggregates
+  // (docs/specs/spec-identity-trust-constituency.md; Lane B B2).
+  'address',
+  'wallet_address',
+  'wallet',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

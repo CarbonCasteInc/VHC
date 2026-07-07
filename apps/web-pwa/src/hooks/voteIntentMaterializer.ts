@@ -7,7 +7,7 @@ import type { VennClient } from '@vh/gun-client';
 import type { IdentityRecord } from '@vh/types';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { getFullIdentity } from '../store/identityProvider';
-import { logMeshWriteResult } from '../utils/sentimentTelemetry';
+import { logMeshWriteDeferred, logMeshWriteResult } from '../utils/sentimentTelemetry';
 import {
   compareIntentLww,
   pointTupleMatches,
@@ -136,7 +136,14 @@ export async function replayVoteIntentQueue(options?: {
 }): Promise<{ replayed: number; failed: number }> {
   const client = options?.client ?? resolveClientFromAppStore();
   if (!client) {
-    return { replayed: 0, failed: getPendingIntents().length };
+    const pendingCount = getPendingIntents().length;
+    // No mesh client: nothing is attempted, but the batch must not be silent —
+    // emit a documented deferral so the terminal-outcome invariant holds
+    // (docs/specs/spec-civic-sentiment.md §9.5/§11.2). Intents remain pending.
+    if (pendingCount > 0) {
+      logMeshWriteDeferred({ reason: 'client-unavailable', pending_count: pendingCount });
+    }
+    return { replayed: 0, failed: pendingCount };
   }
 
   const now = options?.now ?? (() => Date.now());

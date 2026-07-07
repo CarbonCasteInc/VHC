@@ -26,6 +26,20 @@ function normalizeMetric(value: number | undefined): number {
   return value;
 }
 
+/**
+ * Combine engagement inputs into the displayed Eye/Lightbulb counters.
+ *
+ * Aggregate-first with a max() fallback: the public counter reads the topic
+ * engagement mesh aggregate first, but falls back to `max(mesh, feed-snapshot +
+ * local persisted decayed weight)`. The max() (rather than a hard mesh-only
+ * read) is deliberate resilience against an unpopulated or lagging mesh summary
+ * — a freshly-written or not-yet-materialized aggregate would otherwise read as
+ * zero and hide real local engagement. Documented per
+ * `docs/specs/spec-civic-sentiment.md` §9.4 (aggregate visibility with
+ * resilience controls, not local-write-only projections): the mesh aggregate is
+ * authoritative when it is at least as large, and the local/feed-snapshot floor
+ * only wins while the summary is behind.
+ */
 export function combineFeedEngagementMetrics(inputs: FeedEngagementMetricInputs): FeedEngagementMetrics {
   const baseEye = normalizeMetric(inputs.baseEye);
   const baseLightbulb = normalizeMetric(inputs.baseLightbulb);

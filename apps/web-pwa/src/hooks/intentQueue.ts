@@ -5,6 +5,13 @@ export interface IntentQueueOptions<T> {
   readonly maxQueueSize: number;
   readonly getId: (record: T) => string;
   readonly compareReplayOrder: (a: T, b: T) => number;
+  /**
+   * Optional last-write-wins comparator. When provided, enqueuing a record
+   * whose id already exists REPLACES the queued record if the incoming one
+   * wins (comparator > 0) instead of being silently deduped. Without it,
+   * duplicate ids keep the first-enqueued record (pure idempotency).
+   */
+  readonly compareLww?: (incoming: T, existing: T) => number;
 }
 
 export interface IntentQueue<T> {
@@ -42,7 +49,16 @@ export function createIntentQueue<T>(options: IntentQueueOptions<T>): IntentQueu
     enqueue(record: T): void {
       const queue = load();
       const intentId = options.getId(record);
-      if (queue.some((queued) => options.getId(queued) === intentId)) {
+      const existingIndex = queue.findIndex((queued) => options.getId(queued) === intentId);
+      if (existingIndex >= 0) {
+        // Same id already pending. With an LWW comparator, replace the queued
+        // record in place when the incoming one wins so a mutate-while-pending
+        // vote does not lose its newer agreement. Without a comparator, keep the
+        // first-enqueued record (pure idempotency).
+        if (options.compareLww && options.compareLww(record, queue[existingIndex]!) > 0) {
+          queue[existingIndex] = record;
+          persist(queue);
+        }
         return;
       }
 

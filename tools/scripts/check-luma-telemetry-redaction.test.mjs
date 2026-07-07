@@ -109,6 +109,38 @@ test('red: typed secret equality fails, but nullish presence checks pass', () =>
   }
 });
 
+test('structural type/length guards on secret fields pass', () => {
+  const root = makeFixtureRepo({
+    'packages/identity-vault/src/vault.ts': [
+      "export const t = typeof record.providerSubject !== 'string';",
+      'export const l = record.providerSubject.length === 0;',
+      "export const t2 = typeof record.sessionToken === 'string';",
+    ].join('\n'),
+  });
+  try {
+    const { violations } = runTelemetryRedactionChecks(root);
+    assert.deepEqual(violations.filter((v) => v.type === 'secret-equality'), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('redaction-safe marker exempts a vetted secret comparison but not others', () => {
+  const root = makeFixtureRepo({
+    'packages/identity-vault/src/vault.ts': [
+      'export const ok = existing.providerSubject === input.providerSubject; // redaction-safe: preserve-check',
+      'export const bad = sessionToken === otherToken;',
+    ].join('\n'),
+  });
+  try {
+    const { violations } = runTelemetryRedactionChecks(root);
+    assert.ok(!violations.some((v) => v.text.includes('providerSubject')));
+    assert.ok(violations.some((v) => v.type === 'secret-equality' && v.text.includes('sessionToken')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('red: telemetry registry drift fails', () => {
   const root = makeFixtureRepo({
     'packages/luma-sdk/src/telemetry.ts': FAITHFUL_TELEMETRY.replace("  'luma_session_expired',\n", ''),

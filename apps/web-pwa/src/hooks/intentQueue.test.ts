@@ -22,6 +22,16 @@ function createQueue(storageKey = 'vh_test_intent_queue_v1') {
   });
 }
 
+function createLwwQueue(storageKey = 'vh_lww_intent_queue_v1') {
+  return createIntentQueue<TestIntent>({
+    storageKey,
+    maxQueueSize: 3,
+    getId: (record) => record.intent_id,
+    compareReplayOrder: (a, b) => a.seq - b.seq || a.intent_id.localeCompare(b.intent_id),
+    compareLww: (incoming, existing) => incoming.seq - existing.seq,
+  });
+}
+
 describe('createIntentQueue', () => {
   beforeEach(() => {
     storage.clear();
@@ -39,6 +49,21 @@ describe('createIntentQueue', () => {
       { intent_id: 'b', seq: 2 },
       { intent_id: 'c', seq: 3 },
       { intent_id: 'd', seq: 4 },
+    ]);
+  });
+
+  it('replaces a same-id record in place when the incoming one wins the LWW comparator', () => {
+    const queue = createLwwQueue();
+    queue.enqueue({ intent_id: 'a', seq: 1 });
+    queue.enqueue({ intent_id: 'b', seq: 5 });
+    // Newer 'a' wins and replaces in place (keeps position, does not append).
+    queue.enqueue({ intent_id: 'a', seq: 9 });
+    // Older 'b' loses and is ignored.
+    queue.enqueue({ intent_id: 'b', seq: 2 });
+
+    expect(queue.getPending()).toEqual([
+      { intent_id: 'a', seq: 9 },
+      { intent_id: 'b', seq: 5 },
     ]);
   });
 

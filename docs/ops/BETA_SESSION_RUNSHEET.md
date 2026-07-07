@@ -110,9 +110,17 @@ pnpm --filter @vh/e2e test:live:matrix:strict:stability
 
 If `scarcityCount > 0`: setup-scarcity problem (insufficient vote-capable inventory / synthesis-ready topics). Triage feed inventory and prewarm; analysis-relay misconfiguration is a separate strict-gate failure mode and does not increment `scarcityCount`.
 
-### 3. Manual 3-browser persistence check
+### 3. Manual 3-browser persistence check (release-rehearsal requirement)
 
-Open 3 browser windows (A, B, C) to `<BASE_URL>`. Each gets its own identity.
+This procedure is a **release-rehearsal requirement**. Slice F2 of the
+Functioning MVP lane plan
+(`docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md`) executes this exact
+procedure to produce the release-packet evidence; Slice B4 owns its definition.
+The steps below are the canonical definition F2 references — keep them in sync.
+
+Open 3 browser windows (A, B, C) to `<BASE_URL>`. Each gets its own identity
+(distinct beta-local LUMA principal per browser — do not reuse one identity
+across windows). All three must open the **same accepted-current story**.
 
 | Step | Action | Expected |
 |------|--------|----------|
@@ -127,7 +135,22 @@ Open 3 browser windows (A, B, C) to `<BASE_URL>`. Each gets its own identity.
 | 9 | A: change vote from +1 to -1 | Aggregate corrects: agree decrements, disagree increments across all clients |
 | 10 | All: reload pages | Analysis, vote cells, and aggregate state survive reload |
 
-**Required:** all 10 steps pass. Any failure is a session blocker.
+**Cross-client (not local-echo) verification.** Steps 5, 6, and the cross-client
+checks in 7-9 are only valid if the count moves on a browser that did **not**
+cast the vote. A local optimistic echo on the voting browser does not count as
+convergence. For each cross-client assertion, confirm the change is visible on a
+browser whose own vote did not produce it (e.g. step 5/6 must show A's vote on B
+and C, which are still neutral on that point). If only the voting browser
+updates, that is a local-only aggregate illusion, not mesh convergence — treat
+it as a FAIL, not a pass.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 11 | Privacy-leak spot-check: on B, open devtools and inspect the public aggregate paths and network payloads exercised by the vote (`vh/aggregates/**`, topic-engagement summary reads/writes, `[vh:aggregate:voter-write]` / `[vh:vote:mesh-write]` telemetry) | No `nullifier`, `district_hash`, `merkle_root`, raw `constituency_proof`, address/wallet, or provider token appears in any public path or its telemetry; aggregate nodes carry only the topic/epoch-scoped `voterId` |
+
+**Required:** all 11 steps pass, with cross-client convergence proven (not
+local echo) and no privacy leak observed. Any failure is a session blocker and,
+for a release rehearsal, blocks the Slice F2 evidence packet.
 
 ---
 
@@ -181,6 +204,8 @@ Headline soak:  pass | warn | fail (reason)
 Source scout:   top promotable candidate | none | blocked (reason)
 Strict gate:    PASS N/N | FAIL (reason)
 3-browser:      PASS | FAIL at step N (reason)
+Cross-client:   PASS (convergence proven, not local echo) | FAIL (reason)
+Privacy leak:   NONE | LEAK (path + field)
 Testers:        count
 Duration:       Xh
 429 rate peak:  X%

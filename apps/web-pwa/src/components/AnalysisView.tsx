@@ -11,6 +11,8 @@ import { EngagementIcons } from './EngagementIcons';
 import { useViewTracking } from '../hooks/useViewTracking';
 import { perspectivePointMapKey, useSynthesisPointIds } from '../hooks/useSynthesisPointIds';
 import { usePointAggregate } from '../hooks/usePointAggregate';
+import { logVoteAdmission } from '../utils/sentimentTelemetry';
+import { VOTE_DENIAL_REASONS } from '../hooks/voteAdmission';
 
 interface AnalysisViewProps {
   item: FeedItem;
@@ -60,6 +62,21 @@ function PerspectiveRow({
     !identity || proofError?.includes('Identity unavailable')
       ? 'identity'
       : 'proof';
+
+  // Mirror the feed path's unified admission: a blocked vote emits a
+  // reason-only admission-denial telemetry event (never proof/nullifier
+  // material) so support/telemetry sees the same denial the feed would log.
+  const handleBlockedVote = (pointId: string) => {
+    logVoteAdmission({
+      topic_id: itemId,
+      point_id: pointId,
+      admitted: false,
+      reason: blockedReason === 'identity'
+        ? VOTE_DENIAL_REASONS.MISSING_IDENTITY
+        : VOTE_DENIAL_REASONS.INVALID_PROOF,
+    });
+    onBlockedVote(blockedReason);
+  };
   const { aggregate: frameAggregate } = usePointAggregate({
     topicId: itemId,
     synthesisId: itemId,
@@ -78,7 +95,9 @@ function PerspectiveRow({
     synthesisPointId: string | undefined,
     desired: -1 | 0 | 1,
   ) => {
-    setAgreement({
+    // Same admission path as the feed (CellVoteControls): route the receipt so
+    // a denial surfaces to the user instead of being silently dropped.
+    const receipt = setAgreement({
       topicId: itemId,
       pointId: legacyPointId,
       synthesisPointId,
@@ -88,6 +107,11 @@ function PerspectiveRow({
       desired,
       constituency_proof: proof!,
     });
+    if (receipt && !receipt.accepted) {
+      onBlockedVote(
+        receipt.reason?.toLowerCase().includes('identity') ? 'identity' : 'proof',
+      );
+    }
   };
 
   return (
@@ -101,7 +125,7 @@ function PerspectiveRow({
             onClick={(e) => {
               e.stopPropagation();
               if (!canVote) {
-                onBlockedVote(blockedReason);
+                handleBlockedVote(framePointId);
                 return;
               }
               handleSet(framePointId, synthesisFramePointId, frameAgreement === -1 ? 0 : -1);
@@ -117,7 +141,7 @@ function PerspectiveRow({
             onClick={(e) => {
               e.stopPropagation();
               if (!canVote) {
-                onBlockedVote(blockedReason);
+                handleBlockedVote(framePointId);
                 return;
               }
               handleSet(framePointId, synthesisFramePointId, frameAgreement === 1 ? 0 : 1);
@@ -144,7 +168,7 @@ function PerspectiveRow({
             onClick={(e) => {
               e.stopPropagation();
               if (!canVote) {
-                onBlockedVote(blockedReason);
+                handleBlockedVote(reframePointId);
                 return;
               }
               handleSet(reframePointId, synthesisReframePointId, reframeAgreement === -1 ? 0 : -1);
@@ -160,7 +184,7 @@ function PerspectiveRow({
             onClick={(e) => {
               e.stopPropagation();
               if (!canVote) {
-                onBlockedVote(blockedReason);
+                handleBlockedVote(reframePointId);
                 return;
               }
               handleSet(reframePointId, synthesisReframePointId, reframeAgreement === 1 ? 0 : 1);

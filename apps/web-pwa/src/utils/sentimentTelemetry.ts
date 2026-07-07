@@ -104,6 +104,22 @@ export function onMeshWriteResult(listener: MeshWriteListener): () => void {
   };
 }
 
+export interface MeshWriteDeferralTelemetry {
+  readonly reason: string;
+  readonly pending_count: number;
+}
+
+/**
+ * Terminal telemetry for a projection batch that could not run at all — e.g.
+ * the mesh client is unavailable so nothing was attempted. This keeps the
+ * "no silent-success ambiguity" invariant (spec §9.5/§11.2): every replay batch
+ * emits SOME terminal signal, either per-intent mesh-write results or this
+ * batch-level deferral. Routed to info since it is an expected, retryable state.
+ */
+export function logMeshWriteDeferred(params: MeshWriteDeferralTelemetry): void {
+  console.info('[vh:vote:mesh-write:deferred]', compactPayload(params));
+}
+
 export function logMeshWriteResult(params: MeshWriteTelemetry): void {
   const payload = compactPayload(params);
   const isExpectedUnavailable =

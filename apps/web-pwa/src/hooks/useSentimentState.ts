@@ -1,10 +1,8 @@
 import { create } from 'zustand';
-import { deriveVoterId, type ConstituencyProof, type IdentityRecord, type SentimentSignal } from '@vh/types';
+import { type ConstituencyProof, type IdentityRecord, type SentimentSignal } from '@vh/types';
 import {
   deriveTopicEngagementActorId,
-  deriveVoteIntentId,
   type VoteAdmissionReceipt,
-  type VoteIntentRecord,
 } from '@vh/data-model';
 import {
   readAggregateVoterNode,
@@ -28,13 +26,19 @@ import {
   type Agreement,
 } from '../components/feed/voteSemantics';
 import { logMeshWriteResult, recordVoteTimestamp } from '../utils/sentimentTelemetry';
-import { createDenialReceipt, createAdmissionReceipt, deriveProofRef } from './voteAdmission';
+import {
+  createDenialReceipt,
+  createAdmissionReceipt,
+  classifyIdentityDenialReason,
+  enqueueDurableVoteIntent,
+  evaluateCurrencyDenial,
+  type AcceptedCurrencyContext,
+} from './voteAdmission';
 import {
   materializePointSnapshotFromRows,
   normalizeAggregateTimestampMs,
   upsertAggregateRow,
 } from './pointAggregateSnapshot';
-import { enqueueIntent } from './voteIntentQueue';
 import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
 import {
   createLumaAggregateVoterNodeFromPrincipal,
@@ -58,6 +62,13 @@ interface SentimentStore {
     desired: Agreement;
     constituency_proof?: ConstituencyProof;
     analysisId?: string;
+    /**
+     * Optional accepted-current synthesis context (the story-detail join
+     * result). When present, admission denies stance writes whose synthesis
+     * target is stale/non-current with reason `Non-current synthesis`. When
+     * absent (feature not wired) current behavior is preserved.
+     */
+    acceptedCurrency?: AcceptedCurrencyContext | null;
   }) => VoteAdmissionReceipt;
   recordRead: (topicId: string) => number;
   /** Generic engagement tracker (for forum votes/comments) - increments lightbulb weight with decay */
@@ -629,7 +640,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
   lightbulb: loadNumberMap(LIGHTBULB_KEY),
   eye: loadNumberMap(EYE_KEY),
   signals: [],
-  setAgreement({ topicId, pointId, synthesisPointId, synthesisId, epoch, desired, constituency_proof, analysisId }) {
+  setAgreement({ topicId, pointId, synthesisPointId, synthesisId, epoch, desired, constituency_proof, analysisId, acceptedCurrency }) {
     if (!constituency_proof) {
       console.warn('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
       return createDenialReceipt(topicId, pointId, '', 0, 'Missing constituency proof');
@@ -654,14 +665,38 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     const normalizedSynthesisId = context.synthesisId;
     const normalizedEpoch = context.epoch;
+
+    // Accepted-current currency check: deny stale/non-current synthesis
+    // targets. When no context is supplied (feature not wired) admission
+    // preserves current behavior and does not regress votes.
+    const currencyDenial = evaluateCurrencyDenial({
+      context: acceptedCurrency,
+      synthesisId: normalizedSynthesisId,
+      epoch: normalizedEpoch,
+    });
+    if (currencyDenial) {
+      console.warn('[vh:sentiment] Non-current synthesis; SentimentSignal not emitted');
+      return createDenialReceipt(topicId, normalizedSynthesisPointId, normalizedSynthesisId, normalizedEpoch, currencyDenial);
+    }
+
     const lumaProfile = lumaAggregateVoterDeploymentProfile();
     const activeIdentity = getFullIdentity<IdentityRecord>();
     if (lumaProfile === 'public-beta') {
-      assertMvpActionIdentityReady({
-        identity: activeIdentity,
-        profile: lumaProfile,
-        action: desired === 0 ? 'vh-stance-clear' : 'vh-stance-vote'
-      });
+      // Identity-policy failures become admission-denial receipts (with
+      // canonical Missing/Expired identity reasons) rather than throws, so the
+      // feed and analysis surfaces get a support-visible denial instead of an
+      // uncaught error (`docs/specs/spec-civic-sentiment.md` §9.1).
+      try {
+        assertMvpActionIdentityReady({
+          identity: activeIdentity,
+          profile: lumaProfile,
+          action: desired === 0 ? 'vh-stance-clear' : 'vh-stance-vote'
+        });
+      } catch (error) {
+        const reason = classifyIdentityDenialReason(error);
+        console.warn('[vh:sentiment] Identity denied:', reason);
+        return createDenialReceipt(topicId, normalizedSynthesisPointId, normalizedSynthesisId, normalizedEpoch, reason);
+      }
     }
 
     // intentional: must activate nullifier before checking its budget
@@ -780,49 +815,35 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
         emittedAt: signal.emitted_at,
         reason: 'local_vote',
       });
-      // Persist durable intent record before projection
+      // Durable local intent is part of the admission contract: admission
+      // success means "receipt + durable intent", not "receipt + hope". Persist
+      // (or record a `Write queue failure` denial telemetry) BEFORE kicking off
+      // remote projection. Remote projection/mesh writes stay asynchronous.
       void (async () => {
-        try {
-          const voterId = await deriveVoterId(constituency_proof.nullifier, {
-            topicId,
-            epoch: normalizedEpoch,
-          });
-          const intentId = await deriveVoteIntentId({
-            voter_id: voterId,
-            topic_id: topicId,
-            synthesis_id: normalizedSynthesisId,
-            epoch: normalizedEpoch,
-            point_id: normalizedSynthesisPointId,
-          });
-          const intentRecord: VoteIntentRecord = {
-            intent_id: intentId,
-            voter_id: voterId,
-            topic_id: topicId,
-            synthesis_id: normalizedSynthesisId,
-            epoch: normalizedEpoch,
-            point_id: normalizedSynthesisPointId,
-            agreement: signal.agreement,
-            weight: signal.weight,
-            proof_ref: deriveProofRef(constituency_proof),
-            seq: signal.emitted_at,
-            emitted_at: signal.emitted_at,
-          };
-          enqueueIntent(intentRecord);
-          scheduleVoteIntentReplay();
-        } catch (err) {
-          console.warn('[vh:sentiment] Failed to enqueue vote intent:', err);
-        }
-      })();
-      void projectSignalToMesh(emittedSignal).finally(() => {
-        dispatchPointAggregateRefresh({
+        const enqueued = await enqueueDurableVoteIntent({
+          constituencyProof: constituency_proof,
           topicId,
           synthesisId: normalizedSynthesisId,
           epoch: normalizedEpoch,
           pointId: normalizedSynthesisPointId,
+          agreement: signal.agreement,
+          weight: signal.weight,
           emittedAt: signal.emitted_at,
-          reason: 'mesh_projection_settled',
         });
-      });
+        if (enqueued.ok) {
+          scheduleVoteIntentReplay();
+        }
+        void projectSignalToMesh(signal).finally(() => {
+          dispatchPointAggregateRefresh({
+            topicId,
+            synthesisId: normalizedSynthesisId,
+            epoch: normalizedEpoch,
+            pointId: normalizedSynthesisPointId,
+            emittedAt: signal.emitted_at,
+            reason: 'mesh_projection_settled',
+          });
+        });
+      })();
     }
 
     return admissionReceipt;
