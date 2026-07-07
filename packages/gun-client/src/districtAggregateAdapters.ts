@@ -260,12 +260,14 @@ export async function writeDistrictAggregateSummary(
   client: VennClient,
   summary: DistrictAggregateSummaryV1,
 ): Promise<DistrictAggregateSummaryV1> {
-  const parsed = DistrictAggregateSummaryV1Schema.parse(summary);
-  if (parsed.cohortSize < MIN_DISTRICT_COHORT_SIZE) {
+  // Explicit k-anonymity floor check on the raw input first, so a below-threshold
+  // cohort is refused with a named error before the (also-enforcing) schema parse.
+  if (!Number.isInteger(summary?.cohortSize) || summary.cohortSize < MIN_DISTRICT_COHORT_SIZE) {
     throw new Error(
       `district aggregate summary requires cohortSize >= ${MIN_DISTRICT_COHORT_SIZE}`,
     );
   }
+  const parsed = DistrictAggregateSummaryV1Schema.parse(summary);
 
   await putWithAck(
     getDistrictAggregateSummaryChain(client, parsed.topic_id, parsed.district_hash),

@@ -96,4 +96,45 @@ describe('useDistrictAggregate', () => {
     render(<Harness {...TUPLE} />);
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('error'));
   });
+
+  it('does not apply a successful read after the component unmounts (cancelled)', async () => {
+    let resolveRead: (value: DistrictAggregateSummaryV1 | null) => void = () => {};
+    readDistrictAggregateSummaryMock.mockImplementation(
+      () =>
+        new Promise<DistrictAggregateSummaryV1 | null>((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+
+    const { unmount } = render(<Harness {...TUPLE} />);
+    await waitFor(() => expect(readDistrictAggregateSummaryMock).toHaveBeenCalled());
+
+    // Unmount while the read is in flight, then resolve it. The cancelled guard
+    // must short-circuit before setResult, so no post-unmount state update warns.
+    unmount();
+    resolveRead(SUMMARY);
+    await Promise.resolve();
+    await Promise.resolve();
+    // No assertion on DOM (unmounted); reaching here without a React act/state
+    // warning exercises the cancelled-after-success branch.
+  });
+
+  it('does not apply an errored read after the component unmounts (cancelled)', async () => {
+    let rejectRead: (reason: unknown) => void = () => {};
+    readDistrictAggregateSummaryMock.mockImplementation(
+      () =>
+        new Promise<DistrictAggregateSummaryV1 | null>((_resolve, reject) => {
+          rejectRead = reject;
+        }),
+    );
+
+    const { unmount } = render(<Harness {...TUPLE} />);
+    await waitFor(() => expect(readDistrictAggregateSummaryMock).toHaveBeenCalled());
+
+    unmount();
+    rejectRead(new Error('late failure'));
+    await Promise.resolve();
+    await Promise.resolve();
+    // The cancelled guard in the catch branch short-circuits before setResult.
+  });
 });

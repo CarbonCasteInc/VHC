@@ -93,14 +93,15 @@ export function useRepresentativeDirectorySync(): void {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const client = resolveClientFromAppStore();
-      if (cancelled) {
-        return;
-      }
       try {
+        const client = resolveClientFromAppStore();
         await syncRepresentativeDirectory(client);
       } catch {
         // Fail-closed: leave the local directory unchanged on any error.
+      }
+      if (cancelled) {
+        // Component unmounted while the sync was in flight; nothing else to do.
+        return;
       }
     })();
     return () => {
