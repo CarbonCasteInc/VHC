@@ -15,6 +15,7 @@ import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../stor
 import { getHandleError, isValidHandle } from '../utils/handle';
 import {
   clearIdentity as vaultClear,
+  clearSignInSession,
   clearWalletBinding,
   delegationSigningKey,
   deviceCredential,
@@ -22,7 +23,8 @@ import {
   migrateLegacyLocalStorage,
   seaDevicePair
 } from '@vh/identity-vault';
-import { publishIdentity, clearPublishedIdentity } from '../store/identityProvider';
+import { publishIdentity, clearPublishedIdentity, getPublishedIdentity } from '../store/identityProvider';
+import { clearSignInAccounts } from '../store/signInAccount';
 import { useXpLedger } from '../store/xpLedger';
 import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 import { useSentimentState } from './useSentimentState';
@@ -266,6 +268,19 @@ export function useIdentity() {
     }
   }, [status, createIdentity]);
 
+  /**
+   * Return the active device-bound principal nullifier, creating a
+   * beta-local identity first if none exists. Used by the sign-in flow to
+   * bind an account to THIS device's principal (Slice C2) — a fresh device
+   * gets a fresh principal, never a silent merge of an old one.
+   */
+  const ensureIdentity = useCallback(async (): Promise<string | null> => {
+    const existing = identity?.session?.nullifier ?? getPublishedIdentity()?.session.nullifier ?? null;
+    if (existing) return existing;
+    await createIdentity();
+    return getPublishedIdentity()?.session.nullifier ?? null;
+  }, [identity?.session?.nullifier, createIdentity]);
+
   const linkDevice = useCallback(async () => {
     if (!identity) {
       throw new Error('Identity not ready');
@@ -324,6 +339,10 @@ export function useIdentity() {
   const signOut = useCallback(async () => {
     clearActiveIdentityRuntime();
     clearLumaTelemetry({ rotateSalt: true });
+    // Drop the in-memory account snapshot so the UI reflects signed-out
+    // state. The vault signInSession binding is preserved: signing back in
+    // on this device restores the same LUMA principal (unlike Reset).
+    clearSignInAccounts();
     await vaultClear().catch(() => {});
   }, [clearActiveIdentityRuntime]);
 
@@ -342,6 +361,12 @@ export function useIdentity() {
     await vaultClear().catch(() => {});
     await clearWalletBinding().catch(() => {});
     await operatorAuthorizationToken.clear().catch(() => {});
+    // Clear the account-to-LUMA sign-in binding: the pre-reset nullifier
+    // must not survive, and the next sign-in re-binds against the new
+    // principal (LUMA §13.2 walletBinding parallel). The old public
+    // artifacts are not deleted or re-authored.
+    await clearSignInSession().catch(() => {});
+    clearSignInAccounts();
     await deviceCredential.rotate();
     await seaDevicePair.rotate(() => SEA.pair());
     await delegationSigningKey.rotateStored();
@@ -381,6 +406,7 @@ export function useIdentity() {
     status,
     error,
     createIdentity,
+    ensureIdentity,
     linkDevice,
     startLinkSession,
     completeLinkSession,

@@ -225,6 +225,33 @@ describe('CellVoteControls', () => {
     );
   });
 
+  it('offers a sign-in link carrying return topic/point state when proof is missing', () => {
+    useConstituencyProofMock.mockReturnValue({
+      proof: null,
+      error: null,
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} synthesisPointId="canonical-xyz" pointLabel="  Frame headline  " />);
+
+    const link = screen.getByTestId('cell-vote-signin-point-abc');
+    expect(link).toHaveTextContent('Sign in to vote');
+    expect(link).toHaveAttribute(
+      'href',
+      '/account/identity?returnTopicId=topic-1&returnPointId=canonical-xyz',
+    );
+    // A trimmed non-empty label is used for the accessible vote target.
+    expect(screen.getByLabelText('Agree with Frame headline')).toBeInTheDocument();
+  });
+
+  it('does not show the sign-in link once a proof is present', () => {
+    render(<CellVoteControls {...BASE_PROPS} />);
+    expect(screen.queryByTestId('cell-vote-signin-point-abc')).not.toBeInTheDocument();
+  });
+
   it('denial with no reason clears visible denial message', () => {
     vi.spyOn(useSentimentState.getState(), 'setAgreement')
       .mockReturnValueOnce(deniedReceipt('Daily limit reached for sentiment_votes/day'))

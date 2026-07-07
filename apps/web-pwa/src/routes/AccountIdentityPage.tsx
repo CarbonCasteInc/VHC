@@ -4,6 +4,7 @@ import { Button } from '@vh/ui';
 import { useIdentity } from '../hooks/useIdentity';
 import { useTelemetry } from '../hooks/useTelemetry';
 import { useWallet } from '../hooks/useWallet';
+import { SignInProviderSection } from '../components/account/SignInProviderSection';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -107,7 +108,8 @@ const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
               Resetting stops using the current pseudonym and rotates the identity material on this device. The next
               identity you create on this device uses a new pseudonym. Your previous posts, comments, and votes remain
               public under your old pseudonym. Resetting does not remove them and cannot make them yours again. Your
-              wallet must be re-bound, and any operator authorization or delegations are cleared.
+              wallet and any connected sign-in accounts must be re-bound on your next sign-in, and any operator
+              authorization or delegations are cleared.
             </p>
             <label className="mt-4 block text-sm font-medium text-slate-800 dark:text-slate-100" htmlFor="identity-reset-input">
               Type reset to confirm
@@ -150,7 +152,7 @@ const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
 };
 
 export const AccountIdentityPage: React.FC = () => {
-  const { identity, status, error, createIdentity, signOut, resetIdentity } = useIdentity();
+  const { identity, status, error, createIdentity, ensureIdentity, signOut, resetIdentity } = useIdentity();
   const { events } = useTelemetry();
   const { account, walletBinding, connect: connectWallet, loading: walletLoading } = useWallet();
   const [dialog, setDialog] = useState<DialogMode | null>(null);
@@ -164,6 +166,10 @@ export const AccountIdentityPage: React.FC = () => {
   const now = Date.now();
   const expiresSoon = Boolean(expiresAt && expiresAt > now && expiresAt - now <= ONE_DAY_MS);
   const activePrincipal = identity?.session?.nullifier ?? null;
+  const signInIdentityBridge = useMemo(
+    () => ({ status, activeNullifier: activePrincipal, ensureIdentity }),
+    [status, activePrincipal, ensureIdentity]
+  );
   const walletNeedsRebind = Boolean(
     activePrincipal
     && account
@@ -209,15 +215,18 @@ export const AccountIdentityPage: React.FC = () => {
 
   if (!identity || status === 'anonymous' || status === 'creating' || status === 'error') {
     return (
-      <section className="space-y-4 rounded-lg border border-slate-200 bg-card p-5 shadow-sm dark:border-slate-700" data-testid="identity-panel">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-950 dark:text-slate-50">Identity</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">No active session on this device.</p>
+      <section className="space-y-4" data-testid="identity-panel">
+        <div className="space-y-4 rounded-lg border border-slate-200 bg-card p-5 shadow-sm dark:border-slate-700">
+          <div>
+            <h1 className="text-xl font-semibold text-slate-950 dark:text-slate-50">Identity</h1>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">No active session on this device.</p>
+          </div>
+          {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+          <Button type="button" onClick={() => void createIdentity()} disabled={status === 'creating'} data-testid="identity-create">
+            {status === 'creating' ? 'Creating...' : 'Create identity'}
+          </Button>
         </div>
-        {error && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-        <Button type="button" onClick={() => void createIdentity()} disabled={status === 'creating'} data-testid="identity-create">
-          {status === 'creating' ? 'Creating...' : 'Create identity'}
-        </Button>
+        <SignInProviderSection identity={signInIdentityBridge} />
       </section>
     );
   }
@@ -284,6 +293,8 @@ export const AccountIdentityPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <SignInProviderSection identity={signInIdentityBridge} />
 
       <div className="rounded-lg border border-slate-200 bg-card p-5 shadow-sm dark:border-slate-700">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
