@@ -19,6 +19,7 @@ import type {
   SignInProviderKind,
   SignInSessionCompartment
 } from '../types';
+import { SIGN_IN_SESSION_COMPARTMENT_KEYS } from '../types';
 import { loadVaultV2, saveVaultV2 } from '../vault';
 import { VaultCompartmentError } from './encoding';
 
@@ -33,19 +34,6 @@ export interface SignInSessionInput {
   now?: number;
 }
 
-const SIGN_IN_SESSION_KEYS = new Set([
-  'schemaVersion',
-  'providerId',
-  'providerSubject',
-  'displayLabel',
-  'accessToken',
-  'refreshToken',
-  'expiresAt',
-  'boundPrincipalNullifier',
-  'boundAt',
-  'updatedAt'
-]);
-
 const SIGN_IN_PROVIDER_KINDS = new Set<SignInProviderKind>([
   'apple',
   'google',
@@ -55,14 +43,14 @@ const SIGN_IN_PROVIDER_KINDS = new Set<SignInProviderKind>([
 export async function loadSignInSession(): Promise<SignInSessionCompartment | null> {
   const vault = await loadVaultV2();
   if (!vault?.signInSession) return null;
-  return validateSignInSession(vault.signInSession);
+  return validateSignInSessionForRead(vault.signInSession);
 }
 
 export async function saveSignInSession(
   input: SignInSessionInput
 ): Promise<SignInSessionCompartment> {
   const vault = await loadVaultV2();
-  const existing = vault?.signInSession ? validateSignInSession(vault.signInSession) : null;
+  const existing = vault?.signInSession ? validateSignInSessionForRead(vault.signInSession) : null;
   const now = normalizeTimestamp(input.now ?? Date.now(), 'signInSession timestamp');
   const candidate = buildSignInSession(input, now, existing);
 
@@ -93,7 +81,32 @@ export function signInSessionMatchesPrincipal(
   if (!session || typeof principalNullifier !== 'string' || principalNullifier.length === 0) {
     return false;
   }
-  return validateSignInSession(session).boundPrincipalNullifier === principalNullifier;
+  return validateSignInSessionForRead(session).boundPrincipalNullifier === principalNullifier;
+}
+
+/**
+ * Read-side tolerant validation (forward-compat): strip unknown keys a NEWER
+ * bundle may have written into the compartment, then apply the same strict
+ * validation. Lets an old tab read/bind/clear a newer-bundle session instead
+ * of failing on the unknown field. Writes stay strict — saveSignInSession
+ * candidates are built from known fields only and go through
+ * validateSignInSession unchanged.
+ */
+export function validateSignInSessionForRead(value: unknown): SignInSessionCompartment {
+  return validateSignInSession(stripUnknownSignInSessionKeys(value));
+}
+
+function stripUnknownSignInSessionKeys(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value;
+  }
+  const stripped: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (SIGN_IN_SESSION_COMPARTMENT_KEYS.has(key)) {
+      stripped[key] = entry;
+    }
+  }
+  return stripped;
 }
 
 export function validateSignInSession(value: unknown): SignInSessionCompartment {
@@ -102,7 +115,7 @@ export function validateSignInSession(value: unknown): SignInSessionCompartment 
   }
 
   for (const key of Object.keys(value)) {
-    if (!SIGN_IN_SESSION_KEYS.has(key)) {
+    if (!SIGN_IN_SESSION_COMPARTMENT_KEYS.has(key)) {
       throw new VaultCompartmentError('Invalid signInSession compartment');
     }
   }

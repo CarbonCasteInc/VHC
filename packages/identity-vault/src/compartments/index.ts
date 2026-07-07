@@ -51,6 +51,7 @@ export {
   signInSession,
   signInSessionMatchesPrincipal,
   validateSignInSession,
+  validateSignInSessionForRead,
   type SignInSessionInput
 } from './signInSession';
 export {

@@ -367,6 +367,169 @@ test('health endpoint reports configuration booleans only', async () => {
   assert.equal(partialBody.durableStore, false);
 });
 
+function appleReturnRequest(body, { contentType = 'application/x-www-form-urlencoded', extraHeaders = {} } = {}) {
+  return new Request('https://auth.example.invalid/auth/apple/return', {
+    method: 'POST',
+    headers: { ...(contentType ? { 'content-type': contentType } : {}), ...extraHeaders },
+    body,
+  });
+}
+
+test('Apple form_post return: happy path 303-redirects code+state to the PWA callback route', async () => {
+  const env = await baseEnv();
+  const start = await runStart(env, 'apple');
+  const state = start.parameters.state;
+
+  // Apple's navigation POST: form-encoded, cross-site Origin, extra `user`
+  // field on first authorization — no allow-listed Origin, no JSON.
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({
+      code: 'provider-auth-code',
+      state,
+      user: JSON.stringify({ name: { firstName: 'Jane' } }),
+    }).toString(),
+    { extraHeaders: { origin: 'https://appleid.apple.com' } },
+  ), env);
+
+  assert.equal(response.status, 303);
+  const location = response.headers.get('location');
+  const url = new URL(location);
+  assert.equal(url.origin, ORIGIN);
+  assert.equal(url.pathname, '/auth/callback');
+  assert.equal(url.searchParams.get('provider'), 'apple');
+  assert.equal(url.searchParams.get('code'), 'provider-auth-code');
+  assert.equal(url.searchParams.get('state'), state);
+  // Only code+state are forwarded; Apple's `user` payload is dropped.
+  assert.equal([...url.searchParams.keys()].sort().join(','), 'code,provider,state');
+
+  const text = await response.text();
+  assert.equal(text, '');
+  assertNoSecrets(location, env);
+  assertNoSecrets(text, env);
+
+  // The redirect leg composes with the primary flow: the PWA can still
+  // complete POST /auth/apple/callback with its held verifier.
+  env.__TEST_FETCH = providerFetchStub(env, {});
+  const callback = await handleRequest(callbackRequest('apple', {
+    code: 'provider-auth-code',
+    state,
+    codeVerifier: CODE_VERIFIER,
+  }), env);
+  assert.equal(callback.status, 200);
+  assert.equal((await callback.json()).session.providerId, 'apple');
+});
+
+test('Apple form_post return: never reads or forwards a code_verifier from the form', async () => {
+  const env = await baseEnv();
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({
+      code: 'provider-auth-code',
+      state: 'some-state',
+      code_verifier: CODE_VERIFIER,
+      codeVerifier: CODE_VERIFIER,
+    }).toString(),
+  ), env);
+
+  assert.equal(response.status, 303);
+  const location = response.headers.get('location');
+  assert.ok(!location.includes(CODE_VERIFIER), 'verifier must never travel in the redirect');
+  assert.ok(!location.toLowerCase().includes('verifier'));
+});
+
+test('Apple form_post return: honors VH_AUTH_PWA_CALLBACK_ROUTE override', async () => {
+  const env = await baseEnv();
+  env.VH_AUTH_PWA_CALLBACK_ROUTE = '/custom/cb';
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 's' }).toString(),
+  ), env);
+  assert.equal(response.status, 303);
+  assert.ok(response.headers.get('location').startsWith(`${ORIGIN}/custom/cb?`));
+});
+
+test('Apple form_post return: oversized body is rejected 413', async () => {
+  const env = await baseEnv();
+  env.VH_AUTH_MAX_BODY_BYTES = '8';
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'provider-auth-code', state: 'x'.repeat(64) }).toString(),
+  ), env);
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).reason, 'request_body_too_large');
+});
+
+test('Apple form_post return: missing state or code is rejected 400', async () => {
+  const env = await baseEnv();
+
+  const missingState = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'provider-auth-code' }).toString(),
+  ), env);
+  assert.equal(missingState.status, 400);
+  assert.equal((await missingState.json()).reason, 'state_invalid');
+
+  const missingCode = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ state: 'some-state' }).toString(),
+  ), env);
+  assert.equal(missingCode.status, 400);
+  assert.equal((await missingCode.json()).reason, 'code_invalid');
+
+  const oversizedState = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 'x'.repeat(2049) }).toString(),
+  ), env);
+  assert.equal(oversizedState.status, 400);
+  assert.equal((await oversizedState.json()).reason, 'state_invalid');
+
+  const oversizedCode = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'x'.repeat(2049), state: 's' }).toString(),
+  ), env);
+  assert.equal(oversizedCode.status, 400);
+  assert.equal((await oversizedCode.json()).reason, 'code_invalid');
+});
+
+test('Apple form_post return: wrong content-type and wrong method are rejected', async () => {
+  const env = await baseEnv();
+
+  const jsonBody = await handleRequest(appleReturnRequest(
+    JSON.stringify({ code: 'c', state: 's' }),
+    { contentType: 'application/json' },
+  ), env);
+  assert.equal(jsonBody.status, 415);
+  assert.equal((await jsonBody.json()).reason, 'unsupported_content_type');
+
+  const noContentType = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 's' }).toString(),
+    { contentType: null },
+  ), env);
+  assert.equal(noContentType.status, 415);
+
+  const get = await handleRequest(new Request('https://auth.example.invalid/auth/apple/return', {
+    method: 'GET',
+  }), env);
+  assert.equal(get.status, 405);
+  assert.equal(get.headers.get('allow'), 'POST');
+});
+
+test('Apple form_post return: fails closed when no PWA origin is configured', async () => {
+  const env = await baseEnv();
+  delete env.VH_AUTH_ALLOWED_ORIGINS;
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 's' }).toString(),
+  ), env);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.reason, 'pwa_origin_unconfigured');
+  assertNoSecrets(JSON.stringify(body), env);
+});
+
+test('form_post return route exists only for apple', async () => {
+  const env = await baseEnv();
+  const response = await handleRequest(new Request('https://auth.example.invalid/auth/google/return', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code: 'c', state: 's' }).toString(),
+  }), env);
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).reason, 'route_not_found');
+});
+
 test('unknown routes are 404', async () => {
   const env = await baseEnv();
   const response = await handleRequest(new Request('https://auth.example.invalid/nope'), env);

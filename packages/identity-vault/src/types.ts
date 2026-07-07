@@ -144,22 +144,49 @@ export function isValidIdentity(value: unknown): value is Identity {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Closed key sets for the strictly-validated v2 compartments. Single-sourced
+ * here so the write-side shape guards below and the read-side salvage
+ * strippers (vault.ts) can never drift apart.
+ */
+export const WALLET_BINDING_COMPARTMENT_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'address',
+  'chainId',
+  'providerKind',
+  'boundPrincipalNullifier',
+  'boundAt',
+  'updatedAt'
+]);
+
+export const OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'token',
+  'boundPrincipalNullifier',
+  'issuedAt',
+  'expiresAt'
+]);
+
+export const SIGN_IN_SESSION_COMPARTMENT_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'providerId',
+  'providerSubject',
+  'displayLabel',
+  'accessToken',
+  'refreshToken',
+  'expiresAt',
+  'boundPrincipalNullifier',
+  'boundAt',
+  'updatedAt'
+]);
+
 export function isWalletBindingCompartment(value: unknown): value is WalletBindingCompartment {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
 
   const keys = Object.keys(value);
-  const allowedKeys = new Set([
-    'schemaVersion',
-    'address',
-    'chainId',
-    'providerKind',
-    'boundPrincipalNullifier',
-    'boundAt',
-    'updatedAt'
-  ]);
-  if (keys.some((key) => !allowedKeys.has(key))) {
+  if (keys.some((key) => !WALLET_BINDING_COMPARTMENT_KEYS.has(key))) {
     return false;
   }
 
@@ -190,14 +217,7 @@ export function isOperatorAuthorizationTokenCompartment(
   }
 
   const keys = Object.keys(value);
-  const allowedKeys = new Set([
-    'schemaVersion',
-    'token',
-    'boundPrincipalNullifier',
-    'issuedAt',
-    'expiresAt'
-  ]);
-  if (keys.some((key) => !allowedKeys.has(key))) {
+  if (keys.some((key) => !OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS.has(key))) {
     return false;
   }
 
@@ -234,19 +254,7 @@ export function isSignInSessionCompartment(value: unknown): value is SignInSessi
   }
 
   const keys = Object.keys(value);
-  const allowedKeys = new Set([
-    'schemaVersion',
-    'providerId',
-    'providerSubject',
-    'displayLabel',
-    'accessToken',
-    'refreshToken',
-    'expiresAt',
-    'boundPrincipalNullifier',
-    'boundAt',
-    'updatedAt'
-  ]);
-  if (keys.some((key) => !allowedKeys.has(key))) {
+  if (keys.some((key) => !SIGN_IN_SESSION_COMPARTMENT_KEYS.has(key))) {
     return false;
   }
 

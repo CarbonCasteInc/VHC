@@ -6,6 +6,7 @@
  *   OPTIONS /auth/:provider/start|callback  -> CORS preflight
  *   POST    /auth/:provider/start           -> issue state + authorize URL parameters
  *   GET/POST /auth/:provider/callback       -> exchange code, return non-secret session
+ *   POST    /auth/apple/return              -> Apple form_post receiver: 303 to the PWA callback route
  *   GET     /api/health                     -> config booleans only (no values)
  *
  * `:provider` is a closed set (apple|google|x); anything else is 404.
@@ -13,6 +14,7 @@
  */
 
 import {
+  allowedOrigins,
   createKvAuthStore,
   createMemoryAuthStore,
   handleCallback,
@@ -116,6 +118,84 @@ function nowMs(env) {
   return Number.isFinite(forced) ? forced : Date.now();
 }
 
+/**
+ * Resolve the PWA callback URL the Apple form_post receiver redirects to:
+ * the first allow-listed PWA origin plus the PWA callback route
+ * (VH_AUTH_PWA_CALLBACK_ROUTE, defaulting to the PWA's own
+ * VITE_AUTH_CALLBACK_ROUTE default of /auth/callback).
+ */
+function pwaCallbackTarget(env) {
+  const origin = allowedOrigins(env)[0];
+  if (!origin) return null;
+  const route = typeof env.VH_AUTH_PWA_CALLBACK_ROUTE === 'string' && env.VH_AUTH_PWA_CALLBACK_ROUTE.startsWith('/')
+    ? env.VH_AUTH_PWA_CALLBACK_ROUTE
+    : '/auth/callback';
+  return `${origin}${route}`;
+}
+
+function isFormUrlencoded(request) {
+  const contentType = request.headers.get('content-type') ?? '';
+  return contentType.split(';')[0].trim().toLowerCase() === 'application/x-www-form-urlencoded';
+}
+
+/**
+ * Apple form_post receiver. With scopes configured (the default), Apple
+ * delivers `code` + `state` as a TOP-LEVEL browser POST
+ * (application/x-www-form-urlencoded, Origin: https://appleid.apple.com) to
+ * the registered redirect URI — so no Origin allow-list and no JSON body
+ * apply here. This receiver reads ONLY `code` + `state` from the form and
+ * 303-redirects to the PWA callback route with them as query parameters —
+ * the same exposure as the response_mode=query GET leg tolerated by
+ * /auth/:provider/callback. The PKCE `code_verifier` is deliberately NEVER
+ * read from this leg (it must only travel in the PWA's later
+ * POST /auth/apple/callback body); any other form field (Apple's `user`
+ * JSON, an erroneous verifier) is ignored and never forwarded.
+ */
+async function handleAppleFormPostReturn(request, env) {
+  if (request.method !== 'POST') {
+    return json({ status: 'rejected', reason: 'method_not_allowed' }, 405, { allow: 'POST' });
+  }
+  if (!isFormUrlencoded(request)) {
+    return json({ status: 'rejected', reason: 'unsupported_content_type' }, 415);
+  }
+  const target = pwaCallbackTarget(env);
+  if (!target) {
+    return json({ status: 'rejected', reason: 'pwa_origin_unconfigured' }, 503);
+  }
+
+  let text;
+  try {
+    text = await requestText(request, env);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'request_body_too_large') {
+      return json({ status: 'rejected', reason: 'request_body_too_large' }, 413);
+    }
+    throw error;
+  }
+
+  const form = new URLSearchParams(text);
+  const code = form.get('code') ?? '';
+  const state = form.get('state') ?? '';
+  if (code.length === 0 || code.length > 2048) {
+    return json({ status: 'rejected', reason: 'code_invalid' }, 400);
+  }
+  if (state.length === 0 || state.length > 2048) {
+    return json({ status: 'rejected', reason: 'state_invalid' }, 400);
+  }
+
+  const location = new URL(target);
+  location.searchParams.set('provider', 'apple');
+  location.searchParams.set('code', code);
+  location.searchParams.set('state', state);
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: location.toString(),
+      'cache-control': 'no-store',
+    },
+  });
+}
+
 function requireAllowedOrigin(request, env) {
   const origin = request.headers.get('origin');
   if (!isAllowedOrigin(origin, env)) {
@@ -127,6 +207,10 @@ function requireAllowedOrigin(request, env) {
 export async function handleRequest(request, env = {}, _ctx = {}) {
   const url = new URL(request.url);
   const authMatch = url.pathname.match(/^\/auth\/([^/]+)\/(start|callback)$/);
+
+  if (url.pathname === '/auth/apple/return') {
+    return handleAppleFormPostReturn(request, env);
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/health') {
     const configured = {};
