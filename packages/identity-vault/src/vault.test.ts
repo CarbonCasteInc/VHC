@@ -18,6 +18,7 @@ import {
   MASTER_KEY,
   LEGACY_STORAGE_KEY,
   isOperatorAuthorizationTokenCompartment,
+  isSignInSessionCompartment,
   isWalletBindingCompartment,
   LEGACY_VAULT_VERSION,
   VAULT_VERSION
@@ -31,11 +32,13 @@ import {
   operatorAuthorizationToken,
   randomBase64Url,
   seaDevicePair,
+  signInSession,
   validateDelegationSigningKey,
   validateDelegationSigningPublicKey,
   validateDeviceCredential,
   validateOperatorAuthorizationToken,
   validateSeaDevicePair,
+  validateSignInSession,
   validateWalletBinding,
   walletBinding,
   VaultCompartmentError
@@ -1171,5 +1174,237 @@ describe('M0.D-1 vault v2 compartments', () => {
     expect(vault?.identityRecord).toEqual(legacyWithInvalidCompartments);
     expect(vault?.deviceCredential).toBeUndefined();
     expect(vault?.seaDevicePair).toBeUndefined();
+  });
+});
+
+describe('Lane C signInSession compartment', () => {
+  const SESSION_INPUT = {
+    providerId: 'google' as const,
+    providerSubject: 'google-subject-1',
+    displayLabel: 'person@example.com',
+    accessToken: 'vault-only-access-token',
+    refreshToken: 'vault-only-refresh-token',
+    expiresAt: 5000,
+    boundPrincipalNullifier: 'principal-signin-1'
+  };
+
+  it('saves, loads, and clears sign-in sessions and survives unrelated vault saves', async () => {
+    await expect(signInSession.clear()).resolves.toBeUndefined();
+
+    await saveIdentity(LEGACY_IDENTITY);
+    await expect(signInSession.clear()).resolves.toBeUndefined();
+    expect(await signInSession.load()).toBeNull();
+
+    const first = await signInSession.save({ ...SESSION_INPUT, now: 1000 });
+    expect(first).toEqual({
+      schemaVersion: 1,
+      providerId: 'google',
+      providerSubject: 'google-subject-1',
+      displayLabel: 'person@example.com',
+      accessToken: 'vault-only-access-token',
+      refreshToken: 'vault-only-refresh-token',
+      expiresAt: 5000,
+      boundPrincipalNullifier: 'principal-signin-1',
+      boundAt: 1000,
+      updatedAt: 1000
+    });
+    expect(await signInSession.load()).toEqual(first);
+
+    // Encrypted round-trip: the persisted vault carries the compartment
+    // as JSON-safe material.
+    expect(JSON.parse(JSON.stringify(await loadVaultV2()))?.signInSession).toEqual(first);
+
+    // Regression: normalizeVaultV2 must PRESERVE the compartment across
+    // unrelated vault writes (fields not listed there are silently
+    // dropped on every save).
+    await saveIdentity({ ...LEGACY_IDENTITY, touched: true });
+    expect(await signInSession.load()).toEqual(first);
+    await deviceCredential.rotate();
+    expect(await signInSession.load()).toEqual(first);
+
+    expect(signInSession.matchesPrincipal(first, 'principal-signin-1')).toBe(true);
+    expect(signInSession.matchesPrincipal(first, 'other-principal')).toBe(false);
+    expect(signInSession.matchesPrincipal(null, 'principal-signin-1')).toBe(false);
+    expect(signInSession.matchesPrincipal(first, null)).toBe(false);
+    expect(signInSession.matchesPrincipal(first, '')).toBe(false);
+
+    // Same binding keeps boundAt; only updatedAt advances.
+    const updated = await signInSession.save({ ...SESSION_INPUT, now: 1500 });
+    expect(updated.boundAt).toBe(1000);
+    expect(updated.updatedAt).toBe(1500);
+
+    // A different provider subject is a NEW binding.
+    const rebound = await signInSession.save({
+      ...SESSION_INPUT,
+      providerSubject: 'google-subject-2',
+      now: 2000
+    });
+    expect(rebound.boundAt).toBe(2000);
+
+    // A different provider is a NEW binding too.
+    const otherProvider = await signInSession.save({
+      ...SESSION_INPUT,
+      providerId: 'apple',
+      now: 2500
+    });
+    expect(otherProvider.boundAt).toBe(2500);
+
+    // A different principal nullifier (post-reset re-bind) is a NEW binding.
+    const otherPrincipal = await signInSession.save({
+      ...SESSION_INPUT,
+      providerId: 'apple',
+      providerSubject: SESSION_INPUT.providerSubject,
+      boundPrincipalNullifier: 'principal-signin-2',
+      now: 3000
+    });
+    expect(otherPrincipal.boundAt).toBe(3000);
+
+    await signInSession.clear();
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual({ ...LEGACY_IDENTITY, touched: true });
+    expect(vault?.signInSession).toBeUndefined();
+    expect(await signInSession.load()).toBeNull();
+  });
+
+  it('supports minimal sessions without optional token material', async () => {
+    const minimal = await signInSession.save({
+      providerId: 'x',
+      providerSubject: 'x-subject-1',
+      boundPrincipalNullifier: 'principal-signin-1'
+    });
+
+    expect(minimal.displayLabel).toBeUndefined();
+    expect(minimal.accessToken).toBeUndefined();
+    expect(minimal.refreshToken).toBeUndefined();
+    expect(minimal.expiresAt).toBeUndefined();
+    expect(minimal.boundAt).toBe(minimal.updatedAt);
+    expect(await signInSession.load()).toEqual(minimal);
+  });
+
+  it('clearIdentity does not clear the sign-in session (reset wiring is explicit)', async () => {
+    const saved = await signInSession.save({ ...SESSION_INPUT, now: 1000 });
+    await saveIdentity(LEGACY_IDENTITY);
+
+    await clearIdentity();
+
+    expect(await loadIdentity()).toBeNull();
+    expect(await signInSession.load()).toEqual(saved);
+  });
+
+  it('validate rejects malformed and token-leaking records', async () => {
+    const valid = await signInSession.save({ ...SESSION_INPUT, now: 1000 });
+
+    expect(validateSignInSession(valid)).toEqual(valid);
+    expect(() => validateSignInSession(null)).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession([])).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession('session')).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, privateKey: 'leak' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, schemaVersion: 2 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, providerId: 'reddit' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, providerSubject: '' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, providerSubject: 42 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, displayLabel: '' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, accessToken: '' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, refreshToken: 42 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, expiresAt: -1 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, expiresAt: 1.5 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, expiresAt: 'soon' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, boundPrincipalNullifier: '' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, boundPrincipalNullifier: undefined })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, boundAt: -1 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, boundAt: 1.5 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, boundAt: 'then' })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, updatedAt: valid.boundAt - 1 })).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSession({ ...valid, updatedAt: 'now' })).toThrow(VaultCompartmentError);
+
+    await expect(signInSession.save({
+      ...SESSION_INPUT,
+      providerId: 'reddit' as never
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(signInSession.save({
+      ...SESSION_INPUT,
+      providerSubject: ''
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(signInSession.save({
+      ...SESSION_INPUT,
+      boundPrincipalNullifier: ''
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(signInSession.save({
+      ...SESSION_INPUT,
+      now: -1
+    })).rejects.toThrow(VaultCompartmentError);
+  });
+
+  it('exposes a v2 shape guard that fails closed', async () => {
+    const valid = await signInSession.save({ ...SESSION_INPUT, now: 1000 });
+
+    expect(isSignInSessionCompartment(valid)).toBe(true);
+    expect(isSignInSessionCompartment({
+      schemaVersion: 1,
+      providerId: 'apple',
+      providerSubject: 'apple-sub',
+      boundPrincipalNullifier: 'principal-signin-1',
+      boundAt: 1,
+      updatedAt: 1
+    })).toBe(true);
+    expect(isSignInSessionCompartment(null)).toBe(false);
+    expect(isSignInSessionCompartment([])).toBe(false);
+    expect(isSignInSessionCompartment('session')).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, unexpected: true })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, schemaVersion: 2 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, providerId: 'reddit' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, providerSubject: 42 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, providerSubject: '' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, displayLabel: '' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, displayLabel: 42 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, accessToken: '' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, refreshToken: '' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, expiresAt: 'soon' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, expiresAt: 1.5 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, expiresAt: -1 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, boundPrincipalNullifier: 42 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, boundPrincipalNullifier: '' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, boundAt: 'then' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, boundAt: 1.5 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, boundAt: -1 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, updatedAt: 'now' })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, updatedAt: 1.5 })).toBe(false);
+    expect(isSignInSessionCompartment({ ...valid, updatedAt: valid.boundAt - 1 })).toBe(false);
+  });
+
+  it('fails closed when a v2 vault contains a malformed signInSession compartment', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      signInSession: {
+        schemaVersion: 1,
+        providerId: 'google',
+        providerSubject: 'google-subject-1',
+        boundPrincipalNullifier: 'principal-signin-1',
+        boundAt: 1,
+        updatedAt: 1,
+        linkedSocialToken: 'must-not-live-here'
+      }
+    });
+
+    await expect(loadVaultV2()).resolves.toBeNull();
+
+    const db = await openVaultDb();
+    const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
+    expect(remaining).toBeUndefined();
+  });
+
+  it('does not save invalid v2 signInSession compartments through public writers', async () => {
+    await saveIdentity(LEGACY_IDENTITY);
+
+    await expect(saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      signInSession: { schemaVersion: 1, providerId: 'reddit' } as never
+    })).resolves.toBeUndefined();
+
+    expect(await loadIdentity()).toEqual(LEGACY_IDENTITY);
+    expect(await signInSession.load()).toBeNull();
   });
 });

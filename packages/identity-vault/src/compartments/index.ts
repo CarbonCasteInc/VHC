@@ -45,6 +45,15 @@ export {
   type OperatorAuthorizationTokenInput
 } from './operatorAuthorizationToken';
 export {
+  clearSignInSession,
+  loadSignInSession,
+  saveSignInSession,
+  signInSession,
+  signInSessionMatchesPrincipal,
+  validateSignInSession,
+  type SignInSessionInput
+} from './signInSession';
+export {
   base64UrlToBytes,
   bytesToBase64Url,
   randomBase64Url,
