@@ -90,7 +90,7 @@ describe('TopologyGuard', () => {
       const guard = new TopologyGuard();
       expect(() =>
         guard.validateWrite(AGGREGATE_PATH, districtSummary({ voter_id: 'derived-but-person-level' })),
-      ).toThrow(/person-level identifier/);
+      ).toThrow(/carries a forbidden key/);
     });
 
     it('rejects a provider display label inside an aggregate district record', () => {
@@ -98,6 +98,79 @@ describe('TopologyGuard', () => {
       expect(() =>
         guard.validateWrite(AGGREGATE_PATH, districtSummary({ displayLabel: 'Jane D.' })),
       ).toThrow(/PII in public path/);
+    });
+
+    // Defense-in-depth: the runtime carve-out must reject the same forbidden key
+    // classes the static lint rejects, at ANY nesting depth (not just top-level).
+    it('rejects NESTED free-text PII (email/wallet/address) inside a district aggregate', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ contact: { email: 'a@b.com' } })),
+      ).toThrow(/carries a forbidden key/);
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ meta: { walletAddress: '0xabc' } })),
+      ).toThrow(/carries a forbidden key/);
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ meta: { homeAddress: '1 Main St' } })),
+      ).toThrow(/carries a forbidden key/);
+    });
+
+    it('rejects a NESTED account-provider token inside a district aggregate', () => {
+      const guard = new TopologyGuard();
+      // Top-level key `meta` is benign, so top-level containsPII passes; the deep
+      // carve-out scan must catch the nested account-provider token.
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ meta: { access_token: 'secret' } })),
+      ).toThrow(/carries a forbidden key/);
+      // A top-level account-provider key is still rejected (by containsPII).
+      expect(() =>
+        guard.validateWrite(
+          AGGREGATE_PATH,
+          districtSummary({ accountBinding: { access_token: 'secret' } }),
+        ),
+      ).toThrow(/Topology violation/);
+    });
+
+    it('rejects forumAuthorId and identityDirectoryKey (lint parity)', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ forumAuthorId: 'deadbeef' })),
+      ).toThrow(/carries a forbidden key/);
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ identityDirectoryKey: 'deadbeef' })),
+      ).toThrow(/carries a forbidden key/);
+    });
+
+    it('rejects NESTED sensitive keys (constituency_proof/merkle_root/proof_ref)', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(
+          AGGREGATE_PATH,
+          districtSummary({ constituency_proof: { merkle_root: 'r', proof_ref: 'p' } }),
+        ),
+      ).toThrow(/carries a forbidden key/);
+    });
+
+    it('rejects a non-integer string cohortSize (no Number() coercion)', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ cohortSize: '100' })),
+      ).toThrow(/requires integer cohortSize >= 100/);
+    });
+
+    it('still allows a clean cohortSize-100 aggregate with no forbidden keys', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(
+          AGGREGATE_PATH,
+          districtSummary({
+            points: [
+              { point_id: 'p1', agree: 60, disagree: 40 },
+              { point_id: 'p2', agree: 30, disagree: 20 },
+            ],
+          }),
+        ),
+      ).not.toThrow();
     });
   });
 

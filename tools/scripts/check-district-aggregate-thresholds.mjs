@@ -242,7 +242,15 @@ for (const token of [
   'validateDistrictAggregatePayload',
   'MIN_DISTRICT_COHORT_SIZE = 100',
   'requires integer cohortSize',
-  'person-level identifier',
+  // Hardened defense-in-depth: the carve-out deep-scans the union of the lint's
+  // forbidden key classes at any nesting depth (must mirror
+  // check-public-namespace-leaks.mjs exactly).
+  'isForbiddenDistrictAggregateKey',
+  'isForbiddenSensitiveKey',
+  'isAccountProviderKey',
+  'forumauthorid',
+  'identitydirectorykey',
+  'carries a forbidden key',
 ]) {
   requireToken(topologySource, token, 'topology guard carve-out');
 }

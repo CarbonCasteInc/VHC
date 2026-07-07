@@ -92,8 +92,10 @@ function normalizedKey(key: string): string {
   return key.replace(/[-_]/g, '').toLowerCase();
 }
 
-// Person-level identifiers that must never be co-published with district_hash,
-// mirroring check-public-namespace-leaks.mjs isPersonIdentifierKey.
+// Person-level identifiers that must never be co-published with district_hash.
+// Mirrors check-public-namespace-leaks.mjs isPersonIdentifierKey EXACTLY —
+// forumAuthorId and identityDirectoryKey are district-linkable re-identification
+// vectors and must be rejected at any nesting depth.
 function isPersonIdentifierKey(key: string): boolean {
   return [
     'author',
@@ -104,7 +106,44 @@ function isPersonIdentifierKey(key: string): boolean {
     'principalnullifier',
     'nullifier',
     'voterid',
+    'forumauthorid',
+    'identitydirectorykey',
   ].includes(normalizedKey(key));
+}
+
+// Sensitive keys forbidden on any public record. Mirrors
+// check-public-namespace-leaks.mjs isForbiddenSensitiveKey EXACTLY.
+function isForbiddenSensitiveKey(key: string): boolean {
+  return [
+    'nullifier',
+    'principalnullifier',
+    'nominatornullifier',
+    'reporternullifier',
+    'constituencyproof',
+    'merkleroot',
+    'proofref',
+    'intentid',
+    'privatekey',
+    'privatekeyhex',
+    'epriv',
+    'priv',
+    'regioncode',
+  ].includes(normalizedKey(key));
+}
+
+// Account-provider identity/token material as a normalized-key predicate,
+// reusing the same set as the top-level containsPII check so the deep
+// district-aggregate scan matches it (mirrors the lint's isAccountProviderKey).
+function isAccountProviderKey(key: string): boolean {
+  return FORBIDDEN_ACCOUNT_PROVIDER_KEYS.has(normalizedKey(key));
+}
+
+// Free-text PII substrings (email/wallet/address) matched the same way the
+// top-level containsPII check matches them, but applied at any nesting depth
+// inside the district-aggregate carve-out.
+function isFreeTextPiiKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return ['email', 'wallet', 'address'].some((pii) => lower.includes(pii));
 }
 
 function collectKeysDeep(value: unknown, out: string[] = []): string[] {
@@ -134,30 +173,48 @@ function isAggregateCohortPath(path: string): boolean {
   );
 }
 
+// The union of every forbidden-key class the lint rejects on a public record,
+// evaluated at ANY nesting depth. This is the independent second privacy layer:
+// the district-aggregate carve-out must match check-public-namespace-leaks.mjs
+// exactly, since a future writer could reach a districts/*/summary-shaped chain
+// without the strict Zod schema that backstops the sanctioned writer path.
+function isForbiddenDistrictAggregateKey(key: string): boolean {
+  return (
+    isPersonIdentifierKey(key)
+    || isForbiddenSensitiveKey(key)
+    || isAccountProviderKey(key)
+    || isFreeTextPiiKey(key)
+  );
+}
+
 /**
  * Validate a public payload that carries district_hash.
  *
  * Fail-closed rule (spec-luma-service-v0 §9.4): a record containing
  * district_hash is permitted ONLY when it targets an allow-listed aggregate
  * cohort path AND declares an integer cohortSize >= MIN_DISTRICT_COHORT_SIZE AND
- * carries no person-level identifier keys. This is the runtime mirror of the
- * check-public-namespace-leaks.mjs lint; district_hash stays unconditionally
- * rejected everywhere else.
+ * carries no person-identifier / sensitive / account-provider / free-text-PII
+ * key at ANY nesting depth. This is the runtime mirror of the
+ * check-public-namespace-leaks.mjs lint (defense-in-depth second layer);
+ * district_hash stays unconditionally rejected everywhere else.
  */
 function validateDistrictAggregatePayload(path: string, data: unknown): void {
   if (!isAggregateCohortPath(path)) {
     throw new Error(`Topology violation: non-aggregate public record carries district_hash at ${path}`);
   }
-  const cohortSize = isRecord(data) ? Number((data as Record<string, unknown>).cohortSize) : Number.NaN;
-  if (!Number.isInteger(cohortSize) || cohortSize < MIN_DISTRICT_COHORT_SIZE) {
+  // Match the schema/lint intent: reject a non-integer cohortSize on the raw
+  // value before any Number() coercion (e.g. the string "100" is not accepted).
+  const rawCohortSize = isRecord(data) ? (data as Record<string, unknown>).cohortSize : undefined;
+  if (typeof rawCohortSize !== 'number' || !Number.isInteger(rawCohortSize) || rawCohortSize < MIN_DISTRICT_COHORT_SIZE) {
     throw new Error(
       `Topology violation: district_hash aggregate at ${path} requires integer cohortSize >= ${MIN_DISTRICT_COHORT_SIZE}`,
     );
   }
-  const personKey = collectKeysDeep(data).find((k) => isPersonIdentifierKey(k));
-  if (personKey) {
+  // One deep scan over the union of forbidden key classes at any depth.
+  const forbiddenKey = collectKeysDeep(data).find((k) => isForbiddenDistrictAggregateKey(k));
+  if (forbiddenKey) {
     throw new Error(
-      `Topology violation: district_hash aggregate at ${path} is paired with a person-level identifier (${personKey})`,
+      `Topology violation: district_hash aggregate at ${path} carries a forbidden key (${forbiddenKey})`,
     );
   }
 }
