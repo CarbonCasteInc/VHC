@@ -32,6 +32,7 @@ import {
   parseTopicLatestSynthesisRecord,
   readTopicEpochSynthesis,
   readTopicLatestSynthesisStatus,
+  readTopicLatestSynthesisStatusWithRelayRestFallback,
   readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
   readTopicSynthesisCorrection,
@@ -757,6 +758,19 @@ describe('synthesisAdapters', () => {
       state: 'valid',
       synthesis: SYNTHESIS,
     });
+  });
+
+  it('relay-rest status fallback returns a valid direct read without consulting the relay', async () => {
+    const { mesh, client, latestRecord } = await createSignedSynthesisFixture();
+    mesh.setRead('topics/topic-1/latest', latestRecord);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await expect(
+      readTopicLatestSynthesisStatusWithRelayRestFallback(client, 'topic-1'),
+    ).resolves.toEqual({ state: 'valid', synthesis: SYNTHESIS });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fetchSpy.mockRestore();
   });
 
   it('parseTopicLatestSynthesisRecord validates live records with the pull-read fail-closed semantics', async () => {

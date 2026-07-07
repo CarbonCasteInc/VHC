@@ -5,18 +5,28 @@ import type { SynthesisState } from './types';
 const gunMocks = vi.hoisted(() => ({
   getTopicLatestSynthesisChain: vi.fn(),
   getTopicLatestSynthesisCorrectionChain: vi.fn(),
-  hasForbiddenSynthesisPayloadFields: vi.fn<(payload: unknown) => boolean>()
+  hasForbiddenSynthesisPayloadFields: vi.fn<(payload: unknown) => boolean>(),
+  // Defaults to the real parser (via the mock factory); a test may override
+  // it to exercise the defensive rejection path in ingestSynthesis.
+  parseTopicLatestSynthesisRecord: null as
+    | null
+    | ((...args: unknown[]) => Promise<unknown>)
 }));
 
-// The real parseTopicLatestSynthesisRecord stays in place so hydration
-// ingestion exercises the actual fail-closed system-writer validation.
+// The real parseTopicLatestSynthesisRecord stays in place by default so
+// hydration ingestion exercises the actual fail-closed system-writer
+// validation; a test can override gunMocks.parseTopicLatestSynthesisRecord.
 vi.mock('@vh/gun-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@vh/gun-client')>();
   return {
     ...actual,
     getTopicLatestSynthesisChain: gunMocks.getTopicLatestSynthesisChain,
     getTopicLatestSynthesisCorrectionChain: gunMocks.getTopicLatestSynthesisCorrectionChain,
-    hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields
+    hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields,
+    parseTopicLatestSynthesisRecord: (...args: unknown[]) =>
+      (gunMocks.parseTopicLatestSynthesisRecord ?? actual.parseTopicLatestSynthesisRecord)(
+        ...(args as Parameters<typeof actual.parseTopicLatestSynthesisRecord>)
+      )
   };
 });
 
@@ -174,6 +184,7 @@ describe('hydrateSynthesisStore', () => {
     gunMocks.hasForbiddenSynthesisPayloadFields.mockReset();
     gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
     gunMocks.hasForbiddenSynthesisPayloadFields.mockReturnValue(false);
+    gunMocks.parseTopicLatestSynthesisRecord = null;
     vi.resetModules();
   });
 
@@ -515,6 +526,43 @@ describe('hydrateSynthesisStore', () => {
     );
     expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
     expect(state.setTopicError).toHaveBeenCalledWith('topic-1', null);
+  });
+
+  it('leaves state unchanged when synthesis validation rejects unexpectedly', async () => {
+    const synthesisChain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(synthesisChain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+    gunMocks.parseTopicLatestSynthesisRecord = () => Promise.reject(new Error('boom'));
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+    synthesisChain.emit({ _: { '#': 'meta' }, ...synthesis() });
+    await flushIngest();
+
+    expect(state.setTopicInvalid).not.toHaveBeenCalled();
+    expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    expect(state.setTopicHydrated).not.toHaveBeenCalled();
+  });
+
+  it('ignores correction envelopes whose scalar payload is non-string or unparseable', async () => {
+    const correctionChain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue({ on: undefined });
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue(correctionChain.chain);
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+
+    // Non-string scalar under the envelope key -> decode returns null.
+    correctionChain.emit({ __topic_synthesis_correction_json: 42 });
+    // Malformed JSON string -> JSON.parse throws -> decode returns null.
+    correctionChain.emit({ __topic_synthesis_correction_json: '{not valid json' });
+
+    expect(state.setTopicCorrection).not.toHaveBeenCalled();
+    expect(state.setTopicHydrated).not.toHaveBeenCalled();
   });
 
   it('ignores forbidden, invalid, and cross-topic correction payloads', async () => {
