@@ -15,6 +15,7 @@ import {
   isValidIdentity,
   isVaultV2,
   isOperatorAuthorizationTokenCompartment,
+  isSignInSessionCompartment,
   isWalletBindingCompartment,
 } from './types';
 import type {
@@ -22,6 +23,7 @@ import type {
   Identity,
   OperatorAuthorizationTokenCompartment,
   SeaDevicePairCompartment,
+  SignInSessionCompartment,
   VaultRecord,
   VaultV2,
   WalletBindingCompartment
@@ -274,6 +276,10 @@ function normalizeVaultV2(vault: VaultV2): VaultV2 {
   ) {
     throw new Error('Invalid v2 operatorAuthorizationToken compartment');
   }
+  const signInSession = vault.signInSession;
+  if (signInSession !== undefined && !isSignInSessionCompartment(signInSession)) {
+    throw new Error('Invalid v2 signInSession compartment');
+  }
 
   return {
     schemaVersion: VAULT_VERSION,
@@ -284,7 +290,8 @@ function normalizeVaultV2(vault: VaultV2): VaultV2 {
     ...(walletBinding ? { walletBinding: walletBinding as WalletBindingCompartment } : {}),
     ...(operatorAuthorizationToken
       ? { operatorAuthorizationToken: operatorAuthorizationToken as OperatorAuthorizationTokenCompartment }
-      : {})
+      : {}),
+    ...(signInSession ? { signInSession: signInSession as SignInSessionCompartment } : {})
   };
 }
 
