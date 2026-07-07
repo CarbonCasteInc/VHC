@@ -488,6 +488,13 @@ export function validateActionPolicySurface() {
     'apps/web-pwa/src/hooks/lumaAggregateVoterRecords.ts',
     'apps/web-pwa/src/hooks/useSentimentState.ts',
     'apps/web-pwa/src/store/index.ts',
+    // Bridge surfaces migrated off direct trustScore comparison to
+    // scoreFromEnvelope (Lane E / spec-luma-service-v0 §4). Enrolled here so the
+    // no-direct-comparison rule is enforceable on the civic bridge, not just the
+    // write-boundary stores.
+    'apps/web-pwa/src/components/bridge/RepresentativeSelector.tsx',
+    'apps/web-pwa/src/components/bridge/BridgeLayout.tsx',
+    'apps/web-pwa/src/components/bridge/ActionComposer.tsx',
   ];
   const directTrustPattern = /(?:session\.)?trustScore\s*(?:<|>|<=|>=)|TRUST_THRESHOLD|TRUST_ELEVATED/;
   for (const relativePath of directTrustFiles) {
