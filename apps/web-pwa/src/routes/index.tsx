@@ -13,6 +13,7 @@ import { IDChip } from '../components/hermes/IDChip';
 import { ScanContact } from '../components/hermes/ScanContact';
 import { DashboardPage } from './dashboardContent';
 import { AccountIdentityPage } from './AccountIdentityPage';
+import { AuthCallbackPage } from './AuthCallbackPage';
 import { DevColorPanel } from '../components/DevColorPanel';
 import { NewsReportAdminQueue } from '../components/admin/NewsReportAdminQueue';
 import {
@@ -102,6 +103,7 @@ const HomeComponent = () => <FeedList />;
 
 const DashboardComponent = DashboardPage;
 const AccountIdentityComponent = AccountIdentityPage;
+const AuthCallbackComponent = AuthCallbackPage;
 
 const AdminReportsComponent = () => <NewsReportAdminQueue />;
 
@@ -244,7 +246,14 @@ const dashboardRoute = createRoute({
 const accountIdentityRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/account/identity',
-  component: AccountIdentityComponent
+  component: AccountIdentityComponent,
+  validateSearch: (search: Record<string, unknown>) => search
+});
+const authCallbackRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/callback',
+  component: AuthCallbackComponent,
+  validateSearch: (search: Record<string, unknown>) => search
 });
 const adminReportsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -303,6 +312,7 @@ export const routeTree = rootRoute.addChildren([
   governanceRoute,
   dashboardRoute,
   accountIdentityRoute,
+  authCallbackRoute,
   adminReportsRoute,
   complianceRoute,
   betaRoute,

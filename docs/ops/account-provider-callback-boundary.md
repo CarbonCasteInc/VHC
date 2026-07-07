@@ -142,6 +142,32 @@ Notes:
 - Consent-screen/app-review requirements (Google unverified-app limits,
   X app review) are tracked by the same owner as the registration row.
 
+## Client (PWA) configuration
+
+The Web PWA reaches this boundary through a single **public** env var —
+no secret is involved:
+
+- `VITE_AUTH_CALLBACK_BASE_URL` — base URL of the deployed
+  auth-callback host (e.g. `https://auth.example.com`). When set, the
+  account page offers Apple/Google/X sign-in and the browser runs the
+  PKCE round-trip (`/auth/:provider/start` then `/auth/:provider/callback`)
+  against it. Unset hides real sign-in; beta-local identity creation
+  still works.
+- `VITE_AUTH_CALLBACK_ROUTE` — optional override of the in-app OAuth
+  redirect route (default `/auth/callback`); this is the redirect target
+  registered per provider and per environment, and it must match the
+  provider `VH_AUTH_*_REDIRECT_URI` origin.
+- Under `VITE_E2E_MODE`, the same provider ids run an in-process mock
+  exchange (no network, no boundary URL) so the full browser flow —
+  PKCE, callback, account-to-LUMA binding, reset re-bind — is CI-testable
+  (`packages/e2e/src/luma/account-identity-controls.spec.ts`,
+  `check:account-identity-controls`).
+
+The browser holds only the non-secret `vh-auth-session-v1` payload; the
+provider subject/label live in the identity-vault `signInSession`
+compartment (vault/local-only), and the account-to-LUMA binding
+(`boundPrincipalNullifier`) is local continuity/recovery only.
+
 ## Relationship to the plan
 
 - This record is the named PR D deliverable from Slice C0 ("decide and
@@ -149,6 +175,12 @@ Notes:
 - Slice C1 consumes this boundary: the closed sign-in provider schema
   (`packages/data-model/src/schemas/hermes/signInProvider.ts`) and the
   vault compartment for session material are already repo capabilities.
+- Slice C1/C2/C3 client wiring lands in the PWA: the PKCE browser flow
+  (`apps/web-pwa/src/auth/signInFlow.ts`), the account-to-LUMA binding
+  (`apps/web-pwa/src/auth/signInBinding.ts`), the non-secret account
+  store (`apps/web-pwa/src/store/signInAccount.ts`), the callback route
+  (`apps/web-pwa/src/routes/AuthCallbackPage.tsx`), and the account
+  provider UI (`apps/web-pwa/src/components/account/SignInProviderSection.tsx`).
 - Live PKCE round-trip evidence against the deployed boundary, the
   browser-bundle secret scan, and rehearsal evidence are Lane C/Lane F
   gates and remain open until deployment.

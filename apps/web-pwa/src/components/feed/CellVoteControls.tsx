@@ -120,6 +120,14 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
 
   const hasIdPartition = !!(legacyPointId && legacyPointId !== canonicalPointId);
   const accessibleTarget = pointLabel?.trim() || pointId;
+  // Route a signed-out user into sign-in / identity creation, carrying
+  // return state (topic + point) so they land back on this story/point.
+  // The vote is only ever admitted after a fully successful sign-in +
+  // binding — the return trip never carries a partially admitted vote.
+  const signInHref = `/account/identity?${new URLSearchParams({
+    returnTopicId: topicId,
+    returnPointId: canonicalPointId,
+  }).toString()}`;
 
   useEffect(() => {
     const payload = {
@@ -281,6 +289,15 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         >
           {proofError ?? 'Create or sign in to save your stance'}
         </span>
+      )}
+      {!hasProof && (
+        <a
+          className="text-[10px] font-semibold text-sky-700 underline underline-offset-2"
+          href={signInHref}
+          data-testid={`cell-vote-signin-${pointId}`}
+        >
+          Sign in to vote
+        </a>
       )}
       {denialText && (
         <span
