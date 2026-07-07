@@ -1,6 +1,6 @@
 # VHC Incident Response Runbook
 
-> Status: Draft
+> Status: Operational Design / Repo Capability
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-06
 > Depends On: docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
@@ -40,21 +40,37 @@ Run the repo-side gate with:
 corepack pnpm@9.7.1 check:vhc-incident-response
 ```
 
-## Slice 0: Interim Channel Now
+## Current Operating Posture
 
-Before deploying the full pager, use the already-merged email alert channel so
-A6 is not dark.
+As of 2026-07-06, PR #722 is merged on `main` and the repo contains the full
+incident-response/pager implementation. The live A6 alert path is still the
+Slice 0 interim email channel, not the custom pager/PWA.
 
-Operator-owned steps:
+Current boundaries:
 
-1. Create `~/.config/vhc/public-feed-alert.env` on A6.
-2. Add at least `VH_PUBLIC_FEED_ALERT_EMAIL_TO=<your reachable address>`.
-3. Run the Block-A test-fire from `docs/ops/public-feed-freshness-monitor.md`.
-4. Confirm the message arrives on the phone.
-5. Enable the alert timer and the watch-closure timer only after receipt is
-   confirmed.
+- `vh-public-feed-alert-watch.timer` is enabled on A6.
+- `vh-phase5-scope-a-watch-closure.timer` is enabled on A6.
+- Email delivery is configured in host-private env and has sent failure and
+  recovery state changes.
+- The custom pager should be deployed only after the current alert loop keeps
+  proving itself; email fallback stays on permanently.
+- Codex may investigate, write tests, open PRs, and draft operator packets from
+  public-safe incident evidence.
+- Codex live execution/autonomy remains off. The executor is dry-run unless a
+  later approved rollout explicitly enables it after the proof window and
+  drills.
 
-No agent should perform those live A6 steps without explicit operator approval.
+## Slice 0: Interim Channel Complete
+
+Slice 0 is complete. The operator configured the email channel, confirmed a
+test-fire reached the phone, and enabled both timers. A later real stale-feed
+alert proved that the channel was paging a real condition, and the recovery
+transition after #723 was also delivered.
+
+For a new host or channel reconfiguration, repeat the Block-A/Block-B procedure
+from `docs/ops/public-feed-freshness-monitor.md`. Do not edit host alert env,
+disable timers, or rerun test-fire while A6 is green unless the operator has
+explicitly opened a maintenance session.
 
 ## Pager Deployment Inputs
 
@@ -144,6 +160,7 @@ The shipped user-systemd files are:
 - `infra/systemd/user/vh-vhc-packet-executor.timer`
 
 They are not enabled by this PR.
+They are also not enabled by the current A6 operating posture.
 
 ## Pager Dead-Man
 

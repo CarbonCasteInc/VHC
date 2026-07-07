@@ -70,6 +70,7 @@ CI enforces this via docs governance checks.
 For the live public-news Scope A state, read these together:
 
 - `docs/foundational/STATUS.md`
+- `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
 - `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`
 - `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`
 - `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`

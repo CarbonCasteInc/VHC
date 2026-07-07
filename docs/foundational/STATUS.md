@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-05
+> Last Reviewed: 2026-07-06
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-07-05
-**Version:** 0.9.7 (Scope A recovery state aligned after #708)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A restored on A6 after outage #3 and deployed at `main@3713bd6f` (`Bound first publisher tick ingest workload (#708)`). The live publisher is active/running, the first post-restart tick completed with `ingested_item_limit=24`, `raw_wrote_count=8`, and `raw_write_failed_count=0`, public freshness passed across the origin plus all three relay origins, and publisher/relay/snapshot liveness checks passed. #706 makes total relay transport failures restartable via exit `69`, #707 classifies that state distinctly in alert watching, and #708 bounds cold-start ingestion. The system is still not unattended-distribution-ready: the alert unit files are installed but A6 has no configured webhook/email delivery channel, so the alert timer remains disabled and the test-fire fails closed with `alert_delivery_missing_channel`; the off-graph heap retainer is still unnamed; and a fresh 48-hour/14-day sustained window is not yet banked. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
+**Last Updated:** 2026-07-06
+**Version:** 0.9.8 (Scope A post-Slice-0 evidence-accrual state aligned after #723)
+**Assessment:** Controlled beta candidate with Phase 5 Scope A fresh on A6 after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery. `main@47ba218d` is deployed on A6 after #722 merged the incident-response/pager primitives and #723 bounded the StoryCluster production timeout path. The normal post-fix publisher tick completed at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`, `selected_bundle_count=8`, `raw_wrote_count=8`, and `raw_write_failed_count=0`; public freshness, relay liveness, relay snapshot freshness, watch-closure input, and alert watch all passed. The interim email alert channel is configured in host-private env and both alert/watch-closure timers are enabled. The system is now in evidence-accrual, not change mode: do not restart publisher/relays, deploy pager/PWA, enable Codex live execution, or start retention/compaction/memory remediation while the feed stays fresh. The off-graph heap retainer remains unnamed, no post-recovery 500 MB -> 700 MB heap-capture pair exists yet, and the 48-hour/14-day sustained windows are not banked. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A recovered and fresh after outage #3 on A6: capped raw-only publisher at `main@3713bd6f`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A recovered/fresh; alert delivery channel not configured; off-graph heap retainer not yet named; sustained unattended window not yet proven; Scope B enrichment pending |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A fresh and paging by email; evidence window still accruing; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; Scope B enrichment pending |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -56,19 +56,20 @@ Current policy state:
   treats the zero-success all-transport class as retryable in-process and
   restartable through exit `69`; #707 makes that exit class visible to the alert
   watch; #708 bounds the first post-reset StoryCluster ingest workload.
-- Current deployed Scope A posture is recovered/fresh after the 2026-07-05
-  operator session, not stability-proven: `main@3713bd6f` is deployed on A6,
-  the publisher first tick completed with `ingested_item_limit=24`,
-  `raw_wrote_count=8`, and `raw_write_failed_count=0`, public freshness passed
-  on `2026-07-05T21:11:34Z` across `venn.carboncaste.io` plus `gun-a/b/c`, and
-  publisher liveness, relay liveness, and relay snapshot freshness all passed
-  on `2026-07-05T21:13Z`.
-- The alert watch unit/timer files are installed on A6, but
-  `~/.config/vhc/public-feed-alert.env` is absent. A test-fire on
-  `2026-07-05T21:15:48Z` observed publisher/freshness `pass` but failed closed
-  with `alert_delivery_missing_channel`; do not enable the timer until a real
-  webhook or email channel is configured and receipt is confirmed on an operator
-  device.
+- Current deployed Scope A posture is fresh after Slice 0 and the post-Slice-0
+  stale-feed recovery, not stability-proven:
+  `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+  records `main@47ba218d` on A6, the normal post-fix publisher tick completed
+  at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
+  `selected_bundle_count=8`, `raw_wrote_count=8`, and
+  `raw_write_failed_count=0`, and publisher/freshness/relay/snapshot/alert
+  readbacks passing.
+- The interim email alert channel is configured in host-private env and has
+  delivered both failure and recovery state changes. The
+  `vh-public-feed-alert-watch.timer` and
+  `vh-phase5-scope-a-watch-closure.timer` are enabled and active. Treat a new
+  alert email as an incident; otherwise do not mutate live A6 while the feed
+  remains fresh.
 - #691 graph scan metrics are enabled for the current A6 climb, #692/#703 early
   heap capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
   priority, and #694 staggers relay heap watchdog ceilings at `850000000`,
@@ -133,28 +134,35 @@ Current policy state:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
   - current MVP readiness state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
-  - current `main`: `3713bd6f` (`Bound first publisher tick ingest workload (#708)`);
+  - current post-Slice-0 report:
+    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`;
+  - current `main`: `47ba218d` (`Merge pull request #723 from CarbonCasteInc/coord/storycluster-production-timeout-2026-07-06`);
   - current relay image: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
   - current origin image: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
   - current live raw profile: synthesis disabled, replay disabled, storylines
     disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
     interval `86400000`, prune disabled, relay min-success `2`;
   - deployed relay diagnostics at the recovery image: graph scan enabled on A6,
-    early heap capture at `800000000`, watchdog heap ceilings `850000000` /
-    `1000000000` / `1150000000`;
-  - post-2026-07-05 recovery checks: publisher liveness `pass`, relay liveness
-    `pass`, relay snapshot freshness `pass`, public freshness `pass`, first
-    post-restart tick `completed`, `raw_wrote_count=8`,
-    `raw_write_failed_count=0`, watchdog trips `0`, graph scan errors `0`, graph
-    scan truncation `0`;
-  - alert status: unit files installed, timer disabled, delivery channel missing,
-    test-fire fails closed with `alert_delivery_missing_channel`;
-  - current gate: early-capture threshold retune with per-relay stagger
-    (`a=500000000,700000000`; `b=520000000,720000000`;
-    `c=540000000,740000000`) and secret-safe retainer summary before any
-    off-graph driver fix;
-  - explicit non-gate: do not start retention, publisher-clear, eviction, or
-    relay-compaction work from the current evidence.
+    early heap capture staggered at `a=500000000,700000000`;
+    `b=520000000,720000000`; `c=540000000,740000000`, and watchdog heap
+    ceilings `850000000` / `1000000000` / `1150000000`;
+  - post-2026-07-06 recovery checks: publisher active/running, StoryCluster
+    active/running, public freshness `pass`, relay liveness `pass`, relay
+    snapshot freshness `pass`, alert watch `pass`, watch-closure input `pass`,
+    normal production tick `completed`, `raw_wrote_count=8`,
+    `raw_write_failed_count=0`;
+  - alert status: interim email channel configured in host-private env,
+    test-fire/recovery delivery `sent`, alert timer enabled, watch-closure
+    timer enabled;
+  - clean window starts `2026-07-06T22:44:08.567Z`; 48-hour target is
+    `2026-07-08T22:44:08Z`; 14-day unattended target is
+    `2026-07-20T22:44:08Z`;
+  - current gate: wait for the first post-recovery 500 MB -> 700 MB secret-safe
+    heap-summary pair, then run `tools/scripts/analyze-early-heap-captures.mjs`;
+  - explicit non-gate: do not start retention, publisher-clear, eviction,
+    relay-compaction, publisher restart, relay restart, pager cutover, or Codex
+    live execution while the feed remains fresh and no post-recovery heap pair
+    exists.
 - Phase 5 Scope A post-#687 StoryCluster stability evidence:
   - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
   - #685 captured bounded OpenAI rerank artifacts and proved recurring
@@ -285,21 +293,25 @@ Current truth for the news bundler and feed hardening lane:
     REST 2-of-3 quorum;
   - accepted synthesis, topic synthesis, and storyline overlays are outside the
     launched path and remain post-launch enrichment;
-  - publisher liveness, relay liveness, and relay snapshot freshness monitors
-    are operating monitors for the intended-live service;
-  - alert watch units are installed, but alert delivery is not live until a
-    webhook/email channel is configured, test-fired, and the timer is enabled;
+  - publisher liveness, relay liveness, relay snapshot freshness, watch
+    closure, and public-feed alert timers are operating monitors for the
+    intended-live service;
+  - alert delivery is live through the interim host-local email path; the
+    custom pager/PWA path exists in repo after #722 but is not deployed as the
+    active alert channel yet;
   - the current stability question is off-graph relay heap behavior: #691
-    graph metrics are the negative control, and #692 early heap capture must be
-    retuned so the next climb yields a secret-safe retainer summary.
+    graph metrics are the negative control, and #692/#703 early heap capture
+    must produce a post-recovery 500 MB -> 700 MB secret-safe summary pair
+    before any retainer fix is selected.
 - The StoryCluster rerank truncation track is closed for the launched Scope A
   raw path as of the 2026-06-28 stability bake:
   - #687 first deployed the durable rerank fix at
     `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - current `main` is `3713bd6f`, with later #691-#708 diagnostics,
+  - current `main` is `47ba218d`, with later #691-#708 diagnostics,
     publisher-priority, relay-stagger, total-transport restartability, alert
-    classification, first-tick ingest-cap, LUMA, and driver-verdict changes
-    layered on top;
+    classification, first-tick ingest-cap, #722 incident-response/pager
+    primitives, #723 StoryCluster timeout bounding, LUMA, and driver-verdict
+    changes layered on top;
   - rerank output uses strict fixed-key object structured output instead of an
     array/max-items shape;
   - recoverable rerank output failures omit supplemental rerank results so the
@@ -397,15 +409,15 @@ Current truth for the news bundler and feed hardening lane:
      incidents, not launch-soak curiosities;
    - treat the current post-#701 driver verdict as off-graph-likely until a
      secret-safe early-capture retainer summary supersedes it;
-   - build the next Scope A PR as early-capture threshold retuning
+   - wait for the first post-recovery early-capture summary pair
      (`a=500000000,700000000`; `b=520000000,720000000`;
-     `c=540000000,740000000`) and retainer-summary assertion, not retention,
-     publisher clear, or relay compaction;
+     `c=540000000,740000000`) before selecting a retainer fix; the threshold
+     retune is already on `main`;
    - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
      investigation item before trusting future threshold math;
-   - keep A6 public-feed alert enablement operator-owned, require a reachable
-     webhook/email delivery channel, run a successful test-fire, and only then
-     enable the timer;
+   - keep A6 public-feed alerting enabled through the interim email channel;
+     treat a new alert as an incident and do not change live services while the
+     feed remains fresh;
    - do not re-enable accepted synthesis, topic synthesis, storyline writes,
      verify/refresh, higher raw caps, or pruning without a separate attended
      soak and an updated runbook entry.

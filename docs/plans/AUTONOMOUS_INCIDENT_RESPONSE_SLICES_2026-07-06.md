@@ -54,7 +54,7 @@ fragmentation, scheduling primitive, reviewer stalls, restart exit-class
 guard, prompt-injection containment, budgets, kill switch) are folded into the
 slices they belong to.
 
-## Grounded Current State
+## Original Plan Grounding (2026-07-06 Pre-Merge)
 
 - `main` is `e665dd71`; this plan lives on `coord/incident-response-slices-2026-07-06`
   (draft PR #722, the only open PR).
@@ -86,6 +86,29 @@ slices they belong to.
   incident template, label contract, pager, or responder workflow yet.
 - The repo is PUBLIC. Every security decision below assumes hostile readers
   and hostile commenters on every issue.
+
+## Post-Merge Current State (2026-07-06)
+
+- PR #722 is merged on `main`. The pager service, GitHub incident bridge,
+  iPhone PWA shell, Codex triage worker, reviewer worker, packet verifier,
+  pull-executor implementation, readback verifier, and pager dead-man workflow
+  exist in repo.
+- PR #723 is merged on `main@47ba218d`. It fixed the StoryCluster production
+  timeout path that caused the first real stale-feed incident after Slice 0.
+- Slice 0 is complete on A6: the interim email channel is configured in
+  host-private env, a test-fire reached the operator device, and both
+  `vh-public-feed-alert-watch.timer` and
+  `vh-phase5-scope-a-watch-closure.timer` are enabled and active.
+- The active live alert path is still interim email. The custom pager/PWA is a
+  later deployment step outside A6; email fallback remains on permanently.
+- Codex execution/autonomy remains disabled. Codex may investigate, write
+  tests, open PRs, and draft packets, but the A6 executor stays dry-run through
+  the current proof window.
+- The Scope A clean window starts at `2026-07-06T22:44:08.567Z`; the 48-hour
+  target is `2026-07-08T22:44:08Z`, and the 14-day unattended target is
+  `2026-07-20T22:44:08Z` if no operator touch or anomaly resets the window.
+- The next engineering trigger is a new alert or the first post-recovery
+  500 MB -> 700 MB heap-summary pair, not pager deployment or live execution.
 
 ## Security Architecture (non-negotiable, applies to every slice)
 
@@ -156,6 +179,11 @@ slices they belong to.
 
 Goal: A6 must not run dark while this plan is built. Three prior outages were
 silent multi-hour/day events; the build below is weeks-scale.
+
+Completion note, 2026-07-06: Slice 0 is done. Keep the interim email path live
+while Tranche A is built and deployed. Do not disable or replace it when the
+custom pager comes online; use the pager as an additional signed incident and
+push path with email fallback still enabled.
 
 Implement (operator session, existing tooling only — no new code):
 
@@ -487,10 +515,11 @@ Tranche B: 6 -> 7 -> 8 -> 9 -> 10
 
 ## First Physical PR
 
-Slice 1, branch `coord/incident-response-contract`, checks:
-`check:vhc-incident-response`, `docs:check`, `git diff --check`.
-(Slice 0 is an operator session, not a PR, and should happen before or
-alongside it.)
+Implemented by PR #722 on `coord/incident-response-slices-2026-07-06`, with
+`check:vhc-incident-response`, `check:public-feed:alert-watch`,
+`check:scope-a-watch-closure`, `check:early-heap-captures`, `docs:check`, and
+`git diff --check` passing before merge. This merge did not enable the A6
+executor or deploy the custom pager.
 
 ## Sources Checked
 

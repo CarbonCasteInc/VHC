@@ -16,6 +16,12 @@ It does not give Codex or any model standing permission to mutate A6. The
 operator boundary stays intact unless a later approved packet passes the local
 A6 pull-executor checks.
 
+Current rollout boundary as of 2026-07-06: Slice 0 interim email alerting is
+live, the custom pager and executor primitives are merged in repo, and live
+Codex execution/autonomy remains disabled. The phase table below is a contract
+for future approved rollout, not permission to enable live execution during the
+current Scope A evidence-accrual window.
+
 ## Incident Shape
 
 An incident record has:
@@ -129,6 +135,11 @@ For `restart_publisher_exit69_only`, the executor refuses if local readback show
 
 The active phase is trusted executor configuration (`VH_INCIDENT_TRUST_PHASE` or
 `--trust-phase`). Packet-controlled `trustPhase` is never authoritative.
+
+During the current post-Slice-0 Scope A proof window, production configuration
+must leave the executor dry-run only. Live execution requires a later explicit
+operator approval after alerting, incident records, pager dead-man behavior, and
+required drills have been proven.
 
 ## Pager State And Health
 

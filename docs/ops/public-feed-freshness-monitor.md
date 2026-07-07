@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-05
+> Last Reviewed: 2026-07-06
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -36,8 +36,11 @@ artifact producer unless this document is updated.
 
 Outage #2 proved that host-local liveness timers and freshness logs are not an
 alerting channel by themselves. A fail-closed publisher can leave the feed stale
-until a human reads the host. Before any unattended long watch, confirm that at
-least one monitor failure path reaches the release owner outside the A6 host.
+until a human reads the host. Slice 0 on 2026-07-06 closed the immediate silence
+gap by configuring the interim email channel on A6, test-firing it to an
+operator device, and enabling both the public-feed alert watch and watch-closure
+timers. Before any new host, channel change, or unattended long watch, repeat
+the same receipt proof outside the A6 host.
 
 ## Host-Local Alert Watch
 
@@ -124,7 +127,22 @@ The service unit includes `TimeoutStartSec=180`, which bounds a hung
 freshness/publisher probe without making normal 15-second HTTP timeouts race the
 systemd start deadline.
 
-Operator enablement, after explicit approval.
+Current A6 state as of 2026-07-06:
+
+- `~/.config/vhc/public-feed-alert.env` is configured with a host-private email
+  channel;
+- `vh-public-feed-alert-watch.timer` is enabled and active;
+- `vh-phase5-scope-a-watch-closure.timer` is enabled and active;
+- the first real stale-feed alert after enablement was delivered;
+- the recovery/pass transition after #723 was also delivered;
+- the active live alert path is still interim email, not the custom
+  pager/PWA.
+
+While freshness, relay liveness, relay snapshot freshness, and watch closure
+remain green, do not rerun test-fire, restart services, or change the alert
+channel. Treat the next delivered failure email as an incident.
+
+Operator enablement or channel reconfiguration, after explicit approval.
 
 Block A: configure, install, test-fire, and stop on any failed or stale
 readback. Set `TEST_FIRE_STARTED_AT` immediately before the test-fire so the
@@ -257,15 +275,16 @@ Host-local relay snapshot freshness is covered separately by
 `news-latest-index-snapshot.json` files directly and does not perform public
 latest-index HTTP probes.
 
-During the current post-#701 Scope A diagnostic window, the host-local soak
+During the current post-#723 Scope A diagnostic window, the host-local soak
 archive timer wraps this monitor and preserves hourly public freshness summaries
 under `~/.local/state/vhc/phase5-scope-a-soak/YYYYMMDDTHHMMSSZ/`. The archive is
 the preferred evidence packet for window review because it captures this public
 freshness result together with publisher liveness, relay liveness, relay
 snapshot freshness, and relay graph/heap diagnostics when enabled. The
 2026-07-03 driver verdict used that archive to classify heap growth as
-off-graph-likely; the next Scope A diagnostic step is early-capture threshold
-retuning, not a monitor-path change.
+off-graph-likely. The current Scope A diagnostic step is waiting for the first
+post-recovery 500 MB -> 700 MB early heap-capture summary pair, not a
+monitor-path change.
 
 ## Command
 

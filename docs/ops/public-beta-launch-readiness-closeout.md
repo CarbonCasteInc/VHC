@@ -2,7 +2,7 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-03
+> Last Reviewed: 2026-07-06
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
 Version: 0.10
@@ -48,6 +48,18 @@ diagnostic defaults are staggered per relay (`relay-a=500/700 MiB`,
 produce evidence without synchronized heap serialization. Retention, publisher
 clear, eviction, and relay compaction are not release-readiness work unless a
 future retainer summary names them.
+
+2026-07-06 Scope A alert/recovery update: Slice 0 interim email alerting is now
+live on A6, and the first real alert after enablement correctly reported a
+stale-feed condition rather than setup noise. PR #723 fixed the StoryCluster
+production-timeout path that blocked raw writes, A6 is on `main@47ba218d`, and
+the normal post-fix tick completed at `2026-07-06T22:44:08.567Z` with 8/8 raw
+writes and public/relay/snapshot/alert readbacks passing. The current record is
+`docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`. This
+moves Scope A into evidence accrual: do not restart services, enable Codex live
+execution, deploy the custom pager, or choose a memory fix while the feed stays
+fresh. The next triggers are a new alert or the first post-recovery 500 MB ->
+700 MB heap-summary pair.
 
 ## 1. Closeout Verdict
 

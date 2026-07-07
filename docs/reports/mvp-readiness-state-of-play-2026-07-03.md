@@ -5,6 +5,13 @@
 > Last Reviewed: 2026-07-03
 > Depends On: docs/foundational/STATUS.md, docs/ops/public-beta-launch-readiness-closeout.md, docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md
 
+> 2026-07-06 addendum: this report is historical. Current Scope A state is
+> `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`:
+> Slice 0 interim email alerting is enabled, #723 recovered the post-Slice-0
+> stale-feed incident, A6 is on `main@47ba218d`, and the system is now waiting
+> for either a new alert or the first post-recovery 500 MB -> 700 MB
+> heap-summary pair.
+
 ## Reviewed Baseline
 
 - Current `main`: `215b5c8f` (`Close out next-owner diagnostics and LUMA gates (#701)`).
@@ -55,6 +62,10 @@ The repo now contains the host-local public feed alert watch and runbook, but
 A6 enablement is still operator-owned. The alert timer must not be enabled
 without a reachable delivery channel; doing that would recreate the outage #2
 silence failure under a different mechanism.
+
+2026-07-06 update: the operator completed that enablement through the interim
+email channel and enabled both alert/watch-closure timers. Do not read the
+paragraph above as current A6 state; use the 2026-07-06 current-state report.
 
 ### Release Gates
 
@@ -107,6 +118,10 @@ The current LUMA lane is public-beta hardening:
      the cause is known.
    - Configure and enable the public feed alert channel only after webhook or
      email delivery is reachable and test-fired.
+
+2026-07-06 update: alert-channel enablement is complete. The remaining current
+step is to leave live services untouched while green and wait for either a new
+alert or the post-recovery heap-summary pair.
 
 4. Produce the final MVP release packet on the intended release commit.
    - Treat a missing or failing packet as `ship_blocker`.
