@@ -5,7 +5,6 @@ import type { VoteIntentRecord } from '@vh/data-model';
 import * as SentimentTelemetry from '../utils/sentimentTelemetry';
 import {
   enqueueIntent,
-  markIntentProjected,
   getPendingIntents,
   replayPendingIntents,
 } from './voteIntentQueue';
@@ -58,17 +57,6 @@ describe('voteIntentQueue', () => {
     const pending = getPendingIntents();
     expect(pending).toHaveLength(3);
     expect(pending.map((r) => r.intent_id)).toEqual(['a', 'b', 'c']);
-  });
-
-  it('markIntentProjected removes from pending', () => {
-    enqueueIntent(makeIntent({ intent_id: 'keep' }));
-    enqueueIntent(makeIntent({ intent_id: 'remove' }));
-
-    markIntentProjected('remove');
-
-    const pending = getPendingIntents();
-    expect(pending).toHaveLength(1);
-    expect(pending[0].intent_id).toBe('keep');
   });
 
   it('duplicate intent_id with equal seq/emitted_at is deduped (idempotent)', () => {

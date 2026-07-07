@@ -71,7 +71,10 @@ interface ExpandableRowProps {
   readonly reframePointId?: string;
   readonly synthesisFramePointId?: string;
   readonly synthesisReframePointId?: string;
-  readonly acceptedCurrency?: AcceptedCurrencyContext | null;
+  // Required (no default): ExpandableRow is module-private and its single
+  // render site always threads the context, so vote admission can never
+  // silently fall back to a null (unchecked) currency here.
+  readonly acceptedCurrency: AcceptedCurrencyContext | null;
   readonly votingEnabled?: boolean;
   readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
 }
@@ -89,7 +92,7 @@ function ExpandableRow({
   reframePointId,
   synthesisFramePointId,
   synthesisReframePointId,
-  acceptedCurrency = null,
+  acceptedCurrency,
   votingEnabled,
   votingPointIdMode = 'legacy-compatible',
 }: ExpandableRowProps): React.ReactElement {

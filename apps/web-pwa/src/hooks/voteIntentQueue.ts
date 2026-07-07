@@ -95,13 +95,6 @@ export function enqueueIntent(record: VoteIntentRecord): boolean {
 }
 
 /**
- * Mark a vote intent as projected (remove from pending queue).
- */
-export function markIntentProjected(intentId: string): void {
-  queue.markProjected(intentId);
-}
-
-/**
  * Get all un-projected (pending) intents.
  */
 export function getPendingIntents(): VoteIntentRecord[] {

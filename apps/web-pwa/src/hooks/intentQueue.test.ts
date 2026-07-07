@@ -230,9 +230,10 @@ describe('createIntentQueue', () => {
     });
     const replayPromise = queue.replay(async () => projectionGate);
 
-    // External removal (e.g. markProjected from another code path) while the
-    // projection is in flight; completion must not throw or resurrect it.
-    queue.markProjected('a');
+    // External removal (e.g. another tab draining the shared queue) while the
+    // projection is in flight; completion must not throw or resurrect it. The
+    // guarded removal then finds no matching id and no-ops.
+    storage.set('vh_replay_removed_mid_flight_queue_v1', '[]');
     resolveProjection();
 
     await expect(replayPromise).resolves.toEqual({ replayed: 1, failed: 0 });

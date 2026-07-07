@@ -965,11 +965,17 @@ describe('voteIntentMaterializer', () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-    // First completion sees a retained intent (e.g. superseded mid-flight and
-    // kept pending by the replay LWW guard); the second sees a drained queue.
+    // The re-arm fires only when the pending set CHANGED across the batch. Pass
+    // 1: before = [a@seq1] (about to project), after = [a@seq2] — a newer
+    // same-id intent was retained by the replay LWW guard, so the signature
+    // differs and the pass re-arms. Pass 2: before = [a@seq2], after = []
+    // (drained) — no further re-arm. getPendingIntents is called once before
+    // and once after each pass.
     const pendingSpy = vi
       .spyOn(VoteIntentQueue, 'getPendingIntents')
-      .mockReturnValueOnce([makeIntent({ intent_id: 'retained-newer' })])
+      .mockReturnValueOnce([makeIntent({ intent_id: 'a', seq: 1 })])
+      .mockReturnValueOnce([makeIntent({ intent_id: 'a', seq: 2 })])
+      .mockReturnValueOnce([makeIntent({ intent_id: 'a', seq: 2 })])
       .mockReturnValue([]);
     const replaySpy = vi
       .spyOn(VoteIntentQueue, 'replayPendingIntents')
@@ -981,7 +987,7 @@ describe('voteIntentMaterializer', () => {
       // Flush the microtask chain so the completion handler runs.
       await vi.advanceTimersByTimeAsync(0);
       expect(replaySpy).toHaveBeenCalledTimes(1);
-      expect(pendingSpy).toHaveBeenCalledTimes(1);
+      expect(pendingSpy).toHaveBeenCalledTimes(2);
 
       // The successful batch re-arms exactly one delayed pass for the
       // retained intent instead of waiting for the next external trigger.
@@ -991,6 +997,38 @@ describe('voteIntentMaterializer', () => {
       // Second pass completed with an empty queue: no further re-arm.
       await vi.advanceTimersByTimeAsync(5000);
       expect(replaySpy).toHaveBeenCalledTimes(2);
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not re-arm (no hot loop) when a projected intent stays pending because durable removal failed', async () => {
+    vi.useFakeTimers();
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    // Storage-quota stall: the intent projects to the mesh (replayed: 1) but its
+    // durable removal fails, so it stays pending with the SAME (intent_id, seq)
+    // signature before and after the batch. Re-arming here would re-project the
+    // same mesh writes every second forever — the pending signature is
+    // unchanged, so the pass must NOT re-arm.
+    vi
+      .spyOn(VoteIntentQueue, 'getPendingIntents')
+      .mockReturnValue([makeIntent({ intent_id: 'stuck', seq: 7 })]);
+    const replaySpy = vi
+      .spyOn(VoteIntentQueue, 'replayPendingIntents')
+      .mockResolvedValue({ replayed: 1, failed: 0 });
+
+    try {
+      scheduleVoteIntentReplay(5);
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(replaySpy).toHaveBeenCalledTimes(1);
+
+      // No re-arm despite a non-empty queue: the signature did not change.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(replaySpy).toHaveBeenCalledTimes(1);
     } finally {
       infoSpy.mockRestore();
       vi.useRealTimers();

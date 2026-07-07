@@ -38,7 +38,6 @@ export interface IntentQueue<T> {
    * than assume success.
    */
   enqueue(record: T): boolean;
-  markProjected(intentId: string): void;
   getPending(): T[];
   replay(
     project: (record: T) => Promise<void>,
@@ -124,14 +123,6 @@ export function createIntentQueue<T>(options: IntentQueueOptions<T>): IntentQueu
         options.onEvicted?.(evicted);
       }
       return persisted;
-    },
-
-    markProjected(intentId: string): void {
-      const queue = load();
-      const filtered = queue.filter((record) => options.getId(record) !== intentId);
-      if (filtered.length !== queue.length) {
-        persist(filtered);
-      }
     },
 
     getPending(): T[] {

@@ -46,6 +46,17 @@ function normalizeNonNegativeInt(value: number): number {
   return Math.floor(value);
 }
 
+// Order-independent signature of the pending set by (intent_id, seq). Used to
+// tell real replay progress from a storage stall: if a projected intent's
+// durable removal fails (safeStorage at quota), the intent stays pending and
+// this signature is unchanged, so the success-path re-arm must NOT fire.
+function summarizePendingIntents(intents: readonly VoteIntentRecord[]): string {
+  return intents
+    .map((intent) => `${intent.intent_id}:${intent.seq}`)
+    .sort()
+    .join('|');
+}
+
 function computeAggregateFromWinners(records: readonly VoteIntentRecord[]): {
   agree: number;
   disagree: number;
@@ -190,6 +201,9 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
 
   clearReplayRetryTimer();
   replayInFlight = true;
+  // Snapshot the pending set before the batch so the success-path re-arm can
+  // distinguish real progress from a persistent-storage stall.
+  const pendingSignatureBefore = summarizePendingIntents(getPendingIntents());
   queueMicrotask(async () => {
     let replaySummary: { replayed: number; failed: number } | null = null;
 
@@ -220,10 +234,18 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
       // A fully successful batch can still leave work pending: a same-id
       // intent enqueued while its predecessor's projection was in flight is
       // retained by the replay LWW guard (intentQueue.removeProjected) and
-      // would otherwise wait for the next external trigger. Re-arm one pass;
-      // each pass either drains or lands in the failed>0 retry above, so this
-      // cannot loop on an empty queue.
-      if (getPendingIntents().length > 0) {
+      // would otherwise wait for the next external trigger. Re-arm one pass —
+      // but ONLY when the pending set actually changed. If a projected
+      // intent's durable removal failed (safeStorage at quota), it stays
+      // pending with the same (intent_id, seq) signature; re-arming there would
+      // re-project the same mesh writes every REPLAY_RETRY_DELAY_MS forever.
+      // A retained newer same-id intent changes the signature (seq differs), so
+      // that legitimate re-arm still fires.
+      const pendingAfter = getPendingIntents();
+      if (
+        pendingAfter.length > 0 &&
+        summarizePendingIntents(pendingAfter) !== pendingSignatureBefore
+      ) {
         replayRetryTimer = setTimeout(() => {
           replayRetryTimer = null;
           scheduleVoteIntentReplay(limit);
