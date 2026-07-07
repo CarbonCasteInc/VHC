@@ -174,6 +174,27 @@ describe('voteAdmission', () => {
         }
       }
     });
+
+    it('stringifies a non-Error rejection into the failure result', async () => {
+      vi.spyOn(console, 'info').mockImplementation(() => {});
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const types = await import('@vh/types');
+      vi.spyOn(types, 'deriveVoterId').mockRejectedValueOnce('string failure');
+
+      const result = await enqueueDurableVoteIntent({
+        constituencyProof: proofFor('n'),
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+        agreement: 1,
+        weight: 1,
+        emittedAt: 123,
+      });
+
+      expect(result).toEqual({ ok: false, error: 'string failure' });
+      expect(getPendingIntents()).toHaveLength(0);
+    });
   });
 
   describe('deriveProofRef', () => {
