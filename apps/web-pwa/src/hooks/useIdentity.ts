@@ -275,8 +275,18 @@ export function useIdentity() {
    * gets a fresh principal, never a silent merge of an old one.
    */
   const ensureIdentity = useCallback(async (): Promise<string | null> => {
-    const existing = identity?.session?.nullifier ?? getPublishedIdentity()?.session.nullifier ?? null;
-    if (existing) return existing;
+    const inMemory = identity?.session?.nullifier ?? getPublishedIdentity()?.session.nullifier ?? null;
+    if (inMemory) return inMemory;
+    // React state/published identity may not have hydrated yet (e.g. right
+    // after an OAuth redirect reloads the page). Consult the vault — the
+    // source of truth — before creating, so we bind to the EXISTING
+    // device principal rather than racing hydration and minting a new one.
+    const persisted = await loadIdentityFromVault().catch(() => null);
+    const persistedNullifier = persisted?.session?.nullifier ?? null;
+    if (persistedNullifier) {
+      publishIdentity(persisted!);
+      return persistedNullifier;
+    }
     await createIdentity();
     return getPublishedIdentity()?.session.nullifier ?? null;
   }, [identity?.session?.nullifier, createIdentity]);
