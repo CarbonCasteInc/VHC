@@ -18,6 +18,7 @@ import {
   isWalletBindingCompartment,
   OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS,
   SIGN_IN_SESSION_COMPARTMENT_KEYS,
+  stripToKnownKeys,
   WALLET_BINDING_COMPARTMENT_KEYS,
 } from './types';
 import type {
@@ -193,10 +194,16 @@ async function loadVaultV2FromDb(db: IDBDatabase): Promise<VaultV2 | null> {
     // NEVER destroy the vault — deleting here would wipe unrecoverable key
     // material (seaDevicePair, deviceCredential) because the whole vault is
     // one encrypted blob. Unknown keys are stripped from the returned view
-    // only; invalid compartments are dropped from the view; the stored
-    // record is left intact and is NOT rewritten on read (an old tab must
-    // not clobber newer data at rest). idbDelete stays reserved for decrypt
+    // only; invalid compartments are dropped from the view; this READ path
+    // never rewrites the stored record. idbDelete stays reserved for decrypt
     // and JSON-parse failures (genuine tamper/key mismatch) above.
+    //
+    // LIMITATION (see salvageVaultV2): an old-tab WRITE still rebuilds the
+    // vault from this bundle's known keys via normalizeVaultV2 and drops any
+    // newer-bundle compartment/field. So write-side merge-from-raw preservation
+    // MUST land before any new VaultV2 compartment/field ships, or an old-tab
+    // write will destroy it. Read-side salvage only narrows the damage from
+    // "whole vault wiped on read" to "unknown fields dropped on the next write".
     return salvageVaultV2(parsed);
   }
 
@@ -280,12 +287,7 @@ function salvageClosedCompartment(
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return null;
   }
-  const stripped: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (knownKeys.has(key)) {
-      stripped[key] = entry;
-    }
-  }
+  const stripped = stripToKnownKeys(value, knownKeys) as Record<string, unknown>;
   return isValid(stripped) ? stripped : null;
 }
 

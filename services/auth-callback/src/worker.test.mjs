@@ -519,6 +519,86 @@ test('Apple form_post return: fails closed when no PWA origin is configured', as
   assertNoSecrets(JSON.stringify(body), env);
 });
 
+test('Apple form_post return: multi-origin deployment redirects to the origin bound in the state', async () => {
+  const SECOND_ORIGIN = 'https://app.vennhub.example';
+  const env = await baseEnv();
+  // Two allow-listed origins; the flow starts on the SECOND one.
+  env.VH_AUTH_ALLOWED_ORIGINS = `${ORIGIN} ${SECOND_ORIGIN}`;
+  const challenge = await computeS256Challenge(CODE_VERIFIER);
+  const start = await handleRequest(startRequest('apple', challenge, { origin: SECOND_ORIGIN }), env);
+  assert.equal(start.status, 200);
+  const state = (await start.json()).parameters.state;
+
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'provider-auth-code', state }).toString(),
+    { extraHeaders: { origin: 'https://appleid.apple.com' } },
+  ), env);
+
+  assert.equal(response.status, 303);
+  const url = new URL(response.headers.get('location'));
+  // Must return to the initiating origin (which holds the PKCE pending state),
+  // NOT simply the first allow-listed origin.
+  assert.equal(url.origin, SECOND_ORIGIN);
+  assert.equal(url.searchParams.get('state'), state);
+  assert.equal(url.searchParams.get('code'), 'provider-auth-code');
+});
+
+test('Apple form_post return: multi-origin without a resolvable origin fails closed 503', async () => {
+  const env = await baseEnv();
+  env.VH_AUTH_ALLOWED_ORIGINS = `${ORIGIN} https://app.vennhub.example`;
+  // A dummy (unverifiable) state carries no bound origin, and no
+  // VH_AUTH_PWA_ORIGIN override is set: the receiver must not guess.
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 'unverifiable-state' }).toString(),
+  ), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).reason, 'pwa_origin_unconfigured');
+});
+
+test('Apple form_post return: multi-origin uses the VH_AUTH_PWA_ORIGIN override when the state has no usable origin', async () => {
+  const SECOND_ORIGIN = 'https://app.vennhub.example';
+  const env = await baseEnv();
+  env.VH_AUTH_ALLOWED_ORIGINS = `${ORIGIN} ${SECOND_ORIGIN}`;
+  env.VH_AUTH_PWA_ORIGIN = SECOND_ORIGIN;
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ code: 'c', state: 'unverifiable-state' }).toString(),
+  ), env);
+  assert.equal(response.status, 303);
+  assert.equal(new URL(response.headers.get('location')).origin, SECOND_ORIGIN);
+});
+
+test('Apple form_post return: user-cancel error is forwarded (sanitized) to the PWA, not dead-ended', async () => {
+  const env = await baseEnv();
+  const start = await runStart(env, 'apple');
+  const state = start.parameters.state;
+
+  // Apple posts error + state and NO code on cancel.
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ error: 'user_cancelled_authorize', state }).toString(),
+    { extraHeaders: { origin: 'https://appleid.apple.com' } },
+  ), env);
+
+  assert.equal(response.status, 303);
+  const url = new URL(response.headers.get('location'));
+  assert.equal(url.origin, ORIGIN);
+  assert.equal(url.searchParams.get('provider'), 'apple');
+  assert.equal(url.searchParams.get('error'), 'user_cancelled_authorize');
+  assert.equal(url.searchParams.get('state'), state);
+  // No code is forwarded on the error leg.
+  assert.equal(url.searchParams.get('code'), null);
+  assertNoSecrets(response.headers.get('location'), env);
+});
+
+test('Apple form_post return: an illegal error value is sanitized before forwarding', async () => {
+  const env = await baseEnv();
+  const response = await handleRequest(appleReturnRequest(
+    new URLSearchParams({ error: 'weird error!! <script>', state: 'some-state' }).toString(),
+  ), env);
+  assert.equal(response.status, 303);
+  const forwarded = new URL(response.headers.get('location')).searchParams.get('error');
+  assert.match(forwarded, /^[a-z0-9_]+$/);
+});
+
 test('form_post return route exists only for apple', async () => {
   const env = await baseEnv();
   const response = await handleRequest(new Request('https://auth.example.invalid/auth/google/return', {

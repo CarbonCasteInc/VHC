@@ -19,7 +19,7 @@ import type {
   SignInProviderKind,
   SignInSessionCompartment
 } from '../types';
-import { SIGN_IN_SESSION_COMPARTMENT_KEYS } from '../types';
+import { SIGN_IN_SESSION_COMPARTMENT_KEYS, stripToKnownKeys } from '../types';
 import { loadVaultV2, saveVaultV2 } from '../vault';
 import { VaultCompartmentError } from './encoding';
 
@@ -93,20 +93,7 @@ export function signInSessionMatchesPrincipal(
  * validateSignInSession unchanged.
  */
 export function validateSignInSessionForRead(value: unknown): SignInSessionCompartment {
-  return validateSignInSession(stripUnknownSignInSessionKeys(value));
-}
-
-function stripUnknownSignInSessionKeys(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return value;
-  }
-  const stripped: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (SIGN_IN_SESSION_COMPARTMENT_KEYS.has(key)) {
-      stripped[key] = entry;
-    }
-  }
-  return stripped;
+  return validateSignInSession(stripToKnownKeys(value, SIGN_IN_SESSION_COMPARTMENT_KEYS));
 }
 
 export function validateSignInSession(value: unknown): SignInSessionCompartment {

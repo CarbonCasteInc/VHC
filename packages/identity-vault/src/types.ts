@@ -180,6 +180,26 @@ export const SIGN_IN_SESSION_COMPARTMENT_KEYS: ReadonlySet<string> = new Set([
   'updatedAt'
 ]);
 
+/**
+ * Copy only the known keys of a plain-object compartment; non-object inputs
+ * (null, arrays, primitives) pass through unchanged so the caller's validator
+ * can reject them. Single source for the read-side salvage strippers (vault
+ * salvage + compartment tolerant reads) so they cannot drift from the closed
+ * key-set constants above.
+ */
+export function stripToKnownKeys(value: unknown, knownKeys: ReadonlySet<string>): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value;
+  }
+  const stripped: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (knownKeys.has(key)) {
+      stripped[key] = entry;
+    }
+  }
+  return stripped;
+}
+
 export function isWalletBindingCompartment(value: unknown): value is WalletBindingCompartment {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;

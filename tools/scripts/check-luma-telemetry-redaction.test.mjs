@@ -181,6 +181,44 @@ test('red: a nullish check in ONE clause does not exempt a secret comparison in 
   }
 });
 
+test('red: a secret separated from its operator by a boundary char is still flagged (whole-line rule)', () => {
+  const root = makeFixtureRepo({
+    'packages/identity-vault/src/vault.ts': [
+      // Call-arg comma: the secret and its `===` land in different clauses when
+      // split on `,`, but the whole-line rule still flags the comparison.
+      'export const a = deriveMac(refreshToken, salt) === userSuppliedMac;',
+      // Optional chaining: `?` is a clause boundary; whole-line rule catches it.
+      'export const b = sessionToken?.value === userInput;',
+      // Parenthesized `||` inside a comparison operand.
+      'export const c = (sessionToken || fallback) === userInput;',
+    ].join('\n'),
+  });
+  try {
+    const { violations } = runTelemetryRedactionChecks(root);
+    const secretViolations = violations.filter((v) => v.type === 'secret-equality');
+    assert.equal(secretViolations.length, 3);
+    assert.ok(secretViolations.some((v) => v.text.includes('deriveMac(refreshToken')));
+    assert.ok(secretViolations.some((v) => v.text.includes('sessionToken?.value')));
+    assert.ok(secretViolations.some((v) => v.text.includes('(sessionToken || fallback)')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('red: a ternary spelling of the sibling-clause bypass is still flagged (clause rule)', () => {
+  const root = makeFixtureRepo({
+    // The whole-line rule is disarmed by the trailing `=== null`, but the clause
+    // rule flags the `sessionToken === a` branch on its own.
+    'packages/gun-client/src/index.ts': 'export const bad = cond ? sessionToken === a : b === null;\n',
+  });
+  try {
+    const { violations } = runTelemetryRedactionChecks(root);
+    assert.ok(violations.some((v) => v.type === 'secret-equality' && v.text.includes('sessionToken === a')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('green: in-clause structural and nullish guards still pass under clause scoping', () => {
   const root = makeFixtureRepo({
     'packages/identity-vault/src/vault.ts': [

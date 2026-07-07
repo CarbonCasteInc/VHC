@@ -164,17 +164,31 @@ function scanLineForSecretEquality(relPath, lineText, lineNumber, violations) {
   // detections) never count as secret identifiers. This subsumes the older
   // whole-line key-name exemption.
   const stripped = lineText.replace(QUOTED_STRING_PATTERN, "''");
-  // Expression/clause-scoped analysis: a nullish or structural guard exempts
-  // ONLY the clause it appears in. Whole-line exemptions previously let
-  // `typeof x === 'string' && sessionToken === userInput` (or a `|| x ===
-  // null` tail) exempt an unvetted secret comparison on the same line.
-  const flagged = stripped.split(CLAUSE_BOUNDARY_PATTERN).some((clause) => (
+  // A line is flagged when EITHER rule fires (union — at-least-as-strict as both
+  // the original whole-line rule AND clause scoping):
+  //
+  // 1. Whole-line rule: a secret comparison anywhere on the line, exempt only
+  //    when the WHOLE line carries a nullish or structural guard. This catches
+  //    a secret separated from its operator by a boundary char — a call arg
+  //    comma `deriveMac(refreshToken, salt) === x`, an optional chain
+  //    `sessionToken?.value === x`, a parenthesized `(sessionToken || f) === x`
+  //    — that clause splitting alone would break apart and miss.
+  const wholeLineFlagged = SECRET_EQUALITY_PATTERN.test(stripped)
+    && SECRET_IDENTIFIER_PATTERN.test(stripped)
+    && !NULLISH_PATTERN.test(stripped)
+    && !STRUCTURAL_GUARD_PATTERN.test(stripped);
+  // 2. Clause rule: a nullish or structural guard exempts ONLY the clause it
+  //    appears in, so a guard in one clause cannot exempt a secret comparison
+  //    in a sibling clause — `typeof x === 'string' && sessionToken === u` or a
+  //    `|| y === null` / ternary tail. The whole-line rule misses these (the
+  //    guard token sits on the line); the clause rule catches them.
+  const clauseFlagged = stripped.split(CLAUSE_BOUNDARY_PATTERN).some((clause) => (
     SECRET_EQUALITY_PATTERN.test(clause)
     && SECRET_IDENTIFIER_PATTERN.test(clause)
     && !NULLISH_PATTERN.test(clause)
     && !STRUCTURAL_GUARD_PATTERN.test(clause)
   ));
-  if (!flagged) {
+  if (!wholeLineFlagged && !clauseFlagged) {
     return;
   }
   violations.push({
