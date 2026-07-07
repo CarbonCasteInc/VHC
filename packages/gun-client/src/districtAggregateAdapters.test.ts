@@ -573,7 +573,10 @@ function createControllableMesh(): ControllableMesh {
   return { root: makeNode([]), writes, onceCallbacks, putCallbacks, reads };
 }
 
-function createControllableClient(mesh: ControllableMesh): VennClient {
+function createControllableClient(
+  mesh: ControllableMesh,
+  configOverrides: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
   return {
@@ -584,6 +587,7 @@ function createControllableClient(mesh: ControllableMesh): VennClient {
       systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
       systemWriterSign: () => 'test-district-signature',
       systemWriterVerify: () => true,
+      ...configOverrides,
     },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
@@ -658,5 +662,96 @@ describe('districtAggregateAdapters timing paths', () => {
     }
 
     await expect(pending).resolves.toMatchObject({ district_hash: 'district-1', cohortSize: 150 });
+  });
+
+  it('confirms an ack-timed-out write via a non-validating readback even when the writer has no pin', async () => {
+    const mesh = createControllableMesh();
+    // A writer that signs correctly but is NOT configured with its own pin (and
+    // has no verify hook). The durability readback must confirm persistence by
+    // comparing the stored bytes, not by re-verifying our own signature — so a
+    // landed write is not misreported as a timeout failure.
+    const client = createControllableClient(mesh, {
+      systemWriterPin: null,
+      systemWriterVerify: undefined,
+    });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+
+    for (let tick = 0; tick < 12; tick += 1) {
+      await vi.advanceTimersByTimeAsync(500);
+      const cb = mesh.onceCallbacks.get(SUMMARY_NODE);
+      if (cb) {
+        cb(mesh.reads.get(SUMMARY_NODE));
+        mesh.onceCallbacks.delete(SUMMARY_NODE);
+      }
+    }
+
+    await expect(pending).resolves.toMatchObject({ district_hash: 'district-1', cohortSize: 150 });
+  });
+
+  it('reports a timeout failure when the ack times out and the readback record is schema-invalid', async () => {
+    const mesh = createControllableMesh();
+    const client = createControllableClient(mesh);
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+    // Reject silently below so the unhandled-rejection guard does not fire while
+    // we drive the timers.
+    const settled = pending.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
+    // Fire each readback with a record that survives stripping but fails the
+    // aggregate-only schema (cohortSize below the k-anonymity floor), so the
+    // predicate never confirms and the write reports a timeout failure.
+    for (let tick = 0; tick < 12; tick += 1) {
+      await vi.advanceTimersByTimeAsync(500);
+      const cb = mesh.onceCallbacks.get(SUMMARY_NODE);
+      if (cb) {
+        cb({ ...(mesh.reads.get(SUMMARY_NODE) as Record<string, unknown>), cohortSize: 5 });
+        mesh.onceCallbacks.delete(SUMMARY_NODE);
+      }
+    }
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { error: Error }).error.message).toMatch(/timed out and readback did not confirm/);
+  });
+
+  it('reports a timeout failure when the ack times out and no readback record is present', async () => {
+    const mesh = createControllableMesh();
+    const client = createControllableClient(mesh);
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+    const settled = pending.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
+    // Never fire the readback `once` callback: each readback times out to null
+    // (non-record), so the predicate never confirms and the write fails.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { error: Error }).error.message).toMatch(/timed out and readback did not confirm/);
   });
 });

@@ -203,6 +203,30 @@ function correctionApplies(
     && correction.epoch === synthesis.epoch;
 }
 
+// Monotonic correction recency. Arbitrates two real corrections by `created_at`
+// (a signed, required field): the incoming one replaces the stored one only when
+// it is at least as recent. This blocks a replayed OLDER signed correction — any
+// mesh peer can re-put a captured older record onto the `latest` node, since the
+// mesh path is not covered by the record signature — from rolling clients back
+// to a stale suppression, and makes concurrent async ingest resolve to the
+// newest-created correction rather than the last one whose validation happened
+// to finish. There is no legitimate older-overrides-newer case: the schema has
+// no "cleared" status (un-correction happens via a new synthesis epoch making
+// `correctionApplies` false), and supersession is strictly newer-supersedes.
+// IN-SESSION protection only: a fresh page load hydrates whatever the latest
+// node currently holds — durable replay resistance needs a mesh-side watermark
+// or a path-bound signature (operator/follow-up work). A null incoming is left
+// to the caller's own semantics (explicit clear vs. read-returned-nothing).
+function resolveCorrectionByRecency(
+  current: TopicSynthesisCorrection | null,
+  incoming: TopicSynthesisCorrection | null
+): TopicSynthesisCorrection | null {
+  if (current === null || incoming === null) {
+    return incoming;
+  }
+  return incoming.created_at >= current.created_at ? incoming : current;
+}
+
 function resolveEffectiveStatus(
   synthesis: TopicSynthesisV2 | null,
   correction: TopicSynthesisCorrection | null
@@ -290,12 +314,15 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       }
 
       set((state) => ({
-        topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
-          ...current,
-          correction: validated,
-          effectiveStatus: resolveEffectiveStatus(current.synthesis, validated),
-          error: null
-        }))
+        topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
+          const nextCorrection = resolveCorrectionByRecency(current.correction, validated);
+          return {
+            ...current,
+            correction: nextCorrection,
+            effectiveStatus: resolveEffectiveStatus(current.synthesis, nextCorrection),
+            error: null
+          };
+        })
       }));
     },
 
@@ -426,7 +453,12 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
 
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
-            const nextCorrection = topicCorrection ?? current.correction;
+            // A read that returned no valid correction keeps the current one
+            // (never clears); a real incoming correction is arbitrated by
+            // recency so a replayed older record cannot roll the topic back.
+            const nextCorrection = topicCorrection === null
+              ? current.correction
+              : resolveCorrectionByRecency(current.correction, topicCorrection);
             return {
               ...current,
               correction: nextCorrection,

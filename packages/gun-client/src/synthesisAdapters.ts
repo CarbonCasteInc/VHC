@@ -1296,16 +1296,21 @@ export async function writeTopicSynthesisCorrection(
   const correctionId = normalizeId(sanitized.correction_id, 'correctionId');
   const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
   assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'write_synthesis_correction');
-  const correctionRecord = await buildSystemWriterCorrectionRecord(
-    client,
-    sanitized,
-    topicSynthesisCorrectionPath(topicId, correctionId)
-  );
-  const latestRecord = await buildSystemWriterCorrectionRecord(
-    client,
-    sanitized,
-    topicLatestSynthesisCorrectionPath(topicId)
-  );
+  // The two records differ only in their bound path and share no data
+  // dependency, so sign them concurrently. The durable writes below stay
+  // ordered (canonical node before the latest mirror).
+  const [correctionRecord, latestRecord] = await Promise.all([
+    buildSystemWriterCorrectionRecord(
+      client,
+      sanitized,
+      topicSynthesisCorrectionPath(topicId, correctionId)
+    ),
+    buildSystemWriterCorrectionRecord(
+      client,
+      sanitized,
+      topicLatestSynthesisCorrectionPath(topicId)
+    ),
+  ]);
   await putWithAck(
     getTopicSynthesisCorrectionChain(client, topicId, correctionId) as unknown as ChainWithGet<Record<string, unknown>>,
     correctionRecord

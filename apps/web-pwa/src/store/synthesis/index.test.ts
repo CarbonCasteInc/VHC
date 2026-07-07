@@ -234,6 +234,61 @@ describe('synthesis store', () => {
     expect(store.getState().topics).toEqual({});
   });
 
+  it('setTopicCorrection keeps the most recent correction and rejects an older replayed one', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    // First correction (current === null branch): accepted.
+    store.getState().setTopicCorrection('topic-1', correction({ correction_id: 'c-old', created_at: 300 }));
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-old');
+
+    // Newer created_at supersedes.
+    store.getState().setTopicCorrection('topic-1', correction({ correction_id: 'c-new', created_at: 400 }));
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-new');
+
+    // A replayed OLDER signed correction must NOT roll the topic back.
+    store.getState().setTopicCorrection('topic-1', correction({ correction_id: 'c-old', created_at: 300 }));
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-new');
+
+    // Equal created_at is treated as at-least-as-recent (idempotent last-wins).
+    store.getState().setTopicCorrection('topic-1', correction({ correction_id: 'c-tie', created_at: 400 }));
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-tie');
+
+    // Explicit null still clears (incoming === null branch).
+    store.getState().setTopicCorrection('topic-1', null);
+    expect(store.getState().getTopicState('topic-1').correction).toBeNull();
+  });
+
+  it('refreshTopic does not roll a topic back to an older replayed correction and keeps current on an empty read', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({
+      enabled: true,
+      resolveClient: () => ({}) as never,
+    });
+
+    // Seed a current (newer) correction in the store.
+    store.getState().setTopicCorrection('topic-1', correction({ correction_id: 'c-new', created_at: 400 }));
+
+    // A refresh whose correction read returns an OLDER record must not win.
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValueOnce(
+      correction({ correction_id: 'c-old', created_at: 300 }),
+    );
+    await store.getState().refreshTopic('topic-1');
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-new');
+
+    // A refresh whose correction read returns nothing keeps the current one.
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValueOnce(null);
+    await store.getState().refreshTopic('topic-1');
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-new');
+
+    // A refresh with a genuinely newer correction supersedes.
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValueOnce(
+      correction({ correction_id: 'c-newest', created_at: 500 }),
+    );
+    await store.getState().refreshTopic('topic-1');
+    expect(store.getState().getTopicState('topic-1').correction?.correction_id).toBe('c-newest');
+  });
+
   it('setTopicSynthesis ignores forbidden/invalid payloads and invalid topic ids', async () => {
     hasForbiddenSynthesisPayloadFieldsMock.mockImplementation((payload: unknown) => {
       return typeof payload === 'object' && payload !== null && 'token' in payload;

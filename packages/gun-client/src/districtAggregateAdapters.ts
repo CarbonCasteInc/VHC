@@ -289,6 +289,32 @@ export async function readDistrictAggregateSummary(
     : null;
 }
 
+/**
+ * Durability readback: confirm the exact record we just wrote actually landed,
+ * WITHOUT re-verifying our own signature. The consumer read
+ * (readDistrictAggregateSummary) stays fail-closed and pin-validating; this path
+ * only needs to prove persistence, so a writer that signs correctly but is not
+ * configured with its own pin (or a runtime without Ed25519 verify) does not
+ * misreport a landed write as an ack-timeout failure. The caller's
+ * `summariesMatch` predicate requires field-for-field equality with what we
+ * wrote, so a concurrent forged record could confirm only by being byte-identical
+ * to ours — harmless.
+ */
+async function readDistrictAggregateSummaryForDurability(
+  client: VennClient,
+  topicId: string,
+  districtHash: string,
+): Promise<DistrictAggregateSummaryV1 | null> {
+  const payload = stripGunMetadata(
+    await readOnce(getDistrictAggregateSummaryChain(client, topicId, districtHash)),
+  );
+  if (!isRecord(payload)) {
+    return null;
+  }
+  const parsed = DistrictAggregateSummaryV1Schema.safeParse(stripSystemWriterFields(payload));
+  return parsed.success ? parsed.data : null;
+}
+
 function summariesMatch(
   left: DistrictAggregateSummaryV1 | null,
   right: DistrictAggregateSummaryV1,
@@ -359,8 +385,10 @@ export async function writeDistrictAggregateSummary(
     getDistrictAggregateSummaryChain(client, parsed.topic_id, parsed.district_hash),
     record,
     {
+      // Durability readback confirms persistence via content equality only, not
+      // signature re-verification — see readDistrictAggregateSummaryForDurability.
       readback: () =>
-        readDistrictAggregateSummary(client, parsed.topic_id, parsed.district_hash),
+        readDistrictAggregateSummaryForDurability(client, parsed.topic_id, parsed.district_hash),
       readbackPredicate: (observed) =>
         summariesMatch(observed as DistrictAggregateSummaryV1 | null, parsed),
     },
