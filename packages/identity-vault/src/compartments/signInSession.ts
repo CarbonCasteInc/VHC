@@ -137,9 +137,12 @@ function buildSignInSession(
   now: number,
   existing: SignInSessionCompartment | null
 ): SignInSessionCompartment {
+  // The providerSubject compare is a vault preserve-check (keep boundAt when the
+  // binding is unchanged); it compares two in-memory compartment fields and is
+  // never logged or projected.
   const sameBinding = existing
     && existing.providerId === input.providerId
-    && existing.providerSubject === input.providerSubject
+    && existing.providerSubject === input.providerSubject // redaction-safe: vault preserve-check
     && existing.boundPrincipalNullifier === input.boundPrincipalNullifier;
 
   return validateSignInSession({
