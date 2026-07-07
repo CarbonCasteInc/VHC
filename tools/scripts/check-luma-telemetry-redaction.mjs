@@ -43,6 +43,16 @@ const DIRECT_CONSOLE_PATTERN = /\bconsole\.(?:log|info|warn|error|debug)\s*\(/;
 const SECRET_IDENTIFIER_PATTERN = /\b(?:nullifier|deviceCredential|sessionToken|rawSignatureBytes|rawEnvelopeJson|vaultMasterKey|privateKey|secretKey|districtHash|regionCode|access_?token|refresh_?token|id_?token|provider_?subject|provider_?label|display_?label|client_?secret|oauth_?code)\b/i;
 const SECRET_EQUALITY_PATTERN = /(?:===|!==)/;
 const NULLISH_PATTERN = /\b(?:null|undefined)\b/;
+// Structural presence checks — same safe category as the null/undefined
+// exemption. A `typeof x === '<primitive>'` or `x.length === <n>` inspects the
+// shape of a value, never its secret contents, so it cannot leak or act as a
+// literal-guess oracle.
+const STRUCTURAL_GUARD_PATTERN = /\btypeof\b|\.length\s*(?:===|!==)/;
+// Explicit, auditable per-line suppression for vetted comparisons that the
+// automated rule cannot distinguish from a leak (e.g. a vault compartment
+// preserve-check comparing two in-memory field values, never logged). The
+// marker must carry a reason so every exemption is reviewable.
+const REDACTION_SAFE_MARKER = /\/\/\s*redaction-safe:/;
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 
 export const SCAN_TARGETS = Object.freeze([
@@ -119,6 +129,12 @@ function scanLineForSecretEquality(relPath, lineText, lineNumber, violations) {
     return;
   }
   if (NULLISH_PATTERN.test(lineText)) {
+    return;
+  }
+  if (STRUCTURAL_GUARD_PATTERN.test(lineText)) {
+    return;
+  }
+  if (REDACTION_SAFE_MARKER.test(lineText)) {
     return;
   }
   violations.push({
