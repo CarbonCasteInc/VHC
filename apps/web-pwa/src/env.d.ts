@@ -34,6 +34,7 @@ interface ImportMetaEnv {
   readonly VITE_NEWS_SYSTEM_WRITER_PIN_JSON?: string;
   readonly VITE_SYSTEM_WRITER_PIN_JSON?: string;
   readonly VITE_E2E_SYSTEM_WRITER_PIN_JSON?: string;
+  readonly VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS?: 'true' | 'false';
   readonly VITE_NEWS_REFRESH_TIMEOUT_MS?: string;
   readonly VITE_NEWS_REFRESH_STORY_READ_CONCURRENCY?: string;
   readonly VITE_VH_NEWS_HYDRATION_INDEX_LIMIT?: string;

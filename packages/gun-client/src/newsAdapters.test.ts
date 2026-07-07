@@ -15,6 +15,7 @@ import { HydrationBarrier } from './sync/barrier';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
   type SystemWriterPin,
   type SystemWriterSignHook,
 } from './systemWriter';
@@ -5649,5 +5650,168 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(readNewsRemoval(client, 'nonexistent')).resolves.toBeNull();
+  });
+});
+
+function withRejectUnmarkedFlag(): () => void {
+  (globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> }).__VH_IMPORT_META_ENV__ = {
+    VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true',
+  };
+  return () => {
+    delete (globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> }).__VH_IMPORT_META_ENV__;
+  };
+}
+
+describe('news reject-unmarked mode', () => {
+  it('rejects unmarked story, lifecycle, and index records when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: TEST_SYSTEM_PIN });
+    mesh.setRead('news/stories/story-123', {
+      [STORY_BUNDLE_JSON_KEY]: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion,
+    });
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      updatedAt: 1_700_000_040_000,
+    });
+    mesh.setRead('news/stories/story-123/synthesis_lifecycle/latest', lifecycle);
+    mesh.setRead('news/index/latest/story-123', { story_id: 'story-123', latest_activity_at: 100 });
+    mesh.setRead('news/index/hot/story-123', { story_id: 'story-123', hotness: 0.5 });
+
+    // Flag off: legacy-accept behavior is byte-for-byte unchanged.
+    await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+    await expect(readNewsSynthesisLifecycleStatus(client, 'story-123')).resolves.toEqual(lifecycle);
+    await expect(readNewsLatestIndexProductRecord(client, 'story-123')).resolves.toEqual({
+      story_id: 'story-123',
+      latest_activity_at: 100,
+    });
+    await expect(readNewsHotIndexProductRecord(client, 'story-123')).resolves.toEqual({
+      story_id: 'story-123',
+      hotness: 0.5,
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
+      await expect(readNewsSynthesisLifecycleStatus(client, 'story-123')).resolves.toBeNull();
+      await expect(readNewsLatestIndexProductRecord(client, 'story-123')).resolves.toBeNull();
+      await expect(readNewsHotIndexProductRecord(client, 'story-123')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:news] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'unmarked-record-rejected',
+        }),
+      );
+    } finally {
+      restoreFlag();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('keeps signed news records readable when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, STORY);
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      updatedAt: 1_700_000_040_000,
+    });
+    await writeNewsSynthesisLifecycleStatus(client, lifecycle);
+    await writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY);
+    await writeNewsHotIndexEntry(client, STORY.story_id, 0.625, STORY);
+    for (const write of mesh.writes) {
+      mesh.setRead(write.path, write.value);
+    }
+
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+      await expect(readNewsSynthesisLifecycleStatus(client, 'story-123')).resolves.toEqual(lifecycle);
+      await expect(readNewsLatestIndexProductRecord(client, 'story-123')).resolves.toMatchObject({
+        story_id: 'story-123',
+        latest_activity_at: STORY.cluster_window_end,
+      });
+      await expect(readNewsHotIndexProductRecord(client, 'story-123')).resolves.toMatchObject({
+        story_id: 'story-123',
+        hotness: 0.625,
+      });
+    } finally {
+      restoreFlag();
+    }
+  });
+
+  it('verifies marked relay lifecycle bodies and rejects unmarked ones when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      peers: ['wss://gun-a.example/gun'],
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    const lifecycle = buildNewsSynthesisLifecycleRecord({
+      story: STORY,
+      status: 'pending',
+      updatedAt: 1_700_000_040_000,
+    });
+    // A marked lifecycle body whose signature cannot be verified against the
+    // local pin: flag-off relay reads trust the relay's validation, flag-on
+    // reads verify locally and fail closed.
+    const bogusSigned = {
+      ...lifecycle,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: TEST_SYSTEM_WRITER_ID,
+      _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+      _systemSignature: 'not-locally-verifiable',
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      lifecycle: bogusSigned,
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-123')).resolves.toEqual(lifecycle);
+
+      const restoreFlag = withRejectUnmarkedFlag();
+      try {
+        await expect(readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-123')).resolves.toBeNull();
+
+        // Unmarked relay lifecycle bodies are rejected outright.
+        fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+          ok: true,
+          lifecycle,
+        }), { status: 200 }));
+        await expect(readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-123')).resolves.toBeNull();
+
+        // A properly signed lifecycle body keeps verifying locally.
+        await writeNewsSynthesisLifecycleStatus(client, lifecycle);
+        const signedLifecycle = mesh.writes[mesh.writes.length - 1]!.value as Record<string, unknown>;
+        fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+          ok: true,
+          lifecycle: signedLifecycle,
+        }), { status: 200 }));
+        await expect(readNewsSynthesisLifecycleStatusViaRelayRest(client, 'story-123')).resolves.toEqual(lifecycle);
+      } finally {
+        restoreFlag();
+      }
+    } finally {
+      warnSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

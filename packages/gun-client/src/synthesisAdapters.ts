@@ -14,7 +14,7 @@ import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
-import { readGunTimeoutMs } from './runtimeConfig';
+import { readGunBooleanFlag, readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -75,6 +75,11 @@ export type TopicSynthesisReadResult =
   | { readonly state: 'legacy-invalid' }
   | { readonly state: 'blocked' };
 
+export type TopicSynthesisCorrectionReadResult =
+  | { readonly state: 'valid'; readonly correction: TopicSynthesisCorrection }
+  | { readonly state: 'legacy-invalid' }
+  | { readonly state: 'blocked' };
+
 type TopicDigestReadResult =
   | { readonly state: 'valid'; readonly digest: TopicDigest }
   | { readonly state: 'legacy-invalid' }
@@ -91,6 +96,14 @@ const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS'],
   8_000,
 );
+// Evaluated lazily per parse so operators (and tests) can toggle it without a
+// module reload; absent flag preserves legacy-accept behavior exactly.
+function rejectUnmarkedSystemRecords(): boolean {
+  return readGunBooleanFlag(
+    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
+    false,
+  );
+}
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
 }
@@ -357,6 +370,30 @@ async function buildSystemWriterLatestSynthesisRecord(
   }) as Promise<SystemWriterTopicSynthesisRecord>;
 }
 
+async function buildSystemWriterCorrectionRecord(
+  client: VennClient,
+  correction: TopicSynthesisCorrection,
+  path: string,
+): Promise<Record<string, unknown>> {
+  const encoded = encodeSynthesisCorrectionForGun(correction);
+  if (!client.config.systemWriterSign) {
+    // Signer-less correction producers (the operator PWA holds only the
+    // public pin) keep publishing bare legacy records until the operator
+    // cutover provisions a signing client.
+    return encoded;
+  }
+  return buildSignedSystemWriterRecord({
+    path,
+    payload: encoded,
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for topic synthesis correction writes',
+  });
+}
+
 async function buildSystemWriterDigestRecord(
   client: VennClient,
   digest: TopicDigest,
@@ -422,6 +459,16 @@ function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailur
   }
 }
 
+function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
+  return {
+    valid: false,
+    event: SYSTEM_WRITER_VALIDATION_EVENT,
+    reason: 'unmarked-record-rejected',
+    path,
+    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
+  };
+}
+
 function pathMatchesSynthesis(
   payload: Record<string, unknown>,
   synthesis: TopicSynthesisV2 | null,
@@ -440,6 +487,29 @@ function pathMatchesSynthesis(
     return false;
   }
   if (expected.epoch !== undefined && String(payload.epoch) !== expected.epoch) {
+    return false;
+  }
+  return true;
+}
+
+function pathMatchesCorrection(
+  payload: Record<string, unknown>,
+  correction: TopicSynthesisCorrection | null,
+  expected: { readonly topicId: string; readonly correctionId?: string; readonly requireTopLevel: boolean },
+): correction is TopicSynthesisCorrection {
+  if (!correction || correction.topic_id !== expected.topicId) {
+    return false;
+  }
+  if (expected.correctionId !== undefined && correction.correction_id !== expected.correctionId) {
+    return false;
+  }
+  if (!expected.requireTopLevel) {
+    return true;
+  }
+  if (payload.topic_id !== expected.topicId) {
+    return false;
+  }
+  if (expected.correctionId !== undefined && payload.correction_id !== expected.correctionId) {
     return false;
   }
   return true;
@@ -499,6 +569,11 @@ async function parseSynthesisFromStoredRecord(
     return { state: 'blocked' };
   }
 
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(input.path));
+    return { state: 'blocked' };
+  }
+
   const parsed = parseSynthesis(payload);
   return pathMatchesSynthesis(payload, parsed, {
     topicId: input.topicId,
@@ -549,6 +624,11 @@ async function parseDigestFromStoredRecord(
     return { state: 'blocked' };
   }
 
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(input.path));
+    return { state: 'blocked' };
+  }
+
   const parsed = parseDigest(payload);
   return pathMatchesDigest(payload, parsed, {
     topicId: input.topicId,
@@ -557,6 +637,85 @@ async function parseDigestFromStoredRecord(
   })
     ? { state: 'valid', digest: parsed }
     : { state: 'legacy-invalid' };
+}
+
+async function parseSynthesisCorrectionFromStoredRecord(
+  client: VennClient,
+  input: {
+    readonly path: string;
+    readonly topicId: string;
+    readonly correctionId?: string;
+    readonly data: unknown;
+  },
+): Promise<TopicSynthesisCorrectionReadResult> {
+  const payload = stripGunMetadata(input.data);
+  if (!isRecord(payload)) {
+    return { state: 'legacy-invalid' };
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: input.path,
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return { state: 'blocked' };
+    }
+
+    const parsed = parseSynthesisCorrection(payload);
+    return pathMatchesCorrection(payload, parsed, {
+      topicId: input.topicId,
+      correctionId: input.correctionId,
+      requireTopLevel: true,
+    })
+      ? { state: 'valid', correction: parsed }
+      : { state: 'blocked' };
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return { state: 'blocked' };
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(input.path));
+    return { state: 'blocked' };
+  }
+
+  const parsed = parseSynthesisCorrection(payload);
+  if (!parsed) {
+    return { state: 'legacy-invalid' };
+  }
+  // A legacy record that parses but names another topic/correction is a
+  // definitive mismatch: block it so callers do not retry the scalar path.
+  return pathMatchesCorrection(payload, parsed, {
+    topicId: input.topicId,
+    correctionId: input.correctionId,
+    requireTopLevel: false,
+  })
+    ? { state: 'valid', correction: parsed }
+    : { state: 'blocked' };
+}
+
+/**
+ * Fail-closed parser for latest-correction records delivered outside the pull
+ * read path (live Gun subscriptions/snapshots). Applies the same system-writer
+ * validation as `readTopicLatestSynthesisCorrection`, so hydration consumers
+ * can drop invalid records (`blocked`) instead of applying them.
+ */
+export async function parseTopicLatestSynthesisCorrectionRecord(
+  client: VennClient,
+  topicId: string,
+  data: unknown,
+): Promise<TopicSynthesisCorrectionReadResult> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  return parseSynthesisCorrectionFromStoredRecord(client, {
+    path: topicLatestSynthesisCorrectionPath(normalizedTopicId),
+    topicId: normalizedTopicId,
+    data,
+  });
 }
 
 function parseSynthesisCorrectionPayload(payload: unknown): TopicSynthesisCorrection | null {
@@ -860,6 +1019,9 @@ export async function readTopicEpochSynthesis(client: VennClient, topicId: strin
   const chain = getTopicEpochSynthesisChain(client, normalizedTopicId, normalizedEpoch);
   const raw = await readOnce(chain);
   if (raw === null) {
+    if (rejectUnmarkedSystemRecords()) {
+      return null;
+    }
     const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
     return scalarParsed?.topic_id === normalizedTopicId && String(scalarParsed.epoch) === normalizedEpoch ? scalarParsed : null;
   }
@@ -872,7 +1034,7 @@ export async function readTopicEpochSynthesis(client: VennClient, topicId: strin
   if (result.state === 'valid') {
     return result.synthesis;
   }
-  if (result.state === 'blocked') {
+  if (result.state === 'blocked' || rejectUnmarkedSystemRecords()) {
     return null;
   }
 
@@ -902,6 +1064,9 @@ export async function readTopicLatestSynthesisStatus(client: VennClient, topicId
   const chain = getTopicLatestSynthesisChain(client, normalizedTopicId);
   const raw = await readOnce(chain);
   if (raw === null) {
+    if (rejectUnmarkedSystemRecords()) {
+      return { state: 'legacy-invalid' };
+    }
     const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
     return scalarParsed?.topic_id === normalizedTopicId
       ? { state: 'valid', synthesis: scalarParsed }
@@ -912,7 +1077,7 @@ export async function readTopicLatestSynthesisStatus(client: VennClient, topicId
     topicId: normalizedTopicId,
     data: raw,
   });
-  if (result.state !== 'legacy-invalid') {
+  if (result.state !== 'legacy-invalid' || rejectUnmarkedSystemRecords()) {
     return result;
   }
 
@@ -975,9 +1140,11 @@ export async function readTopicLatestSynthesisViaRelayRest(
       return null;
     }
     const payload = await response.json() as { record?: unknown; synthesis?: unknown };
-    const relayValidated = parseSynthesisPayload(payload.synthesis);
-    if (relayValidated?.topic_id === normalizedTopicId) {
-      return relayValidated;
+    if (!rejectUnmarkedSystemRecords()) {
+      const relayValidated = parseSynthesisPayload(payload.synthesis);
+      if (relayValidated?.topic_id === normalizedTopicId) {
+        return relayValidated;
+      }
     }
     const result = await parseSynthesisFromStoredRecord(client, {
       path: topicLatestPath(normalizedTopicId),
@@ -1063,13 +1230,30 @@ export async function readTopicSynthesisCorrection(
   );
   const raw = await readOnce(chain);
   if (raw === null) {
+    if (rejectUnmarkedSystemRecords()) {
+      return null;
+    }
     const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
     return scalarParsed?.topic_id === normalizedTopicId && scalarParsed.correction_id === normalizedCorrectionId
       ? scalarParsed
       : null;
   }
-  const parsed = parseSynthesisCorrection(raw) ?? await readSynthesisCorrectionFromEnvelopeScalar(chain);
-  return parsed?.topic_id === normalizedTopicId && parsed.correction_id === normalizedCorrectionId ? parsed : null;
+  const result = await parseSynthesisCorrectionFromStoredRecord(client, {
+    path: topicSynthesisCorrectionPath(normalizedTopicId, normalizedCorrectionId),
+    topicId: normalizedTopicId,
+    correctionId: normalizedCorrectionId,
+    data: raw,
+  });
+  if (result.state === 'valid') {
+    return result.correction;
+  }
+  if (result.state === 'blocked' || rejectUnmarkedSystemRecords()) {
+    return null;
+  }
+  const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
+  return scalarParsed?.topic_id === normalizedTopicId && scalarParsed.correction_id === normalizedCorrectionId
+    ? scalarParsed
+    : null;
 }
 
 export async function readTopicLatestSynthesisCorrection(
@@ -1080,11 +1264,25 @@ export async function readTopicLatestSynthesisCorrection(
   const chain = getTopicLatestSynthesisCorrectionChain(client, normalizedTopicId);
   const raw = await readOnce(chain);
   if (raw === null) {
+    if (rejectUnmarkedSystemRecords()) {
+      return null;
+    }
     const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
     return scalarParsed?.topic_id === normalizedTopicId ? scalarParsed : null;
   }
-  const parsed = parseSynthesisCorrection(raw) ?? await readSynthesisCorrectionFromEnvelopeScalar(chain);
-  return parsed?.topic_id === normalizedTopicId ? parsed : null;
+  const result = await parseSynthesisCorrectionFromStoredRecord(client, {
+    path: topicLatestSynthesisCorrectionPath(normalizedTopicId),
+    topicId: normalizedTopicId,
+    data: raw,
+  });
+  if (result.state === 'valid') {
+    return result.correction;
+  }
+  if (result.state === 'blocked' || rejectUnmarkedSystemRecords()) {
+    return null;
+  }
+  const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
+  return scalarParsed?.topic_id === normalizedTopicId ? scalarParsed : null;
 }
 
 export async function writeTopicSynthesisCorrection(
@@ -1098,14 +1296,23 @@ export async function writeTopicSynthesisCorrection(
   const correctionId = normalizeId(sanitized.correction_id, 'correctionId');
   const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
   assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'write_synthesis_correction');
-  const encoded = encodeSynthesisCorrectionForGun(sanitized);
+  const correctionRecord = await buildSystemWriterCorrectionRecord(
+    client,
+    sanitized,
+    topicSynthesisCorrectionPath(topicId, correctionId)
+  );
+  const latestRecord = await buildSystemWriterCorrectionRecord(
+    client,
+    sanitized,
+    topicLatestSynthesisCorrectionPath(topicId)
+  );
   await putWithAck(
     getTopicSynthesisCorrectionChain(client, topicId, correctionId) as unknown as ChainWithGet<Record<string, unknown>>,
-    encoded
+    correctionRecord
   );
   await putWithAck(
     getTopicLatestSynthesisCorrectionChain(client, topicId) as unknown as ChainWithGet<Record<string, unknown>>,
-    encoded
+    latestRecord
   );
   return sanitized;
 }

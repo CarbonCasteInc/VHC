@@ -7,7 +7,7 @@ import {
 import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
-import { readGunTimeoutMs } from './runtimeConfig';
+import { readGunBooleanFlag, readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -1636,6 +1636,25 @@ function emitSystemWriterValidationFailure(
   }
 }
 
+// Evaluated lazily per parse so operators (and tests) can toggle it without a
+// module reload; absent flag preserves legacy-accept behavior exactly.
+function rejectUnmarkedSystemRecords(): boolean {
+  return readGunBooleanFlag(
+    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
+    false,
+  );
+}
+
+function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
+  return {
+    valid: false,
+    event: SYSTEM_WRITER_VALIDATION_EVENT,
+    reason: 'unmarked-record-rejected',
+    path,
+    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
+  };
+}
+
 async function parseStoryBundleFromStoredRecord(
   client: VennClient,
   storyId: string,
@@ -1663,6 +1682,11 @@ async function parseStoryBundleFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(storyPath(storyId)));
     return null;
   }
 
@@ -1736,6 +1760,11 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(synthesisLifecycleLatestPath(storyId)));
     return null;
   }
 
@@ -1884,6 +1913,11 @@ async function parseLatestIndexEntryRecordFromStoredRecord(
     return null;
   }
 
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(latestIndexEntryPath(storyId)));
+    return null;
+  }
+
   return parseLatestIndexEntryPayload(payload, storyId);
 }
 
@@ -1993,6 +2027,11 @@ async function parseHotIndexEntryRecordFromStoredRecord(
   }
 
   if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(hotIndexEntryPath(storyId)));
     return null;
   }
 
@@ -2769,7 +2808,12 @@ export async function readNewsSynthesisLifecycleStatusViaRelayRest(
         continue;
       }
       const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
-      const relayParsed = parseNewsSynthesisLifecycleFromRelayPayload(normalizedId, payload.lifecycle);
+      // Flag-on: relay lifecycle bodies get the same fail-closed system-writer
+      // validation as direct mesh reads (marked records verified against the
+      // pin, unmarked records rejected) instead of the relay-trusting parse.
+      const relayParsed = rejectUnmarkedSystemRecords()
+        ? await parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, payload.lifecycle)
+        : parseNewsSynthesisLifecycleFromRelayPayload(normalizedId, payload.lifecycle);
       if (relayParsed) {
         return relayParsed;
       }

@@ -31,6 +31,27 @@ function parsePositiveMs(raw: string, fallbackMs: number, minMs = 250): number {
   return Math.max(minMs, Math.floor(parsed));
 }
 
+function parseBooleanFlag(raw: string, fallback: boolean): boolean {
+  const normalized = raw.toLowerCase();
+  if (normalized === 'true' || normalized === '1') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0') {
+    return false;
+  }
+  return fallback;
+}
+
+export function readGunBooleanFlag(names: readonly string[], fallback: boolean): boolean {
+  for (const name of names) {
+    const raw = readStringEnv(name);
+    if (raw) {
+      return parseBooleanFlag(raw, fallback);
+    }
+  }
+  return fallback;
+}
+
 export function readGunTimeoutMs(
   names: readonly string[],
   fallbackMs: number,

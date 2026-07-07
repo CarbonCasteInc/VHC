@@ -1,12 +1,11 @@
 import {
-  TopicSynthesisCorrectionSchema,
   type TopicSynthesisCorrection,
   type TopicSynthesisV2,
 } from '@vh/data-model';
 import {
   getTopicLatestSynthesisChain,
   getTopicLatestSynthesisCorrectionChain,
-  hasForbiddenSynthesisPayloadFields,
+  parseTopicLatestSynthesisCorrectionRecord,
   parseTopicLatestSynthesisRecord,
   type ChainWithGet,
   type VennClient
@@ -40,47 +39,6 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
 function canSubscribe<T>(chain: ChainWithGet<T>): chain is ChainWithGet<T> & Required<Pick<ChainWithGet<T>, 'on'>> {
   return typeof chain.on === 'function';
-}
-
-function stripGunMetadata(data: unknown): unknown {
-  if (!data || typeof data !== 'object') {
-    return data;
-  }
-
-  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
-  return clean;
-}
-
-function decodeGunJsonEnvelope(payload: unknown, key: string): unknown {
-  if (!payload || typeof payload !== 'object') {
-    return payload;
-  }
-
-  const record = payload as Record<string, unknown>;
-  if (!(key in record)) {
-    return payload;
-  }
-
-  const encoded = record[key];
-  if (typeof encoded !== 'string') {
-    return null;
-  }
-
-  try {
-    return JSON.parse(encoded);
-  } catch {
-    return null;
-  }
-}
-
-function parseCorrection(data: unknown): TopicSynthesisCorrection | null {
-  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_SYNTHESIS_CORRECTION_JSON_KEY);
-  if (hasForbiddenSynthesisPayloadFields(payload)) {
-    return null;
-  }
-
-  const parsed = TopicSynthesisCorrectionSchema.safeParse(payload);
-  return parsed.success ? parsed.data : null;
 }
 
 function readOnceWithTimeout<T>(chain: ChainWithGet<T>): Promise<T | null> {
@@ -249,17 +207,30 @@ async function ingestSynthesis(
   store.getState().setTopicError(topicId, null);
 }
 
-function ingestCorrection(
+async function ingestCorrection(
+  client: VennClient,
   store: StoreApi<SynthesisState>,
   topicId: string,
   data: unknown
-): void {
-  const correction = parseCorrection(data);
-  if (!correction || correction.topic_id !== topicId) {
+): Promise<void> {
+  // Same fail-closed system-writer validation as the pull read path.
+  let result: Awaited<ReturnType<typeof parseTopicLatestSynthesisCorrectionRecord>>;
+  try {
+    result = await parseTopicLatestSynthesisCorrectionRecord(client, topicId, data);
+  } catch {
+    // Unexpected validation error: leave state unchanged (the callers are
+    // fire-and-forget subscription callbacks that cannot observe rejections).
+    return;
+  }
+  // Blocked corrections are DROPPED, never surfaced via setTopicInvalid: a
+  // correction is itself a suppression lever, so failing "closed" into an
+  // invalid-topic state would still hand a forger a denial primitive. The
+  // emitted system-writer validation event keeps the rejection observable.
+  if (result.state !== 'valid') {
     return;
   }
 
-  store.getState().setTopicCorrection(topicId, correction);
+  store.getState().setTopicCorrection(topicId, result.correction);
   store.getState().setTopicHydrated(topicId, true);
   store.getState().setTopicError(topicId, null);
 }
@@ -272,12 +243,12 @@ function pullSynthesisSnapshot(
   correctionChain: ChainWithGet<TopicSynthesisCorrection>
 ): void {
   latestChain.once?.((data: unknown) => void ingestSynthesis(client, store, topicId, data));
-  correctionChain.once?.((data: unknown) => ingestCorrection(store, topicId, data));
+  correctionChain.once?.((data: unknown) => void ingestCorrection(client, store, topicId, data));
   readJsonScalarFromChain(latestChain, TOPIC_SYNTHESIS_JSON_KEY, (payload) => {
     void ingestSynthesis(client, store, topicId, { [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(payload) });
   });
   readJsonScalarFromChain(correctionChain, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY, (payload) => {
-    ingestCorrection(store, topicId, { [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(payload) });
+    void ingestCorrection(client, store, topicId, { [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(payload) });
   });
 }
 
@@ -326,7 +297,7 @@ export function hydrateSynthesisStore(
 
   if (canSubscribe(correctionChain)) {
     cleanups.push(bindSynthesisSubscription(correctionChain, (data: unknown) =>
-      ingestCorrection(store, normalizedTopicId, data)
+      void ingestCorrection(client, store, normalizedTopicId, data)
     ));
   }
   getSubscriptionMap(store).set(normalizedTopicId, { cleanups });
