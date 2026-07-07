@@ -84,6 +84,44 @@ export async function digestAssuranceEnvelope(envelope: AssuranceEnvelope): Prom
   return sha256Hex(canonicalBytes(envelope));
 }
 
+/**
+ * Legacy scalar `trustScore` derived from an AssuranceEnvelope.
+ *
+ * This is the single spec-named compatibility helper (spec-luma-service-v0 §4):
+ * scalar `trustScore` is preserved for backward-compat with the
+ * `spec-identity-trust-constituency.md` §2 `TRUST_THRESHOLDS` table, and direct
+ * numeric comparisons of `trustScore` are forbidden *outside* this helper and
+ * the policy engine (lint `no-trust-score-direct-compare`). Callers that need a
+ * §2 threshold decision — including read-surface view gates that are not
+ * `canPerform`-gated per §5 — route the comparison through the score this
+ * returns rather than reading a raw session field.
+ *
+ * Mapping is the coarse assurance-level ladder scaled to the §1 `TrustScore`
+ * `[0,1]` range. `beta_local` maps to exactly the §2 minimum (0.5) so a valid
+ * public-beta envelope clears every `>= 0.5` §2 surface without implying any
+ * stronger assurance. A missing/invalid/`none` envelope returns 0 (fail-closed).
+ */
+export function scoreFromEnvelope(envelope: AssuranceEnvelope | null | undefined): number {
+  if (!envelope || typeof envelope !== 'object') {
+    return 0;
+  }
+  switch (envelope.assuranceLevel) {
+    case 'beta_local':
+      return 0.5;
+    case 'bronze':
+      return 0.6;
+    case 'silver':
+      return 0.7;
+    case 'gold':
+      return 0.9;
+    case 'platinum':
+      return 1;
+    case 'none':
+    default:
+      return 0;
+  }
+}
+
 export function validateBetaLocalAssuranceEnvelope(
   envelope: AssuranceEnvelope | null | undefined,
   now = Date.now()

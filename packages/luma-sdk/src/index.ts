@@ -9,6 +9,7 @@ export {
   deriveBetaLocalNullifier,
   digestAssuranceEnvelope,
   digestBetaLocalEvidence,
+  scoreFromEnvelope,
   validateBetaLocalAssuranceEnvelope,
   type BetaLocalAssuranceValidation,
   type CreateBetaLocalAssuranceEnvelopeInput

@@ -4,13 +4,26 @@
  * Renders name, title, party, office, district, channels, lastVerified.
  * Trust gate: >= 0.5 to view rep list.
  *
+ * Read-surface trust gate (reconciled with Slice D1 no-direct-comparison rule):
+ * spec-civic-action-kit-v0 §7.1 gates "View rep list" at >= 0.5, but
+ * spec-luma-service-v0 §5 says public-mesh *reads* are NOT canPerform-gated —
+ * only write-shaped audiences are. So this view gate deliberately does NOT
+ * invent a canPerform write action. Instead it routes the §2 threshold decision
+ * through `scoreFromEnvelope` (spec-luma-service-v0 §4), the single sanctioned
+ * escape hatch from the forbidden direct `trustScore` comparison. The rep list
+ * is derived from the *active* constituency proof's district_hash (which binds
+ * to the active LUMA nullifier), falling back to the configured district.
+ *
  * Spec: spec-civic-action-kit-v0.md §8.2
  */
 
 import React from 'react';
 import type { Representative } from '@vh/data-model';
 import { TRUST_MINIMUM } from '@vh/data-model';
+import { scoreFromEnvelope } from '@vh/luma-sdk';
 import { useIdentity } from '../../hooks/useIdentity';
+import { useConstituencyProof } from '../../hooks/useConstituencyProof';
+import { getConfiguredDistrict } from '../../store/bridge/districtConfig';
 import { findRepresentatives } from '../../store/bridge/representativeDirectory';
 
 export interface RepresentativeSelectorProps {
@@ -32,17 +45,23 @@ function formatDate(ts: number): string {
 
 export const RepresentativeSelector: React.FC<RepresentativeSelectorProps> = ({ onSelect }) => {
   const { identity } = useIdentity();
-  const trustScore = identity?.session?.trustScore ?? 0;
+  const { proof } = useConstituencyProof();
+  const viewScore = scoreFromEnvelope(identity?.assuranceEnvelope);
 
-  if (trustScore < TRUST_MINIMUM) {
+  if (viewScore < TRUST_MINIMUM) {
     return (
       <p data-testid="rep-trust-gate" className="text-sm text-amber-600">
-        Trust score ({trustScore.toFixed(2)}) below 0.50 — verify identity to view representatives.
+        Trust score ({viewScore.toFixed(2)}) below 0.50 — verify identity to view representatives.
       </p>
     );
   }
 
-  const reps = findRepresentatives('');
+  // Prefer the active constituency proof's district_hash — it binds to the
+  // active LUMA nullifier — and fall back to the configured district. A wrong
+  // or missing district hash yields no matched offices (rep-empty), never a
+  // cross-district list.
+  const districtHash = proof?.district_hash ?? getConfiguredDistrict();
+  const reps = findRepresentatives(districtHash);
 
   if (reps.length === 0) {
     return (
