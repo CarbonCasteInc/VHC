@@ -64,6 +64,12 @@ const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 export const SCAN_TARGETS = Object.freeze([
   { kind: 'file', path: 'apps/web-pwa/src/hooks/useIdentity.ts' },
   { kind: 'dir', path: 'apps/web-pwa/src/hooks/identity', optional: true },
+  // Account/sign-in shell (Lane C): provider subjects, display labels, and
+  // session material must stay redaction-disciplined here too.
+  { kind: 'file', path: 'apps/web-pwa/src/hooks/useSignIn.ts', optional: true },
+  { kind: 'dir', path: 'apps/web-pwa/src/auth', optional: true },
+  { kind: 'file', path: 'apps/web-pwa/src/store/signInAccount.ts', optional: true },
+  { kind: 'dir', path: 'apps/web-pwa/src/components/account', optional: true },
   { kind: 'dir', path: 'packages/identity-vault/src' },
   { kind: 'dir', path: 'packages/gun-client/src' },
   { kind: 'dir', path: 'packages/luma-sdk/src' },
