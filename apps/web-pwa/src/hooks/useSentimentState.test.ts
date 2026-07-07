@@ -260,36 +260,258 @@ describe('useSentimentState', () => {
     );
   });
 
-  it('enforces public-beta action policy before stance votes and stance clears', async () => {
+  it('denies stance votes with a Missing identity receipt when identity is absent under public-beta', () => {
+    setPublicBetaLumaEnv();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const proof = proofFor('public-beta-proof-nullifier');
+
+    try {
+      const denial = useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        analysisId: ANALYSIS,
+        desired: 1,
+        constituency_proof: proof,
+      });
+
+      expect(denial).toMatchObject({ accepted: false, reason: 'Missing identity' });
+      expect(denial.receipt_id).toMatch(/^deny-/);
+      // Denied path never mutates stance state.
+      expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Identity denied:', 'Missing identity');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('denies stance votes with an Expired identity receipt when the session has expired', async () => {
+    setPublicBetaLumaEnv();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const proof = proofFor('public-beta-expired-nullifier');
+
+    try {
+      const identity = await publicBetaIdentity();
+      // Force an expired session so assertMvpActionIdentityReady rejects on the
+      // non-expired-session check.
+      publishIdentity({
+        ...identity,
+        session: { ...identity.session!, expiresAt: Date.now() - 1_000 },
+      });
+
+      const denial = useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        analysisId: ANALYSIS,
+        desired: 1,
+        constituency_proof: proof,
+      });
+
+      expect(denial).toMatchObject({ accepted: false, reason: 'Expired identity' });
+      expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Identity denied:', 'Expired identity');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('admits stance votes and clears once a valid public-beta identity is present', async () => {
     setPublicBetaLumaEnv();
     const proof = proofFor('public-beta-proof-nullifier');
 
-    expect(() => useSentimentState.getState().setAgreement({
-      topicId: TOPIC,
-      pointId: POINT,
-      analysisId: ANALYSIS,
-      desired: 1,
-      constituency_proof: proof,
-    })).toThrow(/active identity/);
-
     publishIdentity(await publicBetaIdentity());
-    expect(() => useSentimentState.getState().setAgreement({
+    const voteReceipt = useSentimentState.getState().setAgreement({
       topicId: TOPIC,
       pointId: POINT,
       analysisId: ANALYSIS,
       desired: 1,
       constituency_proof: proof,
-    })).not.toThrow();
+    });
+    expect(voteReceipt.accepted).toBe(true);
     expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(1);
 
-    expect(() => useSentimentState.getState().setAgreement({
+    const clearReceipt = useSentimentState.getState().setAgreement({
       topicId: TOPIC,
       pointId: POINT,
       analysisId: ANALYSIS,
       desired: 0,
       constituency_proof: proof,
-    })).not.toThrow();
+    });
+    expect(clearReceipt.accepted).toBe(true);
     expect(useSentimentState.getState().getAgreement(TOPIC, POINT)).toBe(0);
+  });
+
+  it('denies voting when the accepted-current context is non-current', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const proof = proofFor('non-current-nullifier');
+
+    try {
+      const denial = useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        synthesisId: 'synth-1',
+        epoch: 0,
+        desired: 1,
+        constituency_proof: proof,
+        acceptedCurrency: { synthesis_id: 'synth-1', epoch: 0, accepted_current: false },
+      });
+
+      expect(denial).toMatchObject({ accepted: false, reason: 'Non-current synthesis' });
+      expect(denial.receipt_id).toMatch(/^deny-/);
+      expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-1', 0)).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Non-current synthesis; SentimentSignal not emitted');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('denies voting when the accepted-current context targets a different synthesis/epoch', () => {
+    const proof = proofFor('stale-target-nullifier');
+
+    const denial = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-current',
+      epoch: 2,
+      desired: 1,
+      constituency_proof: proof,
+      // Context is accepted_current but for a stale synthesis id.
+      acceptedCurrency: { synthesis_id: 'synth-old', epoch: 2, accepted_current: true },
+    });
+
+    expect(denial).toMatchObject({ accepted: false, reason: 'Non-current synthesis' });
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-current', 2)).toBe(0);
+  });
+
+  it('admits voting when the accepted-current context matches and is current', () => {
+    const proof = proofFor('current-nullifier');
+
+    const receipt = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-current',
+      epoch: 3,
+      desired: 1,
+      constituency_proof: proof,
+      acceptedCurrency: { synthesis_id: 'synth-current', epoch: 3, accepted_current: true },
+    });
+
+    expect(receipt.accepted).toBe(true);
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-current', 3)).toBe(1);
+  });
+
+  it('preserves current behavior when no accepted-current context is supplied', () => {
+    const proof = proofFor('no-context-nullifier');
+
+    const receipt = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-1',
+      epoch: 0,
+      desired: 1,
+      constituency_proof: proof,
+      // acceptedCurrency intentionally omitted (feature not wired).
+    });
+
+    expect(receipt.accepted).toBe(true);
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-1', 0)).toBe(1);
+  });
+
+  it('denial telemetry across every denial path carries no proof material', async () => {
+    // Drives EVERY denial reason through setAgreement and asserts each logged
+    // '[vh:vote:admission]' payload carries only the four allowed keys and never
+    // any raw nullifier/district_hash/merkle_root/proof-object material
+    // (docs/specs/spec-civic-sentiment.md §9.5/§11.2).
+    const SENSITIVE_NULLIFIER = 'SWEEP-SECRET-NULLIFIER';
+    const SENSITIVE_DISTRICT = 'SWEEP-SECRET-DISTRICT';
+    const SENSITIVE_MERKLE = 'SWEEP-SECRET-MERKLE';
+    const sensitiveProof = {
+      district_hash: SENSITIVE_DISTRICT,
+      nullifier: SENSITIVE_NULLIFIER,
+      merkle_root: SENSITIVE_MERKLE,
+    };
+    const admissionCalls: Array<Record<string, unknown>> = [];
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation((tag: unknown, payload?: unknown) => {
+      if (tag === '[vh:vote:admission]') {
+        admissionCalls.push(payload as Record<string, unknown>);
+      }
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const state = () => useSentimentState.getState();
+
+      // 1. missing proof
+      expect(state().setAgreement({ topicId: TOPIC, pointId: POINT, synthesisId: 'sw', epoch: 0, desired: 1 }))
+        .toMatchObject({ accepted: false, reason: 'Missing constituency proof' });
+
+      // 2. missing point id
+      expect(state().setAgreement({ topicId: TOPIC, pointId: '   ', synthesisId: 'sw', epoch: 0, desired: 1, constituency_proof: sensitiveProof }))
+        .toMatchObject({ accepted: false, reason: 'Missing point_id' });
+
+      // 3. missing synthesis context
+      expect(state().setAgreement({ topicId: TOPIC, pointId: POINT, desired: 1, constituency_proof: sensitiveProof }))
+        .toMatchObject({ accepted: false, reason: 'Missing synthesis context' });
+
+      // 4. non-current synthesis
+      expect(state().setAgreement({
+        topicId: TOPIC, pointId: POINT, synthesisId: 'sw', epoch: 0, desired: 1,
+        constituency_proof: sensitiveProof,
+        acceptedCurrency: { synthesis_id: 'sw', epoch: 0, accepted_current: false },
+      })).toMatchObject({ accepted: false, reason: 'Non-current synthesis' });
+
+      // 5. budget/policy denial
+      mockCanPerformAction.mockReturnValueOnce({ allowed: false, reason: 'Budget exhausted' });
+      expect(state().setAgreement({ topicId: TOPIC, pointId: POINT, synthesisId: 'sw', epoch: 0, desired: 1, constituency_proof: sensitiveProof }))
+        .toMatchObject({ accepted: false, reason: 'Budget exhausted' });
+
+      // 6. missing/expired identity (public-beta path)
+      setPublicBetaLumaEnv();
+      expect(state().setAgreement({ topicId: TOPIC, pointId: POINT, synthesisId: 'sw', epoch: 0, desired: 1, constituency_proof: sensitiveProof }))
+        .toMatchObject({ accepted: false, reason: 'Missing identity' });
+
+      const identity = await publicBetaIdentity();
+      publishIdentity({ ...identity, session: { ...identity.session!, expiresAt: Date.now() - 1_000 } });
+      expect(state().setAgreement({ topicId: TOPIC, pointId: POINT, synthesisId: 'sw', epoch: 0, desired: 1, constituency_proof: sensitiveProof }))
+        .toMatchObject({ accepted: false, reason: 'Expired identity' });
+      clearPublishedIdentity();
+      vi.unstubAllGlobals();
+
+      // 7. write-queue failure — force the durable enqueue to reject.
+      vi.spyOn(Types, 'deriveVoterId').mockRejectedValueOnce(new Error('derive-failed'));
+      state().setAgreement({ topicId: TOPIC, pointId: 'wq-point', synthesisId: 'sw', epoch: 0, desired: 1, constituency_proof: sensitiveProof });
+      await waitForMockCall(
+        infoSpy,
+        (call) => call[0] === '[vh:vote:admission]'
+          && (call[1] as Record<string, unknown>)?.reason === 'Write queue failure',
+      );
+
+      // Assert we exercised the full set of denial reasons.
+      const reasons = new Set(admissionCalls.map((payload) => payload.reason).filter(Boolean));
+      expect(reasons).toEqual(new Set([
+        'Missing constituency proof',
+        'Missing point_id',
+        'Missing synthesis context',
+        'Non-current synthesis',
+        'Budget exhausted',
+        'Missing identity',
+        'Expired identity',
+        'Write queue failure',
+      ]));
+
+      // Privacy invariant: no payload carries proof material, in keys or values.
+      for (const payload of admissionCalls) {
+        for (const key of Object.keys(payload)) {
+          expect(['topic_id', 'point_id', 'admitted', 'reason']).toContain(key);
+        }
+        const serialized = JSON.stringify(payload);
+        expect(serialized).not.toContain(SENSITIVE_NULLIFIER);
+        expect(serialized).not.toContain(SENSITIVE_DISTRICT);
+        expect(serialized).not.toContain(SENSITIVE_MERKLE);
+      }
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 
   it('accumulates eye_weight with decay', () => {
