@@ -63,12 +63,36 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/forum/indexes/', classification: 'public' }
 ];
 
+// Account-provider identity/token material (Apple/Google/X sign-in) plus raw
+// region codes. Vault/local-only per spec-data-topology-privacy-v0 §3 — never
+// allowed in public mesh records. Matched on the separator-stripped lowercase
+// key so camelCase and snake_case forms are both rejected.
+const FORBIDDEN_ACCOUNT_PROVIDER_KEYS = new Set([
+  'providersubject',
+  'provideraccountid',
+  'providerlabel',
+  'displaylabel',
+  'accesstoken',
+  'refreshtoken',
+  'idtoken',
+  'clientsecret',
+  'applesub',
+  'googlesub',
+  'xsub',
+  'accountbinding',
+  'regioncode',
+]);
+
 function containsPII(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
   const keys = Object.keys(value as Record<string, unknown>);
-  return keys.some((k) =>
-    ['nullifier', 'district_hash', 'email', 'wallet', 'address'].some((pii) => k.toLowerCase().includes(pii))
-  );
+  return keys.some((k) => {
+    const lower = k.toLowerCase();
+    if (['nullifier', 'district_hash', 'email', 'wallet', 'address'].some((pii) => lower.includes(pii))) {
+      return true;
+    }
+    return FORBIDDEN_ACCOUNT_PROVIDER_KEYS.has(lower.replace(/[-_]/g, ''));
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

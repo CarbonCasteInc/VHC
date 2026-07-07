@@ -37,6 +37,32 @@ describe('TopologyGuard', () => {
     ).toThrow();
   });
 
+  it('blocks account-provider identity material in public paths', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/forum/threads/thread-1', { title: 'ok', providerSubject: 'apple:000123.abc' })
+    ).toThrow(/PII in public path/);
+    expect(() =>
+      guard.validateWrite('vh/forum/threads/thread-1', { title: 'ok', displayLabel: 'Jane D.' })
+    ).toThrow(/PII in public path/);
+    expect(() =>
+      guard.validateWrite('vh/forum/threads/thread-1', { title: 'ok', access_token: 'raw-oauth-token' })
+    ).toThrow(/PII in public path/);
+    expect(() =>
+      guard.validateWrite('vh/forum/threads/thread-1', { title: 'ok', account_binding: { provider: 'x' } })
+    ).toThrow(/PII in public path/);
+  });
+
+  it('blocks raw region codes in public paths', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/public/aggregates/topic', { ratio: 0.5, region_code: 'US-CA' })
+    ).toThrow(/PII in public path/);
+    expect(() =>
+      guard.validateWrite('vh/public/aggregates/topic', { ratio: 0.5, regionCode: 'US-CA' })
+    ).toThrow(/PII in public path/);
+  });
+
   it('allows hermes inbox writes when encrypted flag is present', () => {
     const guard = new TopologyGuard();
     expect(() =>
