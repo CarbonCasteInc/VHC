@@ -69,16 +69,73 @@ describe('voteIntentQueue', () => {
     expect(pending[0].intent_id).toBe('keep');
   });
 
-  it('duplicate intent_id is silently deduped (idempotent)', () => {
-    const record = makeIntent({ intent_id: 'dup-test' });
+  it('duplicate intent_id with equal seq/emitted_at is deduped (idempotent)', () => {
+    const record = makeIntent({ intent_id: 'dup-test', seq: 100, emitted_at: 100 });
     enqueueIntent(record);
     enqueueIntent(record);
-    enqueueIntent({ ...record, agreement: -1 }); // same intent_id, different data
+    // Same intent_id and same seq/emitted_at → LWW comparator returns 0 → deduped.
+    enqueueIntent({ ...record, agreement: -1 });
 
     const pending = getPendingIntents();
     expect(pending).toHaveLength(1);
     expect(pending[0].intent_id).toBe('dup-test');
     expect(pending[0].agreement).toBe(1); // original value preserved
+  });
+
+  it('LWW on enqueue: a newer same-intent_id record replaces the stale queued one', () => {
+    const original = makeIntent({
+      intent_id: 'mutate-while-pending',
+      agreement: 1,
+      weight: 1,
+      seq: 100,
+      emitted_at: 100,
+    });
+    enqueueIntent(original);
+
+    // Mutate-while-pending: same intent_id, newer seq/emitted_at wins LWW.
+    const mutated = makeIntent({
+      intent_id: 'mutate-while-pending',
+      agreement: -1,
+      weight: 1.3,
+      seq: 200,
+      emitted_at: 200,
+    });
+    enqueueIntent(mutated);
+
+    const pending = getPendingIntents();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      intent_id: 'mutate-while-pending',
+      agreement: -1,
+      weight: 1.3,
+      seq: 200,
+      emitted_at: 200,
+    });
+  });
+
+  it('LWW on enqueue: an older same-intent_id record does not overwrite a newer queued one', () => {
+    enqueueIntent(makeIntent({ intent_id: 'lww-order', agreement: -1, seq: 200, emitted_at: 200 }));
+    // Late-arriving older record must not clobber the newer pending state.
+    enqueueIntent(makeIntent({ intent_id: 'lww-order', agreement: 1, seq: 100, emitted_at: 100 }));
+
+    const pending = getPendingIntents();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ agreement: -1, seq: 200 });
+  });
+
+  it('mutate-while-pending replays the newer agreement after LWW replace', async () => {
+    enqueueIntent(makeIntent({ intent_id: 'replay-mutate', agreement: 1, seq: 100, emitted_at: 100 }));
+    enqueueIntent(makeIntent({ intent_id: 'replay-mutate', agreement: -1, seq: 200, emitted_at: 200 }));
+
+    const projected: Array<{ agreement: number; seq: number }> = [];
+    const result = await replayPendingIntents(async (record) => {
+      projected.push({ agreement: record.agreement, seq: record.seq });
+    });
+
+    expect(result).toEqual({ replayed: 1, failed: 0 });
+    // Replay projects the newer (mutated) agreement, not the stale one.
+    expect(projected).toEqual([{ agreement: -1, seq: 200 }]);
+    expect(getPendingIntents()).toHaveLength(0);
   });
 
   it('queue survives simulated restart (reload from safeStorage)', () => {

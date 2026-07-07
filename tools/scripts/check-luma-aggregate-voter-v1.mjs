@@ -11,6 +11,32 @@ function read(relativePath) {
   return fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
 }
 
+/**
+ * Recursively list every non-test .ts/.tsx source file under a directory.
+ */
+function listSourceFiles(relativeDir) {
+  const absoluteDir = path.join(rootDir, relativeDir);
+  const results = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const absolutePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') {
+          continue;
+        }
+        walk(absolutePath);
+        continue;
+      }
+      if (!/\.(ts|tsx)$/.test(entry.name) || /\.test\.(ts|tsx)$/.test(entry.name)) {
+        continue;
+      }
+      results.push(path.relative(rootDir, absolutePath));
+    }
+  };
+  walk(absoluteDir);
+  return results;
+}
+
 function requireToken(source, token, label) {
   if (!source.includes(token)) {
     failures.push(`${label} is missing ${token}`);
@@ -27,6 +53,7 @@ const sentimentSchemaSource = read('packages/data-model/src/schemas/hermes/senti
 const aggregateAdaptersSource = read('packages/gun-client/src/aggregateAdapters.ts');
 const aggregateHelperSource = read('apps/web-pwa/src/hooks/lumaAggregateVoterRecords.ts');
 const sentimentStateSource = read('apps/web-pwa/src/hooks/useSentimentState.ts');
+const voteAdmissionSource = read('apps/web-pwa/src/hooks/voteAdmission.ts');
 const projectionSource = read('apps/web-pwa/src/hooks/voteIntentProjection.ts');
 const materializerSource = read('apps/web-pwa/src/hooks/voteIntentMaterializer.ts');
 const signedWritesSource = read('packages/luma-sdk/src/signedWrites.ts');
@@ -70,13 +97,23 @@ forbidToken(aggregateHelperSource, 'voter_id: input.principalNullifier', 'app LU
 
 for (const token of [
   'createLumaAggregateVoterNodeFromPrincipal',
-  'deriveVoterId(constituency_proof.nullifier',
   'writeVoterNode(',
   'aggregateVoterRecord.node'
 ]) {
   requireToken(sentimentStateSource, token, 'useSentimentState aggregate voter write path');
 }
 forbidToken(sentimentStateSource, 'deriveAggregateVoterId', 'useSentimentState aggregate voter write path');
+
+// The durable-intent voter id is derived from the constituency proof nullifier
+// (never a raw/forged id). This lives in the admission helper that owns durable
+// enqueue (voteAdmission.ts) as part of the "receipt + durable intent" contract.
+for (const token of [
+  'deriveVoterId(params.constituencyProof.nullifier',
+  'enqueueDurableVoteIntent',
+]) {
+  requireToken(voteAdmissionSource, token, 'vote admission durable-intent path');
+}
+forbidToken(voteAdmissionSource, 'deriveAggregateVoterId', 'vote admission durable-intent path');
 
 for (const token of [
   'createLumaAggregateVoterNodeFromVoterId',
@@ -142,6 +179,33 @@ for (const token of [
   'aggregate voter node'
 ]) {
   requireToken(roadmapSource, token, 'LUMA roadmap');
+}
+
+// Static no-bypass guard: gun-client stance writers must be reachable only from
+// the two canonical stance write surfaces. Any other app-src module that
+// references writeVoterNode / writeSentimentEvent / writePointAggregateSnapshot
+// would be a bypass write path outside unified vote admission
+// (docs/specs/spec-civic-sentiment.md §9.1).
+const STANCE_WRITERS = ['writeVoterNode', 'writeSentimentEvent', 'writePointAggregateSnapshot'];
+const ALLOWED_STANCE_WRITER_FILES = new Set([
+  'apps/web-pwa/src/hooks/useSentimentState.ts',
+  'apps/web-pwa/src/hooks/voteIntentProjection.ts',
+]);
+
+for (const relativePath of listSourceFiles('apps/web-pwa/src')) {
+  if (ALLOWED_STANCE_WRITER_FILES.has(relativePath)) {
+    continue;
+  }
+  const source = read(relativePath);
+  for (const writer of STANCE_WRITERS) {
+    // Word-boundary match so unrelated identifiers do not false-positive.
+    if (new RegExp(`\\b${writer}\\b`).test(source)) {
+      failures.push(
+        `${relativePath} references stance writer ${writer} outside the allowed surfaces `
+          + `(useSentimentState.ts / voteIntentProjection.ts)`,
+      );
+    }
+  }
 }
 
 if (failures.length > 0) {

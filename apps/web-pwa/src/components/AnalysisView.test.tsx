@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem } from '../hooks/useFeedStore';
 import AnalysisView from './AnalysisView';
 import { useSentimentState } from '../hooks/useSentimentState';
+import { createDenialReceipt } from '../hooks/voteAdmission';
 
 const useIdentityMock = vi.hoisted(() => vi.fn());
 const useConstituencyProofMock = vi.hoisted(() => vi.fn());
@@ -306,6 +307,30 @@ describe('AnalysisView', () => {
 
     expect(setAgreementSpy).not.toHaveBeenCalled();
     expect(screen.getByText('Create or sign in to save stance')).toBeInTheDocument();
+  });
+
+  it('surfaces an identity denial receipt returned by setAgreement', () => {
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(
+      createDenialReceipt('analysis-1', 'pa:frame', 'analysis-1', 0, 'Missing identity'),
+    );
+
+    render(<AnalysisView item={sample} />);
+    fireEvent.click(screen.getByLabelText('Agree frame'));
+
+    expect(screen.getByText('Create or sign in to save stance')).toBeInTheDocument();
+  });
+
+  it('surfaces a proof denial receipt returned by setAgreement', () => {
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(
+      createDenialReceipt('analysis-1', 'pa:frame', 'analysis-1', 0, 'Missing constituency proof'),
+    );
+
+    render(<AnalysisView item={sample} />);
+    fireEvent.click(screen.getByLabelText('Agree frame'));
+
+    expect(
+      screen.getByText('Beta-local identity proof required to save stance'),
+    ).toBeInTheDocument();
   });
 
   it('clears prior warning timer on repeated blocked vote attempts', () => {

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 import { usePointAggregate } from '../../hooks/usePointAggregate';
+import { VOTE_DENIAL_REASONS } from '../../hooks/voteAdmission';
+import { logVoteAdmission } from '../../utils/sentimentTelemetry';
 import type { Agreement } from './voteSemantics';
 
 export interface CellVoteControlsProps {
@@ -167,6 +169,19 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         synthesis_point_id: synthesisPointId ?? null,
         legacy_point_id: legacyPointId ?? null,
       });
+
+      // useConstituencyProof blocked (identity/proof invalid): emit a
+      // reason-only admission-denial telemetry event before the (proofless)
+      // setAgreement call so the invalid-proof denial is observable and never
+      // carries proof/nullifier material.
+      if (!proof) {
+        logVoteAdmission({
+          topic_id: topicId,
+          point_id: canonicalPointId,
+          admitted: false,
+          reason: VOTE_DENIAL_REASONS.INVALID_PROOF,
+        });
+      }
 
       const result = setAgreement({
         topicId,
