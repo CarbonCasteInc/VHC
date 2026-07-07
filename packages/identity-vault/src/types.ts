@@ -65,6 +65,32 @@ export interface OperatorAuthorizationTokenCompartment {
   expiresAt?: number;
 }
 
+/**
+ * Closed sign-in provider set (Lane C). Mirrors the data-model
+ * SignInProviderId enum and is deliberately distinct from the
+ * linked-social SocialProviderId.
+ */
+export type SignInProviderKind = 'apple' | 'google' | 'x';
+
+/**
+ * Sign-in session material (Slice C1). Vault-only: provider subjects,
+ * display labels, and provider tokens are personal profile data
+ * (spec-data-topology-privacy-v0 §3) and must never be written to
+ * public mesh, logs, telemetry, support issues, or release evidence.
+ */
+export interface SignInSessionCompartment {
+  schemaVersion: 1;
+  providerId: SignInProviderKind;
+  providerSubject: string;
+  displayLabel?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  boundPrincipalNullifier: string;
+  boundAt: number;
+  updatedAt: number;
+}
+
 export interface VaultV2 {
   schemaVersion: 2;
   identityRecord?: Identity;
@@ -73,6 +99,7 @@ export interface VaultV2 {
   delegationSigningKey?: DelegationSigningKeyCompartment;
   walletBinding?: WalletBindingCompartment;
   operatorAuthorizationToken?: OperatorAuthorizationTokenCompartment;
+  signInSession?: SignInSessionCompartment;
 }
 
 /**
@@ -195,6 +222,62 @@ export function isOperatorAuthorizationTokenCompartment(
   );
 }
 
+const SIGN_IN_PROVIDER_KINDS: readonly string[] = ['apple', 'google', 'x'];
+
+function isOptionalNonEmptyString(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.length > 0);
+}
+
+export function isSignInSessionCompartment(value: unknown): value is SignInSessionCompartment {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const keys = Object.keys(value);
+  const allowedKeys = new Set([
+    'schemaVersion',
+    'providerId',
+    'providerSubject',
+    'displayLabel',
+    'accessToken',
+    'refreshToken',
+    'expiresAt',
+    'boundPrincipalNullifier',
+    'boundAt',
+    'updatedAt'
+  ]);
+  if (keys.some((key) => !allowedKeys.has(key))) {
+    return false;
+  }
+
+  const record = value as SignInSessionCompartment;
+  return (
+    record.schemaVersion === 1
+    && SIGN_IN_PROVIDER_KINDS.includes(record.providerId)
+    && typeof record.providerSubject === 'string'
+    && record.providerSubject.length > 0
+    && isOptionalNonEmptyString(record.displayLabel)
+    && isOptionalNonEmptyString(record.accessToken)
+    && isOptionalNonEmptyString(record.refreshToken)
+    && (
+      record.expiresAt === undefined
+      || (
+        typeof record.expiresAt === 'number'
+        && Number.isSafeInteger(record.expiresAt)
+        && record.expiresAt >= 0
+      )
+    )
+    && typeof record.boundPrincipalNullifier === 'string'
+    && record.boundPrincipalNullifier.length > 0
+    && typeof record.boundAt === 'number'
+    && Number.isSafeInteger(record.boundAt)
+    && record.boundAt >= 0
+    && typeof record.updatedAt === 'number'
+    && Number.isSafeInteger(record.updatedAt)
+    && record.updatedAt >= record.boundAt
+  );
+}
+
 export function isVaultV2(value: unknown): value is VaultV2 {
   if (
     !isValidIdentity(value)
@@ -206,9 +289,11 @@ export function isVaultV2(value: unknown): value is VaultV2 {
   const identityRecord = (value as { identityRecord?: unknown }).identityRecord;
   const walletBinding = (value as { walletBinding?: unknown }).walletBinding;
   const operatorToken = (value as { operatorAuthorizationToken?: unknown }).operatorAuthorizationToken;
+  const signInSession = (value as { signInSession?: unknown }).signInSession;
   return (
     (identityRecord === undefined || isValidIdentity(identityRecord))
     && (walletBinding === undefined || isWalletBindingCompartment(walletBinding))
     && (operatorToken === undefined || isOperatorAuthorizationTokenCompartment(operatorToken))
+    && (signInSession === undefined || isSignInSessionCompartment(signInSession))
   );
 }
