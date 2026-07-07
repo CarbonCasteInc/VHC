@@ -18,6 +18,7 @@ LUMA Semantics").
 | `POST` | `/auth/:provider/start` | Validate origin + provider config, issue an expiring HMAC-signed `state` bound to the browser's PKCE S256 `codeChallenge`, and return the provider authorize URL parameters. |
 | `POST` | `/auth/:provider/callback` | Validate + consume `state`, verify the `codeVerifier` (body-only) against the challenge bound at `/start`, exchange the authorization code at the provider token endpoint (server-side, injecting the client secret), and return a **non-secret** session payload. This is the primary flow. |
 | `GET` | `/auth/:provider/callback` | Accepts the provider redirect (`code` + `state` in the query only). The `code_verifier` is **never** read from the query string — a GET callback therefore fails PKCE and steers the client to the POST flow. |
+| `POST` | `/auth/apple/return` | Apple `form_post` receiver: accepts Apple's cross-site form-encoded navigation POST (the default when scopes are configured), reads **only** `code` + `state`, and issues a `303` redirect to the PWA callback route with them as query params — equivalent exposure to the GET callback leg. The verifier never travels this leg; the PWA completes PKCE via the normal `POST /auth/apple/callback`. Apple-only. |
 | `OPTIONS` | `/auth/:provider/start\|callback` | CORS preflight for allow-listed origins. |
 | `GET` | `/api/health` | Configuration booleans only — never values. |
 
@@ -102,6 +103,7 @@ VH_AUTH_APPLE_KEY_ID=
 VH_AUTH_APPLE_PRIVATE_KEY=            # PKCS#8 PEM (.p8 contents)
 VH_AUTH_APPLE_REDIRECT_URI=           # per-env
 VH_AUTH_APPLE_SCOPES=email            # optional override
+VH_AUTH_PWA_CALLBACK_ROUTE=/auth/callback  # optional; PWA route the /auth/apple/return 303 targets (origin = first VH_AUTH_ALLOWED_ORIGINS entry)
 
 # Google
 VH_AUTH_GOOGLE_CLIENT_ID=
