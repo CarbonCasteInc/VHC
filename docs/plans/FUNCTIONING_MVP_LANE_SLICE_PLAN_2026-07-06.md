@@ -1,10 +1,10 @@
 # Functioning MVP Lane Slice Plan - 2026-07-06
 
-> Status: Technical implementation and operating plan, v2 refined for initial release goals
+> Status: Technical implementation and operating plan, v3 scrutinized and refined
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Last Reviewed: 2026-07-06
 > Target: Venn News Web PWA initial release MVP
-> Depends On: `docs/foundational/STATUS.md`, `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-civic-sentiment.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-civic-action-kit-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/vhc-incident-response.md`, `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+> Depends On: `docs/foundational/STATUS.md`, `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`, `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-civic-sentiment.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-civic-action-kit-v0.md`, `docs/specs/spec-linked-socials-v0.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/vhc-incident-response.md`, `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
 
 ## Executive Decision
 
@@ -23,39 +23,69 @@ features." Users must be able to:
 8. tie those civic sentiments to a beta-local constituency/representative
    mapping through aggregate-only district/office surfaces.
 
+Goal 1 requires new server-side work: no OAuth/PKCE flow, callback service, or
+provider registration exists in the repo today, so the account lane includes
+building and deploying that boundary, not just client wiring.
+
 This is still a Web PWA release. Native app packaging, public WSS mesh
 `release_ready`, LUMA Silver, verified-human proof, one-human-one-vote,
 cryptographic residency, cross-device per-human nullifier binding, and Codex
 live production execution are not part of the initial release claim.
 
-## Review Verdict On The Previous Plan
+## Review Verdict On Prior Versions
 
-The first plan had the right safety spine: keep Scope A raw-feed reliability in
-front of enrichment, preserve the email alert guardrail, keep Codex execution
-dry-run, and require release evidence on the intended commit. It was too broad
-for the product goal, and it under-specified three release-critical joins.
+The v1 plan had the right safety spine but was too broad for the product goal
+and under-specified the release-critical joins. v2 fixed that: it centered
+accepted summaries and the framing table, tied vote controls to
+accepted-current lifecycle joins, made the account lane explicit, separated
+social login from human uniqueness, and made constituency/representative
+mapping a first-class lane.
 
-Required refinements:
+A multi-lens adversarial review of v2 (goal coverage, topic-synthesis spec,
+civic-sentiment spec, LUMA/constituency spec, code reality, slicing, ops
+safety) confirmed the lane structure is sound and the current-state facts are
+accurate, but found and verified these gaps, all closed in this v3:
 
-- Accepted summaries and the framing table must be the first product lane, not
-  a generic "accepted synthesis later" note.
-- Vote controls must be tied to `accepted-current` lifecycle joins, not merely
-  the presence of a `TopicSynthesisV2`.
-- The account lane must exist explicitly. Current repo reality has beta-local
-  LUMA identity and linked-social storage primitives, but not a completed
-  Apple/Google/X sign-in release flow.
-- Social login must not be described as human uniqueness. It is account
-  continuity/profile recovery; LUMA beta-local identity supplies the current
-  release's device-bound `PrincipalId`/`Nullifier` semantics.
-- Constituency/representative mapping must be a first-class lane. The current
-  representative selector primitives exist, but `RepresentativeSelector` still
-  calls `findRepresentatives('')`, so it cannot satisfy local-office mapping
-  until the user's district hash is wired through.
-- The release rehearsal must exercise the product proof loop directly:
-  accepted summary/table, vote persistence, LUMA signed writes, account binding,
-  constituency mapping, and the manual 3-browser persistence check.
-
-This document is the refined plan that closes those gaps.
+- **No slice delivered the OAuth backend.** Slice C1 mandated a
+  backend/callback boundary, but no lane, grounded surface, or PR built,
+  hosted, or validated it — and no such service exists in the repo. Lane C now
+  has Slice C0 owning the callback boundary, provider registration, and an
+  explicit outside-A6 deployment target, with rehearsal evidence in Lane F.
+- **Slice A3's canary gate was undefined.** "Until the safety rail allows
+  enrichment" had no defined condition, silently conflicted with STATUS.md's
+  attended-soak/runbook re-enablement rule, and would have voided the 14-day
+  unattended window. A3 is now gated on a dedicated operator canary packet and
+  the PR sequencing names that packet as an operator-owned step.
+- **The pager/Codex follow-on dropped the non-waivable PR #722 gate.** The
+  sequence now requires adversarial verification of the merged incident
+  response implementation against the incident-response v2 plan's Security
+  Architecture before any pager cutover or Codex-live decision, and the
+  test-fire step is bound to an operator maintenance session.
+- **The accepted-current join was missing the corrections record.**
+  `suppressed_by_correction` derives from
+  `vh/topics/<topicId>/synthesis_corrections/latest`, which Slice A1's join
+  list omitted; the union also lacked the spec's `loading` state.
+- **The sign-in provider enum collided with spec-linked-socials-v0.** The
+  linked-social `SocialProviderId` enum has no `apple`/`google`, its schemas
+  are strict, and its stores are flag-gated — so sign-in tokens must not
+  route through the linked-social token vault. Lane C now defines a new
+  sign-in provider schema with its own identity-vault compartment.
+- **Provider labels had no topology class.** Publishing sanitized
+  provider/account display labels joined to LUMA public ids would
+  de-pseudonymize them; Lane C/D/E now forbid co-publication outright and gate
+  any future public profile-label surface on a topology class plus a Protocol
+  RFC.
+- **Lanes C and E had no runnable gates.** Both now name runnable commands,
+  and PR D/PR F add named check scripts as deliverables.
+- Smaller verified fixes: Lightbulb accounting pinned to active non-neutral
+  stance count (anti-toggle-gaming), spec-required projection/write-outcome
+  telemetry added to Lane B's gates, Reset Identity account-binding semantics
+  defined, the stance-envelope acceptance criterion disambiguated from the
+  encrypted sentiment outbox, `RepresentativeSelector`'s direct trust-score
+  gate scheduled for policy-helper migration, three wrong grounded-surface
+  paths corrected, the B4/F2 3-browser proof deduplicated, and the deferred
+  list extended to cover Season-0 surfaces that ship in the same PWA without
+  being release claims.
 
 ## Current State Of Play
 
@@ -121,12 +151,17 @@ Per `docs/specs/spec-civic-sentiment.md`:
   `(topic_id, synthesis_id, epoch, point_id)`;
 - `agreement = 0` is neutral and non-counting;
 - event-level signals with constituency proof are sensitive and must stay
-  local/encrypted;
+  local/encrypted; encrypted sentiment outbox records must not carry
+  `_writerKind`, `_authorScheme`, or `SignedWriteEnvelope`
+  (`docs/specs/spec-data-topology-privacy-v0.md` §3); the public
+  aggregate voter node is the only stance artifact that carries a
+  signed-write envelope;
 - public paths contain aggregate-only projections;
 - public aggregate voter nodes use topic/epoch-scoped `voterId`, never raw
   nullifier; and
 - Eye and Lightbulb are capped by the Season 0 decay model, with
-  `E_cap = 1.95`.
+  `E_cap = 1.95`; Lightbulb impact uses the active non-neutral stance count
+  per `(topic_id, synthesis_id, epoch)`, not raw click/toggle count.
 
 ### Account And LUMA Semantics
 
@@ -140,6 +175,13 @@ Initial release account language must say this clearly:
 - Current `principalNullifier` is device-bound. A user signing in on another
   device does not automatically prove the same human and must not silently
   inherit old votes as the same principal.
+- Provider subjects and provider/account display labels are personal profile
+  data (`docs/specs/spec-data-topology-privacy-v0.md` §3: vault/local-only).
+  They are shown only in local account UI, are never written to `vh/*` public
+  records, and are never published joined with `forumAuthorId`,
+  `identityDirectoryKey`, `voterId`, or any envelope-bearing record. A future
+  public profile-label surface requires a topology classification plus a
+  Protocol RFC (`docs/specs/spec-luma-service-v0.md` §1.4).
 - LUMA Silver, verified-human, one-human-one-vote, Sybil resistance,
   cryptographic residency, and cross-device per-human binding remain deferred.
 
@@ -180,9 +222,21 @@ These boundaries still apply while product lanes progress:
 - Do not restart the publisher while feed freshness remains green.
 - Do not restart relays while relay liveness and snapshot freshness remain
   green.
-- Do not enable Codex live execution or production autonomy.
+- Do not change A6 publisher/synthesis environment (including any
+  `VH_BUNDLE_SYNTHESIS_*` switch) from any product lane; only a dedicated
+  operator canary packet may do so. A6 alert-env edits are governed by the
+  maintenance-session rule below.
+- Do not edit A6 host alert env, disable timers, or rerun test-fire while A6
+  is green outside an explicitly opened operator maintenance session
+  (`docs/ops/vhc-incident-response.md`).
+- Do not enable Codex live execution or production autonomy. Before any
+  Codex-live decision, the merged PR #722 implementation must pass adversarial
+  verification against
+  `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`
+  §Security Architecture (non-waivable).
 - Do not deploy/cut over the custom pager before the email path continues to
-  prove itself and the pager is deployed outside A6 with its own dead-man.
+  prove itself, the pager is deployed outside A6 with its own dead-man, and
+  the same non-waivable PR #722 adversarial verification has passed.
 - Do not run retention, relay compaction, publisher clear, eviction, pruning,
   or memory remediation before the first post-recovery 500 MB -> 700 MB
   analyzer summary classifies the retainer.
@@ -199,10 +253,13 @@ Safety rail:
 Initial release product lanes:
   A. Accepted summary and framing table readiness
   B. Stance/vote persistence and aggregate engagement
-  C. Account and sign-in shell
+  C. Account and sign-in shell (incl. OAuth callback boundary)
   D. LUMA public-beta identity binding
   E. Constituency and representative mapping
   F. Release evidence rehearsal
+
+Operator-owned step (not a repo PR):
+  Operator canary packet that executes Slice A3 on A6
 
 Post-initial-release rails:
   Pager/PWA incident system, Codex dry-run responder, Scope B storylines,
@@ -210,7 +267,7 @@ Post-initial-release rails:
 ```
 
 The product lanes can proceed in parallel in local/staging/repo work. A6 live
-mutation remains gated by the safety rail.
+mutation remains gated by the safety rail and the operator canary packet.
 
 ## Safety Rail - Scope A Reliability And Evidence Accrual
 
@@ -225,7 +282,7 @@ product lanes advance off-host. The MVP cannot ship on a stale or silent feed.
 - `docs/ops/news-aggregator-production-service.md`
 - `docs/ops/public-feed-freshness-monitor.md`
 - `tools/scripts/public-feed-alert-watch.mjs`
-- `tools/scripts/phase5-scope-a-watch-closure.mjs`
+- `tools/scripts/phase5-scope-a-watch-closure-packet.mjs`
 - `tools/scripts/analyze-early-heap-captures.mjs`
 - `services/news-aggregator/src/index.ts`
 - `packages/ai-engine/src/newsRuntime.ts`
@@ -250,6 +307,8 @@ product lanes advance off-host. The MVP cannot ship on a stale or silent feed.
 - 48-hour proof target passes or a precise incident report exists.
 - Heap evidence is handled by analyzer summary only.
 - No live mutation happens merely because product lanes are ready.
+- Completing this rail does not itself authorize A6 enrichment; Slice A3
+  requires its own operator canary packet.
 
 ## Lane A - Accepted Summary And Framing Table Readiness
 
@@ -265,13 +324,16 @@ controls only when the table is safe to vote on.
 - `services/news-aggregator/src/bundleSynthesisWorker.ts`
 - `services/news-aggregator/src/bundleSynthesisRelay.ts`
 - `services/news-aggregator/src/bundleSynthesisDaemonConfig.ts`
-- `services/news-aggregator/src/bundleSynthesisQueue.ts`
+- `services/news-aggregator/src/enrichmentQueue.ts`
+- `services/news-aggregator/src/pendingSynthesisCatchup.ts`
+- `services/news-aggregator/src/synthesisLifecycleLedger.ts`
+- `packages/gun-client/src/newsAdapters.ts`
 - `packages/gun-client/src/synthesisAdapters.ts`
 - `packages/gun-client/src/analysisAdapters.ts`
 - `apps/web-pwa/src/components/feed/NewsCard.tsx`
 - `apps/web-pwa/src/components/feed/NewsCardBack.tsx`
 - `apps/web-pwa/src/components/feed/CellVoteControls.tsx`
-- `apps/web-pwa/src/hooks/useAnalysis.ts`
+- `apps/web-pwa/src/components/feed/useAnalysis.ts`
 - `docs/ops/news-aggregator.env.example`
 
 ### Slice A1 - Accepted-Current Read Model
@@ -280,10 +342,15 @@ Implementation plan:
 
 - Make the story-detail read path explicitly join:
   `StoryBundle`, `vh/news/stories/<storyId>/synthesis_lifecycle/latest`,
-  `vh/topics/<topicId>/epochs/<epoch>/synthesis`, and
-  `vh/topics/<topicId>/latest`.
+  `vh/topics/<topicId>/epochs/<epoch>/synthesis`,
+  `vh/topics/<topicId>/latest`, and
+  `vh/topics/<topicId>/synthesis_corrections/latest`.
+- `suppressed_by_correction` is derived from the corrections record when its
+  status is `suppressed`; a non-suppressed correction maps to
+  `terminal_unavailable`, matching the existing derivation in
+  `apps/web-pwa/src/components/feed/NewsCardBack.tsx`.
 - Define one UI-ready object for story detail:
-  `acceptedCurrentSynthesis | pending | retryable_failure |
+  `loading | acceptedCurrentSynthesis | pending | retryable_failure |
   terminal_unavailable | suppressed_by_correction | invalid`.
 - Reject as votable when lifecycle source revision, synthesis id, epoch, story
   id, or system-writer validation does not match.
@@ -296,6 +363,13 @@ Tests:
 - missing point ids keep vote controls disabled for that row;
 - corrected/suppressed synthesis is not votable;
 - invalid system-writer record fails closed with observable state.
+
+Commands:
+
+```bash
+corepack pnpm@9.7.1 check:public-feed:lifecycle-accountability
+corepack pnpm@9.7.1 check:luma-topic-synthesis-system-v1
+```
 
 ### Slice A2 - Summary And Table UX
 
@@ -325,7 +399,19 @@ Tests:
 
 Implementation plan:
 
-- Do not start this on A6 until the safety rail allows enrichment.
+- Do not start this on A6 without a dedicated operator canary packet that
+  authorizes the A6 change. The safety rail defines no condition that
+  "allows" enrichment; passing the 48-hour proof target
+  (`2026-07-08T22:44:08Z`) is a necessary precondition for issuing that
+  packet, not itself an authorization.
+- Per `docs/foundational/STATUS.md`, re-enabling accepted synthesis requires a
+  separate attended soak and an updated runbook entry. The canary packet must
+  include both.
+- Starting the canary is an operator touch that ends the 14-day unattended
+  evidence window (target `2026-07-20T22:44:08Z`); the packet must schedule
+  the canary deliberately against that window.
+- No product-lane PR sets these env values on A6; the canary is executed as
+  an operator action (see Operator Canary Packet in PR Sequencing).
 - Keep storylines/topic synthesis enrichment disabled for first canary unless a
   separate packet explicitly includes them.
 - Keep raw publication first and accepted synthesis decoupled from raw write
@@ -342,7 +428,8 @@ Implementation plan:
 Done:
 
 - At least one singleton and one bundled story have accepted-current readback
-  and a safe votable table in Web PWA detail.
+  and a safe votable table in Web PWA detail, produced through the
+  operator-authorized canary packet.
 
 ## Lane B - Stance/Vote Persistence And Aggregate Engagement
 
@@ -363,6 +450,7 @@ accounting, and 3-browser persistence proof.
 - `apps/web-pwa/src/hooks/lumaAggregateVoterRecords.ts`
 - `apps/web-pwa/src/components/feed/CellVoteControls.tsx`
 - `apps/web-pwa/src/components/feed/voteSemantics.ts`
+- `apps/web-pwa/src/utils/sentimentTelemetry.ts`
 - `packages/gun-client/src/sentimentAdapters.ts`
 - `packages/gun-client/src/sentimentEventAdapters.ts`
 - `packages/gun-client/src/aggregateAdapters.ts`
@@ -408,21 +496,32 @@ Tests:
 - `+1`, `-1`, neutral reset, and vote mutation converge correctly;
 - public aggregate voter node uses topic/epoch-scoped `voterId`;
 - raw nullifier, district hash, merkle root, and address never appear in
-  public aggregate paths.
+  public aggregate paths;
+- projection retries/failures and terminal mesh-write outcomes
+  (success/failure/timeout) emit telemetry per
+  `docs/specs/spec-civic-sentiment.md` §9.5/§11.2; no silent-success path
+  exists.
 
 ### Slice B3 - Eye/Lightbulb And Aggregate Summary
 
 Implementation plan:
 
 - Eye increments on full read/expand events.
-- Lightbulb is driven only by active stance interactions, never by source count,
-  synthesis quorum, or other proxy values.
+- Lightbulb impact is driven by the count of active non-neutral stances per
+  `(topic_id, synthesis_id, epoch)` — not raw click/toggle count, and never by
+  source count, synthesis quorum, or other proxy values
+  (`docs/specs/spec-civic-sentiment.md` §5).
 - Use capped diminishing returns with `E_cap = 1.95`.
 - Public feed counters read topic engagement aggregate first, with documented
   fallback to feed snapshot plus local persisted decayed weight.
 - Topic engagement summary writes remain system-writer records.
 
 Tests:
+
+- repeated toggles on the same cell do not increase Lightbulb weight beyond
+  the active-count closed form.
+
+Commands:
 
 ```bash
 corepack pnpm@9.7.1 check:public-feed:stance-aggregate-decay
@@ -431,6 +530,9 @@ corepack pnpm@9.7.1 check:luma-aggregate-voter-v1
 ```
 
 ### Slice B4 - Three-Browser Persistence Proof
+
+This slice owns the definition of the manual 3-browser check; Slice F2
+executes it as the release rehearsal and produces the packet evidence.
 
 Implementation plan:
 
@@ -459,6 +561,8 @@ continuity and recovery, not human uniqueness proof.
 
 ### Grounded Surfaces
 
+- `docs/specs/spec-linked-socials-v0.md`
+- `docs/specs/spec-data-topology-privacy-v0.md`
 - `apps/web-pwa/src/hooks/useIdentity.ts`
 - `apps/web-pwa/src/routes/AccountIdentityPage.tsx`
 - `apps/web-pwa/src/store/identityProvider.ts`
@@ -469,25 +573,71 @@ continuity and recovery, not human uniqueness proof.
 - `packages/identity-vault/src/vault.ts`
 - `packages/identity-vault/src/compartments/deviceCredential.ts`
 - `packages/identity-vault/src/compartments/delegationSigningKey.ts`
+- `packages/e2e/src/luma/account-identity-controls.spec.ts`
 - `docs/specs/secure-storage-policy.md`
+
+### Slice C0 - OAuth Callback Boundary And Provider Registration
+
+No OAuth/PKCE flow, callback service, or provider app registration exists in
+the repo today; this slice builds the server component Slice C1 depends on.
+
+Implementation plan:
+
+- Decide and record the boundary approach: a new minimal auth-callback
+  service (new `services/` entry) or a serverless/hosted-auth function
+  co-located with the Web PWA hosting target. The decision, with its
+  trade-offs, is a named PR D deliverable.
+- Name the deployment target explicitly. It is deployed outside A6, mirroring
+  the pager's treatment: standing it up must not touch the publisher/relay
+  host during the watch window.
+- Register Apple, Google, and X developer applications; configure redirect
+  URIs per environment. Track registration lead time as an external
+  dependency with an owner — Apple in particular requires a server-held
+  signed client secret for code exchange.
+- Provider client secrets are provisioned host-private (env/secret store) and
+  never enter the repo, the browser bundle, logs, or release evidence.
+- The browser completes OAuth/OIDC with PKCE against this boundary only.
+
+Tests:
+
+- PKCE round-trip completes against the deployed boundary for each provider;
+- the built browser bundle contains no provider client secret (bundle scan);
+- callback errors surface as clean sign-in failures, not partial sessions.
 
 ### Slice C1 - Account Provider Contract
 
 Implementation plan:
 
 - Define a closed provider enum for the release: `apple`, `google`, `x`.
-- Use OAuth/OIDC with PKCE through a backend/callback boundary where provider
-  client secrets never enter the browser bundle.
+  This sign-in enum is a NEW schema, distinct from spec-linked-socials-v0's
+  `SocialProviderId` (`x/reddit/youtube/tiktok/instagram/other`), which has no
+  `apple`/`google` and is scoped to optional notification cards behind
+  `VITE_LINKED_SOCIAL_ENABLED`.
+- Use OAuth/OIDC with PKCE through the Slice C0 backend/callback boundary
+  where provider client secrets never enter the browser bundle.
 - Store only non-secret display/account metadata in the account shell.
-- Store provider tokens, if retained at all, in the existing token/vault path;
-  never write them to public mesh, logs, support issues, telemetry, or release
-  evidence.
-- Normalize provider subject to a private account binding. Public projections
-  may use a provider/account display label only after sanitization.
+- Sign-in tokens must NOT be written through
+  `apps/web-pwa/src/store/linkedSocial/tokenVault.ts` — its
+  `OAuthTokenRecordSchema` is strict to the linked-social enum and the store
+  is flag-gated. Define a dedicated identity-vault compartment for sign-in
+  session material (peer of
+  `packages/identity-vault/src/compartments/deviceCredential.ts`), following
+  the same vault-only/no-barrel-export rules; its contents are never written
+  to public mesh, logs, support issues, telemetry, or release evidence.
+- Normalize provider subject to a private account binding. Provider subjects
+  and account/provider display labels are vault/local-only personal profile
+  data: shown only in local account UI, never written to any `vh/*` public
+  record, and never published joined with `forumAuthorId`,
+  `identityDirectoryKey`, `voterId`, or any `SignedWriteEnvelope`-bearing
+  record. A future public profile-label surface requires a topology
+  classification plus a Protocol RFC.
 
 Tests:
 
 - provider tokens cannot appear in public projections;
+- no public record contains a provider subject or display label, and no
+  public record joins one with a LUMA public id
+  (`forumAuthorId` / `identityDirectoryKey` / `voterId`);
 - account records validate against a closed schema;
 - unsupported provider ids are rejected;
 - sign-out clears session state without claiming network deletion.
@@ -508,8 +658,11 @@ Implementation plan:
   LUMA principal. It may show account continuity/profile state, but old votes
   remain under the old device-bound principal unless a later multi-device link
   feature is built and approved.
-- If a user resets identity, account binding must record that the old public
-  artifacts are not deleted or re-authored.
+- On Reset Identity, the account-to-LUMA binding is cleared and
+  re-established against the new `principalNullifier` on next sign-in
+  (mirroring the `walletBinding` row in `docs/specs/spec-luma-service-v0.md`
+  §13.2). Account binding must record that the old public artifacts are not
+  deleted or re-authored.
 
 Tests:
 
@@ -517,6 +670,7 @@ Tests:
   Identity is invoked;
 - Reset Identity rotates the LUMA principal and leaves historical artifacts
   under the prior pseudonyms;
+- no binding record referencing the pre-reset nullifier survives reset;
 - another browser/device sign-in does not claim same-human continuity;
 - copy and telemetry avoid verified-human/one-human-one-vote language.
 
@@ -530,11 +684,25 @@ Implementation plan:
   - session expiry/renewal state;
   - sign-out action;
   - reset identity action with irreversible-effects explanation;
-  - linked provider management;
+  - sign-in provider management (distinct from the flag-gated linked-social
+    notification-account feature);
   - clear limitation copy for device-bound identity.
 - First vote attempt without account/identity should route user into sign-in
   or beta-local identity creation, then back to the same story/point.
 - Sign-in failure must not strand the user with a partially admitted vote.
+
+Commands:
+
+```bash
+corepack pnpm@9.7.1 --filter @vh/web-pwa exec vitest run \
+  src/store/identityProvider.browser.test.ts \
+  src/store/news/hydration.identity.test.ts
+corepack pnpm@9.7.1 --filter @vh/e2e test src/luma/account-identity-controls.spec.ts
+```
+
+PR D additionally delivers a named root script
+(`check:account-identity-controls`) wrapping the e2e spec so the gate is
+addressable from the release packet.
 
 Done:
 
@@ -591,10 +759,16 @@ corepack pnpm@9.7.1 check:luma-multidevice-stubs
 
 Implementation plan:
 
-- Stance/vote writes use aggregate voter envelope.
+- Stance actions are LUMA policy-gated under the `vh-stance-vote` /
+  `vh-stance-clear` audiences; the public aggregate voter node is the only
+  stance artifact carrying a `SignedWriteEnvelope` (audience
+  `vh-aggregate-voter`). Event-level stance records stay in the encrypted
+  sentiment outbox and must not carry envelopes
+  (`docs/specs/spec-data-topology-privacy-v0.md` §3).
 - Forum posts/comments use forum author envelope.
 - News reports use forum author reporter id envelope.
-- Account-provider state does not become a LUMA public author scheme.
+- Account-provider state does not become a LUMA public author scheme and is
+  never co-published with LUMA public ids.
 - Session references are hash/digest references; raw tokens are forbidden.
 
 Tests:
@@ -654,6 +828,7 @@ district hash, and aggregate-only district/office sentiment surfaces.
 - `packages/luma-sdk/src/providers/index.ts`
 - `packages/types/src/constituency-verification.ts`
 - `packages/gun-client/src/civicRepresentativeAdapters.ts`
+- `packages/gun-client/src/topology.ts`
 - `packages/data-model/src/schemas/hermes/bridgeRepresentative.ts`
 
 ### Slice E1 - District Acquisition And Proof Binding
@@ -682,6 +857,12 @@ Implementation plan:
 
 - Fix representative lookup to use the current proof/configured district hash
   instead of `findRepresentatives('')`.
+- Migrate `RepresentativeSelector`'s direct `trustScore < TRUST_MINIMUM` gate
+  to the policy-helper path (`canPerform`/`scoreFromEnvelope`) or document it
+  as an accepted read-surface exception explicitly reconciled with Slice D1's
+  no-direct-comparison rule. Note: the existing direct-trust gate script
+  scans write-boundary files only and does not cover bridge components, so
+  this violation is invisible to the current gates.
 - Load representative directory snapshots through system-writer validated
   records at `vh/civic/reps/<jurisdictionVersion>`.
 - Expose empty-state copy when no reps are loaded for a district without
@@ -708,7 +889,10 @@ Implementation plan:
 
 - Build district/office aggregate read model from accepted vote tuples and
   representative directory mapping.
-- Publish only aggregate/dashboard records that meet cohort thresholds.
+- Publish only aggregate/dashboard records that meet cohort thresholds
+  (`MIN_DISTRICT_COHORT_SIZE = 100`, `docs/specs/spec-luma-service-v0.md`
+  §9.4; the topology lint rejects any public non-aggregate record carrying
+  `district_hash`, fail-closed).
 - Do not publish `{district_hash, nullifier}` pairs, raw address, raw region
   code, provider account id, or per-user lines.
 - Office-level display should answer:
@@ -723,10 +907,18 @@ Implementation plan:
 Tests:
 
 - topology guard fails any public non-aggregate record containing
-  `district_hash`;
+  `district_hash` (existing coverage:
+  `packages/gun-client/src/topology.test.ts`, run via
+  `corepack pnpm@9.7.1 --filter @vh/gun-client test`);
+- topology guard fails any public record containing a provider
+  subject/display label;
 - aggregate records require `cohortSize >= MIN_DISTRICT_COHORT_SIZE`;
 - representative dashboard payloads contain no nullifiers/proofs/tokens;
 - district/office aggregate is recomputable from aggregate-only source inputs.
+
+PR F additionally delivers a named check
+(`check:district-aggregate-thresholds`) covering the cohort-threshold and
+aggregate-only assertions for the new read model.
 
 ### Slice E4 - Opinion Registration Claim
 
@@ -783,6 +975,10 @@ Required proof:
 - vote controls appear only for accepted-current stable point ids;
 - stance persists and aggregates;
 - account/identity controls do not overclaim;
+- one real Apple, one real Google, and one real X sign-in complete against
+  the deployed Slice C0 callback boundary (this item runs against the
+  deployed boundary, not the local stack), with redirect-URI and
+  secret-custody evidence recorded for the release packet;
 - story threads/reporting remain non-regressed if they stay in release copy.
 
 ### Slice F2 - Strict Matrix And 3-Browser Session
@@ -795,10 +991,11 @@ VH_LIVE_MATRIX_REQUIRE_FULL=true \
 corepack pnpm@9.7.1 --filter @vh/e2e test:live:matrix:strict:stability
 ```
 
-Manual proof from `docs/ops/BETA_SESSION_RUNSHEET.md`:
+Manual proof: execute the Slice B4 procedure (which owns the definition) per
+`docs/ops/BETA_SESSION_RUNSHEET.md`:
 
 - Browser A/B/C each get a distinct identity.
-- All three open the same vote-capable story.
+- All three open the same accepted-current story.
 - All see the same accepted-current table from mesh.
 - Vote changes converge across all clients.
 - Reload preserves analysis, vote cells, and aggregate state.
@@ -806,7 +1003,7 @@ Manual proof from `docs/ops/BETA_SESSION_RUNSHEET.md`:
 Done:
 
 - `strictStabilityAchieved: true`, `passCount: 3`, `scarcityCount: 0`, and
-  manual 3-browser PASS.
+  manual 3-browser PASS recorded as the release-packet evidence.
 
 ### Slice F3 - Release Gate Packet
 
@@ -826,6 +1023,7 @@ Release packet must record:
 
 - release commit;
 - deployed Web PWA target;
+- deployed account-provider callback target (outside A6);
 - live A6 state or explicit non-touch boundary;
 - accepted synthesis coverage;
 - vote persistence and 3-browser evidence;
@@ -842,12 +1040,26 @@ pull-executor implementation are important but not the next product-release
 lane. Sequence:
 
 1. keep email fallback active;
-2. deploy pager outside A6;
-3. run signed alert test-fire A6 -> pager -> GitHub issue -> iPhone/email ->
-   authenticated ack;
-4. enable pager dead-man;
-5. keep Codex responder dry-run only until the alert/incident loop proves
-   itself under real operation and explicit drills pass.
+2. NON-WAIVABLE GATE: adversarially verify the merged PR #722
+   incident-response implementation against
+   `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`
+   §Security Architecture (identity gating, signed artifact chain, pull-model
+   executor, untrusted-content quarantine, reviewer independence).
+   `check:vhc-incident-response` is the repo-side gate only and does not
+   satisfy this step. This gate blocks all later steps in this sequence,
+   including any pager cutover and any Codex-live decision;
+3. deploy pager outside A6;
+4. run signed alert test-fire A6 -> pager -> GitHub issue -> iPhone/email ->
+   authenticated ack, only inside an explicitly opened operator maintenance
+   session — it requires setting `VH_PUBLIC_FEED_ALERT_WEBHOOK_URL` /
+   `VH_PUBLIC_FEED_ALERT_WEBHOOK_HMAC_SECRET` on A6 and rerunning test-fire,
+   which is forbidden while A6 is green outside a maintenance session
+   (`docs/ops/vhc-incident-response.md`), and this operator touch resets the
+   14-day unattended window (target `2026-07-20T22:44:08Z`);
+5. enable pager dead-man;
+6. keep Codex responder dry-run only until the alert/incident loop proves
+   itself under real operation, explicit drills pass, AND the step-2
+   adversarial verification gate has passed.
 
 Validation:
 
@@ -873,10 +1085,20 @@ explicitly adds and proves them:
 - Scope B storylines/topic synthesis enrichment;
 - memory remediation before heap evidence names the retainer;
 - Codex live production execution/autonomy;
+- the elevation/nomination loop (Season 0 hero path C);
+- Daily Boost/XP/GWC recognition surfaces;
+- linked-social notification cards (flag-gated);
+- docs/articles surfaces;
+- the LUMA §21.4 recorded product replay;
 - full trust-and-safety console, appeals workflow, SLA desk, and complete RBAC
   membership management;
 - commercial/legal approval beyond implemented public-beta policy/support
   minimums.
+
+Ships-but-unclaimed rule: any surface that remains reachable in the release
+build without being an initial-release claim (story threads, reporting,
+flag-gated Season-0 loops) must be non-regressed, and its copy must not
+overclaim — the same rule the plan applies to threads/reporting in Lane F.
 
 ## PR Sequencing
 
@@ -897,11 +1119,20 @@ corepack pnpm@9.7.1 check:vhc-incident-response
 
 Scope:
 
-- accepted-current read model;
+- accepted-current read model (five-record join incl. corrections);
 - lifecycle/synthesis join;
 - vote-control gating by stable point ids;
-- UI states for pending/retryable/terminal/suppressed;
+- UI states for loading/pending/retryable/terminal/suppressed;
 - tests for mismatch and non-votable states.
+
+### Operator Canary Packet (not a repo PR)
+
+Executes Slice A3 on A6. Operator-owned. Preconditions: 48-hour proof target
+passed, attended soak scheduled, runbook entry updated, and the operator has
+explicitly accepted that this touch ends the 14-day unattended evidence
+window. No product-lane PR performs this step. If this packet is not issued
+before release, Slice A3's Done is unmet and the release envelope must be
+narrowed rather than the gate bypassed.
 
 ### PR C - Vote Persistence And Aggregate Engagement
 
@@ -909,19 +1140,26 @@ Scope:
 
 - unified vote admission;
 - local intent queue and projection hardening;
+- projection/write-outcome telemetry per spec-civic-sentiment §9.5/§11.2;
 - aggregate voter node validation;
-- Eye/Lightbulb counters;
+- Eye/Lightbulb counters on the active-count basis;
 - three-browser persistence proof improvements.
 
 ### PR D - Account And Sign-In Shell
 
 Scope:
 
-- Apple/Google/X provider contract;
+- OAuth callback/token-exchange boundary (new service or hosted-auth
+  decision recorded), deployed outside A6, with provider registration and
+  redirect-URI/secrets handling (Slice C0);
+- Apple/Google/X provider contract (new sign-in schema, distinct from
+  linked-social `SocialProviderId`);
+- dedicated identity-vault compartment for sign-in session material;
 - account-provider UI;
-- account-to-LUMA local binding;
+- account-to-LUMA local binding incl. Reset Identity re-bind semantics;
 - token redaction/storage;
-- sign-out/reset identity copy and tests.
+- sign-out/reset identity copy and tests;
+- named root script `check:account-identity-controls`.
 
 ### PR E - LUMA Binding And Forbidden-Claim Hardening
 
@@ -939,16 +1177,19 @@ Scope:
 
 - district acquisition/review;
 - representative lookup wired to active district hash;
+- `RepresentativeSelector` trust-gate migration to policy helpers;
 - representative snapshot system-writer readback;
 - aggregate district/office sentiment read model;
-- privacy threshold/topology tests.
+- privacy threshold/topology tests;
+- named check `check:district-aggregate-thresholds`.
 
 ### PR G - Release Rehearsal And Go/No-Go Packet
 
 Scope:
 
 - strict matrix;
-- manual 3-browser proof;
+- manual 3-browser proof (executing the Slice B4 definition);
+- live provider sign-in rehearsal evidence;
 - MVP release gates;
 - release evidence report;
 - claim review and launch decision.
@@ -959,37 +1200,46 @@ Scope:
 | --- | --- | --- |
 | Safety rail | `check:public-feed:alert-watch`, `check:scope-a-watch-closure`, heap analyzer when triggered | timers active, latest tick, freshness, relay liveness, relay snapshot |
 | Accepted summary/table | `check:public-feed:lifecycle-accountability`, `check:luma-topic-synthesis-system-v1`, `check:mvp-release-gates` | story detail shows accepted-current summary/table; non-current table is non-votable |
-| Vote persistence | `check:public-feed:stance-aggregate-decay`, `check:luma-aggregate-voter-v1`, strict matrix | 3-browser vote convergence and reload persistence |
-| Account/sign-in | account identity tests, provider/token tests, `check:public-beta-compliance` | Apple/Google/X account flow binds to current-device LUMA identity without overclaim |
+| Vote persistence | `check:public-feed:stance-aggregate-decay`, `check:luma-topic-engagement-summary-system-v1`, `check:luma-aggregate-voter-v1`, strict matrix | 3-browser vote convergence and reload persistence; projection retry/terminal write-outcome telemetry per spec-civic-sentiment §9.5/§11.2 (Slice B2 tests) |
+| Account/sign-in | `--filter @vh/web-pwa exec vitest run src/store/identityProvider.browser.test.ts src/store/news/hydration.identity.test.ts`, `--filter @vh/e2e test src/luma/account-identity-controls.spec.ts`, `check:account-identity-controls` (PR D), `check:public-beta-compliance` | live Apple/Google/X sign-in against the deployed callback boundary binds to current-device LUMA identity without overclaim; no secrets in browser bundle |
 | LUMA binding | `check:luma:mvp-production-readiness`, `check:luma-signed-write-surface`, `check:luma-forbidden-claims`, `check:luma-telemetry-redaction` | signed writes use correct public author schemes; no forbidden claims |
-| Constituency/reps | `check:luma-civic-reps-system-v1`, topology/privacy tests | active district hash maps to reps; aggregate-only district/office sentiment |
+| Constituency/reps | `check:luma-civic-reps-system-v1`, `--filter @vh/gun-client test` (topology), `check:district-aggregate-thresholds` (PR F) | active district hash maps to reps; aggregate-only district/office sentiment |
 | Release rehearsal | `check:mvp-release-evidence`, `check:mvp-release-gates`, `check:mvp-closeout`, `docs:check`, `git diff --check` | release packet names commit, artifacts, limitations, rollback |
-| Incident follow-on | `check:vhc-incident-response` | pager test-fire/dead-man later; Codex remains dry-run |
+| Incident follow-on | `check:vhc-incident-response` | PR #722 adversarial verification vs incident-response v2 §Security Architecture BEFORE pager cutover; pager test-fire/dead-man later; Codex remains dry-run |
 
 ## Functioning Initial Release Acceptance Criteria
 
 The initial release is functioning when all of these are true on the intended
 release commit:
 
-- Users can register/sign in with the approved provider shell.
+- Users can register/sign in with the approved provider shell, against a
+  callback boundary deployed outside A6 that holds all provider secrets
+  server-side.
 - Sign-in binds to or creates a beta-local LUMA identity on the current device.
 - Account copy does not claim verified-human, one-human-one-vote, Silver,
   Sybil resistance, or residency proof.
-- Users can open a story and read an accepted summary.
+- Users can open a story and read an accepted summary; the accepted-current
+  evidence on A6 comes from the operator-authorized canary packet, or the
+  release envelope is narrowed.
 - The bias/framing table renders only from accepted-current `TopicSynthesisV2`
   joined to the current story lifecycle.
 - Vote controls appear only for rows with stable accepted point ids.
 - One final stance per user per point persists and can be changed.
 - Public aggregate counts converge across at least three browser identities and
   survive reload.
-- Eye/Lightbulb accounting follows the Season 0 cap and does not use proxy
-  signals.
-- LUMA signed-write envelopes cover stance/forum/report release writes.
+- Eye/Lightbulb accounting follows the Season 0 cap on the active non-neutral
+  stance-count basis and does not use proxy signals.
+- Stance actions are LUMA policy-gated; the public aggregate voter node is the
+  only stance artifact carrying a `SignedWriteEnvelope`; forum/report release
+  writes carry their own LUMA envelopes; encrypted sentiment outbox records
+  carry none.
 - Constituency proof is beta-local, validated at write admission, and kept out
   of public paths.
 - Representative mapping uses the active district hash and system-writer
   validated directory snapshots.
 - District/office sentiment surfaces are aggregate-only and thresholded.
+- No public record contains a provider subject/display label or joins one to
+  a LUMA public id.
 - Public beta support/compliance routes pass.
 - Scope A alerting remains active, and live A6 is not touched unless a separate
   operator packet authorizes it.
@@ -1002,7 +1252,12 @@ release commit:
 - If the heap pair appears, run the analyzer first; do not remediate before the
   retainer is named.
 - If accepted-current lifecycle joins fail, keep story detail non-votable.
+- If the operator canary packet is not issued, narrow the release envelope;
+  do not run Slice A3 from a product lane.
 - If vote convergence fails, fix the vote/projection lane before widening beta.
+- If provider registration or the callback boundary cannot be deployed in
+  time, narrow the sign-in claim to beta-local identity creation; do not ship
+  a browser-held-secret flow.
 - If sign-in works but LUMA binding fails, do not admit votes.
 - If LUMA forbidden-claim gates fail, change copy/product surfaces; do not
   weaken the gate.
