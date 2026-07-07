@@ -253,6 +253,15 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
             <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Frame / Reframe
             </h4>
+            {synthesis && (
+              <p
+                className="text-xs leading-5 text-slate-500 dark:text-slate-400"
+                data-testid={`topic-card-stance-unavailable-${item.topic_id}`}
+              >
+                Stance controls are unavailable here; this table is not joined to an
+                accepted-current story synthesis.
+              </p>
+            )}
             <BiasTable
               analyses={[]}
               frames={synthesis?.frames ?? []}
@@ -260,7 +269,7 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
               topicId={item.topic_id}
               synthesisId={synthesis?.synthesis_id}
               epoch={synthesis?.epoch}
-              votingEnabled={Boolean(synthesis)}
+              votingEnabled={false}
             />
           </section>
 

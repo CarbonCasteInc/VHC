@@ -5,14 +5,34 @@ import type { SynthesisState } from './types';
 const gunMocks = vi.hoisted(() => ({
   getTopicLatestSynthesisChain: vi.fn(),
   getTopicLatestSynthesisCorrectionChain: vi.fn(),
-  hasForbiddenSynthesisPayloadFields: vi.fn<(payload: unknown) => boolean>()
+  hasForbiddenSynthesisPayloadFields: vi.fn<(payload: unknown) => boolean>(),
+  // Defaults to the real parser (via the mock factory); a test may override
+  // it to exercise the defensive rejection path in ingestSynthesis.
+  parseTopicLatestSynthesisRecord: null as
+    | null
+    | ((...args: unknown[]) => Promise<unknown>)
 }));
 
-vi.mock('@vh/gun-client', () => ({
-  getTopicLatestSynthesisChain: gunMocks.getTopicLatestSynthesisChain,
-  getTopicLatestSynthesisCorrectionChain: gunMocks.getTopicLatestSynthesisCorrectionChain,
-  hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields
-}));
+// The real parseTopicLatestSynthesisRecord stays in place by default so
+// hydration ingestion exercises the actual fail-closed system-writer
+// validation; a test can override gunMocks.parseTopicLatestSynthesisRecord.
+vi.mock('@vh/gun-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@vh/gun-client')>();
+  return {
+    ...actual,
+    getTopicLatestSynthesisChain: gunMocks.getTopicLatestSynthesisChain,
+    getTopicLatestSynthesisCorrectionChain: gunMocks.getTopicLatestSynthesisCorrectionChain,
+    hasForbiddenSynthesisPayloadFields: gunMocks.hasForbiddenSynthesisPayloadFields,
+    parseTopicLatestSynthesisRecord: (...args: unknown[]) =>
+      (gunMocks.parseTopicLatestSynthesisRecord ?? actual.parseTopicLatestSynthesisRecord)(
+        ...(args as Parameters<typeof actual.parseTopicLatestSynthesisRecord>)
+      )
+  };
+});
+
+async function flushIngest(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 {
   return {
@@ -140,6 +160,7 @@ function createStore() {
     getTopicState: vi.fn(),
     setTopicSynthesis: vi.fn(),
     setTopicCorrection: vi.fn(),
+    setTopicInvalid: vi.fn(),
     setTopicHydrated: vi.fn(),
     setTopicLoading: vi.fn(),
     setTopicError: vi.fn(),
@@ -163,6 +184,7 @@ describe('hydrateSynthesisStore', () => {
     gunMocks.hasForbiddenSynthesisPayloadFields.mockReset();
     gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
     gunMocks.hasForbiddenSynthesisPayloadFields.mockReturnValue(false);
+    gunMocks.parseTopicLatestSynthesisRecord = null;
     vi.resetModules();
   });
 
@@ -224,6 +246,7 @@ describe('hydrateSynthesisStore', () => {
       epoch: 3
     });
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    await flushIngest();
 
     expect(chain.onSpy).toHaveBeenCalledTimes(1);
     expect(chain.onceSpy).toHaveBeenCalledTimes(2);
@@ -241,8 +264,7 @@ describe('hydrateSynthesisStore', () => {
     const { store, state } = createStore();
 
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushIngest();
 
     expect(chain.getSpy).toHaveBeenCalledWith('__topic_synthesis_json');
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-scalar' }));
@@ -283,8 +305,7 @@ describe('hydrateSynthesisStore', () => {
     const { store, state } = createStore();
 
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
     expect(state.setTopicCorrection).not.toHaveBeenCalled();
@@ -350,6 +371,7 @@ describe('hydrateSynthesisStore', () => {
     expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
     releaseSynthesisHydration(store, 'topic-1');
     chain.emit(synthesis());
+    await flushIngest();
 
     expect(chain.offSpy).toHaveBeenCalledTimes(2);
     expect(chain.offSpy).toHaveBeenNthCalledWith(1, expect.any(Function));
@@ -373,6 +395,7 @@ describe('hydrateSynthesisStore', () => {
     releaseSynthesisHydration(store, 'topic-1');
     releaseSynthesisHydration(store, '   ');
     chain.emit(synthesis());
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
   });
@@ -425,6 +448,7 @@ describe('hydrateSynthesisStore', () => {
     hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
 
     chain.emit({ _: { '#': 'meta' }, ...synthesis() });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
     expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
@@ -448,6 +472,7 @@ describe('hydrateSynthesisStore', () => {
       synthesis_id: 'synth-3',
       epoch: 3
     });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
     expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
@@ -503,6 +528,43 @@ describe('hydrateSynthesisStore', () => {
     expect(state.setTopicError).toHaveBeenCalledWith('topic-1', null);
   });
 
+  it('leaves state unchanged when synthesis validation rejects unexpectedly', async () => {
+    const synthesisChain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(synthesisChain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+    gunMocks.parseTopicLatestSynthesisRecord = () => Promise.reject(new Error('boom'));
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+    synthesisChain.emit({ _: { '#': 'meta' }, ...synthesis() });
+    await flushIngest();
+
+    expect(state.setTopicInvalid).not.toHaveBeenCalled();
+    expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    expect(state.setTopicHydrated).not.toHaveBeenCalled();
+  });
+
+  it('ignores correction envelopes whose scalar payload is non-string or unparseable', async () => {
+    const correctionChain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue({ on: undefined });
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue(correctionChain.chain);
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+
+    // Non-string scalar under the envelope key -> decode returns null.
+    correctionChain.emit({ __topic_synthesis_correction_json: 42 });
+    // Malformed JSON string -> JSON.parse throws -> decode returns null.
+    correctionChain.emit({ __topic_synthesis_correction_json: '{not valid json' });
+
+    expect(state.setTopicCorrection).not.toHaveBeenCalled();
+    expect(state.setTopicHydrated).not.toHaveBeenCalled();
+  });
+
   it('ignores forbidden, invalid, and cross-topic correction payloads', async () => {
     const correctionChain = createSubscribableChain();
     gunMocks.getTopicLatestSynthesisChain.mockReturnValue({ on: undefined });
@@ -544,10 +606,45 @@ describe('hydrateSynthesisStore', () => {
     chain.emit(synthesis({ topic_id: 'topic-2' }));
     chain.emit({ __topic_synthesis_json: '{' });
     chain.emit({ __topic_synthesis_json: JSON.stringify({ ...synthesis(), token: 'forbidden' }) });
+    await flushIngest();
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
     expect(state.setTopicCorrection).not.toHaveBeenCalled();
+    expect(state.setTopicInvalid).not.toHaveBeenCalled();
     expect(state.setTopicHydrated).not.toHaveBeenCalled();
     expect(state.setTopicError).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on invalid system-writer latest records and flags the topic invalid', async () => {
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const { hydrateSynthesisStore } = await import('./hydration');
+      const { store, state } = createStore();
+      const client = { config: {} };
+
+      hydrateSynthesisStore(() => client as never, store, 'topic-1');
+
+      chain.emit({
+        _writerKind: 'system',
+        _protocolVersion: 'luma-public-v1',
+        _systemWriterId: 'vh-system-writer-dev-v1',
+        _systemIssuedAt: 1_700_000_000_000,
+        _systemSignature: 'tampered-signature',
+        __topic_synthesis_json: JSON.stringify(synthesis()),
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-3',
+        epoch: 3
+      });
+      await flushIngest();
+
+      expect(state.setTopicInvalid).toHaveBeenCalledWith('topic-1', true);
+      expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

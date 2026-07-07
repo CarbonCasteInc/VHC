@@ -22,6 +22,9 @@ export interface UseSynthesisResult {
   /** Effective detail status after applying correction state. */
   readonly effectiveStatus: SynthesisTopicState['effectiveStatus'];
 
+  /** Whether the latest record failed system-writer validation (fail-closed). */
+  readonly invalid: boolean;
+
   /** Whether live hydration has been attached for the topic. */
   readonly hydrated: boolean;
 
@@ -41,6 +44,7 @@ const EMPTY_TOPIC_STATE: SynthesisTopicState = {
   synthesis: null,
   correction: null,
   effectiveStatus: 'synthesis_unavailable',
+  invalid: false,
   hydrated: false,
   loading: false,
   error: null
@@ -88,6 +92,7 @@ export function useSynthesis(topicId?: string | null): UseSynthesisResult {
     synthesis: topicState.synthesis,
     correction: topicState.correction,
     effectiveStatus: topicState.effectiveStatus,
+    invalid: topicState.invalid,
     hydrated: topicState.hydrated,
     loading: topicState.loading,
     error: topicState.error,

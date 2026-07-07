@@ -134,7 +134,10 @@ function isForbiddenSynthesisKey(key: string): boolean {
   if (normalized.endsWith('_token')) {
     return true;
   }
-  return normalized.includes('oauth') || normalized.includes('bearer') || normalized.includes('nullifier');
+  return normalized.includes('oauth')
+    || normalized.includes('bearer')
+    || normalized.includes('nullifier')
+    || normalized.includes('secret');
 }
 
 /** Defensive privacy guard for public synthesis paths. */
@@ -924,6 +927,25 @@ export async function readTopicLatestSynthesis(client: VennClient, topicId: stri
   return result.state === 'valid' ? result.synthesis : null;
 }
 
+/**
+ * Fail-closed parser for latest-synthesis records delivered outside the pull
+ * read path (live Gun subscriptions/snapshots). Applies the same system-writer
+ * validation as `readTopicLatestSynthesisStatus`, so hydration consumers can
+ * distinguish invalid records (`blocked`) from absent/legacy noise.
+ */
+export async function parseTopicLatestSynthesisRecord(
+  client: VennClient,
+  topicId: string,
+  data: unknown,
+): Promise<TopicSynthesisReadResult> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  return parseSynthesisFromStoredRecord(client, {
+    path: topicLatestPath(normalizedTopicId),
+    topicId: normalizedTopicId,
+    data,
+  });
+}
+
 export async function readTopicLatestSynthesisViaRelayRest(
   client: VennClient,
   topicId: string,
@@ -985,6 +1007,33 @@ export async function readTopicLatestSynthesisWithRelayRestFallback(
       RELAY_REST_READ_TIMEOUT_MS + 1_000,
     ),
   ]);
+}
+
+/**
+ * Latest-synthesis read with relay REST fallback that preserves the
+ * fail-closed read state: a `blocked` direct read (invalid system-writer
+ * record) stays observable instead of collapsing into "not found".
+ */
+export async function readTopicLatestSynthesisStatusWithRelayRestFallback(
+  client: VennClient,
+  topicId: string,
+): Promise<TopicSynthesisReadResult> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const relayRead = timeoutAsNull(
+    readTopicLatestSynthesisViaRelayRest(client, normalizedTopicId),
+    RELAY_REST_READ_TIMEOUT_MS + 1_000,
+  );
+  const direct = await readTopicLatestSynthesisStatus(client, normalizedTopicId);
+  if (direct.state !== 'legacy-invalid') {
+    // valid records win immediately; blocked records must stay observable
+    // rather than being masked by an unvalidated relay payload.
+    return direct;
+  }
+  const relay = await relayRead;
+  if (relay) {
+    return { state: 'valid', synthesis: relay };
+  }
+  return direct;
 }
 
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {

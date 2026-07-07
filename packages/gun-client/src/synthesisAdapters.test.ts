@@ -29,8 +29,10 @@ import {
   readTopicDigest,
   readTopicEpochCandidate,
   readTopicEpochCandidates,
+  parseTopicLatestSynthesisRecord,
   readTopicEpochSynthesis,
   readTopicLatestSynthesisStatus,
+  readTopicLatestSynthesisStatusWithRelayRestFallback,
   readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
   readTopicSynthesisCorrection,
@@ -507,6 +509,8 @@ describe('synthesisAdapters', () => {
     expect(hasForbiddenSynthesisPayloadFields({ custom_token: 'bad' })).toBe(true);
     expect(hasForbiddenSynthesisPayloadFields({ nested: { identity_session: 'bad' } })).toBe(true);
     expect(hasForbiddenSynthesisPayloadFields({ nested: [{ safe: true }, { bearer: 'bad' }] })).toBe(true);
+    expect(hasForbiddenSynthesisPayloadFields({ client_secret: 'bad' })).toBe(true);
+    expect(hasForbiddenSynthesisPayloadFields({ nested: { provider_secret: 'bad' } })).toBe(true);
 
     const cyclic: Record<string, unknown> = { ok: true };
     cyclic.self = cyclic;
@@ -754,6 +758,66 @@ describe('synthesisAdapters', () => {
       state: 'valid',
       synthesis: SYNTHESIS,
     });
+  });
+
+  it('relay-rest status fallback returns a valid direct read without consulting the relay', async () => {
+    const { mesh, client, latestRecord } = await createSignedSynthesisFixture();
+    mesh.setRead('topics/topic-1/latest', latestRecord);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await expect(
+      readTopicLatestSynthesisStatusWithRelayRestFallback(client, 'topic-1'),
+    ).resolves.toEqual({ state: 'valid', synthesis: SYNTHESIS });
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    fetchSpy.mockRestore();
+  });
+
+  it('parseTopicLatestSynthesisRecord validates live records with the pull-read fail-closed semantics', async () => {
+    const { client, latestRecord } = await createSignedSynthesisFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(parseTopicLatestSynthesisRecord(client, 'topic-1', latestRecord)).resolves.toEqual({
+        state: 'valid',
+        synthesis: SYNTHESIS,
+      });
+
+      // Legacy (non-system-writer) envelope records remain readable.
+      await expect(
+        parseTopicLatestSynthesisRecord(client, 'topic-1', {
+          _: { '#': 'meta' },
+          [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(SYNTHESIS),
+          topic_id: SYNTHESIS.topic_id,
+          epoch: SYNTHESIS.epoch,
+          synthesis_id: SYNTHESIS.synthesis_id,
+        }),
+      ).resolves.toEqual({ state: 'valid', synthesis: SYNTHESIS });
+
+      // Tampered system-writer records fail closed as blocked.
+      await expect(
+        parseTopicLatestSynthesisRecord(client, 'topic-1', {
+          ...latestRecord,
+          [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify({ ...SYNTHESIS, facts_summary: 'Tampered' }),
+        }),
+      ).resolves.toEqual({ state: 'blocked' });
+      await expect(
+        parseTopicLatestSynthesisRecord(client, 'topic-1', {
+          ...latestRecord,
+          _systemSignature: `${String(latestRecord._systemSignature)}tampered`,
+        }),
+      ).resolves.toEqual({ state: 'blocked' });
+
+      // Absent or malformed live payloads stay legacy-invalid, not blocked.
+      await expect(parseTopicLatestSynthesisRecord(client, 'topic-1', undefined)).resolves.toEqual({
+        state: 'legacy-invalid',
+      });
+      await expect(parseTopicLatestSynthesisRecord(client, 'topic-1', { invalid: true })).resolves.toEqual({
+        state: 'legacy-invalid',
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('rejects tampered or path-mismatched system writer synthesis records', async () => {
