@@ -37,6 +37,70 @@ describe('TopologyGuard', () => {
     ).toThrow();
   });
 
+  describe('district-aggregate k-anonymity carve-out (§9.4)', () => {
+    const AGGREGATE_PATH = 'vh/aggregates/topics/topic-1/districts/district-1/summary';
+
+    function districtSummary(overrides: Record<string, unknown> = {}) {
+      return {
+        schema_version: 'district-aggregate-summary-v1',
+        district_hash: 'district-1',
+        office: 'house',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 1,
+        cohortSize: 100,
+        points: [{ point_id: 'p1', agree: 60, disagree: 40 }],
+        computed_at: 1,
+        source_snapshot_version: 'point-aggregate-snapshot-v1',
+        ...overrides,
+      };
+    }
+
+    it('allows an aggregate district record with cohortSize 100', () => {
+      const guard = new TopologyGuard();
+      expect(() => guard.validateWrite(AGGREGATE_PATH, districtSummary())).not.toThrow();
+    });
+
+    it('rejects an aggregate district record with cohortSize 99', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ cohortSize: 99 })),
+      ).toThrow(/requires integer cohortSize >= 100/);
+    });
+
+    it('rejects an aggregate district record with missing cohortSize', () => {
+      const guard = new TopologyGuard();
+      const { cohortSize: _dropped, ...withoutCohort } = districtSummary();
+      expect(() => guard.validateWrite(AGGREGATE_PATH, withoutCohort)).toThrow(
+        /requires integer cohortSize >= 100/,
+      );
+    });
+
+    it('rejects district_hash on a non-aggregate public path even with a valid cohortSize', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/forum/threads/thread-1', {
+          district_hash: 'district-1',
+          cohortSize: 100,
+        }),
+      ).toThrow(/non-aggregate public record carries district_hash/);
+    });
+
+    it('rejects an aggregate district record paired with a person-level identifier', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ voter_id: 'derived-but-person-level' })),
+      ).toThrow(/person-level identifier/);
+    });
+
+    it('rejects a provider display label inside an aggregate district record', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite(AGGREGATE_PATH, districtSummary({ displayLabel: 'Jane D.' })),
+      ).toThrow(/PII in public path/);
+    });
+  });
+
   it('blocks account-provider identity material in public paths', () => {
     const guard = new TopologyGuard();
     expect(() =>

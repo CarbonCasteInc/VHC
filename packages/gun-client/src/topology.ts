@@ -20,6 +20,7 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/aggregates/topics/*/engagement/summary', classification: 'public' },
   { pathPrefix: 'vh/aggregates/topics/*/syntheses/*/epochs/*/voters/*', classification: 'public' },
   { pathPrefix: 'vh/aggregates/topics/*/syntheses/*/epochs/*/points/*', classification: 'public' },
+  { pathPrefix: 'vh/aggregates/topics/*/districts/*/summary', classification: 'public' },
   // Wave 0 contract registrations
   { pathPrefix: 'vh/news/stories/', classification: 'public' },
   { pathPrefix: 'vh/news/stories/*', classification: 'public' },
@@ -83,12 +84,93 @@ const FORBIDDEN_ACCOUNT_PROVIDER_KEYS = new Set([
   'regioncode',
 ]);
 
+// k-anonymity floor for public records carrying district_hash
+// (spec-luma-service-v0 §9.4, MIN_DISTRICT_COHORT_SIZE).
+const MIN_DISTRICT_COHORT_SIZE = 100;
+
+function normalizedKey(key: string): string {
+  return key.replace(/[-_]/g, '').toLowerCase();
+}
+
+// Person-level identifiers that must never be co-published with district_hash,
+// mirroring check-public-namespace-leaks.mjs isPersonIdentifierKey.
+function isPersonIdentifierKey(key: string): boolean {
+  return [
+    'author',
+    'publicauthor',
+    'reporterid',
+    'nominatorauthorid',
+    'nominatornullifier',
+    'principalnullifier',
+    'nullifier',
+    'voterid',
+  ].includes(normalizedKey(key));
+}
+
+function collectKeysDeep(value: unknown, out: string[] = []): string[] {
+  if (value === null || typeof value !== 'object') return out;
+  if (Array.isArray(value)) {
+    for (const entry of value) collectKeysDeep(entry, out);
+    return out;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    out.push(key);
+    collectKeysDeep(child, out);
+  }
+  return out;
+}
+
+function containsDistrictHashKey(value: unknown): boolean {
+  return collectKeysDeep(value).some((k) => normalizedKey(k) === 'districthash');
+}
+
+// The single allow-listed public class that may carry district_hash: aggregate
+// cohort records under vh/aggregates/**/districts/<hash>/<record>, mirroring
+// check-public-namespace-leaks.mjs isAggregateCohortPath.
+function isAggregateCohortPath(path: string): boolean {
+  return (
+    /^vh\/aggregates\/.+\/districts\/[^/]+\/[^/]+\/?$/.test(path)
+    || path.startsWith('vh/bridge/stats/')
+  );
+}
+
+/**
+ * Validate a public payload that carries district_hash.
+ *
+ * Fail-closed rule (spec-luma-service-v0 §9.4): a record containing
+ * district_hash is permitted ONLY when it targets an allow-listed aggregate
+ * cohort path AND declares an integer cohortSize >= MIN_DISTRICT_COHORT_SIZE AND
+ * carries no person-level identifier keys. This is the runtime mirror of the
+ * check-public-namespace-leaks.mjs lint; district_hash stays unconditionally
+ * rejected everywhere else.
+ */
+function validateDistrictAggregatePayload(path: string, data: unknown): void {
+  if (!isAggregateCohortPath(path)) {
+    throw new Error(`Topology violation: non-aggregate public record carries district_hash at ${path}`);
+  }
+  const cohortSize = isRecord(data) ? Number((data as Record<string, unknown>).cohortSize) : Number.NaN;
+  if (!Number.isInteger(cohortSize) || cohortSize < MIN_DISTRICT_COHORT_SIZE) {
+    throw new Error(
+      `Topology violation: district_hash aggregate at ${path} requires integer cohortSize >= ${MIN_DISTRICT_COHORT_SIZE}`,
+    );
+  }
+  const personKey = collectKeysDeep(data).find((k) => isPersonIdentifierKey(k));
+  if (personKey) {
+    throw new Error(
+      `Topology violation: district_hash aggregate at ${path} is paired with a person-level identifier (${personKey})`,
+    );
+  }
+}
+
+// Unconditional public-path PII (never allowed regardless of path). district_hash
+// is intentionally excluded here — it is handled by the k-anonymity carve-out in
+// validateWrite so allow-listed aggregate records can publish it.
 function containsPII(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
   const keys = Object.keys(value as Record<string, unknown>);
   return keys.some((k) => {
     const lower = k.toLowerCase();
-    if (['nullifier', 'district_hash', 'email', 'wallet', 'address'].some((pii) => lower.includes(pii))) {
+    if (['nullifier', 'email', 'wallet', 'address'].some((pii) => lower.includes(pii))) {
       return true;
     }
     return FORBIDDEN_ACCOUNT_PROVIDER_KEYS.has(lower.replace(/[-_]/g, ''));
@@ -148,6 +230,12 @@ export class TopologyGuard {
     if (rule.classification === 'public') {
       if (containsPII(data)) {
         throw new Error(`Topology violation: PII in public path ${path}`);
+      }
+      // district_hash is fail-closed everywhere except allow-listed aggregate
+      // cohort records that meet the §9.4 k-anonymity floor and carry no
+      // person-level identifier.
+      if (containsDistrictHashKey(data)) {
+        validateDistrictAggregatePayload(path, data);
       }
     }
     if (rule.classification === 'sensitive') {
