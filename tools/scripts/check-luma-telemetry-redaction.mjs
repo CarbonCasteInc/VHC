@@ -40,7 +40,7 @@ export const EXPECTED_LUMA_EVENT_TYPES = Object.freeze([
 ]);
 
 const DIRECT_CONSOLE_PATTERN = /\bconsole\.(?:log|info|warn|error|debug)\s*\(/;
-const SECRET_IDENTIFIER_PATTERN = /\b(?:nullifier|deviceCredential|sessionToken|rawSignatureBytes|rawEnvelopeJson|vaultMasterKey|privateKey|secretKey|districtHash|regionCode)\b/i;
+const SECRET_IDENTIFIER_PATTERN = /\b(?:nullifier|deviceCredential|sessionToken|rawSignatureBytes|rawEnvelopeJson|vaultMasterKey|privateKey|secretKey|districtHash|regionCode|access_?token|refresh_?token|id_?token|provider_?subject|provider_?label|display_?label|client_?secret|oauth_?code)\b/i;
 const SECRET_EQUALITY_PATTERN = /(?:===|!==)/;
 const NULLISH_PATTERN = /\b(?:null|undefined)\b/;
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);

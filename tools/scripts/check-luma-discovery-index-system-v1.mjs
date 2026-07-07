@@ -137,13 +137,36 @@ for (const token of [
 for (const token of [
   'createSignedWriteEnvelope',
   'verifySignedWriteEnvelope',
-  '@vh/luma-sdk',
   'canPerform(',
   'subtle.sign(',
   'createPrivateKey(',
   'crypto.sign(',
 ]) {
   forbidToken(adapterSource, token, 'discovery system writer adapter');
+}
+
+// Discovery is a system-writer surface: LUMA identity signing must stay out.
+// Redaction-safe logging via lumaLog is the sole permitted @vh/luma-sdk import
+// (same pattern as aggregateAdapters.ts).
+for (const importMatch of adapterSource.matchAll(
+  /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*'@vh\/luma-sdk'/g
+)) {
+  const importedNames = importMatch[1]
+    .split(',')
+    .map((entry) => entry.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0])
+    .filter(Boolean);
+  for (const name of importedNames) {
+    if (name !== 'lumaLog') {
+      failures.push(
+        `discovery system writer adapter imports forbidden @vh/luma-sdk symbol ${name} (only lumaLog is allowed)`
+      );
+    }
+  }
+}
+if (/from\s*'@vh\/luma-sdk\//.test(adapterSource)) {
+  failures.push(
+    'discovery system writer adapter imports a @vh/luma-sdk subpath (only the lumaLog named import is allowed)'
+  );
 }
 
 const writeDiscoveryItem = sliceExportedFunction(adapterSource, 'writeDiscoveryItem');

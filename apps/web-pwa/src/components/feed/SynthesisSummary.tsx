@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { TopicSynthesisV2 } from '@vh/data-model';
+import { DivergenceBadge } from './DivergenceBadge';
 
 export interface SynthesisSummaryProps {
   /** Validated TopicSynthesisV2 payload. */
@@ -72,15 +73,7 @@ export const SynthesisSummary: React.FC<SynthesisSummaryProps> = ({ synthesis })
       )}
 
       {/* Divergence indicator */}
-      {synthesis.divergence_metrics.disagreement_score > 0.5 && (
-        <span
-          className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700"
-          data-testid="synthesis-divergence"
-          title={`Disagreement: ${(synthesis.divergence_metrics.disagreement_score * 100).toFixed(0)}%`}
-        >
-          ⚡ High divergence
-        </span>
-      )}
+      <DivergenceBadge score={synthesis.divergence_metrics.disagreement_score} label="⚡ High divergence" />
     </div>
   );
 };
