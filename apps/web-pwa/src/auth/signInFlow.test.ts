@@ -81,7 +81,7 @@ describe('PKCE primitives', () => {
 });
 
 describe('provider availability', () => {
-  it('real providers require a configured base URL', () => {
+  it('real providers require a configured base URL when not in e2e mode', () => {
     expect(isSignInProviderAvailable('apple', realEnv())).toBe(true);
     expect(isSignInProviderAvailable('google', {})).toBe(false);
     expect(isSignInProviderAvailable('apple', { VITE_AUTH_CALLBACK_BASE_URL: '  ' })).toBe(false);
@@ -90,17 +90,17 @@ describe('provider availability', () => {
 
   it('rejects unknown providers', () => {
     expect(isSignInProviderAvailable('reddit' as SignInFlowProvider, realEnv())).toBe(false);
+    expect(isSignInProviderAvailable('reddit' as SignInFlowProvider, e2eEnv())).toBe(false);
   });
 
-  it('mock provider requires e2e mode', () => {
-    expect(isSignInProviderAvailable('mock', e2eEnv())).toBe(true);
-    expect(isSignInProviderAvailable('mock', {})).toBe(false);
+  it('e2e mode makes every real provider available without a base URL', () => {
+    expect(isSignInProviderAvailable('apple', e2eEnv())).toBe(true);
+    expect(isSignInProviderAvailable('x', e2eEnv())).toBe(true);
   });
 
   it('lists available providers for a real build and an e2e build', () => {
     expect(availableSignInProviders(realEnv())).toEqual(['apple', 'google', 'x']);
-    expect(availableSignInProviders(e2eEnv())).toEqual(['mock']);
-    expect(availableSignInProviders(realEnv(e2eEnv()))).toEqual(['apple', 'google', 'x', 'mock']);
+    expect(availableSignInProviders(e2eEnv())).toEqual(['apple', 'google', 'x']);
     expect(availableSignInProviders({})).toEqual([]);
   });
 
@@ -122,17 +122,17 @@ describe('startSignIn', () => {
     await expect(startSignIn('apple', {})).rejects.toMatchObject({ reason: 'provider_unsupported' });
   });
 
-  it('starts a mock flow with a synthetic authorize URL and default route', async () => {
-    const result = await startSignIn('mock', e2eEnv());
-    expect(result.provider).toBe('mock');
-    expect(result.authorizeUrl).toContain('/auth/callback?provider=mock&code=mock-code&state=');
-    expect(result.state).toMatch(/^mock-state-/);
-    expect(sessionStorage.getItem('vh:sign-in:pending-v1')).toContain('mock');
+  it('starts an e2e mock flow with a synthetic authorize URL and default route', async () => {
+    const result = await startSignIn('apple', e2eEnv());
+    expect(result.provider).toBe('apple');
+    expect(result.authorizeUrl).toContain('/auth/callback?provider=apple&code=mock-code&state=');
+    expect(result.state).toMatch(/^mock-state-apple-/);
+    expect(sessionStorage.getItem('vh:sign-in:pending-v1')).toContain('apple');
   });
 
-  it('honours a custom callback route for the mock flow', async () => {
-    const result = await startSignIn('mock', e2eEnv({ VITE_AUTH_CALLBACK_ROUTE: '/custom/cb' }));
-    expect(result.authorizeUrl).toContain('/custom/cb?provider=mock');
+  it('honours a custom callback route for the e2e mock flow', async () => {
+    const result = await startSignIn('google', e2eEnv({ VITE_AUTH_CALLBACK_ROUTE: '/custom/cb' }));
+    expect(result.authorizeUrl).toContain('/custom/cb?provider=google');
   });
 
   it('posts the challenge to the boundary and returns the authorize URL', async () => {
@@ -200,23 +200,30 @@ describe('boundary_unconfigured on start', () => {
 });
 
 describe('completeSignIn', () => {
-  async function primeMockPending(env = e2eEnv()): Promise<string> {
-    const started = await startSignIn('mock', env);
+  async function primeMockPending(provider: SignInFlowProvider = 'apple', env = e2eEnv()): Promise<string> {
+    const started = await startSignIn(provider, env);
     return started.state;
   }
 
-  it('completes a mock flow and clears pending state', async () => {
+  it('completes an e2e mock flow and clears pending state', async () => {
     const state = await primeMockPending();
     const session = await completeSignIn({ code: 'mock-code', state, nowMs: 1000 }, e2eEnv());
     expect(session).toEqual({
       schemaVersion: 'vh-auth-session-v1',
       providerId: 'apple',
-      providerSubject: expect.stringMatching(/^mock-subject-/),
-      displayLabel: 'mock@example.com',
+      providerSubject: expect.stringMatching(/^mock-subject-apple-/),
+      displayLabel: 'mock-apple@example.com',
       issuedAt: 1000,
       expiresAt: 1000 + 3600_000,
     });
     expect(sessionStorage.getItem('vh:sign-in:pending-v1')).toBeNull();
+  });
+
+  it('carries the chosen provider through the mock session', async () => {
+    const state = await primeMockPending('x');
+    const session = await completeSignIn({ code: 'mock-code', state, nowMs: 5 }, e2eEnv());
+    expect(session.providerId).toBe('x');
+    expect(session.displayLabel).toBe('mock-x@example.com');
   });
 
   it('defaults nowMs to Date.now for the mock flow', async () => {
@@ -224,13 +231,6 @@ describe('completeSignIn', () => {
     vi.spyOn(Date, 'now').mockReturnValue(7);
     const session = await completeSignIn({ code: 'mock-code', state }, e2eEnv());
     expect(session.issuedAt).toBe(7);
-  });
-
-  it('rejects the mock flow outside e2e mode', async () => {
-    const state = await primeMockPending();
-    await expect(completeSignIn({ code: 'mock-code', state }, {})).rejects.toMatchObject({
-      reason: 'provider_unsupported',
-    });
   });
 
   it('rejects when there is no pending flow', async () => {
@@ -360,14 +360,24 @@ describe('pending-flow custody edge cases', () => {
   });
 
   it('ignores a structurally invalid pending record', async () => {
-    sessionStorage.setItem('vh:sign-in:pending-v1', JSON.stringify({ provider: 'mock', codeVerifier: '', state: 's' }));
+    sessionStorage.setItem('vh:sign-in:pending-v1', JSON.stringify({ provider: 'apple', codeVerifier: '', state: 's' }));
+    await expect(completeSignIn({ code: 'c', state: 's' }, e2eEnv())).rejects.toMatchObject({
+      reason: 'pending_flow_missing',
+    });
+  });
+
+  it('ignores a pending record with an unknown provider', async () => {
+    sessionStorage.setItem(
+      'vh:sign-in:pending-v1',
+      JSON.stringify({ provider: 'reddit', codeVerifier: 'v'.repeat(43), state: 's' }),
+    );
     await expect(completeSignIn({ code: 'c', state: 's' }, e2eEnv())).rejects.toMatchObject({
       reason: 'pending_flow_missing',
     });
   });
 
   it('clearPendingSignIn removes the stashed material', async () => {
-    await startSignIn('mock', e2eEnv());
+    await startSignIn('apple', e2eEnv());
     expect(sessionStorage.getItem('vh:sign-in:pending-v1')).not.toBeNull();
     clearPendingSignIn();
     expect(sessionStorage.getItem('vh:sign-in:pending-v1')).toBeNull();
@@ -379,7 +389,7 @@ describe('sessionStorage unavailable', () => {
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
     Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: undefined });
     try {
-      const started = await startSignIn('mock', e2eEnv());
+      const started = await startSignIn('apple', e2eEnv());
       await expect(completeSignIn({ code: 'mock-code', state: started.state }, e2eEnv())).rejects.toMatchObject({
         reason: 'pending_flow_missing',
       });
@@ -400,7 +410,7 @@ describe('sessionStorage unavailable', () => {
     });
     try {
       // start persists nothing; complete then finds no pending flow.
-      const started = await startSignIn('mock', e2eEnv());
+      const started = await startSignIn('apple', e2eEnv());
       await expect(completeSignIn({ code: 'mock-code', state: started.state }, e2eEnv())).rejects.toMatchObject({
         reason: 'pending_flow_missing',
       });

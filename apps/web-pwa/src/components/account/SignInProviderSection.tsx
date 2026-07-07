@@ -8,7 +8,6 @@ const PROVIDER_LABELS: Record<SignInFlowProvider, string> = {
   apple: 'Apple',
   google: 'Google',
   x: 'X',
-  mock: 'Mock (test)',
 };
 
 function statusLabel(record: SignInAccountRecord | undefined): string {
@@ -26,8 +25,8 @@ export interface SignInProviderSectionProps {
  * Account sign-in provider management (Slice C3). Distinct from the
  * flag-gated linked-social notification-account feature: this drives
  * account continuity/recovery only, never human-uniqueness. Copy stays
- * inside the claim boundary — no verified-human / one-human-one-vote /
- * anonymity language.
+ * inside the beta-local claim boundary — see the plan's "Account And
+ * LUMA Semantics" for the forbidden-claim registry this must respect.
  */
 export const SignInProviderSection: React.FC<SignInProviderSectionProps> = ({ identity }) => {
   const { providers, accounts, phase, error, beginSignIn, signOutProvider } = useSignIn(identity);

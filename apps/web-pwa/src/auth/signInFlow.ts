@@ -16,10 +16,11 @@
  *      browser — that custody lives entirely in the boundary.
  *
  * Real providers are gated behind the deployment profile (a configured
- * `VITE_AUTH_CALLBACK_BASE_URL`). An E2E-only mock provider path
- * (`mock`), permitted just like PROVIDER_PROFILE_ALLOW_LIST entries in
- * dev/e2e, completes the same shaped round-trip against an in-process
- * stub with no network, so the whole flow is testable in CI.
+ * `VITE_AUTH_CALLBACK_BASE_URL`). Under `VITE_E2E_MODE` the same
+ * `apple`/`google`/`x` provider ids instead run an in-process mock
+ * exchange with no network (permitted just like the dev/e2e entries of
+ * PROVIDER_PROFILE_ALLOW_LIST), so the whole flow is testable in CI and
+ * the account record ids line up with the offered provider tiles.
  *
  * Transient PKCE material (the verifier + provider) is held in
  * `sessionStorage`, never the URL, browser history, or any `vh/*`
@@ -29,8 +30,8 @@
 
 import type { SignInProviderIdType } from '@vh/data-model';
 
-/** Providers a browser can begin sign-in with, incl. the e2e mock. */
-export type SignInFlowProvider = SignInProviderIdType | 'mock';
+/** Providers a browser can begin sign-in with. */
+export type SignInFlowProvider = SignInProviderIdType;
 
 /** Non-secret session payload the boundary returns (vh-auth-session-v1). */
 export interface SignInSessionPayload {
@@ -107,35 +108,22 @@ function callbackBaseUrl(env: SignInFlowEnv): string | null {
 
 /**
  * Whether a provider can begin a sign-in flow in the current build.
- * Real providers require a configured boundary base URL; the `mock`
- * provider is permitted only under VITE_E2E_MODE (mirroring the
- * PROVIDER_PROFILE_ALLOW_LIST dev/e2e gating).
+ * Under VITE_E2E_MODE every real provider id runs the in-process mock
+ * exchange; otherwise a provider requires a configured boundary base URL.
  */
 export function isSignInProviderAvailable(
   provider: SignInFlowProvider,
   env: SignInFlowEnv = readEnv()
 ): boolean {
-  if (provider === 'mock') {
-    return isE2eMode(env);
-  }
   if (!REAL_PROVIDERS.includes(provider)) {
     return false;
   }
-  return typeof callbackBaseUrl(env) === 'string';
+  return isE2eMode(env) || typeof callbackBaseUrl(env) === 'string';
 }
 
 /** The list of providers offered to the user in the current build. */
 export function availableSignInProviders(env: SignInFlowEnv = readEnv()): SignInFlowProvider[] {
-  const providers: SignInFlowProvider[] = [];
-  for (const provider of REAL_PROVIDERS) {
-    if (isSignInProviderAvailable(provider, env)) {
-      providers.push(provider);
-    }
-  }
-  if (isSignInProviderAvailable('mock', env)) {
-    providers.push('mock');
-  }
-  return providers;
+  return REAL_PROVIDERS.filter((provider) => isSignInProviderAvailable(provider, env));
 }
 
 function sessionStore(): Storage | null {
@@ -202,6 +190,7 @@ function readPendingFlow(): PendingFlow | null {
     const parsed = JSON.parse(raw) as Partial<PendingFlow>;
     if (
       typeof parsed?.provider !== 'string'
+      || !REAL_PROVIDERS.includes(parsed.provider as SignInProviderIdType)
       || typeof parsed.codeVerifier !== 'string'
       || parsed.codeVerifier.length === 0
       || typeof parsed.state !== 'string'
@@ -209,7 +198,7 @@ function readPendingFlow(): PendingFlow | null {
     ) {
       return null;
     }
-    return { provider: parsed.provider as SignInFlowProvider, codeVerifier: parsed.codeVerifier, state: parsed.state };
+    return { provider: parsed.provider, codeVerifier: parsed.codeVerifier, state: parsed.state };
   } catch {
     return null;
   }
@@ -254,12 +243,16 @@ function isOkObject(json: unknown): json is Record<string, unknown> {
  * vh-auth-session-v1 payload, so the client wiring is exercised end to
  * end without a network provider.
  */
-function mockSessionFor(state: string, nowMs: number): SignInSessionPayload {
+function mockSessionFor(
+  provider: SignInProviderIdType,
+  state: string,
+  nowMs: number
+): SignInSessionPayload {
   return {
     schemaVersion: 'vh-auth-session-v1',
-    providerId: 'apple',
-    providerSubject: `mock-subject-${state.slice(0, 8)}`,
-    displayLabel: 'mock@example.com',
+    providerId: provider,
+    providerSubject: `mock-subject-${provider}-${state.slice(0, 8)}`,
+    displayLabel: `mock-${provider}@example.com`,
     issuedAt: nowMs,
     expiresAt: nowMs + 3600_000,
   };
@@ -317,11 +310,11 @@ export async function startSignIn(
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await computeCodeChallenge(codeVerifier);
 
-  if (provider === 'mock') {
-    const state = `mock-state-${codeChallenge.slice(0, 16)}`;
+  if (isE2eMode(env)) {
+    const state = `mock-state-${provider}-${codeChallenge.slice(0, 16)}`;
     persistPendingFlow({ provider, codeVerifier, state });
     const callbackPath = env.VITE_AUTH_CALLBACK_ROUTE ?? '/auth/callback';
-    const authorizeUrl = `${callbackPath}?provider=mock&code=mock-code&state=${encodeURIComponent(state)}`;
+    const authorizeUrl = `${callbackPath}?provider=${provider}&code=mock-code&state=${encodeURIComponent(state)}`;
     return { provider, authorizeUrl, state };
   }
 
@@ -368,11 +361,8 @@ export async function completeSignIn(
       throw new SignInError('callback_failed', 'sign-in code missing');
     }
 
-    if (pending.provider === 'mock') {
-      if (!isE2eMode(env)) {
-        throw new SignInError('provider_unsupported', 'mock sign-in provider requires VITE_E2E_MODE');
-      }
-      return mockSessionFor(pending.state, params.nowMs ?? Date.now());
+    if (isE2eMode(env)) {
+      return mockSessionFor(pending.provider, pending.state, params.nowMs ?? Date.now());
     }
 
     const base = callbackBaseUrl(env);

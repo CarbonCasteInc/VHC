@@ -19,7 +19,7 @@ const {
     }
   }
   return {
-    availableSignInProvidersMock: vi.fn(() => ['mock']),
+    availableSignInProvidersMock: vi.fn(() => ['apple']),
     startSignInMock: vi.fn(),
     completeSignInMock: vi.fn(),
     bindSignInSessionMock: vi.fn(),
@@ -62,7 +62,7 @@ beforeEach(() => {
   clearSignInAccounts();
   clearPublishedIdentity();
   vi.clearAllMocks();
-  availableSignInProvidersMock.mockReturnValue(['mock']);
+  availableSignInProvidersMock.mockReturnValue(['apple']);
   loadSignInSessionMock.mockResolvedValue(null);
   matchesPrincipalMock.mockReturnValue(false);
 });
@@ -75,16 +75,16 @@ afterEach(() => {
 describe('useSignIn', () => {
   it('exposes available providers and current accounts', () => {
     const { result } = renderHook(() => useSignIn(bridge()));
-    expect(result.current.providers).toEqual(['mock']);
+    expect(result.current.providers).toEqual(['apple']);
     expect(result.current.accounts).toEqual([]);
   });
 
   it('beginSignIn returns the authorize URL', async () => {
-    startSignInMock.mockResolvedValue({ authorizeUrl: '/auth/callback?x=1', state: 's', provider: 'mock' });
+    startSignInMock.mockResolvedValue({ authorizeUrl: '/auth/callback?x=1', state: 's', provider: 'apple' });
     const { result } = renderHook(() => useSignIn(bridge()));
     let url: string | null = null;
     await act(async () => {
-      url = await result.current.beginSignIn('mock');
+      url = await result.current.beginSignIn('apple');
     });
     expect(url).toBe('/auth/callback?x=1');
     expect(result.current.phase).toBe('idle');
@@ -95,7 +95,7 @@ describe('useSignIn', () => {
     const { result } = renderHook(() => useSignIn(bridge()));
     let url: string | null = 'x';
     await act(async () => {
-      url = await result.current.beginSignIn('mock');
+      url = await result.current.beginSignIn('apple');
     });
     expect(url).toBeNull();
     expect(result.current.phase).toBe('error');
@@ -106,7 +106,7 @@ describe('useSignIn', () => {
     startSignInMock.mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useSignIn(bridge()));
     await act(async () => {
-      await result.current.beginSignIn('mock');
+      await result.current.beginSignIn('apple');
     });
     expect(result.current.error).toBe('sign-in failed to start');
   });
