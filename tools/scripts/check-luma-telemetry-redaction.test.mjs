@@ -125,6 +125,24 @@ test('structural type/length guards on secret fields pass', () => {
   }
 });
 
+test('secret key-name detection (token only in a quoted literal) passes, value comparison still fails', () => {
+  const root = makeFixtureRepo({
+    'packages/gun-client/src/index.ts': [
+      "export const detect = keys.some((k) => normalizeKey(k) === 'districthash');",
+      "export const detect2 = normalizeKey(k) !== 'nullifier';",
+      'export const bad = record.nullifier === expectedNullifier;',
+    ].join('\n'),
+  });
+  try {
+    const { violations } = runTelemetryRedactionChecks(root);
+    assert.ok(!violations.some((v) => v.text.includes("'districthash'")));
+    assert.ok(!violations.some((v) => v.text.includes("'nullifier'")));
+    assert.ok(violations.some((v) => v.type === 'secret-equality' && v.text.includes('record.nullifier === expectedNullifier')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('redaction-safe marker exempts a vetted secret comparison but not others', () => {
   const root = makeFixtureRepo({
     'packages/identity-vault/src/vault.ts': [

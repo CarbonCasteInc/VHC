@@ -53,6 +53,12 @@ const STRUCTURAL_GUARD_PATTERN = /\btypeof\b|\.length\s*(?:===|!==)/;
 // preserve-check comparing two in-memory field values, never logged). The
 // marker must carry a reason so every exemption is reviewable.
 const REDACTION_SAFE_MARKER = /\/\/\s*redaction-safe:/;
+// Quoted string contents (single/double/template). Used to tell a secret
+// *value* comparison (a bare `nullifier` identifier/property) apart from a
+// secret *key-name* comparison (`normalizedKey(k) === 'districthash'`), where
+// the token only ever appears inside a string literal — a detection idiom in
+// the privacy guards themselves, never a value leak.
+const QUOTED_STRING_PATTERN = /'[^']*'|"[^"]*"|`[^`]*`/g;
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 
 export const SCAN_TARGETS = Object.freeze([
@@ -135,6 +141,12 @@ function scanLineForSecretEquality(relPath, lineText, lineNumber, violations) {
     return;
   }
   if (REDACTION_SAFE_MARKER.test(lineText)) {
+    return;
+  }
+  // If the secret token only appears inside a quoted string literal (a
+  // key-name detection like `normalizedKey(k) === 'districthash'`), it is not
+  // a secret-value comparison.
+  if (!SECRET_IDENTIFIER_PATTERN.test(lineText.replace(QUOTED_STRING_PATTERN, "''"))) {
     return;
   }
   violations.push({
