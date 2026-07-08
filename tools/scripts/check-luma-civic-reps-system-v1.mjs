@@ -86,8 +86,10 @@ for (const token of [
   'SystemWriterCivicRepresentativeSnapshotRecord',
   'buildSystemWriterCivicRepresentativeSnapshotRecord',
   'parseCivicRepresentativeSnapshotFromStoredRecord',
+  'readCivicRepresentativeSnapshotForDurability',
   'pathMatchesSnapshot',
   'stripSystemWriterAndBindingFields',
+  'SYSTEM_WRITER_COMPAT_NULL_FIELDS',
   'validateSystemWriterRecord',
   'SYSTEM_WRITER_VALIDATION_EVENT',
   'RepresentativeDirectorySchema',
@@ -105,6 +107,11 @@ requireBefore(
   'buildSystemWriterCivicRepresentativeSnapshotRecord',
   'putWithAck(getCivicRepresentativeSnapshotChain',
   'writeCivicRepresentativeSnapshot signing'
+);
+requireToken(
+  writeCivicRepresentativeSnapshot,
+  'readCivicRepresentativeSnapshotForDurability',
+  'writeCivicRepresentativeSnapshot durability readback'
 );
 
 const readCivicRepresentativeSnapshot = sliceExportedFunction(adapterSource, 'readCivicRepresentativeSnapshot');
@@ -127,8 +134,11 @@ for (const token of [
   'validates real signed system writer civic representative snapshots',
   'rejects tampered or path-mismatched system writer civic representative snapshots',
   'fails closed with system-writer-validation-failed when the civic representative snapshot pin is missing',
+  'fails closed with system-writer-validation-failed when the civic representative snapshot signature is invalid',
   'keeps legacy civic representative snapshots readable and rejects downgraded legacy fields',
   'rejects unmarked and clean legacy-marked civic representative snapshots when reject-unmarked mode is on',
+  'confirms snapshot writes after ack timeout with content-only readback when verification pin is unavailable',
+  'rejects snapshot writes when durability readback is absent or schema-invalid',
 ]) {
   requireToken(adapterTestSource, token, 'civic representative system writer tests');
 }
