@@ -12,6 +12,8 @@ import {
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
   isSystemWriterPin,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -174,6 +176,11 @@ async function parseCivicRepresentativeSnapshotFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(civicRepresentativeSnapshotPath(jurisdictionVersion)));
     return null;
   }
 

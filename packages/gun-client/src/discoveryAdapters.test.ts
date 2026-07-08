@@ -259,6 +259,19 @@ async function createSignedDiscoveryFixture(): Promise<{
   return { mesh, client, itemRecord, indexRecord, sign: hooks.sign };
 }
 
+function withRejectUnmarkedFlag(): () => void {
+  const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> };
+  const previous = target.__VH_IMPORT_META_ENV__;
+  target.__VH_IMPORT_META_ENV__ = { VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true' };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_IMPORT_META_ENV__;
+    } else {
+      target.__VH_IMPORT_META_ENV__ = previous;
+    }
+  };
+}
+
 describe('discoveryAdapters', () => {
   it('rejects blank, multi-segment, and private MY_ACTIVITY discovery paths before chain access', async () => {
     const mesh = createFakeMesh();
@@ -622,6 +635,74 @@ describe('discoveryAdapters', () => {
         }),
       );
     } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('rejects unmarked and clean legacy-marked discovery records when reject-unmarked mode is on', async () => {
+    const { mesh, client, itemRecord, indexRecord } = await createSignedDiscoveryFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    const legacyItem = { _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION, ...BASE_ITEM };
+    const legacyIndex = { _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION, ...BASE_INDEX_PAGE };
+
+    try {
+      // Signed records still read back flag-on (the marked branch runs and
+      // validates before the reject-unmarked check).
+      mesh.setRead('discovery/items/topic-1', { _: { '#': 'metadata' }, ...itemRecord });
+      mesh.setRead('discovery/index/ALL/LATEST/page-1', { _: { '#': 'metadata' }, ...indexRecord });
+      await expect(readDiscoveryItem(client, 'topic-1')).resolves.toEqual(BASE_ITEM);
+      await expect(readDiscoveryIndexPage(client, 'ALL', 'LATEST', 'page-1')).resolves.toEqual(BASE_INDEX_PAGE);
+
+      // Bare-unmarked AND clean legacy-marked item records are refused flag-on.
+      for (const record of [{ ...BASE_ITEM }, legacyItem]) {
+        warnSpy.mockClear();
+        mesh.setRead('discovery/items/topic-1', record);
+        await expect(readDiscoveryItem(client, 'topic-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:discovery] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      // Bare-unmarked AND clean legacy-marked index pages are refused flag-on.
+      for (const record of [{ ...BASE_INDEX_PAGE }, legacyIndex]) {
+        warnSpy.mockClear();
+        mesh.setRead('discovery/index/ALL/LATEST/page-1', record);
+        await expect(readDiscoveryIndexPage(client, 'ALL', 'LATEST', 'page-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:discovery] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+        }),
+      );
+    } finally {
+      restoreFlag();
       vi.unstubAllGlobals();
       warnSpy.mockRestore();
     }

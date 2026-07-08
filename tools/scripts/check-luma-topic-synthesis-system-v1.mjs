@@ -103,7 +103,7 @@ for (const token of [
   'readTopicLatestSynthesisStatus',
   'validateSystemWriterRecord',
   'SYSTEM_WRITER_VALIDATION_EVENT',
-  "'unmarked-record-rejected'",
+  'unmarkedRecordRejectedFailure',
   'rejectUnmarkedSystemRecords',
   'system writer signer is required for topic synthesis writes',
   'system writer signer is required for topic synthesis latest writes',

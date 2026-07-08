@@ -268,6 +268,19 @@ async function createSignedSummaryFixture(): Promise<{
   return { mesh, client, summaryRecord };
 }
 
+function withRejectUnmarkedFlag(): () => void {
+  const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> };
+  const previous = target.__VH_IMPORT_META_ENV__;
+  target.__VH_IMPORT_META_ENV__ = { VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true' };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_IMPORT_META_ENV__;
+    } else {
+      target.__VH_IMPORT_META_ENV__ = previous;
+    }
+  };
+}
+
 describe('topicEngagementAdapters', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -525,6 +538,55 @@ describe('topicEngagementAdapters', () => {
     });
 
     await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toEqual(BASE_SUMMARY);
+  });
+
+  it('rejects unmarked and clean legacy-marked topic engagement summaries when reject-unmarked mode is on', async () => {
+    const { mesh, client, summaryRecord } = await createSignedSummaryFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    try {
+      // Signed summaries still read back flag-on.
+      mesh.setRead('aggregates/topics/topic-1/engagement/summary', { _: { '#': 'metadata' }, ...summaryRecord });
+      await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toEqual(BASE_SUMMARY);
+
+      // Bare-unmarked AND clean legacy-marked summaries are refused flag-on.
+      const legacyMarked = { ...BASE_SUMMARY, _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION };
+      for (const record of [{ ...BASE_SUMMARY }, legacyMarked]) {
+        warnSpy.mockClear();
+        mesh.setRead('aggregates/topics/topic-1/engagement/summary', record);
+        await expect(readTopicEngagementSummary(client, 'topic-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:topic-engagement] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+        }),
+      );
+    } finally {
+      restoreFlag();
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
   });
 
   it('rejects tampered or path-mismatched system writer topic engagement summaries', async () => {

@@ -764,6 +764,20 @@ directory snapshot system-writer migration.
 `pnpm check:luma-discovery-index-system-v1` guards the discovery item/index page
 system-writer migration.
 
+The optional client flag `VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS` (default OFF)
+now spans ALL migrated system-writer read classes: news story bundles,
+synthesis-lifecycle, latest/hot index entries, topic synthesis/digest/correction,
+discovery items and index pages, storyline groups, topic-engagement summaries,
+civic-representative snapshots, and analysis artifacts and latest pointers. When
+enabled, each adapter refuses unmarked (and clean legacy-marked) schema-valid
+records for its class with an observable `system-writer-validation-failed` /
+`unmarked-record-rejected` event, and skips any legacy scalar/relay fallback that
+could re-admit the class; district-aggregate summaries are already
+unconditionally fail-closed. Each class's `check:luma-*-system-v1` gate pins the
+reject-unmarked branch and its flag-on test so the enforcement cannot silently
+regress. Legacy acceptance is unchanged while the flag is absent/false; flipping
+it on in a deployed profile remains an operator decision.
+
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
 `_authorScheme: 'voter-v1'`, and `SignedWriteEnvelope.audience =

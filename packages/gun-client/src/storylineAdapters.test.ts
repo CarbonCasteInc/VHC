@@ -216,6 +216,19 @@ const STORYLINE: StorylineGroup = {
   updated_at: 456,
 };
 
+function withRejectUnmarkedFlag(): () => void {
+  const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> };
+  const previous = target.__VH_IMPORT_META_ENV__;
+  target.__VH_IMPORT_META_ENV__ = { VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true' };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_IMPORT_META_ENV__;
+    } else {
+      target.__VH_IMPORT_META_ENV__ = previous;
+    }
+  };
+}
+
 describe('storylineAdapters', () => {
   it('builds storyline root and node chains with guarded paths', async () => {
     const mesh = createFakeMesh();
@@ -281,6 +294,69 @@ describe('storylineAdapters', () => {
     });
 
     await expect(readNewsStoryline(client, STORYLINE.storyline_id)).resolves.toEqual(STORYLINE);
+  });
+
+  it('rejects unmarked and clean legacy-marked storyline records when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', class TestCustomEvent {
+      type: string;
+      detail: unknown;
+      constructor(type: string, init?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    });
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    // A real signed record to prove flag-on still accepts marked records.
+    await writeNewsStoryline(client, STORYLINE);
+    const signedRecord = expectSystemStorylineRecord(mesh.writes[0]?.value);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    try {
+      mesh.setRead('news/storylines/storyline-1', signedRecord);
+      await expect(readNewsStoryline(client, 'storyline-1')).resolves.toEqual(STORYLINE);
+
+      // Bare-unmarked AND clean legacy-marked records are refused flag-on.
+      const bare = storylineAdaptersInternal.encodeStorylineGroup(STORYLINE);
+      const legacyMarked = {
+        ...storylineAdaptersInternal.encodeStorylineGroup(STORYLINE),
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: 'legacy',
+      };
+      for (const record of [bare, legacyMarked]) {
+        warnSpy.mockClear();
+        mesh.setRead('news/storylines/storyline-1', record);
+        await expect(readNewsStoryline(client, 'storyline-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          '[vh:storylines] system-writer-validation-failed',
+          expect.objectContaining({
+            event: 'system-writer-validation-failed',
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'system-writer-validation-failed',
+          detail: expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+        }),
+      );
+    } finally {
+      restoreFlag();
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
   });
 
   it('readNewsStoryline validates signed system storyline records through the shared system-writer validator', async () => {

@@ -114,6 +114,7 @@ const summaryParser = sliceFunction(adapterSource, 'parseTopicEngagementSummaryF
 requireToken(summaryParser, 'validateSystemWriterRecord', 'parseTopicEngagementSummaryFromStoredRecord');
 requireToken(summaryParser, 'emitSystemWriterValidationFailure', 'parseTopicEngagementSummaryFromStoredRecord');
 requireToken(summaryParser, 'carriesLumaProtocolFields', 'parseTopicEngagementSummaryFromStoredRecord');
+requireToken(summaryParser, 'rejectUnmarkedSystemRecords', 'parseTopicEngagementSummaryFromStoredRecord');
 requireToken(summaryParser, 'return null', 'parseTopicEngagementSummaryFromStoredRecord');
 
 for (const token of [
@@ -123,6 +124,7 @@ for (const token of [
   'keeps legacy topic engagement summaries readable and rejects downgraded legacy fields',
   'blocks validly signed topic engagement summaries whose top-level topic does not match',
   'does not persist an unsigned topic engagement summary when signer metadata is unavailable or malformed',
+  'rejects unmarked and clean legacy-marked topic engagement summaries when reject-unmarked mode is on',
 ]) {
   requireToken(adapterTestSource, token, 'topic engagement summary system writer tests');
 }

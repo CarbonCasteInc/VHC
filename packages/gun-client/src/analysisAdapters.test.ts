@@ -248,6 +248,19 @@ async function signSystemWriterTestRecord(
   };
 }
 
+function withRejectUnmarkedFlag(): () => void {
+  const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> };
+  const previous = target.__VH_IMPORT_META_ENV__;
+  target.__VH_IMPORT_META_ENV__ = { VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true' };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_IMPORT_META_ENV__;
+    } else {
+      target.__VH_IMPORT_META_ENV__ = previous;
+    }
+  };
+}
+
 describe('analysisAdapters', () => {
   it('builds story analysis root chain and guards nested writes', async () => {
     const mesh = createFakeMesh();
@@ -614,6 +627,90 @@ describe('analysisAdapters', () => {
 
     await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
     await expect(readLatestAnalysis(client, 'story-1')).resolves.toEqual(ARTIFACT);
+  });
+
+  it('rejects unmarked and clean legacy-marked analysis artifacts and pointers when reject-unmarked mode is on', async () => {
+    const { mesh, client, artifactRecord, pointerRecord } = await createSignedAnalysisFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    const bareArtifact = {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: JSON.stringify(ARTIFACT),
+      story_id: ARTIFACT.story_id,
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+    };
+    const legacyArtifact = { ...bareArtifact, _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION };
+    const barePointer = {
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+      bundle_identity: ARTIFACT.bundle_identity,
+    };
+    const legacyPointer = { ...barePointer, _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION };
+
+    try {
+      // Signed records still read back flag-on.
+      mesh.setRead('news/stories/story-1/analysis/analysis-1', artifactRecord);
+      mesh.setRead('news/stories/story-1/analysis_latest', pointerRecord);
+      await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+      await expect(readLatestAnalysis(client, 'story-1')).resolves.toEqual(ARTIFACT);
+
+      // Bare-unmarked AND clean legacy-marked artifacts are refused flag-on.
+      for (const record of [bareArtifact, legacyArtifact]) {
+        warnSpy.mockClear();
+        mesh.setRead('news/stories/story-1/analysis/analysis-1', record);
+        await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      // Bare-unmarked AND clean legacy-marked latest pointers are refused flag-on
+      // (parseLatestPointerFromStoredRecord returns { state: 'blocked' }).
+      for (const record of [barePointer, legacyPointer]) {
+        warnSpy.mockClear();
+        mesh.setRead('news/stories/story-1/analysis_latest', record);
+        await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+        }),
+      );
+    } finally {
+      restoreFlag();
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
   });
 
   it('readAnalysis rejects tampered or path-mismatched system writer artifacts', async () => {

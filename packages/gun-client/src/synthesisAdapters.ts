@@ -14,12 +14,14 @@ import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { resolveRelayRestEndpointFromPeer } from './relayRestFallback';
-import { readGunBooleanFlag, readGunTimeoutMs } from './runtimeConfig';
+import { readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -96,14 +98,6 @@ const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_RELAY_READ_TIMEOUT_MS'],
   8_000,
 );
-// Evaluated lazily per parse so operators (and tests) can toggle it without a
-// module reload; absent flag preserves legacy-accept behavior exactly.
-function rejectUnmarkedSystemRecords(): boolean {
-  return readGunBooleanFlag(
-    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
-    false,
-  );
-}
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
 }
@@ -457,16 +451,6 @@ function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailur
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
     );
   }
-}
-
-function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
-  return {
-    valid: false,
-    event: SYSTEM_WRITER_VALIDATION_EVENT,
-    reason: 'unmarked-record-rejected',
-    path,
-    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
-  };
 }
 
 function pathMatchesSynthesis(

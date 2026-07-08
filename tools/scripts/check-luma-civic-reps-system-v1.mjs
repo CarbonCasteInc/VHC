@@ -118,6 +118,7 @@ const snapshotParser = sliceFunction(adapterSource, 'parseCivicRepresentativeSna
 requireToken(snapshotParser, 'validateSystemWriterRecord', 'parseCivicRepresentativeSnapshotFromStoredRecord');
 requireToken(snapshotParser, 'emitSystemWriterValidationFailure', 'parseCivicRepresentativeSnapshotFromStoredRecord');
 requireToken(snapshotParser, 'carriesLumaProtocolFields', 'parseCivicRepresentativeSnapshotFromStoredRecord');
+requireToken(snapshotParser, 'rejectUnmarkedSystemRecords', 'parseCivicRepresentativeSnapshotFromStoredRecord');
 requireToken(snapshotParser, 'return null', 'parseCivicRepresentativeSnapshotFromStoredRecord');
 
 for (const token of [
@@ -127,6 +128,7 @@ for (const token of [
   'rejects tampered or path-mismatched system writer civic representative snapshots',
   'fails closed with system-writer-validation-failed when the civic representative snapshot pin is missing',
   'keeps legacy civic representative snapshots readable and rejects downgraded legacy fields',
+  'rejects unmarked and clean legacy-marked civic representative snapshots when reject-unmarked mode is on',
 ]) {
   requireToken(adapterTestSource, token, 'civic representative system writer tests');
 }

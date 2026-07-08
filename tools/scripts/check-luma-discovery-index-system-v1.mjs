@@ -192,6 +192,7 @@ for (const parserName of [
   requireToken(parser, 'validateSystemWriterRecord', parserName);
   requireToken(parser, 'emitSystemWriterValidationFailure', parserName);
   requireToken(parser, 'carriesLumaProtocolFields', parserName);
+  requireToken(parser, 'rejectUnmarkedSystemRecords', parserName);
   requireToken(parser, 'return null', parserName);
 }
 
@@ -203,6 +204,7 @@ for (const token of [
   'fails closed with system-writer-validation-failed when the discovery pin is missing',
   'keeps legacy discovery records readable and rejects downgraded legacy fields',
   'rejects invalid or private discovery payloads before persistence',
+  'rejects unmarked and clean legacy-marked discovery records when reject-unmarked mode is on',
 ]) {
   requireToken(adapterTestSource, token, 'discovery system writer tests');
 }
