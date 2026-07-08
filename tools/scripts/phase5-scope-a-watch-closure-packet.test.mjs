@@ -20,7 +20,7 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-function makeSample(root, sampleId, generatedAt, relays) {
+function makeSample(root, sampleId, generatedAt, relays, options = {}) {
   const sampleDir = path.join(root, sampleId);
   writeJson(path.join(sampleDir, 'manifest.json'), {
     schemaVersion: 'vh-phase5-scope-a-soak-archive-v1',
@@ -38,7 +38,7 @@ function makeSample(root, sampleId, generatedAt, relays) {
       activeState: 'active',
       subState: 'running',
       execMainStatus: '0',
-      nRestarts: 0,
+      nRestarts: options.publisherNRestarts ?? 0,
     },
   });
   writeJson(path.join(sampleDir, 'relay-liveness.json'), {
@@ -264,6 +264,57 @@ test('blocks the 48h threshold when relay heap trend projects below the safe hor
   assert.equal(packet.relayMemory.status, 'fail');
   assert.equal(packet.thresholds.fortyEightHour.status, 'fail');
   assert.deepEqual(packet.thresholds.fortyEightHour.blockers, ['relay_memory_trend_fail']);
+});
+
+test('does not block on publisher restart counters that predate the clean window', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000),
+  ], { publisherNRestarts: 1 });
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 421_000_000, 321_000_000),
+  ], { publisherNRestarts: 1 });
+  makeSample(archiveRoot, '20260630T010000Z', '2026-06-30T01:00:00.000Z', [
+    relay('vhc-relay-a', 422_000_000, 322_000_000),
+  ], { publisherNRestarts: 1 });
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T01:00:00.000Z'),
+  });
+
+  assert.equal(packet.archive.publisherRestartCountMin, 1);
+  assert.equal(packet.archive.publisherRestartCountMax, 1);
+  assert.equal(packet.archive.latestPublisher.nRestarts, 1);
+  assert.equal(packet.thresholds.twentyFourHour.status, 'pass');
+  assert.equal(packet.thresholds.fortyEightHour.status, 'pass');
+  assert.equal(packet.status, 'pass');
+});
+
+test('blocks when the publisher restart counter increases inside the clean window', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000),
+  ], { publisherNRestarts: 0 });
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 421_000_000, 321_000_000),
+  ], { publisherNRestarts: 1 });
+  makeSample(archiveRoot, '20260630T010000Z', '2026-06-30T01:00:00.000Z', [
+    relay('vhc-relay-a', 422_000_000, 322_000_000),
+  ], { publisherNRestarts: 1 });
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env: baseEnv(root),
+    now: new Date('2026-06-30T01:00:00.000Z'),
+  });
+
+  assert.equal(packet.archive.publisherRestartCountMin, 0);
+  assert.equal(packet.archive.publisherRestartCountMax, 1);
+  assert.deepEqual(packet.thresholds.twentyFourHour.blockers, ['publisher_nrestarts:0->1']);
+  assert.deepEqual(packet.thresholds.fortyEightHour.blockers, ['publisher_nrestarts:0->1']);
+  assert.equal(packet.status, 'in_progress');
 });
 
 test('builds a compact secret-safe verdict for watch automation and alert intake', () => {
