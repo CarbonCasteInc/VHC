@@ -13,10 +13,13 @@ import {
   VAULT_VERSION,
   LEGACY_VAULT_VERSION,
   isValidIdentity,
-  isVaultV2,
   isOperatorAuthorizationTokenCompartment,
   isSignInSessionCompartment,
   isWalletBindingCompartment,
+  OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS,
+  SIGN_IN_SESSION_COMPARTMENT_KEYS,
+  stripToKnownKeys,
+  WALLET_BINDING_COMPARTMENT_KEYS,
 } from './types';
 import type {
   DeviceCredentialCompartment,
@@ -186,11 +189,22 @@ async function loadVaultV2FromDb(db: IDBDatabase): Promise<VaultV2 | null> {
   if (!parsed) return null;
 
   if (record.version === VAULT_VERSION) {
-    if (!isVaultV2(parsed)) {
-      await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
-      return null;
-    }
-    return normalizeVaultV2(parsed);
+    // Forward-compat salvage: a shape-invalid v2 record (most commonly a
+    // NEWER bundle added a compartment field this bundle does not know) must
+    // NEVER destroy the vault — deleting here would wipe unrecoverable key
+    // material (seaDevicePair, deviceCredential) because the whole vault is
+    // one encrypted blob. Unknown keys are stripped from the returned view
+    // only; invalid compartments are dropped from the view; this READ path
+    // never rewrites the stored record. idbDelete stays reserved for decrypt
+    // and JSON-parse failures (genuine tamper/key mismatch) above.
+    //
+    // LIMITATION (see salvageVaultV2): an old-tab WRITE still rebuilds the
+    // vault from this bundle's known keys via normalizeVaultV2 and drops any
+    // newer-bundle compartment/field. So write-side merge-from-raw preservation
+    // MUST land before any new VaultV2 compartment/field ships, or an old-tab
+    // write will destroy it. Read-side salvage only narrows the damage from
+    // "whole vault wiped on read" to "unknown fields dropped on the next write".
+    return salvageVaultV2(parsed);
   }
 
   if (record.version === LEGACY_VAULT_VERSION) {
@@ -258,6 +272,103 @@ function migrateIdentityToVaultV2(identity: Identity): VaultV2 {
     deviceCredential: legacyDeviceCredential(identity),
     seaDevicePair: legacySeaDevicePair(identity)
   });
+}
+
+/**
+ * Strip unknown keys from a closed-key-set compartment, then re-validate.
+ * Returns the stripped compartment when it validates, or null when the
+ * compartment is unsalvageable (dropped from the read view only).
+ */
+function salvageClosedCompartment(
+  value: unknown,
+  knownKeys: ReadonlySet<string>,
+  isValid: (candidate: unknown) => boolean
+): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const stripped = stripToKnownKeys(value, knownKeys) as Record<string, unknown>;
+  return isValid(stripped) ? stripped : null;
+}
+
+/**
+ * Tolerant read-side reconstruction of a v2 vault (never deletes, never
+ * persists):
+ *  - non-object payloads / wrong schemaVersion -> null (fail-closed read,
+ *    stored record retained);
+ *  - identityRecord kept only when object-shaped;
+ *  - the three closed-key-set compartments are stripped to their known keys
+ *    and re-validated (a newer bundle's extra field degrades to "ignored by
+ *    this tab" instead of vault destruction); invalid-after-strip
+ *    compartments are dropped from the view;
+ *  - every other truthy entry passes through: the
+ *    deviceCredential/seaDevicePair/delegationSigningKey compartments (their
+ *    strict validation lives in their compartment accessors, mirroring
+ *    normalizeVaultV2) and any unknown top-level compartment from a newer
+ *    bundle, which is preserved in the read view (write-side
+ *    normalizeVaultV2 still drops it on save).
+ * Write-side strictness is unchanged: normalizeVaultV2 keeps throwing on
+ * invalid compartments.
+ */
+function salvageVaultV2(parsed: unknown): VaultV2 | null {
+  if (
+    !isValidIdentity(parsed)
+    || (parsed as { schemaVersion?: unknown }).schemaVersion !== VAULT_VERSION
+  ) {
+    return null;
+  }
+
+  const source = parsed as Record<string, unknown>;
+  const vault: Record<string, unknown> = { schemaVersion: VAULT_VERSION };
+  for (const [key, value] of Object.entries(source)) {
+    if (key === 'schemaVersion') continue;
+    if (key === 'identityRecord') {
+      if (isValidIdentity(value)) {
+        vault.identityRecord = value;
+      }
+      continue;
+    }
+    if (key === 'walletBinding') {
+      const salvaged = salvageClosedCompartment(
+        value,
+        WALLET_BINDING_COMPARTMENT_KEYS,
+        isWalletBindingCompartment
+      );
+      if (salvaged) {
+        vault.walletBinding = salvaged;
+      }
+      continue;
+    }
+    if (key === 'operatorAuthorizationToken') {
+      const salvaged = salvageClosedCompartment(
+        value,
+        OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS,
+        isOperatorAuthorizationTokenCompartment
+      );
+      if (salvaged) {
+        vault.operatorAuthorizationToken = salvaged;
+      }
+      continue;
+    }
+    if (key === 'signInSession') {
+      const salvaged = salvageClosedCompartment(
+        value,
+        SIGN_IN_SESSION_COMPARTMENT_KEYS,
+        isSignInSessionCompartment
+      );
+      if (salvaged) {
+        vault.signInSession = salvaged;
+      }
+      continue;
+    }
+    if (value) {
+      vault[key] = value;
+    }
+  }
+
+  // The narrow compartments were validated above; the untyped map only
+  // exists so unknown newer-bundle compartments survive into the read view.
+  return vault as unknown as VaultV2;
 }
 
 function normalizeVaultV2(vault: VaultV2): VaultV2 {

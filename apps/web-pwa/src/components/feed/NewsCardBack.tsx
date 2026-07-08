@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { HermesNewsReportReasonCode, TopicSynthesisCorrection } from '@vh/data-model';
 import type { NewsSynthesisLifecycleStatus } from '@vh/gun-client';
 import type { HermesThread } from '@vh/types';
+import type { AcceptedCurrencyContext } from '../../hooks/voteAdmission';
 import { useNewsReportStore } from '../../store/newsReports';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
@@ -166,6 +167,23 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
     lifecycleStatus: synthesisLifecycleStatus,
     correction: synthesisCorrection,
   });
+  // Accepted-currency context for vote admission, derived from the same join
+  // props that gate rendering: `synthesisId`/`epoch` come from NewsCard's
+  // accepted-current join, and `accepted_current` reflects the read model
+  // state. Any state other than `acceptedCurrentSynthesis` yields
+  // `accepted_current: false`, so admission fail-closes with the canonical
+  // `Non-current synthesis` denial. Null when no synthesis target exists.
+  const acceptedCurrency: AcceptedCurrencyContext | null = useMemo(
+    () =>
+      synthesisId && epoch !== undefined
+        ? {
+            synthesis_id: synthesisId,
+            epoch,
+            accepted_current: acceptedSynthesisState === 'acceptedCurrentSynthesis',
+          }
+        : null,
+    [synthesisId, epoch, acceptedSynthesisState],
+  );
   const frameEmptyMessage = acceptedSynthesisState === 'loading'
     ? 'Accepted synthesis frame rows are loading.'
     : acceptedSynthesisState === 'retryable_failure'
@@ -566,6 +584,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               analysisId={analysisId ?? undefined}
               synthesisId={synthesisId ?? undefined}
               epoch={epoch}
+              acceptedCurrency={acceptedCurrency}
               votingEnabled={Boolean(synthesisId && epoch !== undefined && hasAcceptedStanceTargets)}
               votingPointIdMode="accepted-synthesis"
               emptyMessage={frameEmptyMessage}

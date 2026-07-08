@@ -159,8 +159,8 @@ function collectKeysDeep(value: unknown, out: string[] = []): string[] {
   return out;
 }
 
-function containsDistrictHashKey(value: unknown): boolean {
-  return collectKeysDeep(value).some((k) => normalizedKey(k) === 'districthash');
+function containsDistrictHashKey(keys: readonly string[]): boolean {
+  return keys.some((k) => normalizedKey(k) === 'districthash');
 }
 
 // The single allow-listed public class that may carry district_hash: aggregate
@@ -288,11 +288,28 @@ export class TopologyGuard {
       if (containsPII(data)) {
         throw new Error(`Topology violation: PII in public path ${path}`);
       }
+      // Single deep traversal reused by the district-hash carve-out trigger
+      // and the account-provider deep scan below (hot write path — collect
+      // keys once).
+      const deepKeys = collectKeysDeep(data);
       // district_hash is fail-closed everywhere except allow-listed aggregate
       // cohort records that meet the §9.4 k-anonymity floor and carry no
       // person-level identifier.
-      if (containsDistrictHashKey(data)) {
+      if (containsDistrictHashKey(deepKeys)) {
         validateDistrictAggregatePayload(path, data);
+      }
+      // Account-provider identity/token material is rejected at ANY nesting
+      // depth on every public path — containsPII above inspects top-level
+      // keys only. Ordered AFTER containsPII and AFTER the district
+      // carve-out so every existing error-message expectation is preserved
+      // (nested provider tokens alongside district_hash still report
+      // "carries a forbidden key"; top-level provider keys still report
+      // "PII in public path").
+      const deepProviderKey = deepKeys.find(isAccountProviderKey);
+      if (deepProviderKey !== undefined) {
+        throw new Error(
+          `Topology violation: account-provider key (${deepProviderKey}) at any depth in public path ${path}`,
+        );
       }
     }
     if (rule.classification === 'sensitive') {

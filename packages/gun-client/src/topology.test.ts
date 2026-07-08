@@ -174,6 +174,65 @@ describe('TopologyGuard', () => {
     });
   });
 
+  describe('deep account-provider key scan (any depth, any public path)', () => {
+    it('rejects a NESTED provider subject on a public path without district_hash', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/forum/threads/thread-1', {
+          title: 'ok',
+          profile: { providerSubject: 'apple:000123.abc' },
+        }),
+      ).toThrow(/account-provider key \(providerSubject\) at any depth in public path vh\/forum\/threads\/thread-1/);
+    });
+
+    it('rejects a NESTED access_token on a news story path', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/news/stories/story-1', {
+          story_id: 'story-1',
+          meta: { access_token: 'raw-oauth-token' },
+        }),
+      ).toThrow(/account-provider key \(access_token\) at any depth in public path/);
+    });
+
+    it('rejects accountBinding nested two levels deep', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/forum/threads/thread-1', {
+          title: 'ok',
+          outer: { inner: { accountBinding: { provider: 'x' } } },
+        }),
+      ).toThrow(/account-provider key \(accountBinding\) at any depth in public path/);
+    });
+
+    it('rejects provider keys inside arrays (collectKeysDeep walks arrays)', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/forum/threads/thread-1', {
+          title: 'ok',
+          items: [{ refreshToken: 'x' }],
+        }),
+      ).toThrow(/account-provider key \(refreshToken\) at any depth in public path/);
+    });
+
+    it('still allows clean nested public payloads', () => {
+      const guard = new TopologyGuard();
+      expect(() =>
+        guard.validateWrite('vh/forum/threads/thread-1', {
+          title: 'ok',
+          meta: { displayName: 'Jane', tags: [{ label: 'civic' }] },
+        }),
+      ).not.toThrow();
+    });
+
+    it('still allows primitive and null public payloads', () => {
+      const guard = new TopologyGuard();
+      expect(() => guard.validateWrite('vh/news/storylines/storyline-1/', null)).not.toThrow();
+      expect(() => guard.validateWrite('vh/news/storylines/storyline-1/', 'headline')).not.toThrow();
+      expect(() => guard.validateWrite('vh/news/index/hot/story-1', 0.5)).not.toThrow();
+    });
+  });
+
   it('blocks account-provider identity material in public paths', () => {
     const guard = new TopologyGuard();
     expect(() =>

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { deriveAnalysisKey, derivePointId, deriveSynthesisPointId } from '@vh/data-model';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useSentimentState } from '../../hooks/useSentimentState';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { BiasTable } from './BiasTable';
 
@@ -37,6 +38,14 @@ const TOPIC_ID = 'topic-1';
 const ANALYSIS_ID = 'story-1:prov-1';
 const SYNTHESIS_ID = 'synth-1';
 const EPOCH = 7;
+// Accepted-currency context matching the synthesis context above — voting is
+// gated on its presence (admission needs it to verify the accepted-current
+// target), so every test expecting rendered controls must supply it.
+const ACCEPTED_CURRENCY = {
+  synthesis_id: SYNTHESIS_ID,
+  epoch: EPOCH,
+  accepted_current: true,
+};
 
 async function deriveExpectedPointIds(): Promise<{
   frame0: string;
@@ -215,6 +224,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId={SYNTHESIS_ID}
         epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
       />,
     );
@@ -243,6 +253,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId={SYNTHESIS_ID}
         epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,
@@ -269,6 +280,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId={SYNTHESIS_ID}
         epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,
@@ -292,13 +304,89 @@ describe('BiasTable', () => {
         ]}
         topicId={TOPIC_ID}
         analysisId={ANALYSIS_ID}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,
     );
 
-    // The analysisId fallback context must not become a voting context.
+    // The analysisId fallback context must not become a voting context, even
+    // with an accepted-currency context supplied.
     expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
+  });
+
+  it('accepted synthesis mode without an accepted-currency context never renders vote controls', async () => {
+    const { container } = render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={[
+          {
+            frame_point_id: 'persisted-frame-0',
+            frame: FRAMES[0]!.frame,
+            reframe_point_id: 'persisted-reframe-0',
+            reframe: FRAMES[0]!.reframe,
+          },
+        ]}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+        votingPointIdMode="accepted-synthesis"
+      />,
+    );
+
+    // Full synthesis context + persisted point ids, but no accepted-currency
+    // context: admission could not verify the accepted-current target, so the
+    // controls stay hidden (fail-closed).
+    expect(screen.getByText('Reuters: Urgency framing')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
+  });
+
+  it('threads the accepted-currency context through to setAgreement on a vote click', async () => {
+    const spy = vi
+      .spyOn(useSentimentState.getState(), 'setAgreement')
+      .mockReturnValue({
+        receipt_id: 'test-receipt',
+        accepted: true,
+        topic_id: TOPIC_ID,
+        synthesis_id: SYNTHESIS_ID,
+        epoch: EPOCH,
+        point_id: 'persisted-frame-0',
+        admitted_at: 1,
+      });
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={[
+          {
+            frame_point_id: 'persisted-frame-0',
+            frame: FRAMES[0]!.frame,
+            reframe_point_id: 'persisted-reframe-0',
+            reframe: FRAMES[0]!.reframe,
+          },
+        ]}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
+        votingEnabled
+        votingPointIdMode="accepted-synthesis"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('cell-vote-agree-persisted-frame-0'));
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topicId: TOPIC_ID,
+        synthesisId: SYNTHESIS_ID,
+        epoch: EPOCH,
+        acceptedCurrency: ACCEPTED_CURRENCY,
+      }),
+    );
+    spy.mockRestore();
   });
 
   it('votingEnabled=false renders no vote controls', () => {
@@ -376,6 +464,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId={SYNTHESIS_ID}
         epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,
@@ -392,6 +481,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId="synth-2"
         epoch={EPOCH + 1}
+        acceptedCurrency={{ synthesis_id: 'synth-2', epoch: EPOCH + 1, accepted_current: true }}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,
@@ -417,6 +507,7 @@ describe('BiasTable', () => {
         analysisId={ANALYSIS_ID}
         synthesisId={SYNTHESIS_ID}
         epoch={EPOCH}
+        acceptedCurrency={ACCEPTED_CURRENCY}
         votingEnabled
         votingPointIdMode="accepted-synthesis"
       />,

@@ -71,10 +71,13 @@ requireToken(packageSource, 'check:luma-topic-synthesis-system-v1', 'root packag
 for (const token of [
   "'topic-synthesis-latest'",
   "'topic-synthesis-epoch'",
+  "'topic-synthesis-correction'",
   "segments[1] === 'topics'",
   "segments[3] === 'latest'",
   "segments[3] === 'epochs'",
+  "segments[3] === 'synthesis_corrections'",
   "segments[5] === 'synthesis'",
+  "'unmarked-record-rejected'",
 ]) {
   requireToken(systemWriterSource, token, 'system writer topic synthesis path matrix');
 }
@@ -82,6 +85,8 @@ for (const token of [
   "getSystemWriterAllowedClass('vh/topics/topic-1/latest')",
   "getSystemWriterAllowedClass('vh/topics/topic-1/epochs/7/synthesis')",
   "getSystemWriterAllowedClass('vh/topics/topic-1/digests/digest-1')",
+  "getSystemWriterAllowedClass('vh/topics/topic-1/synthesis_corrections/correction-1')",
+  "getSystemWriterAllowedClass('vh/topics/topic-1/synthesis_corrections/latest')",
   "isSystemWriterAllowedPath('vh/news/index/latest')",
 ]) {
   requireToken(systemWriterTestSource, token, 'system writer topic synthesis tests');
@@ -91,16 +96,38 @@ for (const token of [
   'SystemWriterTopicSynthesisRecord',
   'buildSystemWriterEpochSynthesisRecord',
   'buildSystemWriterLatestSynthesisRecord',
+  'buildSystemWriterCorrectionRecord',
   'parseSynthesisFromStoredRecord',
+  'parseSynthesisCorrectionFromStoredRecord',
+  'parseTopicLatestSynthesisCorrectionRecord',
   'readTopicLatestSynthesisStatus',
   'validateSystemWriterRecord',
   'SYSTEM_WRITER_VALIDATION_EVENT',
+  "'unmarked-record-rejected'",
+  'rejectUnmarkedSystemRecords',
   'system writer signer is required for topic synthesis writes',
   'system writer signer is required for topic synthesis latest writes',
+  'system writer signer is required for topic synthesis correction writes',
   'synthesis write timed out and signed readback did not confirm persistence',
 ]) {
   requireToken(synthesisAdapterSource, token, 'topic synthesis system writer adapter');
 }
+
+const correctionWriter = sliceExportedFunction(synthesisAdapterSource, 'writeTopicSynthesisCorrection');
+requireBefore(correctionWriter, 'assertTrustedOperatorAuthorization', 'putWithAck', 'writeTopicSynthesisCorrection');
+requireBefore(correctionWriter, 'buildSystemWriterCorrectionRecord', 'putWithAck', 'writeTopicSynthesisCorrection');
+
+const correctionParser = sliceFunction(synthesisAdapterSource, 'parseSynthesisCorrectionFromStoredRecord');
+requireToken(correctionParser, 'validateSystemWriterRecord', 'parseSynthesisCorrectionFromStoredRecord');
+requireToken(correctionParser, 'emitSystemWriterValidationFailure', 'parseSynthesisCorrectionFromStoredRecord');
+requireToken(correctionParser, 'carriesLumaProtocolFields', 'parseSynthesisCorrectionFromStoredRecord');
+requireToken(correctionParser, 'rejectUnmarkedSystemRecords', 'parseSynthesisCorrectionFromStoredRecord');
+requireToken(correctionParser, "return { state: 'blocked' }", 'parseSynthesisCorrectionFromStoredRecord');
+
+const correctionReader = sliceExportedFunction(synthesisAdapterSource, 'readTopicSynthesisCorrection');
+requireToken(correctionReader, 'parseSynthesisCorrectionFromStoredRecord', 'readTopicSynthesisCorrection');
+const latestCorrectionReader = sliceExportedFunction(synthesisAdapterSource, 'readTopicLatestSynthesisCorrection');
+requireToken(latestCorrectionReader, 'parseSynthesisCorrectionFromStoredRecord', 'readTopicLatestSynthesisCorrection');
 
 const topicSynthesisWriter = sliceExportedFunction(synthesisAdapterSource, 'writeTopicSynthesis');
 requireBefore(topicSynthesisWriter, 'buildSystemWriterEpochSynthesisRecord', 'putSystemWriterSynthesisWithDurability', 'writeTopicSynthesis');
@@ -138,6 +165,14 @@ for (const token of [
   'blocks validly signed synthesis records whose top-level path fields do not match',
   'does not publish bare relay fallback when latest synthesis put acknowledgements time out',
   'recovers latest synthesis writes from signed latest readback',
+  'signs synthesis corrections when a signer is configured and keeps signer-less correction writes bare',
+  'validates real signed system writer synthesis correction records',
+  'rejects tampered or path-mismatched system writer correction records',
+  'fails closed with system-writer-validation-failed when the correction pin is missing',
+  'blocks corrections carrying partial protocol fields regardless of the reject-unmarked flag',
+  'accepts unmarked corrections by default and rejects them when reject-unmarked mode is on',
+  'skips correction scalar-envelope fallbacks when reject-unmarked mode is on',
+  'rejects unmarked and legacy-marked synthesis records without scalar fallback when reject-unmarked mode is on',
 ]) {
   requireToken(synthesisAdapterTestSource, token, 'topic synthesis system writer tests');
 }

@@ -7,7 +7,7 @@ import {
 import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
-import { readGunTimeoutMs } from './runtimeConfig';
+import { readGunBooleanFlag, readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
@@ -1335,6 +1335,14 @@ function parseLegacyStoryBundle(data: unknown): StoryBundle | null {
 }
 
 function parseRelayLatestIndexStories(value: unknown, index: NewsLatestIndex): Record<string, StoryBundle> | undefined {
+  // Flag-on: the relay's embedded `stories` convenience field holds unmarked
+  // legacy story bundles (parseLegacyStoryBundle), so a forged embedded story
+  // could otherwise enter the public feed even in reject-unmarked mode. Refuse
+  // them here; the authoritative story bodies still flow through the per-story
+  // signed read paths.
+  if (rejectUnmarkedSystemRecords()) {
+    return undefined;
+  }
   if (!isRecord(value)) {
     return undefined;
   }
@@ -1636,6 +1644,38 @@ function emitSystemWriterValidationFailure(
   }
 }
 
+// Evaluated lazily per parse so operators (and tests) can toggle it without a
+// module reload; absent flag preserves legacy-accept behavior exactly.
+// Reject-unmarked mode (default OFF). When enabled, unmarked schema-valid
+// records are refused instead of legacy-accepted.
+//
+// SCOPE — this flag currently hardens ONLY the record classes read through this
+// module and synthesisAdapters: news story bundles, synthesis-lifecycle, latest
+// and hot index entries (including the relay `stories`/`lifecycle` convenience
+// fields), and topic synthesis / digest / correction. District-aggregate
+// summaries are unconditionally fail-closed (no flag needed). The flag does NOT
+// yet cover discovery items/index pages, storyline groups, topic-engagement
+// summaries, civic-representative snapshots, or analysis artifacts/pointers —
+// those adapters keep an open legacy-accept branch regardless of the flag.
+// Extending them is tracked follow-up work; until then an operator enabling the
+// flag must treat those surfaces as still legacy-accepting.
+function rejectUnmarkedSystemRecords(): boolean {
+  return readGunBooleanFlag(
+    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
+    false,
+  );
+}
+
+function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
+  return {
+    valid: false,
+    event: SYSTEM_WRITER_VALIDATION_EVENT,
+    reason: 'unmarked-record-rejected',
+    path,
+    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
+  };
+}
+
 async function parseStoryBundleFromStoredRecord(
   client: VennClient,
   storyId: string,
@@ -1663,6 +1703,11 @@ async function parseStoryBundleFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(storyPath(storyId)));
     return null;
   }
 
@@ -1736,6 +1781,11 @@ async function parseNewsSynthesisLifecycleFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(synthesisLifecycleLatestPath(storyId)));
     return null;
   }
 
@@ -1884,6 +1934,11 @@ async function parseLatestIndexEntryRecordFromStoredRecord(
     return null;
   }
 
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(latestIndexEntryPath(storyId)));
+    return null;
+  }
+
   return parseLatestIndexEntryPayload(payload, storyId);
 }
 
@@ -1993,6 +2048,11 @@ async function parseHotIndexEntryRecordFromStoredRecord(
   }
 
   if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(hotIndexEntryPath(storyId)));
     return null;
   }
 
@@ -2769,10 +2829,23 @@ export async function readNewsSynthesisLifecycleStatusViaRelayRest(
         continue;
       }
       const payload = await response.json() as { record?: unknown; lifecycle?: unknown };
-      const relayParsed = parseNewsSynthesisLifecycleFromRelayPayload(normalizedId, payload.lifecycle);
-      if (relayParsed) {
-        return relayParsed;
+      if (!rejectUnmarkedSystemRecords()) {
+        // Flag-off: trust the relay's decoded convenience field first, matching
+        // the pre-hardening relay contract.
+        const relayParsed = parseNewsSynthesisLifecycleFromRelayPayload(normalizedId, payload.lifecycle);
+        if (relayParsed) {
+          return relayParsed;
+        }
       }
+      // The signed stored record is the authoritative source. Under flag-on the
+      // relay's `lifecycle` convenience field is skipped entirely: it is
+      // unmarked by relay contract, so validating it would reject it AND emit a
+      // spurious unmarked-record-rejected event on every healthy poll (the
+      // alerting channel keys on that event). Only `payload.record` — which
+      // must itself be marked and pin-verified — is parsed. In the no-key
+      // relay-writer deployment the stored record is unmarked too, so this
+      // fallback is intentionally inert under the flag: the writer must sign for
+      // relay reads to resolve (an operator/deployment gate, not a parser fix).
       const parsed = isRecord(payload.record)
         ? await parseNewsSynthesisLifecycleFromStoredRecord(client, normalizedId, payload.record)
         : null;

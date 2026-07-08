@@ -19,6 +19,7 @@ import {
   LEGACY_STORAGE_KEY,
   isOperatorAuthorizationTokenCompartment,
   isSignInSessionCompartment,
+  isVaultV2,
   isWalletBindingCompartment,
   LEGACY_VAULT_VERSION,
   VAULT_VERSION
@@ -39,6 +40,7 @@ import {
   validateOperatorAuthorizationToken,
   validateSeaDevicePair,
   validateSignInSession,
+  validateSignInSessionForRead,
   validateWalletBinding,
   walletBinding,
   VaultCompartmentError
@@ -411,26 +413,32 @@ describe('Error branches', () => {
     const loaded = await loadIdentity();
     expect(loaded).toBeNull();
 
-    // Verify corrupt record was wiped
+    // Fail-closed READ, not destruction: a shape-invalid v2 payload is not
+    // tamper (decrypt + JSON parse succeeded), so salvage never deletes the
+    // stored record — deleting would wipe unrecoverable key material.
     const db2 = await openVaultDb();
     const remaining = await idbGet<VaultRecord>(db2, VAULT_STORE, IDENTITY_KEY);
     db2.close();
-    expect(remaining).toBeUndefined();
+    expect(remaining).toBeDefined();
   });
 
-  it('loadIdentity rejects v2 vault records with invalid identityRecord compartments', async () => {
+  it('loadIdentity salvages v2 vault records with invalid identityRecord compartments without deleting', async () => {
     await writeEncryptedVaultRecord(VAULT_VERSION, {
       schemaVersion: VAULT_VERSION,
       identityRecord: 'not-an-identity-record'
     });
 
+    // The invalid compartment is dropped from the read view (loadIdentity
+    // still resolves null) but the stored record survives — the previous
+    // delete-on-invalid behavior destroyed the whole vault (seaDevicePair,
+    // deviceCredential, ...) whenever an older tab read a newer-bundle vault.
     await expect(loadIdentity()).resolves.toBeNull();
-    await expect(loadVaultV2()).resolves.toBeNull();
+    await expect(loadVaultV2()).resolves.toEqual({ schemaVersion: VAULT_VERSION });
 
     const db = await openVaultDb();
     const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
     db.close();
-    expect(remaining).toBeUndefined();
+    expect(remaining).toBeDefined();
   });
 
   it('loadIdentity returns null when decrypted data is not valid JSON', async () => {
@@ -833,7 +841,7 @@ describe('M0.D-1 vault v2 compartments', () => {
     })).rejects.toThrow(VaultCompartmentError);
   });
 
-  it('fails closed when a v2 vault contains a malformed wallet binding compartment', async () => {
+  it('salvages a v2 wallet binding carrying an unknown field by stripping it (never deletes)', async () => {
     await writeEncryptedVaultRecord(VAULT_VERSION, {
       schemaVersion: 2,
       identityRecord: LEGACY_IDENTITY,
@@ -849,24 +857,53 @@ describe('M0.D-1 vault v2 compartments', () => {
       }
     });
 
-    await expect(loadVaultV2()).resolves.toBeNull();
+    // Strip-then-validate: the unknown field never escapes the read view and
+    // the rest of the compartment (and vault) survives.
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.walletBinding).toEqual({
+      schemaVersion: 1,
+      address: '0x2222222222222222222222222222222222222222',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-wallet',
+      boundAt: 1,
+      updatedAt: 1
+    });
+    expect(JSON.stringify(vault)).not.toContain('leak');
 
     const db = await openVaultDb();
     const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
     db.close();
-    expect(remaining).toBeUndefined();
+    expect(remaining).toBeDefined();
   });
 
-  it('rejects malformed wallet binding compartments through v2 shape guards and public writers', async () => {
+  it('fails closed when a v2 vault contains a malformed wallet binding compartment', async () => {
     expect(isWalletBindingCompartment(null)).toBe(false);
     expect(isWalletBindingCompartment([])).toBe(false);
+    // The strict write-side guard keeps rejecting unknown keys (the
+    // read-side salvage strips them before re-validating instead).
+    expect(isWalletBindingCompartment({
+      schemaVersion: 1,
+      address: '0x2222222222222222222222222222222222222222',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-wallet',
+      boundAt: 1,
+      updatedAt: 1,
+      privateKey: 'leak'
+    })).toBe(false);
 
     await writeEncryptedVaultRecord(VAULT_VERSION, {
       schemaVersion: 2,
       identityRecord: LEGACY_IDENTITY,
       walletBinding: []
     });
-    await expect(loadVaultV2()).resolves.toBeNull();
+    // An unsalvageable compartment is dropped from the read view; the rest
+    // of the vault (and the stored record) survives.
+    const salvaged = await loadVaultV2();
+    expect(salvaged?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(salvaged?.walletBinding).toBeUndefined();
 
     await saveIdentity(LEGACY_IDENTITY);
     await expect(saveVaultV2({
@@ -1372,7 +1409,7 @@ describe('Lane C signInSession compartment', () => {
     expect(isSignInSessionCompartment({ ...valid, updatedAt: valid.boundAt - 1 })).toBe(false);
   });
 
-  it('fails closed when a v2 vault contains a malformed signInSession compartment', async () => {
+  it('salvages a newer-bundle signInSession by stripping the unknown field (never deletes)', async () => {
     await writeEncryptedVaultRecord(VAULT_VERSION, {
       schemaVersion: 2,
       identityRecord: LEGACY_IDENTITY,
@@ -1387,12 +1424,51 @@ describe('Lane C signInSession compartment', () => {
       }
     });
 
-    await expect(loadVaultV2()).resolves.toBeNull();
+    // Forward-compat: an old tab reading a newer-bundle session ignores the
+    // unknown field instead of destroying the vault. The unknown value never
+    // escapes the read view.
+    const expectedSession = {
+      schemaVersion: 1,
+      providerId: 'google',
+      providerSubject: 'google-subject-1',
+      boundPrincipalNullifier: 'principal-signin-1',
+      boundAt: 1,
+      updatedAt: 1
+    };
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.signInSession).toEqual(expectedSession);
+    expect(JSON.stringify(vault)).not.toContain('must-not-live-here');
+
+    // The compartment accessors can read/bind/clear the salvaged session.
+    expect(await signInSession.load()).toEqual(expectedSession);
+    expect(signInSession.matchesPrincipal(await signInSession.load(), 'principal-signin-1')).toBe(true);
+    await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
 
     const db = await openVaultDb();
     const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
     db.close();
-    expect(remaining).toBeUndefined();
+    expect(remaining).toBeDefined();
+  });
+
+  it('validateSignInSessionForRead strips unknown keys but keeps strict validation otherwise', async () => {
+    const valid = await signInSession.save({ ...SESSION_INPUT, now: 1000 });
+
+    // Read-side tolerance: unknown (newer-bundle) keys are stripped.
+    expect(validateSignInSessionForRead({ ...valid, idToken: 'newer-field' })).toEqual(valid);
+    expect(signInSession.matchesPrincipal(
+      { ...valid, idToken: 'newer-field' } as never,
+      'principal-signin-1'
+    )).toBe(true);
+
+    // Everything else stays as strict as validateSignInSession.
+    expect(() => validateSignInSessionForRead(null)).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSessionForRead('garbage')).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSessionForRead([])).toThrow(VaultCompartmentError);
+    expect(() => validateSignInSessionForRead({ ...valid, providerSubject: '' })).toThrow(VaultCompartmentError);
+
+    // Write-side strictness unchanged: unknown keys still reject the save.
+    expect(() => validateSignInSession({ ...valid, idToken: 'newer-field' })).toThrow(VaultCompartmentError);
   });
 
   it('does not save invalid v2 signInSession compartments through public writers', async () => {
@@ -1406,5 +1482,164 @@ describe('Lane C signInSession compartment', () => {
 
     expect(await loadIdentity()).toEqual(LEGACY_IDENTITY);
     expect(await signInSession.load()).toBeNull();
+  });
+});
+
+describe('Forward-compat salvage (shape-invalid v2 never deletes)', () => {
+  async function readRawRecord(): Promise<VaultRecord | undefined> {
+    const db = await openVaultDb();
+    const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
+    return remaining;
+  }
+
+  it('returns null without deleting when a v2-versioned record carries a wrong schemaVersion', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, { schemaVersion: 3 });
+
+    await expect(loadVaultV2()).resolves.toBeNull();
+    await expect(loadIdentity()).resolves.toBeNull();
+    expect(await readRawRecord()).toBeDefined();
+  });
+
+  it('preserves an unknown top-level compartment in the read view; a save still drops it', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      futureCompartment: { hello: 1 }
+    });
+
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect((vault as unknown as Record<string, unknown>).futureCompartment).toEqual({ hello: 1 });
+    expect(await readRawRecord()).toBeDefined();
+
+    // Documented limitation: any old-tab save rebuilds from the known-key
+    // whitelist (normalizeVaultV2), silently dropping the unknown
+    // compartment. The salvage protects reads only.
+    await saveVaultV2(vault!);
+    const after = await loadVaultV2();
+    expect(after?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect((after as unknown as Record<string, unknown>).futureCompartment).toBeUndefined();
+  });
+
+  it('drops a hostile non-object signInSession compartment and salvages the rest', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      signInSession: 'garbage'
+    });
+
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.signInSession).toBeUndefined();
+    expect(await signInSession.load()).toBeNull();
+    expect(await readRawRecord()).toBeDefined();
+  });
+
+  it('salvages an operatorAuthorizationToken with a newer-bundle field and drops a null one', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      operatorAuthorizationToken: {
+        schemaVersion: 1,
+        token: 'operator-token',
+        boundPrincipalNullifier: 'principal-1',
+        issuedAt: 1000,
+        expiresAt: 2000,
+        newerField: 'ignored-by-this-bundle'
+      }
+    });
+
+    const vault = await loadVaultV2();
+    expect(vault?.operatorAuthorizationToken).toEqual({
+      schemaVersion: 1,
+      token: 'operator-token',
+      boundPrincipalNullifier: 'principal-1',
+      issuedAt: 1000,
+      expiresAt: 2000
+    });
+    expect(JSON.stringify(vault)).not.toContain('ignored-by-this-bundle');
+
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      operatorAuthorizationToken: null
+    });
+    const withNullToken = await loadVaultV2();
+    expect(withNullToken?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(withNullToken?.operatorAuthorizationToken).toBeUndefined();
+    expect(await readRawRecord()).toBeDefined();
+  });
+
+  it('drops a wallet binding that stays invalid after stripping unknown keys', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: {
+        schemaVersion: 1,
+        address: 'not-an-address',
+        chainId: '1',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'principal-wallet',
+        boundAt: 1,
+        updatedAt: 1,
+        newerField: true
+      }
+    });
+
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.walletBinding).toBeUndefined();
+    expect(await readRawRecord()).toBeDefined();
+  });
+
+  it('drops falsy passthrough compartments from the read view', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      seaDevicePair: null,
+      futureFalsyCompartment: 0
+    });
+
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.seaDevicePair).toBeUndefined();
+    expect('futureFalsyCompartment' in (vault as unknown as Record<string, unknown>)).toBe(false);
+  });
+
+  it('keeps the strict isVaultV2 write-side guard covered as public API', () => {
+    expect(isVaultV2({ schemaVersion: 2 })).toBe(true);
+    expect(isVaultV2({ schemaVersion: 2, identityRecord: LEGACY_IDENTITY })).toBe(true);
+    expect(isVaultV2({
+      schemaVersion: 2,
+      walletBinding: {
+        schemaVersion: 1,
+        address: '0x2222222222222222222222222222222222222222',
+        chainId: '1',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'principal-wallet',
+        boundAt: 1,
+        updatedAt: 1
+      },
+      operatorAuthorizationToken: {
+        schemaVersion: 1,
+        token: 'operator-token',
+        boundPrincipalNullifier: 'principal-1',
+        issuedAt: 1000
+      },
+      signInSession: {
+        schemaVersion: 1,
+        providerId: 'apple',
+        providerSubject: 'apple-sub',
+        boundPrincipalNullifier: 'principal-signin-1',
+        boundAt: 1,
+        updatedAt: 1
+      }
+    })).toBe(true);
+    expect(isVaultV2(null)).toBe(false);
+    expect(isVaultV2({ schemaVersion: 1 })).toBe(false);
+    expect(isVaultV2({ schemaVersion: 2, identityRecord: 'nope' })).toBe(false);
+    expect(isVaultV2({ schemaVersion: 2, walletBinding: [] })).toBe(false);
+    expect(isVaultV2({ schemaVersion: 2, operatorAuthorizationToken: 42 })).toBe(false);
+    expect(isVaultV2({ schemaVersion: 2, signInSession: 'garbage' })).toBe(false);
   });
 });

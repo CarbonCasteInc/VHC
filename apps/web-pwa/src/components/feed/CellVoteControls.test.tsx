@@ -6,6 +6,7 @@ import type { VoteAdmissionReceipt } from '@vh/data-model';
 import { CellVoteControls } from './CellVoteControls';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { VOTE_DENIAL_REASONS } from '../../hooks/voteAdmission';
+import { getPendingIntents } from '../../hooks/voteIntentQueue';
 
 const useConstituencyProofMock = vi.hoisted(() => vi.fn());
 const usePointAggregateMock = vi.hoisted(() => vi.fn());
@@ -24,6 +25,9 @@ const BASE_PROPS = {
   synthesisId: 'synth-1',
   epoch: 3,
   analysisId: 'story-1:prov-1',
+  // Required prop: `null` is the explicit legacy-surface value (no
+  // accepted-current read model); join-wired renderers pass the context.
+  acceptedCurrency: null,
 };
 
 function deniedReceipt(reason?: string): VoteAdmissionReceipt {
@@ -137,6 +141,59 @@ describe('CellVoteControls', () => {
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({ desired: -1 }),
     );
+  });
+
+  it('threads a wired acceptedCurrency context through to setAgreement', () => {
+    const spy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
+    const acceptedCurrency = { synthesis_id: 'synth-1', epoch: 3, accepted_current: true };
+    render(<CellVoteControls {...BASE_PROPS} acceptedCurrency={acceptedCurrency} />);
+
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptedCurrency }),
+    );
+  });
+
+  it('passes acceptedCurrency null through to setAgreement for legacy surfaces', () => {
+    const spy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptedCurrency: null }),
+    );
+  });
+
+  it('non-current wired context denies through real admission with the reopen copy', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    // Real (unmocked) setAgreement: the wired context is non-current, so the
+    // admission currency check denies with the canonical reason and nothing
+    // reaches the durable intent queue.
+    render(
+      <CellVoteControls
+        {...BASE_PROPS}
+        acceptedCurrency={{ synthesis_id: 'synth-1', epoch: 3, accepted_current: false }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+
+    expect(screen.getByTestId('cell-vote-denial-point-abc')).toHaveTextContent(
+      'This synthesis just updated — reopen to save your stance',
+    );
+    expect(getPendingIntents()).toHaveLength(0);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:vote:admission]',
+      expect.objectContaining({
+        admitted: false,
+        reason: VOTE_DENIAL_REASONS.NON_CURRENT_SYNTHESIS,
+      }),
+    );
+    warnSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 
   it('passes synthesisPointId for dual-write migration when provided', () => {

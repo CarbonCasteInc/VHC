@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 import { usePointAggregate } from '../../hooks/usePointAggregate';
-import { VOTE_DENIAL_REASONS } from '../../hooks/voteAdmission';
+import { VOTE_DENIAL_REASONS, type AcceptedCurrencyContext } from '../../hooks/voteAdmission';
 import { logVoteAdmission } from '../../utils/sentimentTelemetry';
 import type { Agreement } from './voteSemantics';
 
@@ -13,6 +13,13 @@ export interface CellVoteControlsProps {
   readonly synthesisId: string;
   readonly epoch: number;
   readonly analysisId?: string;
+  /**
+   * Accepted-currency context threaded from the story-detail join. Required
+   * so every renderer must decide: pass the join result (admission denies
+   * stale/non-current targets with `Non-current synthesis`) or explicitly
+   * pass `null` for a surface with no accepted-current read model.
+   */
+  readonly acceptedCurrency: AcceptedCurrencyContext | null;
   readonly disabled?: boolean;
   readonly pointLabel?: string;
 }
@@ -62,6 +69,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   synthesisId,
   epoch,
   analysisId,
+  acceptedCurrency,
   disabled = false,
   pointLabel,
 }) => {
@@ -229,12 +237,14 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         analysisId,
         desired,
         constituency_proof: proof ?? undefined,
+        acceptedCurrency,
       });
       if (result && !result.accepted) {
         setDenial(result.reason ?? null);
       }
     },
     [
+      acceptedCurrency,
       analysisId,
       canonicalPointId,
       disabled,

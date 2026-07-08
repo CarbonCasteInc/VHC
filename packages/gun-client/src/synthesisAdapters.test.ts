@@ -29,10 +29,12 @@ import {
   readTopicDigest,
   readTopicEpochCandidate,
   readTopicEpochCandidates,
+  parseTopicLatestSynthesisCorrectionRecord,
   parseTopicLatestSynthesisRecord,
   readTopicEpochSynthesis,
   readTopicLatestSynthesisStatus,
   readTopicLatestSynthesisStatusWithRelayRestFallback,
+  readTopicLatestSynthesisViaRelayRest,
   readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
   readTopicSynthesisCorrection,
@@ -1890,5 +1892,444 @@ describe('synthesisAdapters', () => {
       'forbidden identity/token fields'
     );
     await expect(readTopicSynthesisCorrection(client, 'topic-1', '   ')).rejects.toThrow('correctionId is required');
+  });
+});
+
+function withRejectUnmarkedFlag(): () => void {
+  (globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> }).__VH_IMPORT_META_ENV__ = {
+    VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true',
+  };
+  return () => {
+    delete (globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> }).__VH_IMPORT_META_ENV__;
+  };
+}
+
+async function createSignedCorrectionFixture(): Promise<{
+  readonly mesh: FakeMesh;
+  readonly client: VennClient;
+  readonly sign: SystemWriterSignHook;
+  readonly correctionRecord: Record<string, unknown>;
+  readonly latestRecord: Record<string, unknown>;
+}> {
+  const hooks = await createRealSystemWriterHooks();
+  const mesh = createFakeMesh();
+  const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+  const client = createClient(mesh, guard, [], {
+    systemWriterPin: hooks.pin,
+    systemWriterSign: hooks.sign,
+    systemWriterVerify: undefined,
+  });
+
+  await writeTopicSynthesisCorrection(client, CORRECTION, OPERATOR_AUTHORIZATION);
+
+  return {
+    mesh,
+    client,
+    sign: hooks.sign,
+    correctionRecord: mesh.writes[0].value as Record<string, unknown>,
+    latestRecord: mesh.writes[1].value as Record<string, unknown>,
+  };
+}
+
+describe('synthesis correction system writer + reject-unmarked mode', () => {
+  it('signs synthesis corrections when a signer is configured and keeps signer-less correction writes bare', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    const signedMesh = createFakeMesh();
+    const signedClient = createClient(signedMesh, guard);
+    await writeTopicSynthesisCorrection(signedClient, CORRECTION, OPERATOR_AUTHORIZATION);
+    expect(signedMesh.writes[0]?.path).toBe('topics/topic-1/synthesis_corrections/correction-1');
+    expect(signedMesh.writes[1]?.path).toBe('topics/topic-1/synthesis_corrections/latest');
+    for (const write of signedMesh.writes) {
+      expect(write.value).toMatchObject({
+        _writerKind: SYSTEM_WRITER_KIND,
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+      });
+      expect(typeof (write.value as Record<string, unknown>)._systemSignature).toBe('string');
+      expectGunJsonEnvelope(write.value, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY, CORRECTION, {
+        correction_id: CORRECTION.correction_id,
+        topic_id: CORRECTION.topic_id,
+      });
+    }
+
+    // The operator PWA holds only the public pin: signer-less clients keep
+    // publishing the bare legacy record so the current correction flow works
+    // until the operator provisions a signing client.
+    const bareMesh = createFakeMesh();
+    const bareClient = createClient(bareMesh, guard, [], { systemWriterSign: undefined });
+    await writeTopicSynthesisCorrection(bareClient, CORRECTION, OPERATOR_AUTHORIZATION);
+    expect(bareMesh.writes).toHaveLength(2);
+    for (const write of bareMesh.writes) {
+      expect('_writerKind' in (write.value as Record<string, unknown>)).toBe(false);
+      expect('_systemSignature' in (write.value as Record<string, unknown>)).toBe(false);
+      expectGunJsonEnvelope(write.value, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY, CORRECTION, {
+        correction_id: CORRECTION.correction_id,
+        topic_id: CORRECTION.topic_id,
+      });
+    }
+  });
+
+  it('validates real signed system writer synthesis correction records', async () => {
+    const { mesh, client, correctionRecord, latestRecord } = await createSignedCorrectionFixture();
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', correctionRecord);
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', latestRecord);
+
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+    await expect(parseTopicLatestSynthesisCorrectionRecord(client, 'topic-1', latestRecord)).resolves.toEqual({
+      state: 'valid',
+      correction: CORRECTION,
+    });
+  });
+
+  it('rejects tampered or path-mismatched system writer correction records', async () => {
+    const { mesh, client, sign, correctionRecord, latestRecord } = await createSignedCorrectionFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      for (const record of [
+        {
+          ...correctionRecord,
+          [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify({ ...CORRECTION, reason: 'Tampered' }),
+        },
+        { ...correctionRecord, _protocolVersion: 'luma-public-v2' },
+        { ...correctionRecord, _systemWriterId: 'unknown-writer' },
+        { ...correctionRecord, _systemSignature: `${String(correctionRecord._systemSignature)}tampered` },
+      ]) {
+        mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', record);
+        // A blocked correction never falls back to the scalar envelope.
+        mesh.setRead(
+          'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+          JSON.stringify(CORRECTION)
+        );
+        await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+      }
+
+      // Validly signed record replayed under another correction node.
+      mesh.setRead('topics/topic-1/synthesis_corrections/correction-2', correctionRecord);
+      await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-2')).resolves.toBeNull();
+
+      // Validly signed record replayed under another topic.
+      mesh.setRead('topics/topic-2/synthesis_corrections/latest', latestRecord);
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-2')).resolves.toBeNull();
+
+      // Validly signed record whose envelope cannot be parsed fails closed.
+      const unparseableSigned = await signSystemWriterTestRecord(
+        sign,
+        'vh/topics/topic-1/synthesis_corrections/latest/',
+        {
+          [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify({ ...CORRECTION, token: 'forbidden' }),
+          topic_id: CORRECTION.topic_id,
+          correction_id: CORRECTION.correction_id,
+          _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+          _writerKind: SYSTEM_WRITER_KIND,
+          _systemWriterId: WRITER_ID,
+          _systemIssuedAt: ISSUED_AT,
+        }
+      );
+      mesh.setRead('topics/topic-1/synthesis_corrections/latest', unparseableSigned);
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+
+      // Validly signed records whose envelope and top-level mirrors disagree.
+      const envelopeTopLevelMismatch = await signSystemWriterTestRecord(
+        sign,
+        'vh/topics/topic-1/synthesis_corrections/correction-1/',
+        {
+          [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(CORRECTION),
+          topic_id: 'topic-2',
+          correction_id: CORRECTION.correction_id,
+          _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+          _writerKind: SYSTEM_WRITER_KIND,
+          _systemWriterId: WRITER_ID,
+          _systemIssuedAt: ISSUED_AT,
+        }
+      );
+      mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', envelopeTopLevelMismatch);
+      await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+      const correctionIdMismatch = await signSystemWriterTestRecord(
+        sign,
+        'vh/topics/topic-1/synthesis_corrections/correction-1/',
+        {
+          [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(CORRECTION),
+          topic_id: CORRECTION.topic_id,
+          correction_id: 'correction-2',
+          _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+          _writerKind: SYSTEM_WRITER_KIND,
+          _systemWriterId: WRITER_ID,
+          _systemIssuedAt: ISSUED_AT,
+        }
+      );
+      mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', correctionIdMismatch);
+      await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fails closed with system-writer-validation-failed when the correction pin is missing', async () => {
+    const { latestRecord } = await createSignedCorrectionFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', latestRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'missing-pin',
+          path: '[REDACTED:mesh-path]',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'missing-pin',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('blocks corrections carrying partial protocol fields regardless of the reject-unmarked flag', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const partialRecord = {
+      ...CORRECTION,
+      _systemSignature: 'downgraded-system-field',
+    };
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', partialRecord);
+
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+    } finally {
+      restoreFlag();
+    }
+  });
+
+  it('accepts unmarked corrections by default and rejects them when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', { _: { '#': 'meta' }, ...CORRECTION });
+
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+    await expect(parseTopicLatestSynthesisCorrectionRecord(client, 'topic-1', { ...CORRECTION })).resolves.toEqual({
+      state: 'valid',
+      correction: CORRECTION,
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+      await expect(parseTopicLatestSynthesisCorrectionRecord(client, 'topic-1', { ...CORRECTION })).resolves.toEqual({
+        state: 'blocked',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'unmarked-record-rejected',
+        }),
+      );
+
+      // Signed corrections stay readable in reject-unmarked mode.
+      const { latestRecord, client: signedClient } = await createSignedCorrectionFixture();
+      await expect(
+        parseTopicLatestSynthesisCorrectionRecord(signedClient, 'topic-1', latestRecord)
+      ).resolves.toEqual({ state: 'valid', correction: CORRECTION });
+    } finally {
+      restoreFlag();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('skips correction scalar-envelope fallbacks when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    // Absent root nodes with recoverable scalar envelopes...
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', undefined);
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+    // ...and non-record legacy root noise with a recoverable scalar envelope.
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', 'legacy-root-placeholder');
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/latest/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+
+    // Flag off: both scalar recoveries work (legacy behavior).
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+
+      // Absent latest root nodes skip the scalar recovery too.
+      mesh.setRead('topics/topic-1/synthesis_corrections/latest', undefined);
+      await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+    } finally {
+      restoreFlag();
+    }
+  });
+
+  it('rejects unmarked and legacy-marked synthesis records without scalar fallback when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    try {
+      // Unmarked epoch/latest records are rejected with the named reason.
+      mesh.setRead('topics/topic-1/epochs/2/synthesis', { ...SYNTHESIS });
+      mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS });
+      await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'blocked' });
+      await expect(parseTopicLatestSynthesisRecord(client, 'topic-1', { ...SYNTHESIS })).resolves.toEqual({
+        state: 'blocked',
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+      );
+
+      // Legacy-marked records are unauthenticated by construction: rejected too.
+      mesh.setRead('topics/topic-1/latest', {
+        _writerKind: 'legacy',
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(SYNTHESIS),
+        topic_id: SYNTHESIS.topic_id,
+        epoch: SYNTHESIS.epoch,
+        synthesis_id: SYNTHESIS.synthesis_id,
+      });
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'blocked' });
+
+      // Scalar-envelope fallbacks are skipped entirely.
+      mesh.setRead('topics/topic-1/epochs/2/synthesis', undefined);
+      mesh.setRead('topics/topic-1/epochs/2/synthesis/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+      mesh.setRead('topics/topic-1/latest', undefined);
+      mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+      await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'legacy-invalid' });
+
+      // Non-record legacy root noise cannot reach the scalar fallback either.
+      mesh.setRead('topics/topic-1/epochs/2/synthesis', 'legacy-root-placeholder');
+      mesh.setRead('topics/topic-1/latest', 'legacy-root-placeholder');
+      await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'legacy-invalid' });
+
+      // Signed records keep validating with the flag on.
+      const { latestRecord, epochRecord, client: signedClient, mesh: signedMesh } = await createSignedSynthesisFixture();
+      signedMesh.setRead('topics/topic-1/epochs/2/synthesis', epochRecord);
+      signedMesh.setRead('topics/topic-1/latest', latestRecord);
+      await expect(readTopicEpochSynthesis(signedClient, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+      await expect(readTopicLatestSynthesisStatus(signedClient, 'topic-1')).resolves.toEqual({
+        state: 'valid',
+        synthesis: SYNTHESIS,
+      });
+    } finally {
+      restoreFlag();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('rejects unmarked digest records when reject-unmarked mode is on', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    mesh.setRead('topics/topic-1/digests/digest-1', { ...DIGEST });
+
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const restoreFlag = withRejectUnmarkedFlag();
+    try {
+      await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+      );
+
+      // Signed digests keep validating with the flag on.
+      const { digestRecord, client: signedClient, mesh: signedMesh } = await createSignedDigestFixture();
+      signedMesh.setRead('topics/topic-1/digests/digest-1', digestRecord);
+      await expect(readTopicDigest(signedClient, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+    } finally {
+      restoreFlag();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('ignores relay pre-parsed synthesis payloads when reject-unmarked mode is on', async () => {
+    const { latestRecord, client: signedClient } = await createSignedSynthesisFixture();
+    const relayBody = {
+      ok: true,
+      synthesis: SYNTHESIS,
+      record: latestRecord,
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => relayBody,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    try {
+      const relayClient = {
+        ...signedClient,
+        config: { ...signedClient.config, peers: ['wss://relay.example.test/gun'] },
+      };
+      // Flag on: the relay's pre-parsed `synthesis` body is ignored, but the
+      // signed raw record still validates through the stored-record parser.
+      await expect(readTopicLatestSynthesisViaRelayRest(relayClient, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+      // Without a raw record, the pre-parsed payload alone is not accepted.
+      const synthesisOnlyBody = { ok: true, synthesis: SYNTHESIS };
+      fetchMock.mockImplementation(async () => ({
+        ok: true,
+        json: async () => synthesisOnlyBody,
+      }));
+      await expect(readTopicLatestSynthesisViaRelayRest(relayClient, 'topic-1')).resolves.toBeNull();
+
+      // Flag off: the relay-validated body is accepted (legacy behavior).
+      restoreFlag();
+      await expect(readTopicLatestSynthesisViaRelayRest(relayClient, 'topic-1')).resolves.toEqual(SYNTHESIS);
+    } finally {
+      restoreFlag();
+      vi.unstubAllGlobals();
+    }
   });
 });

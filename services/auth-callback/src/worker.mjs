@@ -6,6 +6,7 @@
  *   OPTIONS /auth/:provider/start|callback  -> CORS preflight
  *   POST    /auth/:provider/start           -> issue state + authorize URL parameters
  *   GET/POST /auth/:provider/callback       -> exchange code, return non-secret session
+ *   POST    /auth/apple/return              -> Apple form_post receiver: 303 to the PWA callback route
  *   GET     /api/health                     -> config booleans only (no values)
  *
  * `:provider` is a closed set (apple|google|x); anything else is 404.
@@ -13,6 +14,7 @@
  */
 
 import {
+  allowedOrigins,
   createKvAuthStore,
   createMemoryAuthStore,
   handleCallback,
@@ -20,7 +22,10 @@ import {
   isAllowedOrigin,
   isSignInProvider,
   providerConfig,
+  sanitizeProviderErrorCode,
   SIGN_IN_PROVIDERS,
+  stateSecret,
+  verifyStateOnly,
 } from './auth-core.mjs';
 
 const memoryStore = createMemoryAuthStore();
@@ -116,6 +121,134 @@ function nowMs(env) {
   return Number.isFinite(forced) ? forced : Date.now();
 }
 
+/**
+ * Resolve which PWA origin the Apple form_post receiver redirects to. The flow's
+ * PKCE pending state lives in the sessionStorage of the origin that STARTED the
+ * flow, so redirecting to the wrong origin dead-ends the sign-in. Precedence:
+ *
+ *   1. `stateOrigin` — the origin bound into the signed state at /start — when
+ *      it is still allow-listed. This is the exact initiating origin.
+ *   2. `VH_AUTH_PWA_ORIGIN` — an explicit operator override — when allow-listed.
+ *   3. The sole allow-listed origin, for the common single-origin deployment
+ *      (zero extra config).
+ *
+ * Returns null for a multi-origin deployment when neither the state nor the
+ * override resolves — the caller fails closed (503) rather than guessing.
+ */
+function resolvePwaOrigin(env, stateOrigin) {
+  if (typeof stateOrigin === 'string' && isAllowedOrigin(stateOrigin, env)) {
+    return stateOrigin.replace(/\/+$/u, '');
+  }
+  const override = env.VH_AUTH_PWA_ORIGIN;
+  if (typeof override === 'string' && isAllowedOrigin(override, env)) {
+    return override.replace(/\/+$/u, '');
+  }
+  const origins = allowedOrigins(env);
+  return origins.length === 1 ? origins[0] : null;
+}
+
+/**
+ * Build the PWA callback URL from a resolved origin plus the PWA callback route
+ * (VH_AUTH_PWA_CALLBACK_ROUTE, defaulting to the PWA's own VITE_AUTH_CALLBACK_ROUTE
+ * default of /auth/callback).
+ */
+function pwaCallbackTarget(origin, env) {
+  const route = typeof env.VH_AUTH_PWA_CALLBACK_ROUTE === 'string' && env.VH_AUTH_PWA_CALLBACK_ROUTE.startsWith('/')
+    ? env.VH_AUTH_PWA_CALLBACK_ROUTE
+    : '/auth/callback';
+  return `${origin}${route}`;
+}
+
+function isFormUrlencoded(request) {
+  const contentType = request.headers.get('content-type') ?? '';
+  return contentType.split(';')[0].trim().toLowerCase() === 'application/x-www-form-urlencoded';
+}
+
+/**
+ * Apple form_post receiver. With scopes configured (the default), Apple
+ * delivers `code` + `state` (on success) or `error` + `state` (on user cancel /
+ * provider error) as a TOP-LEVEL browser POST (application/x-www-form-urlencoded,
+ * Origin: https://appleid.apple.com) to the registered redirect URI — so no
+ * Origin allow-list and no JSON body apply here.
+ *
+ * This receiver reads ONLY `state` plus either `code` or a sanitized `error`,
+ * and 303-redirects to the PWA callback route with them as query parameters —
+ * the same exposure as the response_mode=query GET leg tolerated by
+ * /auth/:provider/callback. The redirect targets the origin bound into the
+ * signed state (verify-only — the single-use nonce is NOT consumed here, so the
+ * PWA's later POST /auth/apple/callback can still consume it). The PKCE
+ * `code_verifier` is deliberately NEVER read from this leg (it must only travel
+ * in the PWA's later POST body); any other form field (Apple's `user` JSON, an
+ * erroneous verifier) is ignored and never forwarded.
+ */
+async function handleAppleFormPostReturn(request, env) {
+  if (request.method !== 'POST') {
+    return json({ status: 'rejected', reason: 'method_not_allowed' }, 405, { allow: 'POST' });
+  }
+  if (!isFormUrlencoded(request)) {
+    return json({ status: 'rejected', reason: 'unsupported_content_type' }, 415);
+  }
+
+  let text;
+  try {
+    text = await requestText(request, env);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'request_body_too_large') {
+      return json({ status: 'rejected', reason: 'request_body_too_large' }, 413);
+    }
+    throw error;
+  }
+
+  const form = new URLSearchParams(text);
+  const code = form.get('code') ?? '';
+  const state = form.get('state') ?? '';
+  const errorCode = form.get('error') ?? '';
+  if (state.length === 0 || state.length > 2048) {
+    return json({ status: 'rejected', reason: 'state_invalid' }, 400);
+  }
+
+  // Verify-only peek to recover the initiating origin bound into the state.
+  // Never consumes the nonce; a bad/expired state simply falls back to the
+  // override / single-origin resolution below.
+  let stateOrigin = null;
+  const secret = stateSecret(env);
+  if (secret) {
+    const verified = await verifyStateOnly({ state, provider: 'apple', secret, nowMs: nowMs(env) });
+    if (verified.ok && typeof verified.payload.origin === 'string') {
+      stateOrigin = verified.payload.origin;
+    }
+  }
+
+  const origin = resolvePwaOrigin(env, stateOrigin);
+  if (!origin) {
+    return json({ status: 'rejected', reason: 'pwa_origin_unconfigured' }, 503);
+  }
+  const location = new URL(pwaCallbackTarget(origin, env));
+  location.searchParams.set('provider', 'apple');
+  location.searchParams.set('state', state);
+
+  // Error/cancel leg: Apple posts `error` (e.g. user_cancelled_authorize) and
+  // `state`, no code. Forward the sanitized error so the PWA renders a graceful
+  // failure and clears its pending state instead of dead-ending on a raw JSON
+  // page at the worker origin. OAuth error codes are a public enum — nothing
+  // secret rides here, and no code is forwarded.
+  if (errorCode.length > 0) {
+    location.searchParams.set('error', sanitizeProviderErrorCode(errorCode));
+  } else if (code.length > 0 && code.length <= 2048) {
+    location.searchParams.set('code', code);
+  } else {
+    return json({ status: 'rejected', reason: 'code_invalid' }, 400);
+  }
+
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: location.toString(),
+      'cache-control': 'no-store',
+    },
+  });
+}
+
 function requireAllowedOrigin(request, env) {
   const origin = request.headers.get('origin');
   if (!isAllowedOrigin(origin, env)) {
@@ -127,6 +260,10 @@ function requireAllowedOrigin(request, env) {
 export async function handleRequest(request, env = {}, _ctx = {}) {
   const url = new URL(request.url);
   const authMatch = url.pathname.match(/^\/auth\/([^/]+)\/(start|callback)$/);
+
+  if (url.pathname === '/auth/apple/return') {
+    return handleAppleFormPostReturn(request, env);
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/health') {
     const configured = {};
@@ -175,6 +312,7 @@ export async function handleRequest(request, env = {}, _ctx = {}) {
       provider,
       codeChallenge: body.value.codeChallenge,
       env,
+      origin: originCheck.origin,
       nowMs: nowMs(env),
     });
     return json(result.body, result.status, corsHeaders(originCheck.origin));

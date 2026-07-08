@@ -18,6 +18,7 @@ import {
   sessionFromTokenResponse,
   stateSecret,
   verifyAndConsumeState,
+  verifyStateOnly,
 } from './auth-core.mjs';
 
 const STATE_SECRET = 'test-state-secret-0123456789abcdef';
@@ -104,6 +105,39 @@ test('state round-trips, is single-use, and expires', async () => {
   });
   const expired = await verifyAndConsumeState({ state: expiring, provider: 'google', secret: STATE_SECRET, store, nowMs: nowMs + 60_001 });
   assert.deepEqual(expired, { ok: false, reason: 'state_expired' });
+});
+
+test('verifyStateOnly verifies without consuming and carries the bound origin', async () => {
+  const store = createMemoryAuthStore();
+  const challenge = await computeS256Challenge(CODE_VERIFIER);
+  const nowMs = 1_750_000_000_000;
+  const { state } = await issueState({
+    provider: 'apple',
+    codeChallenge: challenge,
+    secret: STATE_SECRET,
+    origin: 'https://app.example',
+    nowMs,
+    ttlMs: 60_000,
+  });
+
+  // Peek twice — both succeed and expose the bound origin; the nonce ledger is
+  // never touched.
+  const first = await verifyStateOnly({ state, provider: 'apple', secret: STATE_SECRET, nowMs: nowMs + 1_000 });
+  assert.equal(first.ok, true);
+  assert.equal(first.payload.origin, 'https://app.example');
+  const second = await verifyStateOnly({ state, provider: 'apple', secret: STATE_SECRET, nowMs: nowMs + 1_000 });
+  assert.equal(second.ok, true);
+
+  // A subsequent consume still succeeds (the peeks did not burn it); only then
+  // is the state single-use.
+  const consumed = await verifyAndConsumeState({ state, provider: 'apple', secret: STATE_SECRET, store, nowMs: nowMs + 2_000 });
+  assert.equal(consumed.ok, true);
+  const replay = await verifyAndConsumeState({ state, provider: 'apple', secret: STATE_SECRET, store, nowMs: nowMs + 3_000 });
+  assert.equal(replay.reason, 'state_replayed');
+
+  // verifyStateOnly still rejects a provider mismatch and an expired state.
+  assert.equal((await verifyStateOnly({ state, provider: 'google', secret: STATE_SECRET, nowMs: nowMs + 1_000 })).reason, 'state_provider_mismatch');
+  assert.equal((await verifyStateOnly({ state, provider: 'apple', secret: STATE_SECRET, nowMs: nowMs + 60_001 })).reason, 'state_expired');
 });
 
 test('state rejects tampering, provider mismatch, and malformed values', async () => {

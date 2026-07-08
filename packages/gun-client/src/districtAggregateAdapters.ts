@@ -8,9 +8,18 @@ import {
   type PointAggregateSnapshotV1,
   type Representative,
 } from '@vh/data-model';
+import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+} from './systemWriter';
 import type { VennClient } from './types';
 
 /**
@@ -47,6 +56,12 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   1_000,
 );
 
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const SYSTEM_WRITER_COMPAT_NULL_FIELDS = ['_system', '_Signature', '_WriterId', '_IssuedAt'] as const;
+
+type SystemWriterDistrictAggregateSummaryRecord =
+  DistrictAggregateSummaryV1 & Record<string, unknown> & SystemWriterRecordFields;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -57,6 +72,34 @@ function stripGunMetadata(data: unknown): unknown {
   }
   const { _, ...rest } = data as Record<string, unknown> & { _?: unknown };
   return rest;
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function stripSystemWriterFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const {
+    _protocolVersion: _omittedProtocolVersion,
+    _writerKind: _omittedWriterKind,
+    _systemWriterId: _omittedSystemWriterId,
+    _systemSignature: _omittedSystemSignature,
+    _systemIssuedAt: _omittedSystemIssuedAt,
+    ...summaryPayload
+  } = payload;
+  for (const field of SYSTEM_WRITER_COMPAT_NULL_FIELDS) {
+    delete summaryPayload[field];
+  }
+  return summaryPayload;
+}
+
+function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailure): void {
+  lumaLog('warn', `[vh:district-aggregate] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
 }
 
 function normalizeRequiredId(value: string, name: string): string {
@@ -201,10 +244,13 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 /**
- * Read the published district/office aggregate summary. Returns null when no
- * record exists or the record does not validate against the aggregate-only
- * schema (including the cohortSize >= MIN_DISTRICT_COHORT_SIZE floor), so a
- * withheld small-cell record reads as "no signal" rather than a leak.
+ * Read the published district/office aggregate summary. Fail-closed: the
+ * record must carry a valid pinned system-writer signature (no legitimate
+ * unsigned writer has ever published this class, so unmarked records are
+ * rejected with no legacy branch) and must validate against the
+ * aggregate-only schema (including the cohortSize >= MIN_DISTRICT_COHORT_SIZE
+ * floor), so a forged or withheld small-cell record reads as "no signal"
+ * rather than a leak.
  */
 export async function readDistrictAggregateSummary(
   client: VennClient,
@@ -213,10 +259,59 @@ export async function readDistrictAggregateSummary(
 ): Promise<DistrictAggregateSummaryV1 | null> {
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
   const normalizedDistrictHash = normalizeRequiredId(districtHash, 'districtHash');
-  const raw = await readOnce(
-    getDistrictAggregateSummaryChain(client, normalizedTopicId, normalizedDistrictHash),
+  const payload = stripGunMetadata(
+    await readOnce(getDistrictAggregateSummaryChain(client, normalizedTopicId, normalizedDistrictHash)),
   );
-  const parsed = DistrictAggregateSummaryV1Schema.safeParse(stripGunMetadata(raw));
+  if (!isSystemWriterMarkedRecord(payload)) {
+    return null;
+  }
+
+  const validation = await validateSystemWriterRecord({
+    path: districtAggregateSummaryPath(normalizedTopicId, normalizedDistrictHash),
+    record: payload,
+    pin: client.config.systemWriterPin,
+    verify: client.config.systemWriterVerify,
+  });
+  if (!validation.valid) {
+    emitSystemWriterValidationFailure(validation);
+    return null;
+  }
+
+  const parsed = DistrictAggregateSummaryV1Schema.safeParse(stripSystemWriterFields(payload));
+  if (!parsed.success) {
+    return null;
+  }
+  // Signatures bind record content, not the mesh path: refuse a validly
+  // signed summary replayed under another topic/district node.
+  return parsed.data.topic_id === normalizedTopicId
+    && parsed.data.district_hash === normalizedDistrictHash
+    ? parsed.data
+    : null;
+}
+
+/**
+ * Durability readback: confirm the exact record we just wrote actually landed,
+ * WITHOUT re-verifying our own signature. The consumer read
+ * (readDistrictAggregateSummary) stays fail-closed and pin-validating; this path
+ * only needs to prove persistence, so a writer that signs correctly but is not
+ * configured with its own pin (or a runtime without Ed25519 verify) does not
+ * misreport a landed write as an ack-timeout failure. The caller's
+ * `summariesMatch` predicate requires field-for-field equality with what we
+ * wrote, so a concurrent forged record could confirm only by being byte-identical
+ * to ours — harmless.
+ */
+async function readDistrictAggregateSummaryForDurability(
+  client: VennClient,
+  topicId: string,
+  districtHash: string,
+): Promise<DistrictAggregateSummaryV1 | null> {
+  const payload = stripGunMetadata(
+    await readOnce(getDistrictAggregateSummaryChain(client, topicId, districtHash)),
+  );
+  if (!isRecord(payload)) {
+    return null;
+  }
+  const parsed = DistrictAggregateSummaryV1Schema.safeParse(stripSystemWriterFields(payload));
   return parsed.success ? parsed.data : null;
 }
 
@@ -227,9 +322,25 @@ function summariesMatch(
   return Boolean(left && JSON.stringify(left) === JSON.stringify(right));
 }
 
+async function buildSystemWriterDistrictAggregateSummaryRecord(
+  client: VennClient,
+  summary: DistrictAggregateSummaryV1,
+): Promise<SystemWriterDistrictAggregateSummaryRecord> {
+  return buildSignedSystemWriterRecord({
+    path: districtAggregateSummaryPath(summary.topic_id, summary.district_hash),
+    payload: summary as DistrictAggregateSummaryV1 & Record<string, unknown>,
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for district aggregate summary writes',
+  }) as Promise<SystemWriterDistrictAggregateSummaryRecord>;
+}
+
 function putWithAck(
   chain: ChainWithGet<DistrictAggregateSummaryV1>,
-  value: DistrictAggregateSummaryV1,
+  value: SystemWriterDistrictAggregateSummaryRecord,
   options: {
     readonly readback?: () => Promise<unknown>;
     readonly readbackPredicate?: (observed: unknown) => boolean;
@@ -268,13 +379,16 @@ export async function writeDistrictAggregateSummary(
     );
   }
   const parsed = DistrictAggregateSummaryV1Schema.parse(summary);
+  const record = await buildSystemWriterDistrictAggregateSummaryRecord(client, parsed);
 
   await putWithAck(
     getDistrictAggregateSummaryChain(client, parsed.topic_id, parsed.district_hash),
-    parsed,
+    record,
     {
+      // Durability readback confirms persistence via content equality only, not
+      // signature re-verification — see readDistrictAggregateSummaryForDurability.
       readback: () =>
-        readDistrictAggregateSummary(client, parsed.topic_id, parsed.district_hash),
+        readDistrictAggregateSummaryForDurability(client, parsed.topic_id, parsed.district_hash),
       readbackPredicate: (observed) =>
         summariesMatch(observed as DistrictAggregateSummaryV1 | null, parsed),
     },

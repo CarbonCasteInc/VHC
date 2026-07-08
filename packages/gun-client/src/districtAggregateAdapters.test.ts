@@ -5,6 +5,14 @@ import {
   type Representative,
 } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_SIGNATURE_SUITE,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  type SystemWriterPin,
+  type SystemWriterSignHook,
+} from './systemWriter';
 import { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import {
@@ -13,6 +21,74 @@ import {
   readDistrictAggregateSummary,
   writeDistrictAggregateSummary,
 } from './districtAggregateAdapters';
+
+const ED25519 = 'Ed25519';
+const WRITER_ID = 'vh-system-writer-test-v1';
+const ISSUED_AT = 1_777_777_777_000;
+
+const DEFAULT_SYSTEM_WRITER_PIN: SystemWriterPin = {
+  pinVersion: 1,
+  schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+  maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+  signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+  writers: [
+    {
+      id: WRITER_ID,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: 'test-public-key',
+      },
+    },
+  ],
+};
+
+function bytesToBase64Url(bytes: ArrayBuffer | Uint8Array): string {
+  return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString('base64url');
+}
+
+function bytesToCryptoBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function createRealSystemWriterHooks(): Promise<{
+  readonly pin: SystemWriterPin;
+  readonly sign: SystemWriterSignHook;
+}> {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+  return {
+    pin: {
+      pinVersion: 1,
+      schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+      maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+      writers: [
+        {
+          id: WRITER_ID,
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: bytesToBase64Url(spki),
+          },
+        },
+      ],
+    },
+    sign: async ({ canonicalBytes }) => {
+      const signature = await crypto.subtle.sign(
+        ED25519,
+        keyPair.privateKey,
+        bytesToCryptoBufferSource(canonicalBytes)
+      );
+      return bytesToBase64Url(signature);
+    },
+  };
+}
 
 interface FakeMesh {
   root: any;
@@ -46,11 +122,23 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+function createClient(
+  mesh: FakeMesh,
+  guard: TopologyGuard,
+  config: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
   return {
-    config: { peers: [] },
+    config: {
+      peers: [],
+      systemWriterId: WRITER_ID,
+      systemWriterNow: () => ISSUED_AT,
+      systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
+      systemWriterSign: () => 'test-district-signature',
+      systemWriterVerify: () => true,
+      ...config,
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -181,16 +269,182 @@ describe('writeDistrictAggregateSummary / readDistrictAggregateSummary', () => {
       'vh/aggregates/topics/topic-1/districts/district-1/summary/',
     );
     // …and the mesh write lands on the corresponding summary node (mesh is
-    // already rooted at vh).
-    expect(
-      mesh.writes.some(
-        (entry) => entry.path === 'aggregates/topics/topic-1/districts/district-1/summary',
-      ),
-    ).toBe(true);
+    // already rooted at vh) carrying the system-writer marker fields.
+    const write = mesh.writes.find(
+      (entry) => entry.path === 'aggregates/topics/topic-1/districts/district-1/summary',
+    );
+    expect(write).toBeDefined();
+    expect(write?.value).toMatchObject({
+      district_hash: 'district-1',
+      cohortSize: 150,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: 'test-district-signature',
+    });
 
     const readBack = await readDistrictAggregateSummary(client, 'topic-1', 'district-1');
     expect(readBack?.district_hash).toBe('district-1');
     expect(readBack?.cohortSize).toBe(150);
+    // System-writer fields are stripped before the strict schema parse and
+    // never leak into the returned summary.
+    expect(readBack).toEqual(summary);
+    expect(Object.keys(readBack ?? {}).some((key) => key.startsWith('_'))).toBe(false);
+  });
+
+  it('round-trips a real WebCrypto signed summary through default verification', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const client = createClient(mesh, new TopologyGuard(), {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+
+    await writeDistrictAggregateSummary(client, summary!);
+    await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-1')).resolves.toEqual(summary);
+  });
+
+  it('rejects tampered signed summaries and emits the validation event', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const client = createClient(mesh, new TopologyGuard(), {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    await writeDistrictAggregateSummary(client, summary!);
+    const signedRecord = mesh.writes[0]!.value as Record<string, unknown>;
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      mesh.setRead(SUMMARY_NODE, { ...signedRecord, cohortSize: 5_000 });
+      await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:district-aggregate] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'signature-invalid',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'signature-invalid' }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fails closed when the district pin is missing', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const writerMesh = createFakeMesh();
+    const writerClient = createClient(writerMesh, new TopologyGuard(), {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    await writeDistrictAggregateSummary(writerClient, summary!);
+    const signedRecord = writerMesh.writes[0]!.value as Record<string, unknown>;
+
+    const mesh = createFakeMesh();
+    const client = createClient(mesh, new TopologyGuard(), {
+      systemWriterPin: null,
+      systemWriterVerify: undefined,
+    });
+    mesh.setRead(SUMMARY_NODE, signedRecord);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:district-aggregate] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({ reason: 'missing-pin' }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('refuses a validly signed summary replayed under another topic or district node', async () => {
+    const mesh = createFakeMesh();
+    const client = createClient(mesh, new TopologyGuard());
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    await writeDistrictAggregateSummary(client, summary!);
+    const signedRecord = mesh.writes[0]!.value as Record<string, unknown>;
+
+    // Signature verification is stubbed true, so only the replay check stands
+    // between a copied record and the wrong node.
+    mesh.setRead('aggregates/topics/topic-1/districts/district-2/summary', signedRecord);
+    await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-2')).resolves.toBeNull();
+
+    mesh.setRead('aggregates/topics/topic-2/districts/district-1/summary', signedRecord);
+    await expect(readDistrictAggregateSummary(client, 'topic-2', 'district-1')).resolves.toBeNull();
+  });
+
+  it('reads null for marked records whose stripped payload fails the aggregate-only schema', async () => {
+    const mesh = createFakeMesh();
+    // Verification is stubbed true: the schema stage must still fail closed.
+    const client = createClient(mesh, new TopologyGuard());
+    mesh.setRead(SUMMARY_NODE, {
+      _writerKind: SYSTEM_WRITER_KIND,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: 'test-district-signature',
+      schema_version: 'district-aggregate-summary-v1',
+      district_hash: 'district-1',
+      cohortSize: 5,
+    });
+    await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-1')).resolves.toBeNull();
+  });
+
+  it('requires a system writer signer for summary writes', async () => {
+    const mesh = createFakeMesh();
+    const client = createClient(mesh, new TopologyGuard(), { systemWriterSign: undefined });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    await expect(writeDistrictAggregateSummary(client, summary!)).rejects.toThrow(
+      'system writer signer is required for district aggregate summary writes',
+    );
+    expect(mesh.writes).toHaveLength(0);
   });
 
   it('refuses to publish a below-threshold cohort (fail-closed)', async () => {
@@ -216,13 +470,24 @@ describe('writeDistrictAggregateSummary / readDistrictAggregateSummary', () => {
   it('reads null when the stored record does not validate against the aggregate-only schema', async () => {
     const mesh = createFakeMesh();
     const client = createClient(mesh, new TopologyGuard());
-    // A withheld/malformed record (below threshold) must read as no-signal.
+    // A peer-asserted unmarked record (no system-writer marker) must read as
+    // no-signal: every record at this path is signed by the sanctioned writer,
+    // so there is no legacy-unsigned tolerance branch.
     mesh.setRead(
       'aggregates/topics/topic-1/districts/district-1/summary',
       { schema_version: 'district-aggregate-summary-v1', district_hash: 'district-1', cohortSize: 5 },
     );
     const readBack = await readDistrictAggregateSummary(client, 'topic-1', 'district-1');
     expect(readBack).toBeNull();
+
+    // Even a schema-valid unmarked record fails closed without the marker.
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    mesh.setRead('aggregates/topics/topic-1/districts/district-1/summary', { ...summary });
+    await expect(readDistrictAggregateSummary(client, 'topic-1', 'district-1')).resolves.toBeNull();
   });
 
   it('reads null for an absent record (non-record raw value)', async () => {
@@ -308,11 +573,22 @@ function createControllableMesh(): ControllableMesh {
   return { root: makeNode([]), writes, onceCallbacks, putCallbacks, reads };
 }
 
-function createControllableClient(mesh: ControllableMesh): VennClient {
+function createControllableClient(
+  mesh: ControllableMesh,
+  configOverrides: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
   return {
-    config: { peers: [] },
+    config: {
+      peers: [],
+      systemWriterId: WRITER_ID,
+      systemWriterNow: () => ISSUED_AT,
+      systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
+      systemWriterSign: () => 'test-district-signature',
+      systemWriterVerify: () => true,
+      ...configOverrides,
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: new TopologyGuard(),
@@ -386,5 +662,96 @@ describe('districtAggregateAdapters timing paths', () => {
     }
 
     await expect(pending).resolves.toMatchObject({ district_hash: 'district-1', cohortSize: 150 });
+  });
+
+  it('confirms an ack-timed-out write via a non-validating readback even when the writer has no pin', async () => {
+    const mesh = createControllableMesh();
+    // A writer that signs correctly but is NOT configured with its own pin (and
+    // has no verify hook). The durability readback must confirm persistence by
+    // comparing the stored bytes, not by re-verifying our own signature — so a
+    // landed write is not misreported as a timeout failure.
+    const client = createControllableClient(mesh, {
+      systemWriterPin: null,
+      systemWriterVerify: undefined,
+    });
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+
+    for (let tick = 0; tick < 12; tick += 1) {
+      await vi.advanceTimersByTimeAsync(500);
+      const cb = mesh.onceCallbacks.get(SUMMARY_NODE);
+      if (cb) {
+        cb(mesh.reads.get(SUMMARY_NODE));
+        mesh.onceCallbacks.delete(SUMMARY_NODE);
+      }
+    }
+
+    await expect(pending).resolves.toMatchObject({ district_hash: 'district-1', cohortSize: 150 });
+  });
+
+  it('reports a timeout failure when the ack times out and the readback record is schema-invalid', async () => {
+    const mesh = createControllableMesh();
+    const client = createControllableClient(mesh);
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+    // Reject silently below so the unhandled-rejection guard does not fire while
+    // we drive the timers.
+    const settled = pending.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
+    // Fire each readback with a record that survives stripping but fails the
+    // aggregate-only schema (cohortSize below the k-anonymity floor), so the
+    // predicate never confirms and the write reports a timeout failure.
+    for (let tick = 0; tick < 12; tick += 1) {
+      await vi.advanceTimersByTimeAsync(500);
+      const cb = mesh.onceCallbacks.get(SUMMARY_NODE);
+      if (cb) {
+        cb({ ...(mesh.reads.get(SUMMARY_NODE) as Record<string, unknown>), cohortSize: 5 });
+        mesh.onceCallbacks.delete(SUMMARY_NODE);
+      }
+    }
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { error: Error }).error.message).toMatch(/timed out and readback did not confirm/);
+  });
+
+  it('reports a timeout failure when the ack times out and no readback record is present', async () => {
+    const mesh = createControllableMesh();
+    const client = createControllableClient(mesh);
+    const summary = computeDistrictAggregateSummary({
+      tuple: TUPLE,
+      snapshots: [snapshot({ participants: 150 })],
+      districtRepresentatives: REPS,
+    });
+    expect(summary).not.toBeNull();
+
+    const pending = writeDistrictAggregateSummary(client, summary!);
+    const settled = pending.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+
+    // Never fire the readback `once` callback: each readback times out to null
+    // (non-record), so the predicate never confirms and the write fails.
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(false);
+    expect((outcome as { error: Error }).error.message).toMatch(/timed out and readback did not confirm/);
   });
 });

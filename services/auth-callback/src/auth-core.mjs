@@ -246,7 +246,7 @@ export function stateSecret(env) {
  * S256 code challenge. The browser holds the code_verifier; only the
  * challenge transits this boundary at /start.
  */
-export async function issueState({ provider, codeChallenge, secret, nowMs = Date.now(), ttlMs = DEFAULT_STATE_TTL_MS }) {
+export async function issueState({ provider, codeChallenge, secret, origin, nowMs = Date.now(), ttlMs = DEFAULT_STATE_TTL_MS }) {
   const payload = {
     v: STATE_VERSION,
     provider,
@@ -255,16 +255,27 @@ export async function issueState({ provider, codeChallenge, secret, nowMs = Date
     iat: nowMs,
     exp: nowMs + ttlMs,
   };
+  // Bind the initiating (already allow-listed) PWA origin so a cross-site
+  // form_post return leg can redirect the browser back to the exact origin that
+  // holds the PKCE pending state. Optional + additive: unknown fields are
+  // ignored on verify, so no STATE_VERSION bump and old in-flight states still
+  // verify.
+  if (typeof origin === 'string' && origin.length > 0) {
+    payload.origin = origin;
+  }
   const encoded = bytesToBase64Url(encoder.encode(JSON.stringify(payload)));
   const signature = await hmacSha256Hex(secret, encoded);
   return { state: `${encoded}.${signature}`, payload };
 }
 
 /**
- * Verify and CONSUME a state value: signature, shape, provider match,
- * expiry, then single-use enforcement through the store nonce ledger.
+ * Verify a state value WITHOUT consuming it: signature, shape, provider match,
+ * expiry, and challenge/nonce validity. Does NOT touch the single-use nonce
+ * ledger, so a read-only peek (e.g. the Apple form_post return leg reading the
+ * bound origin) does not burn the state before the PWA's authoritative
+ * POST /auth/:provider/callback consumes it.
  */
-export async function verifyAndConsumeState({ state, provider, secret, store, nowMs = Date.now() }) {
+export async function verifyStateOnly({ state, provider, secret, nowMs = Date.now() }) {
   if (typeof state !== 'string' || state.length === 0 || state.length > 2048) {
     return { ok: false, reason: 'state_invalid' };
   }
@@ -293,6 +304,20 @@ export async function verifyAndConsumeState({ state, provider, secret, store, no
   if (!isValidCodeChallenge(payload.codeChallenge) || typeof payload.nonce !== 'string' || payload.nonce.length === 0) {
     return { ok: false, reason: 'state_invalid' };
   }
+
+  return { ok: true, payload };
+}
+
+/**
+ * Verify and CONSUME a state value: full verification, then single-use
+ * enforcement through the store nonce ledger.
+ */
+export async function verifyAndConsumeState({ state, provider, secret, store, nowMs = Date.now() }) {
+  const verified = await verifyStateOnly({ state, provider, secret, nowMs });
+  if (!verified.ok) {
+    return verified;
+  }
+  const { payload } = verified;
 
   // Best-effort replay ledger. hasNonce+rememberNonce are two steps and
   // the KV get/put is not atomic, so this is NOT a strict single-use
@@ -346,7 +371,7 @@ export function createKvAuthStore(kv) {
  * Returns the parameters and the assembled URL; contains no secrets
  * (client secret is only used at token exchange).
  */
-export async function handleStart({ provider, codeChallenge, env, nowMs = Date.now() }) {
+export async function handleStart({ provider, codeChallenge, env, origin, nowMs = Date.now() }) {
   const secret = stateSecret(env);
   if (!secret) return { status: 503, body: { status: 'rejected', reason: 'state_secret_unconfigured' } };
 
@@ -363,6 +388,7 @@ export async function handleStart({ provider, codeChallenge, env, nowMs = Date.n
     provider,
     codeChallenge,
     secret,
+    origin,
     nowMs,
     ttlMs: stateTtlMs(env),
   });
@@ -402,7 +428,7 @@ export async function handleStart({ provider, codeChallenge, env, nowMs = Date.n
 
 // ── Token exchange ─────────────────────────────────────────────────
 
-function sanitizeProviderErrorCode(value) {
+export function sanitizeProviderErrorCode(value) {
   const text = String(value ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 64);
   return text || 'unspecified';
 }

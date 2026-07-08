@@ -46,20 +46,29 @@ const NULLISH_PATTERN = /\b(?:null|undefined)\b/;
 // Structural presence checks — same safe category as the null/undefined
 // exemption. A `typeof x === '<primitive>'` or `x.length === <n>` inspects the
 // shape of a value, never its secret contents, so it cannot leak or act as a
-// literal-guess oracle.
+// literal-guess oracle. Applied CLAUSE-scoped (see scanLineForSecretEquality):
+// a structural guard in one clause must not exempt a secret-value comparison
+// in a sibling clause on the same line.
 const STRUCTURAL_GUARD_PATTERN = /\btypeof\b|\.length\s*(?:===|!==)/;
-// Explicit, auditable per-line suppression for vetted comparisons that the
-// automated rule cannot distinguish from a leak (e.g. a vault compartment
+// Explicit, auditable suppression for vetted comparisons that the automated
+// rule cannot distinguish from a leak (e.g. a vault compartment
 // preserve-check comparing two in-memory field values, never logged). The
 // marker must carry a reason so every exemption is reviewable.
+//
+// Deliberately LINE-scoped (unlike the nullish/structural exemptions): the
+// marker is a human-reviewed suppression, and it exempts the ENTIRE line it
+// sits on — including any second comparison sharing that line. Reviewers
+// must vet the whole line when approving a marker.
 const REDACTION_SAFE_MARKER = /\/\/\s*redaction-safe:/;
-// Quoted string contents (single/double/template). Used to tell a secret
-// *value* comparison (a bare `nullifier` identifier/property) apart from a
-// secret *key-name* comparison (`normalizedKey(k) === 'districthash'`), where
-// the token only ever appears inside a string literal — a detection idiom in
-// the privacy guards themselves, never a value leak.
+// Quoted string contents (single/double/template). Blanked before clause
+// analysis so a secret *key-name* literal (`normalizedKey(k) === 'districthash'`,
+// a detection idiom in the privacy guards themselves) never reads as a secret
+// *value* comparison.
 const QUOTED_STRING_PATTERN = /'[^']*'|"[^"]*"|`[^`]*`/g;
-const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
+// Clause boundaries for expression-scoped exemption checks: boolean
+// operators, ternary branches, and argument/element separators.
+const CLAUSE_BOUNDARY_PATTERN = /&&|\|\||[?:,]/;
+const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs']);
 
 export const SCAN_TARGETS = Object.freeze([
   { kind: 'file', path: 'apps/web-pwa/src/hooks/useIdentity.ts' },
@@ -73,6 +82,10 @@ export const SCAN_TARGETS = Object.freeze([
   { kind: 'dir', path: 'packages/identity-vault/src' },
   { kind: 'dir', path: 'packages/gun-client/src' },
   { kind: 'dir', path: 'packages/luma-sdk/src' },
+  // Account-provider callback boundary (Slice C0): the only place provider
+  // client secrets exist. Provider tokens/subjects must stay
+  // redaction-disciplined here too (.mjs sources).
+  { kind: 'dir', path: 'services/auth-callback/src' },
 ]);
 
 export const DIRECT_CONSOLE_ALLOWLIST = new Set([
@@ -86,7 +99,7 @@ function walkSourceFiles(root, files = []) {
     if (stats.isDirectory()) {
       if (entry === 'dist' || entry === 'node_modules') continue;
       walkSourceFiles(full, files);
-    } else if (SOURCE_EXTENSIONS.has(path.extname(entry)) && !/\.(test|spec)\.tsx?$/.test(entry)) {
+    } else if (SOURCE_EXTENSIONS.has(path.extname(entry)) && !/\.(test|spec)\.(tsx?|mjs)$/.test(entry)) {
       files.push(full);
     }
   }
@@ -137,22 +150,45 @@ function scanLineForDirectConsole(relPath, lineText, lineNumber, violations) {
 }
 
 function scanLineForSecretEquality(relPath, lineText, lineNumber, violations) {
+  // Cheap line-level prefilters: no comparison operator or no secret-like
+  // identifier anywhere on the line means nothing to analyze.
   if (!SECRET_EQUALITY_PATTERN.test(lineText) || !SECRET_IDENTIFIER_PATTERN.test(lineText)) {
     return;
   }
-  if (NULLISH_PATTERN.test(lineText)) {
-    return;
-  }
-  if (STRUCTURAL_GUARD_PATTERN.test(lineText)) {
-    return;
-  }
+  // Explicit reviewed suppression — LINE-scoped by design (see the marker's
+  // definition comment).
   if (REDACTION_SAFE_MARKER.test(lineText)) {
     return;
   }
-  // If the secret token only appears inside a quoted string literal (a
-  // key-name detection like `normalizedKey(k) === 'districthash'`), it is not
-  // a secret-value comparison.
-  if (!SECRET_IDENTIFIER_PATTERN.test(lineText.replace(QUOTED_STRING_PATTERN, "''"))) {
+  // Blank quoted-string contents first so string literals (secret *key-name*
+  // detections) never count as secret identifiers. This subsumes the older
+  // whole-line key-name exemption.
+  const stripped = lineText.replace(QUOTED_STRING_PATTERN, "''");
+  // A line is flagged when EITHER rule fires (union — at-least-as-strict as both
+  // the original whole-line rule AND clause scoping):
+  //
+  // 1. Whole-line rule: a secret comparison anywhere on the line, exempt only
+  //    when the WHOLE line carries a nullish or structural guard. This catches
+  //    a secret separated from its operator by a boundary char — a call arg
+  //    comma `deriveMac(refreshToken, salt) === x`, an optional chain
+  //    `sessionToken?.value === x`, a parenthesized `(sessionToken || f) === x`
+  //    — that clause splitting alone would break apart and miss.
+  const wholeLineFlagged = SECRET_EQUALITY_PATTERN.test(stripped)
+    && SECRET_IDENTIFIER_PATTERN.test(stripped)
+    && !NULLISH_PATTERN.test(stripped)
+    && !STRUCTURAL_GUARD_PATTERN.test(stripped);
+  // 2. Clause rule: a nullish or structural guard exempts ONLY the clause it
+  //    appears in, so a guard in one clause cannot exempt a secret comparison
+  //    in a sibling clause — `typeof x === 'string' && sessionToken === u` or a
+  //    `|| y === null` / ternary tail. The whole-line rule misses these (the
+  //    guard token sits on the line); the clause rule catches them.
+  const clauseFlagged = stripped.split(CLAUSE_BOUNDARY_PATTERN).some((clause) => (
+    SECRET_EQUALITY_PATTERN.test(clause)
+    && SECRET_IDENTIFIER_PATTERN.test(clause)
+    && !NULLISH_PATTERN.test(clause)
+    && !STRUCTURAL_GUARD_PATTERN.test(clause)
+  ));
+  if (!wholeLineFlagged && !clauseFlagged) {
     return;
   }
   violations.push({

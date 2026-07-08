@@ -20,7 +20,8 @@ export type SystemWriterValidationReason =
   | 'unknown-signer-id'
   | 'path-not-allowed'
   | 'signature-invalid'
-  | 'protocol-version-mismatch';
+  | 'protocol-version-mismatch'
+  | 'unmarked-record-rejected';
 
 export type SystemWriterAllowedClass =
   | 'news-story'
@@ -33,10 +34,12 @@ export type SystemWriterAllowedClass =
   | 'topic-engagement-summary'
   | 'topic-synthesis-latest'
   | 'topic-synthesis-epoch'
+  | 'topic-synthesis-correction'
   | 'topic-digest'
   | 'discovery-item'
   | 'discovery-index'
-  | 'civic-representative-snapshot';
+  | 'civic-representative-snapshot'
+  | 'district-aggregate-summary';
 
 export interface SystemWriterPublicKey {
   readonly encoding: 'spki-base64url';
@@ -206,6 +209,17 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && segments[5] === 'summary',
   },
   {
+    recordClass: 'district-aggregate-summary',
+    matches: (segments) => segments.length === 7
+      && segments[0] === 'vh'
+      && segments[1] === 'aggregates'
+      && segments[2] === 'topics'
+      && hasPathValue(pathSegment(segments, 3))
+      && segments[4] === 'districts'
+      && hasPathValue(pathSegment(segments, 5))
+      && segments[6] === 'summary',
+  },
+  {
     recordClass: 'topic-synthesis-latest',
     matches: (segments) => segments.length === 4
       && segments[0] === 'vh'
@@ -222,6 +236,16 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && segments[3] === 'epochs'
       && hasPathValue(pathSegment(segments, 4))
       && segments[5] === 'synthesis',
+  },
+  {
+    // One class covers both `{correctionId}` and the `latest` mirror node.
+    recordClass: 'topic-synthesis-correction',
+    matches: (segments) => segments.length === 5
+      && segments[0] === 'vh'
+      && segments[1] === 'topics'
+      && hasPathValue(pathSegment(segments, 2))
+      && segments[3] === 'synthesis_corrections'
+      && hasPathValue(pathSegment(segments, 4)),
   },
   {
     recordClass: 'topic-digest',
@@ -316,6 +340,9 @@ export async function buildSignedSystemWriterRecord<T extends Record<string, unk
 ): Promise<T & SystemWriterRecordFields> {
   if (!input.sign) {
     throw new Error(input.missingSignerError);
+  }
+  if (!getSystemWriterAllowedClass(input.path)) {
+    throw new Error('system writer path is not in the allowed class matrix');
   }
 
   const writerId = resolveSystemWriterId({

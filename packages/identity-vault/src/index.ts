@@ -68,6 +68,7 @@ export {
   validateOperatorAuthorizationToken,
   validateSeaDevicePair,
   validateSignInSession,
+  validateSignInSessionForRead,
   validateWalletBinding,
   VaultCompartmentError,
   verifyWithDelegationSigningKey,

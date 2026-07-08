@@ -69,8 +69,10 @@ requireToken(packageSource, 'check:luma-topic-digest-system-v1', 'root package s
 
 for (const token of [
   "'topic-digest'",
+  "'topic-synthesis-correction'",
   "segments[1] === 'topics'",
   "segments[3] === 'digests'",
+  "segments[3] === 'synthesis_corrections'",
 ]) {
   requireToken(systemWriterSource, token, 'system writer topic digest path matrix');
 }
@@ -105,6 +107,7 @@ const digestParser = sliceFunction(synthesisAdapterSource, 'parseDigestFromStore
 requireToken(digestParser, 'validateSystemWriterRecord', 'parseDigestFromStoredRecord');
 requireToken(digestParser, 'emitSystemWriterValidationFailure', 'parseDigestFromStoredRecord');
 requireToken(digestParser, 'carriesLumaProtocolFields', 'parseDigestFromStoredRecord');
+requireToken(digestParser, 'rejectUnmarkedSystemRecords', 'parseDigestFromStoredRecord');
 requireToken(digestParser, "return { state: 'blocked' }", 'parseDigestFromStoredRecord');
 
 for (const token of [
@@ -115,6 +118,7 @@ for (const token of [
   'keeps legacy digest records readable and rejects downgraded legacy fields',
   'fails topic digest signing before persistence when signer metadata is unavailable or malformed',
   'blocks validly signed topic digest records whose top-level path fields do not match',
+  'rejects unmarked digest records when reject-unmarked mode is on',
 ]) {
   requireToken(synthesisAdapterTestSource, token, 'topic digest system writer tests');
 }

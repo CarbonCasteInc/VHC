@@ -1,5 +1,7 @@
 import type { VoteIntentRecord } from '@vh/data-model';
+import { logVoteAdmission } from '../utils/sentimentTelemetry';
 import { createIntentQueue } from './intentQueue';
+import { VOTE_DENIAL_REASONS } from './voteDenialReasons';
 import { compareIntentLww } from './voteIntentProjection';
 
 /**
@@ -51,6 +53,31 @@ const queue = createIntentQueue<VoteIntentRecord>({
   // LWW on enqueue: a mutate-while-pending vote (same intent_id, newer
   // seq/emitted_at) replaces the stale queued record instead of being deduped.
   compareLww: compareIntentLww,
+  // Cap evictions discard admitted, receipted votes — surface each one as a
+  // Write queue failure admission-denial event instead of dropping silently.
+  // Privacy: the payload carries ONLY topic_id/point_id/admitted/reason —
+  // never voter_id, proof_ref, or intent_id.
+  onEvicted: (records) => {
+    for (const record of records) {
+      logVoteAdmission({
+        topic_id: record.topic_id,
+        point_id: record.point_id,
+        admitted: false,
+        reason: VOTE_DENIAL_REASONS.WRITE_QUEUE_FAILURE,
+      });
+    }
+  },
+  // Corrupt persisted queue blob: the queue recovers empty, discarding every
+  // pending intent — make that observable. Reason-only: the raw blob holds
+  // voter_id/proof_ref material and must never be logged or stashed. The
+  // error NAME only — V8 JSON.parse SyntaxError messages embed a snippet of
+  // the parsed source, which would leak blob contents.
+  onLoadError: (error) => {
+    console.warn('[vh:vote:intent-queue:corrupt-discarded]', {
+      storage_key: STORAGE_KEY,
+      error: error instanceof Error ? error.name : String(error),
+    });
+  },
 });
 
 /**
@@ -65,13 +92,6 @@ const queue = createIntentQueue<VoteIntentRecord>({
  */
 export function enqueueIntent(record: VoteIntentRecord): boolean {
   return queue.enqueue(record);
-}
-
-/**
- * Mark a vote intent as projected (remove from pending queue).
- */
-export function markIntentProjected(intentId: string): void {
-  queue.markProjected(intentId);
 }
 
 /**
