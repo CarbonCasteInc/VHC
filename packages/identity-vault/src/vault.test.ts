@@ -24,8 +24,8 @@ import {
   LEGACY_VAULT_VERSION,
   VAULT_VERSION
 } from './types';
-import type { DelegationSigningKeyCompartment, Identity, VaultRecord } from './types';
-import { encrypt, generateMasterKey } from './crypto';
+import type { DelegationSigningKeyCompartment, Identity, VaultRecord, VaultV2 } from './types';
+import { decrypt, encrypt, generateMasterKey } from './crypto';
 import {
   base64UrlToBytes,
   delegationSigningKey,
@@ -101,6 +101,19 @@ async function writeEncryptedVaultRecord(version: number, payload: unknown): Pro
 
 async function writeLegacyVaultRecord(identity: unknown): Promise<void> {
   await writeEncryptedVaultRecord(LEGACY_VAULT_VERSION, identity);
+}
+
+// Decrypt the raw stored vault blob directly (bypassing the salvaged read view,
+// which strips unknown fields out of closed compartments) to prove what actually
+// persisted at rest.
+async function decryptRawRecord(): Promise<Record<string, unknown> | null> {
+  const db = await openVaultDb();
+  const record = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+  const key = await idbGet<CryptoKey>(db, KEYS_STORE, MASTER_KEY);
+  db.close();
+  if (!record || !key) return null;
+  const plaintext = await decrypt(key, record.iv, record.ciphertext);
+  return plaintext ? (JSON.parse(new TextDecoder().decode(plaintext)) as Record<string, unknown>) : null;
 }
 
 beforeEach(async () => {
@@ -1501,7 +1514,7 @@ describe('Forward-compat salvage (shape-invalid v2 never deletes)', () => {
     expect(await readRawRecord()).toBeDefined();
   });
 
-  it('preserves an unknown top-level compartment in the read view; a save still drops it', async () => {
+  it('preserves an unknown future top-level compartment across an old-bundle write', async () => {
     await writeEncryptedVaultRecord(VAULT_VERSION, {
       schemaVersion: 2,
       identityRecord: LEGACY_IDENTITY,
@@ -1513,13 +1526,200 @@ describe('Forward-compat salvage (shape-invalid v2 never deletes)', () => {
     expect((vault as unknown as Record<string, unknown>).futureCompartment).toEqual({ hello: 1 });
     expect(await readRawRecord()).toBeDefined();
 
-    // Documented limitation: any old-tab save rebuilds from the known-key
-    // whitelist (normalizeVaultV2), silently dropping the unknown
-    // compartment. The salvage protects reads only.
+    // An old-bundle save no longer drops the unknown compartment: the write path
+    // re-attaches it from the authenticated stored record (merge-from-raw), so
+    // newer-bundle data survives at rest.
     await saveVaultV2(vault!);
     const after = await loadVaultV2();
     expect(after?.identityRecord).toEqual(LEGACY_IDENTITY);
-    expect((after as unknown as Record<string, unknown>).futureCompartment).toBeUndefined();
+    expect((after as unknown as Record<string, unknown>).futureCompartment).toEqual({ hello: 1 });
+
+    // Re-decrypt the stored blob directly to prove it persisted at rest (not
+    // just reconstructed in the read view).
+    const storedRaw = await decryptRawRecord();
+    expect((storedRaw as Record<string, unknown>).futureCompartment).toEqual({ hello: 1 });
+  });
+
+  it('preserves an unknown future field inside a closed compartment while an old-bundle write updates its owned fields', async () => {
+    const storedBinding = {
+      schemaVersion: 1,
+      address: '0x1111111111111111111111111111111111111111',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-a',
+      boundAt: 1,
+      updatedAt: 1,
+      chainMetadata: { rollup: 'future-field' }
+    };
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: storedBinding
+    });
+
+    // An old bundle rewrites the wallet binding's OWNED fields only (it does not
+    // know `chainMetadata`; the salvaged read view already stripped it).
+    const updatedOwnedBinding = {
+      schemaVersion: 1,
+      address: '0x2222222222222222222222222222222222222222',
+      chainId: '10',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-a',
+      boundAt: 1,
+      updatedAt: 2
+    };
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: updatedOwnedBinding
+    } as VaultV2);
+
+    // At rest: the owned fields are the NEW values AND the future field survived.
+    const raw = await decryptRawRecord();
+    expect(raw?.walletBinding).toEqual({ ...updatedOwnedBinding, chainMetadata: { rollup: 'future-field' } });
+
+    // The salvaged read view still strips the unknown field (this bundle ignores it).
+    const view = await loadVaultV2();
+    expect(view?.walletBinding).toEqual(updatedOwnedBinding);
+  });
+
+  it('does not preserve object/prototype magic keys from stored forward-compat data', async () => {
+    const storedBinding = {
+      schemaVersion: 1,
+      address: '0x1111111111111111111111111111111111111111',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-a',
+      boundAt: 1,
+      updatedAt: 1,
+      chainMetadata: { rollup: 'future-field' },
+      constructor: { poisoned: true },
+      prototype: { poisoned: true },
+      ['__proto__']: { polluted: true }
+    };
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: storedBinding,
+      futureCompartment: { hello: 1 },
+      constructor: { poisoned: true },
+      prototype: { poisoned: true },
+      ['__proto__']: { polluted: true }
+    });
+
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: {
+        schemaVersion: 1,
+        address: '0x2222222222222222222222222222222222222222',
+        chainId: '10',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'principal-a',
+        boundAt: 1,
+        updatedAt: 2
+      }
+    } as VaultV2);
+
+    const raw = await decryptRawRecord();
+    expect(raw?.futureCompartment).toEqual({ hello: 1 });
+    expect(Object.prototype.hasOwnProperty.call(raw, 'constructor')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(raw, 'prototype')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(raw, '__proto__')).toBe(false);
+    expect(raw?.walletBinding).toEqual({
+      schemaVersion: 1,
+      address: '0x2222222222222222222222222222222222222222',
+      chainId: '10',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-a',
+      boundAt: 1,
+      updatedAt: 2,
+      chainMetadata: { rollup: 'future-field' }
+    });
+  });
+
+  it('does not preserve caller-supplied keys that were not in the authenticated stored record', async () => {
+    // Clean stored record — no future data present.
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY
+    });
+
+    // A caller injects an unknown top-level compartment; preservation sources
+    // ONLY from the stored record, so it must never be persisted.
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      callerInjected: { evil: true }
+    } as unknown as VaultV2);
+
+    const raw = await decryptRawRecord();
+    expect(raw?.callerInjected).toBeUndefined();
+    expect(raw?.identityRecord).toEqual(LEGACY_IDENTITY);
+
+    // A caller cannot inject an unknown FIELD into a closed compartment either:
+    // the strict validator throws in normalizeVaultV2, so the write is skipped
+    // (withDb fails closed) and the malformed compartment never persists.
+    const validSession = {
+      schemaVersion: 1,
+      providerId: 'google',
+      providerSubject: 'google-subject-1',
+      boundPrincipalNullifier: 'principal-signin-1',
+      boundAt: 1,
+      updatedAt: 1
+    };
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      signInSession: { ...validSession, callerField: 'evil' }
+    } as unknown as VaultV2);
+    const rawAfterMalformed = await decryptRawRecord();
+    expect(rawAfterMalformed?.signInSession).toBeUndefined();
+    expect(rawAfterMalformed?.identityRecord).toEqual(LEGACY_IDENTITY);
+  });
+
+  it('rejects a malformed owned compartment on write and leaves the prior stored record intact', async () => {
+    const goodBinding = {
+      schemaVersion: 1,
+      address: '0x3333333333333333333333333333333333333333',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-b',
+      boundAt: 1,
+      updatedAt: 1
+    };
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: goodBinding
+    });
+
+    // A malformed owned walletBinding (wrong field type) throws in
+    // normalizeVaultV2 before any persistence — the merge does not relax it, so
+    // the write fails closed and the prior stored record is untouched.
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: { schemaVersion: 1, address: 123 } as never
+    } as VaultV2);
+
+    const raw = await decryptRawRecord();
+    expect(raw?.walletBinding).toEqual(goodBinding);
+  });
+
+  it('does not merge from a stored v2 record whose decrypted payload is not a valid v2 vault', async () => {
+    // Outer record.version is v2 but the decrypted inner schemaVersion is wrong:
+    // the write-path merge read rejects it and the save proceeds fresh.
+    await writeEncryptedVaultRecord(VAULT_VERSION, { schemaVersion: 99, identityRecord: LEGACY_IDENTITY });
+    await saveIdentity(TEST_IDENTITY);
+    expect(await loadIdentity()).toEqual(TEST_IDENTITY);
+    expect((await decryptRawRecord())?.schemaVersion).toBe(VAULT_VERSION);
+
+    // Non-object decrypted payload (array): the merge read rejects it too.
+    await deleteDatabase('vh-vault');
+    await writeEncryptedVaultRecord(VAULT_VERSION, [1, 2, 3]);
+    await saveIdentity(TEST_IDENTITY);
+    expect(await loadIdentity()).toEqual(TEST_IDENTITY);
   });
 
   it('drops a hostile non-object signInSession compartment and salvages the rest', async () => {
