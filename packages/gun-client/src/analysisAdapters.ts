@@ -13,6 +13,8 @@ import {
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -423,6 +425,11 @@ async function parseStoryAnalysisArtifactFromStoredRecord(
     return null;
   }
 
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(storyAnalysisPath(storyId, analysisKey)));
+    return null;
+  }
+
   const parsed = parseStoryAnalysisArtifactPayload(payload);
   if (!parsed) {
     return null;
@@ -468,6 +475,11 @@ async function parseLatestPointerFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return { state: 'blocked' };
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(storyAnalysisLatestPath(storyId)));
     return { state: 'blocked' };
   }
 

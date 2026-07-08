@@ -15,6 +15,8 @@ import {
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -208,6 +210,11 @@ async function parseTopicEngagementSummaryFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(topicEngagementSummaryPath(topicId)));
     return null;
   }
 

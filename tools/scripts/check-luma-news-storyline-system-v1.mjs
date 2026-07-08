@@ -87,6 +87,9 @@ forbidToken(storylineWriter, 'signedWriteEnvelope', 'writeNewsStoryline');
 const readStoryline = sliceExportedFunction(storylineAdapterSource, 'readNewsStoryline');
 requireToken(readStoryline, 'parseStorylineGroupFromStoredRecord', 'readNewsStoryline');
 
+const storylineParser = sliceFunction(storylineAdapterSource, 'parseStorylineGroupFromStoredRecord');
+requireToken(storylineParser, 'rejectUnmarkedSystemRecords', 'parseStorylineGroupFromStoredRecord');
+
 const storylineRecordBuilder = sliceFunction(storylineAdapterSource, 'buildSystemWriterStorylineRecord');
 for (const token of ['_authorScheme', 'signedWriteEnvelope', 'createSignedWriteEnvelope', 'canPerform(']) {
   forbidToken(storylineRecordBuilder, token, 'system storyline record builder');
@@ -112,6 +115,7 @@ for (const token of [
   'writeNewsStoryline fails closed without a system writer signer and does not write a bare storyline',
   'writeNewsStoryline resolves active-pin and default system writer ids without signer material',
   'writeNewsStoryline rejects invalid system writer timestamps and signatures',
+  'rejects unmarked and clean legacy-marked storyline records when reject-unmarked mode is on',
 ]) {
   requireToken(storylineAdapterTestSource, token, 'news storyline system writer tests');
 }

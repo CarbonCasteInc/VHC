@@ -79,6 +79,8 @@ for (const token of [
   'parseStoryAnalysisArtifactFromStoredRecord',
   'parseLatestPointerFromStoredRecord',
   'validateSystemWriterRecord',
+  'rejectUnmarkedSystemRecords',
+  'unmarkedRecordRejectedFailure',
   'system writer signer is required for news analysis writes',
   'system writer signer is required for news analysis latest-pointer writes',
   'SYSTEM_WRITER_VALIDATION_EVENT',
@@ -100,6 +102,7 @@ for (const token of [
   'keeps safe legacy-marked analysis artifacts and latest pointers read-compatible',
   'listAnalyses validates system children and excludes invalid signed entries',
   'writeAnalysis fails before persistence when system signing is unavailable or malformed',
+  'rejects unmarked and clean legacy-marked analysis artifacts and pointers when reject-unmarked mode is on',
 ]) {
   requireToken(analysisAdapterTestSource, token, 'analysis system writer tests');
 }
