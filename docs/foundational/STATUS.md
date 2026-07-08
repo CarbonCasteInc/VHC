@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-08
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-07-06
-**Version:** 0.9.8 (Scope A post-Slice-0 evidence-accrual state aligned after #723)
-**Assessment:** Controlled beta candidate with Phase 5 Scope A fresh on A6 after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery. `main@47ba218d` is deployed on A6 after #722 merged the incident-response/pager primitives and #723 bounded the StoryCluster production timeout path. The normal post-fix publisher tick completed at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`, `selected_bundle_count=8`, `raw_wrote_count=8`, and `raw_write_failed_count=0`; public freshness, relay liveness, relay snapshot freshness, watch-closure input, and alert watch all passed. The interim email alert channel is configured in host-private env and both alert/watch-closure timers are enabled. The system is now in evidence-accrual, not change mode: do not restart publisher/relays, deploy pager/PWA, enable Codex live execution, or start retention/compaction/memory remediation while the feed stays fresh. The off-graph heap retainer remains unnamed, no post-recovery 500 MB -> 700 MB heap-capture pair exists yet, and the 48-hour/14-day sustained windows are not banked. Accepted synthesis, frame tables, storyline overlays, topic synthesis enrichment, public WSS mesh `release_ready`, production app canary pass, full production app readiness, LUMA production-attestation/Silver, full `§21.4` recorded product replay, and legal/commercial approval remain downstream gates or post-launch tracks.
+**Last Updated:** 2026-07-08
+**Version:** 0.9.9 (current repo/doc alignment after #738, #741, #742, #745)
+**Assessment:** Controlled beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. Current repository `main` is `eb53af67` after #745 closed the last known civic-representative durability-readback asymmetry. No open PRs remain; the only open GitHub issues are older, unrelated backlog items (#178, #277, #279). Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: source-health release evidence (`ap-topnews` removal/window recovery) and public accepted-synthesis/feed gates that depend on A6/operator enablement. Its LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. While A6 stays fresh, the posture remains wait/watch: no publisher/relay restart, pager cutover, Codex live execution, retention/compaction/memory remediation, or accepted-synthesis enablement without its own operator packet.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -20,14 +20,14 @@
 
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
-| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, signed-write envelopes, centralized action policy, public namespace guards, M1.B identity controls/UI, M1.C/M1.D profile and forbidden-claim gates, and M1.E telemetry source-discipline gate | ⚠️ Public-beta only; no production-attestation/Silver; full §21.4 recorded product replay and `<TrustClaim>` deferred |
+| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, sign-in session compartment, signed-write envelopes, centralized action policy, public namespace guards, M1.B identity controls/UI, M1.C/M1.D profile and forbidden-claim gates, M1.E telemetry source-discipline gate, VaultV2 old-bundle write preservation, and full migrated system-writer read-class reject-unmarked coverage | ⚠️ Public-beta only; no production-attestation/Silver; full §21.4 recorded product replay and `<TrustClaim>` deferred |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
 | **VENN (Analysis)** | 🟡 Pipeline end-to-end; live profile defaults to relay-backed analysis, local-first remains target-state default | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines remain post-launch enrichment. | ⚠️ Scope A fresh and paging by email; evidence window still accruing; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; Scope B enrichment pending |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher proven at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #744 watch-closure restart-baseline fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines are repo-capable but not yet proven/enabled on live A6. | ⚠️ Scope A fresh and paging by email; evidence window still accruing; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; source-health release window blocked on `ap-topnews`; Scope B/live accepted synthesis enablement pending operator packet |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -57,13 +57,44 @@ Current policy state:
   restartable through exit `69`; #707 makes that exit class visible to the alert
   watch; #708 bounds the first post-reset StoryCluster ingest workload.
 - Current deployed Scope A posture is fresh after Slice 0 and the post-Slice-0
-  stale-feed recovery, not stability-proven:
+  stale-feed recovery, not stability-proven. This is a live A6 statement, not a
+  current-repo deployment statement:
   `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
-  records `main@47ba218d` on A6, the normal post-fix publisher tick completed
+  records A6 at `main@47ba218d`, the normal post-fix publisher tick completed
   at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
   `selected_bundle_count=8`, `raw_wrote_count=8`, and
   `raw_write_failed_count=0`, and publisher/freshness/relay/snapshot/alert
-  readbacks passing.
+  readbacks passing. Newer repo commits through `main@eb53af67` are not
+  automatically live on A6.
+- Current repo-side Functioning MVP state is materially newer than the live A6
+  raw-feed state:
+  - #728 accepted-current synthesis detail and votability gating;
+  - #730 stance/vote admission, persistence, projection, and aggregate
+    engagement hardening;
+  - #729/#734 account provider callback boundary, sign-in shell, identity-vault
+    session compartment, and account-to-LUMA binding;
+  - #732 constituency proof/district/office aggregate mapping;
+  - #737 MVP vote and identity readiness hardening;
+  - #738 deferred hardening across mesh-read authentication, vote queue,
+    auth-callback form_post routing, redaction, vault salvage, and system-writer
+    signing/validation guardrails;
+  - #741/#742/#745 close the follow-up issues #740/#739/#743 by extending
+    reject-unmarked mode to every migrated system-writer read class, preserving
+    newer VaultV2 data on old-bundle writes, and using non-validating
+    durability readback for civic representative snapshot writes.
+- Current consolidated evidence posture:
+  - latest release pipeline artifact:
+    `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json`;
+  - latest artifact commit: `1a83434b0d33278369791891ba9212fcc6b859f6`, not
+    current `main@eb53af67`;
+  - pipeline status: `blocked`;
+  - `check:luma:mvp-production-readiness`: `pass` in that packet;
+  - blocking release-gate classes: source-health release evidence
+    (`ap-topnews` is escalated to remove and the configured release window has
+    no ready runs) plus public accepted-synthesis/feed gates that require
+    operator-owned A6 enablement/evidence refresh;
+  - therefore a public-beta release claim still requires a fresh clean evidence
+    packet on the intended release commit.
 - The interim email alert channel is configured in host-private env and has
   delivered both failure and recovery state changes. The
   `vh-public-feed-alert-watch.timer` and
@@ -136,7 +167,8 @@ Current policy state:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
   - current post-Slice-0 report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`;
-  - current `main`: `47ba218d` (`Merge pull request #723 from CarbonCasteInc/coord/storycluster-production-timeout-2026-07-06`);
+  - A6-deployed repo commit for this live readback:
+    `47ba218d` (`Merge pull request #723 from CarbonCasteInc/coord/storycluster-production-timeout-2026-07-06`);
   - current relay image: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
   - current origin image: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
   - current live raw profile: synthesis disabled, replay disabled, storylines
@@ -194,6 +226,10 @@ Current policy state:
   - focused gate: `pnpm check:luma:mvp-production-readiness`;
   - report: `/Users/bldt/Desktop/VHC/VHC/.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`;
   - MVP report gate: `luma_mvp_production_readiness` inside `pnpm check:mvp-release-gates`;
+  - latest packet status: `pass` on `1a83434b0d33278369791891ba9212fcc6b859f6`;
+  - post-packet hardening through #738, #741, #742, and #745 strengthens the
+    same boundary but does not replace the need to rerun the release packet on
+    current `main`;
   - success boundary: LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer;
   - excluded claims: production-attestation/Silver, verified-human, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness.
 - LUMA hardening through #695-#701 adds diagnostics-only docs alignment,
@@ -234,7 +270,7 @@ Current policy state:
   - collapsed news cards are compact and place available story media beside the headline/title, with extra source images kept for expanded detail.
 - Story bundler release claims now have an explicit operational scorecard:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
-- The latest merge-time CI for #701 was green on `main`, but a public-beta
+- Merge-time CI through #745 was green on `main`, but a public-beta
   release claim still requires a fresh release packet on the intended release
   commit:
   - `pnpm check:mvp-release-gates`
@@ -307,11 +343,12 @@ Current truth for the news bundler and feed hardening lane:
   raw path as of the 2026-06-28 stability bake:
   - #687 first deployed the durable rerank fix at
     `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - current `main` is `47ba218d`, with later #691-#708 diagnostics,
+  - current repo `main` is `eb53af67`, with #691-#708 diagnostics,
     publisher-priority, relay-stagger, total-transport restartability, alert
     classification, first-tick ingest-cap, #722 incident-response/pager
-    primitives, #723 StoryCluster timeout bounding, LUMA, and driver-verdict
-    changes layered on top;
+    primitives, #723 StoryCluster timeout bounding, #744 watch-closure baseline
+    repair, LUMA/MVP hardening through #738, #741, #742, and #745, and
+    driver-verdict changes layered on top;
   - rerank output uses strict fixed-key object structured output instead of an
     array/max-items shape;
   - recoverable rerank output failures omit supplemental rerank results so the

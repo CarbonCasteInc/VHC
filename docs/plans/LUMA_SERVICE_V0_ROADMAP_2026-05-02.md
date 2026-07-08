@@ -100,7 +100,7 @@ Every locked default below is normative under the spec section in parentheses; t
 - **System writer key contract is owned by `spec-data-topology-privacy-v0.md` §8 and the cross-spec key-custody manifest in `spec-signed-pin-custody-v0.md`** (§15).
 - **LUMA profile disablement (`SignedSafetyBulletin.profileDisablements`) fails the production-app canary closed with a LUMA-named reason**, never a mesh transport reason (§16.6).
 
-## Current implementation addendum (2026-05-11)
+## Current implementation addendum (2026-07-08)
 
 The 2026-05-02 codebase reality check below is preserved as historical
 planning context. Current implementation truth has moved materially since that
@@ -108,9 +108,17 @@ snapshot:
 
 - `packages/identity-vault` is at `VAULT_VERSION = 2` with typed compartments
   for identity, stable device credential, SEA device pair, delegation signing
-  key, and wallet binding. Sign Out preserves device-bound compartments; Reset
-  Identity rotates device credential, SEA pair, delegation signing key, and
-  clears wallet binding.
+  key, wallet binding, operator authorization, and sign-in session material.
+  Sign Out preserves device-bound compartments and clears the sign-in session;
+  Reset Identity rotates device credential, SEA pair, delegation signing key,
+  clears wallet/sign-in/operator bindings, and does not rewrite old public
+  artifacts.
+- VaultV2 writes preserve forward-compatible data from the authenticated stored
+  vault: unknown newer-bundle top-level compartments and unknown fields inside
+  closed compartments (`walletBinding`, `operatorAuthorizationToken`,
+  `signInSession`) survive old-bundle writes. Caller-supplied unknown keys are
+  still rejected/dropped by strict normalization and cannot be smuggled into the
+  vault.
 - Public-beta identity creation persists a beta-local `AssuranceEnvelope` and
   uses it to derive signed-write `sessionRef` values. This is the public-beta
   MVP layer only; it does not claim production-attestation/Silver,
@@ -126,6 +134,13 @@ snapshot:
   engagement summary, civic representative snapshots, and discovery item/index
   system-writer records. Operator moderation/action seams are tracked as their
   own follow-up if their owning contract promotes them.
+- The default-off `VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS` reader flag now spans
+  every migrated system-writer class. District aggregate summaries are
+  unconditionally fail-closed. Enabling the flag in a deployed profile remains
+  an operator cutover decision after live records are confirmed marked.
+- Civic representative snapshot writes now use a content-only durability
+  readback on ack-timeout, matching the district aggregate pattern; consumer
+  reads remain signature-validating and fail-closed.
 - The aggregate release gate is now
   `pnpm check:luma:mvp-production-readiness`, which writes
   `.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`
@@ -824,3 +839,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.17 | 2026-05-10 | Reviewer | M0.B civic representative directory snapshot narrow slice. `vh/civic/reps/<jurisdictionVersion>` writes move to system-writer signed records with shared validator reads and legacy directory snapshot compatibility; identity directory schemas, bridge action/receipt/stat adapters, discovery indexes, mesh evidence artifacts, relay, and browser signing remain out of scope. Added `pnpm check:luma-civic-reps-system-v1`. |
 | 0.18 | 2026-05-11 | Reviewer | Public-beta MVP readiness alignment. Added current implementation addendum for vault v2 compartments, beta-local AssuranceEnvelope runtime, provider allow-lists, discovery system-writer migration, aggregate `pnpm check:luma:mvp-production-readiness`, and the boundary that production-attestation/Silver, public WSS mesh `release_ready`, and full production app readiness remain separate gates. |
 | 0.19 | 2026-07-02 | Reviewer | Current execution-window alignment while Scope A accumulates relay graph/heap evidence. Added the safe LUMA work queue, blocked live/public-schema/provider changes, and the recommended M1.B/M1.C/M1.D/M2.A PR stack. |
+| 0.20 | 2026-07-08 | Reviewer | Functioning MVP and follow-up hardening alignment. Account/sign-in shell and auth-callback boundary are repo capabilities; LUMA MVP readiness has a passing evidence packet at `1a83434b`; reject-unmarked coverage spans all migrated system-writer readers; VaultV2 old-bundle writes preserve authenticated newer-bundle data; civic representative durability readback matches the district pattern. Release remains blocked on live/operator evidence, not these repo-side LUMA gaps. |
