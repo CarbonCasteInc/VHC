@@ -19,6 +19,8 @@ import {
   OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS,
   SIGN_IN_SESSION_COMPARTMENT_KEYS,
   stripToKnownKeys,
+  VAULT_V2_CLOSED_COMPARTMENT_KEY_SETS,
+  VAULT_V2_KNOWN_TOP_LEVEL_KEYS,
   WALLET_BINDING_COMPARTMENT_KEYS,
 } from './types';
 import type {
@@ -198,12 +200,11 @@ async function loadVaultV2FromDb(db: IDBDatabase): Promise<VaultV2 | null> {
     // never rewrites the stored record. idbDelete stays reserved for decrypt
     // and JSON-parse failures (genuine tamper/key mismatch) above.
     //
-    // LIMITATION (see salvageVaultV2): an old-tab WRITE still rebuilds the
-    // vault from this bundle's known keys via normalizeVaultV2 and drops any
-    // newer-bundle compartment/field. So write-side merge-from-raw preservation
-    // MUST land before any new VaultV2 compartment/field ships, or an old-tab
-    // write will destroy it. Read-side salvage only narrows the damage from
-    // "whole vault wiped on read" to "unknown fields dropped on the next write".
+    // Old-tab WRITES no longer erase newer-bundle data: saveVaultV2ToDb merges
+    // unknown top-level compartments and unknown closed-compartment fields
+    // forward from the authenticated stored record (see
+    // preserveForwardCompatData), so a bundle that does not know a newer field
+    // preserves rather than drops it.
     return salvageVaultV2(parsed);
   }
 
@@ -242,9 +243,107 @@ async function decryptVaultRecord(
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPreservableForwardCompatKey(key: string): boolean {
+  return key !== '__proto__' && key !== 'prototype' && key !== 'constructor';
+}
+
+/**
+ * Read the RAW decrypted stored v2 vault object (unsalvaged, unnormalized) so the
+ * write path can preserve newer-bundle data this bundle does not own. Unlike the
+ * salvaged read view, this keeps unknown fields inside closed compartments
+ * intact. Returns null when no v2 record exists. Genuine tamper/decrypt failures
+ * still delete via decryptVaultRecord (unchanged); the write then proceeds fresh.
+ */
+async function loadRawStoredVaultV2ForMerge(db: IDBDatabase): Promise<Record<string, unknown> | null> {
+  const record = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+  if (!record || record.version !== VAULT_VERSION) {
+    return null;
+  }
+  const parsed = await decryptVaultRecord(db, record);
+  if (!isValidIdentity(parsed) || (parsed as { schemaVersion?: unknown }).schemaVersion !== VAULT_VERSION) {
+    return null;
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Preserve forward-compat data from the authenticated stored vault when writing.
+ * normalizeVaultV2 (called first) rebuilt `normalized` from THIS bundle's known
+ * keys, dropping unknown top-level compartments and (via the closed-key-set
+ * validators) unknown fields inside walletBinding/operatorAuthorizationToken/
+ * signInSession. Without this merge, an old-bundle write would erase a newer
+ * bundle's compartment/field at rest. This re-attaches such newer-bundle data —
+ * but ONLY from `storedRaw` (the already-decrypted, self-authored encrypted
+ * store), NEVER from the write caller's input, and only OUTSIDE this bundle's
+ * owned key set. JS object/prototype magic keys are deliberately not preserved.
+ * Current-bundle-owned fields always win the merge, so strict validation is
+ * never bypassed and the write caller cannot smuggle in keys that were not
+ * already present in the authenticated stored record.
+ *
+ * Caveat: a modified closed compartment re-pairs this bundle's fresh owned fields
+ * with the stored newer-bundle field; if that field was semantically tied to the
+ * prior compartment state it may be stale until the newer bundle rewrites it.
+ * Preserving is preferred over dropping (which would be unrecoverable data loss).
+ */
+function preserveForwardCompatData(
+  normalized: VaultV2,
+  storedRaw: Record<string, unknown> | null
+): VaultV2 {
+  if (!storedRaw) {
+    return normalized;
+  }
+  const result: Record<string, unknown> = { ...normalized };
+
+  // (1) Re-attach unknown newer-bundle top-level compartments. normalizeVaultV2
+  // rebuilt `result` from this bundle's known keys, so any stored key outside
+  // that set is a newer-bundle compartment; the caller cannot smuggle one in
+  // (it is dropped there too), so this only ever restores stored data.
+  for (const [key, storedValue] of Object.entries(storedRaw)) {
+    if (VAULT_V2_KNOWN_TOP_LEVEL_KEYS.has(key) || !isPreservableForwardCompatKey(key)) {
+      continue;
+    }
+    result[key] = storedValue;
+  }
+
+  // (2) Re-attach unknown future FIELDS inside closed-key-set compartments the
+  // current write also touches. The strict validators reject unknown keys, so
+  // normalizeVaultV2 stripped them; restore them from the stored record only,
+  // with current-owned fields winning the merge.
+  for (const [compartmentKey, ownedKeys] of VAULT_V2_CLOSED_COMPARTMENT_KEY_SETS) {
+    const written = result[compartmentKey];
+    const stored = storedRaw[compartmentKey];
+    if (!isPlainObject(written)) {
+      continue;
+    }
+    if (!isPlainObject(stored)) {
+      continue;
+    }
+    const foreign: Record<string, unknown> = {};
+    for (const [fieldKey, fieldValue] of Object.entries(stored)) {
+      if (!ownedKeys.has(fieldKey) && isPreservableForwardCompatKey(fieldKey)) {
+        foreign[fieldKey] = fieldValue;
+      }
+    }
+    if (Object.keys(foreign).length > 0) {
+      result[compartmentKey] = { ...foreign, ...written };
+    }
+  }
+
+  // The untyped map carries preserved newer-bundle keys that are intentionally
+  // outside the VaultV2 type; every current-bundle-owned field was validated by
+  // normalizeVaultV2 before the merge.
+  return result as unknown as VaultV2;
+}
+
 async function saveVaultV2ToDb(db: IDBDatabase, vault: VaultV2): Promise<void> {
   const key = await ensureMasterKey(db);
-  const plaintext = encoder.encode(JSON.stringify(normalizeVaultV2(vault)));
+  const normalized = normalizeVaultV2(vault);
+  const storedRaw = await loadRawStoredVaultV2ForMerge(db);
+  const plaintext = encoder.encode(JSON.stringify(preserveForwardCompatData(normalized, storedRaw)));
   const { iv, ciphertext } = await encrypt(key, plaintext);
 
   const record: VaultRecord = {
@@ -305,10 +404,12 @@ function salvageClosedCompartment(
  *    deviceCredential/seaDevicePair/delegationSigningKey compartments (their
  *    strict validation lives in their compartment accessors, mirroring
  *    normalizeVaultV2) and any unknown top-level compartment from a newer
- *    bundle, which is preserved in the read view (write-side
- *    normalizeVaultV2 still drops it on save).
+ *    bundle, which is preserved in the read view (and, on save, re-attached
+ *    from the authenticated stored record by preserveForwardCompatData rather
+ *    than dropped).
  * Write-side strictness is unchanged: normalizeVaultV2 keeps throwing on
- * invalid compartments.
+ * invalid compartments; the write-path merge only re-attaches unknown data that
+ * was already present in the decrypted stored record, never caller input.
  */
 function salvageVaultV2(parsed: unknown): VaultV2 | null {
   if (

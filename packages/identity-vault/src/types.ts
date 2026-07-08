@@ -181,6 +181,35 @@ export const SIGN_IN_SESSION_COMPARTMENT_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The top-level keys this bundle's VaultV2 owns. MUST mirror the whitelist that
+ * normalizeVaultV2 (vault.ts) rebuilds from. Any stored top-level key NOT in this
+ * set is a newer-bundle compartment this bundle does not understand; the write
+ * path preserves it from the authenticated stored record rather than dropping it.
+ */
+export const VAULT_V2_KNOWN_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'identityRecord',
+  'deviceCredential',
+  'seaDevicePair',
+  'delegationSigningKey',
+  'walletBinding',
+  'operatorAuthorizationToken',
+  'signInSession'
+]);
+
+/**
+ * The closed-key-set compartments and their owned key sets. Their strict
+ * validators reject unknown keys, so a newer-bundle field inside one of them
+ * would be lost on an old-bundle write unless the write path re-attaches it from
+ * the authenticated stored record (outside the owned key set).
+ */
+export const VAULT_V2_CLOSED_COMPARTMENT_KEY_SETS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['walletBinding', WALLET_BINDING_COMPARTMENT_KEYS],
+  ['operatorAuthorizationToken', OPERATOR_AUTHORIZATION_TOKEN_COMPARTMENT_KEYS],
+  ['signInSession', SIGN_IN_SESSION_COMPARTMENT_KEYS]
+]);
+
+/**
  * Copy only the known keys of a plain-object compartment; non-object inputs
  * (null, arrays, primitives) pass through unchanged so the caller's validator
  * can reject them. Single source for the read-side salvage strippers (vault
