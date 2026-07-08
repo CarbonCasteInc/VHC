@@ -8,6 +8,8 @@ import {
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   canonicalizeSystemWriterRecordBytes,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -268,6 +270,11 @@ async function parseStorylineGroupFromStoredRecord(
   }
 
   if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  if (rejectUnmarkedSystemRecords()) {
+    emitSystemWriterValidationFailure(unmarkedRecordRejectedFailure(storylinePath(storylineId)));
     return null;
   }
 

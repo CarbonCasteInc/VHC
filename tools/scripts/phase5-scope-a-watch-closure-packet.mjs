@@ -453,6 +453,9 @@ function summarizeRelayMemory(samples, windowStartMs, env) {
 
 function summarizeArchive(samples) {
   const latest = samples.at(-1) ?? null;
+  const publisherRestartCounts = samples
+    .map((sample) => sample.publisher?.unit?.nRestarts)
+    .filter((value) => Number.isFinite(value));
   return {
     sampleCount: samples.length,
     firstSampleAt: samples[0]?.generatedAt ?? null,
@@ -460,6 +463,8 @@ function summarizeArchive(samples) {
     passCount: samples.filter((sample) => sample.manifest?.status === 'pass').length,
     failCount: samples.filter((sample) => sample.manifest?.status !== 'pass').length,
     blockers: samples.flatMap((sample) => sample.manifest?.blockers ?? []),
+    publisherRestartCountMin: publisherRestartCounts.length ? Math.min(...publisherRestartCounts) : null,
+    publisherRestartCountMax: publisherRestartCounts.length ? Math.max(...publisherRestartCounts) : null,
     latestPublisher: latest?.publisher
       ? {
           status: latest.publisher.status ?? null,
@@ -531,7 +536,13 @@ function coreSignalBlockers({ archive, journalSummary, storyClusterArtifacts, de
   const blockers = [];
   if (archive.sampleCount <= 0) blockers.push('archive_samples_missing');
   if (archive.failCount > 0) blockers.push(`archive_sample_failures:${archive.failCount}`);
-  if (archive.latestPublisher?.nRestarts !== 0) blockers.push(`publisher_nrestarts:${archive.latestPublisher?.nRestarts}`);
+  if (
+    archive.publisherRestartCountMin !== null
+    && archive.publisherRestartCountMax !== null
+    && archive.publisherRestartCountMax > archive.publisherRestartCountMin
+  ) {
+    blockers.push(`publisher_nrestarts:${archive.publisherRestartCountMin}->${archive.publisherRestartCountMax}`);
+  }
   if (archive.latestPublisher?.status && archive.latestPublisher.status !== 'pass') {
     blockers.push(`publisher_liveness_status:${archive.latestPublisher.status}`);
   }
@@ -613,6 +624,8 @@ function buildWatchClosureVerdict(packet) {
       failCount: packet.archive.failCount,
       latestPublisherStatus: packet.archive.latestPublisher?.status ?? null,
       latestPublisherNRestarts: packet.archive.latestPublisher?.nRestarts ?? null,
+      publisherRestartCountMin: packet.archive.publisherRestartCountMin,
+      publisherRestartCountMax: packet.archive.publisherRestartCountMax,
       latestRelayStatus: packet.archive.latestRelay?.status ?? null,
       latestRelaySnapshotStatus: packet.archive.latestRelaySnapshot?.status ?? null,
       latestPublicFreshnessStatus: packet.archive.latestPublicFreshness?.status ?? null,

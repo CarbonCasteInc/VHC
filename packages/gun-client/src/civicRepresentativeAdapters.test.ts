@@ -247,6 +247,19 @@ async function createSignedSnapshotFixture(): Promise<{
   return { mesh, client, snapshotRecord };
 }
 
+function withRejectUnmarkedFlag(): () => void {
+  const target = globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> };
+  const previous = target.__VH_IMPORT_META_ENV__;
+  target.__VH_IMPORT_META_ENV__ = { VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS: 'true' };
+  return () => {
+    if (previous === undefined) {
+      delete target.__VH_IMPORT_META_ENV__;
+    } else {
+      target.__VH_IMPORT_META_ENV__ = previous;
+    }
+  };
+}
+
 describe('civicRepresentativeAdapters', () => {
   it('rejects blank jurisdiction versions before chain access', async () => {
     const mesh = createFakeMesh();
@@ -386,6 +399,55 @@ describe('civicRepresentativeAdapters', () => {
     });
 
     await expect(readCivicRepresentativeSnapshot(client, 'jurisdiction-v1')).resolves.toEqual(BASE_DIRECTORY);
+  });
+
+  it('rejects unmarked and clean legacy-marked civic representative snapshots when reject-unmarked mode is on', async () => {
+    const { mesh, client, snapshotRecord } = await createSignedSnapshotFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+    const restoreFlag = withRejectUnmarkedFlag();
+
+    try {
+      // Signed snapshots still read back flag-on.
+      mesh.setRead('civic/reps/jurisdiction-v1', { _: { '#': 'metadata' }, ...snapshotRecord });
+      await expect(readCivicRepresentativeSnapshot(client, 'jurisdiction-v1')).resolves.toEqual(BASE_DIRECTORY);
+
+      // Bare-unmarked AND clean legacy-marked snapshots are refused flag-on.
+      const legacyMarked = { _writerKind: 'legacy', _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION, ...BASE_DIRECTORY };
+      for (const record of [{ ...BASE_DIRECTORY }, legacyMarked]) {
+        warnSpy.mockClear();
+        mesh.setRead('civic/reps/jurisdiction-v1', record);
+        await expect(readCivicRepresentativeSnapshot(client, 'jurisdiction-v1')).resolves.toBeNull();
+        expect(warnSpy).toHaveBeenCalledWith(
+          `[vh:civic-reps] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+          expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'unmarked-record-rejected',
+          }),
+        );
+      }
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'unmarked-record-rejected' }),
+        }),
+      );
+    } finally {
+      restoreFlag();
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
   });
 
   it('returns null for non-record, timed-out, and late civic representative snapshot reads', async () => {

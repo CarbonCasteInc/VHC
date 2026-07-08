@@ -7,12 +7,14 @@ import {
 import { lumaLog } from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
-import { readGunBooleanFlag, readGunTimeoutMs } from './runtimeConfig';
+import { readGunTimeoutMs } from './runtimeConfig';
 import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
+  rejectUnmarkedSystemRecords,
+  unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
@@ -1642,38 +1644,6 @@ function emitSystemWriterValidationFailure(
       new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
     );
   }
-}
-
-// Evaluated lazily per parse so operators (and tests) can toggle it without a
-// module reload; absent flag preserves legacy-accept behavior exactly.
-// Reject-unmarked mode (default OFF). When enabled, unmarked schema-valid
-// records are refused instead of legacy-accepted.
-//
-// SCOPE — this flag currently hardens ONLY the record classes read through this
-// module and synthesisAdapters: news story bundles, synthesis-lifecycle, latest
-// and hot index entries (including the relay `stories`/`lifecycle` convenience
-// fields), and topic synthesis / digest / correction. District-aggregate
-// summaries are unconditionally fail-closed (no flag needed). The flag does NOT
-// yet cover discovery items/index pages, storyline groups, topic-engagement
-// summaries, civic-representative snapshots, or analysis artifacts/pointers —
-// those adapters keep an open legacy-accept branch regardless of the flag.
-// Extending them is tracked follow-up work; until then an operator enabling the
-// flag must treat those surfaces as still legacy-accepting.
-function rejectUnmarkedSystemRecords(): boolean {
-  return readGunBooleanFlag(
-    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
-    false,
-  );
-}
-
-function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
-  return {
-    valid: false,
-    event: SYSTEM_WRITER_VALIDATION_EVENT,
-    reason: 'unmarked-record-rejected',
-    path,
-    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
-  };
 }
 
 async function parseStoryBundleFromStoredRecord(

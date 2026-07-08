@@ -1,4 +1,5 @@
 import canonicalize from 'canonicalize';
+import { readGunBooleanFlag } from './runtimeConfig';
 
 export const SYSTEM_WRITER_PROTOCOL_VERSION = 'luma-public-v1' as const;
 export const SYSTEM_WRITER_SIGNATURE_SUITE = 'jcs-ed25519-sha256-v1' as const;
@@ -128,6 +129,47 @@ export interface SystemWriterValidationFailure {
 export type SystemWriterValidationResult =
   | SystemWriterValidationSuccess
   | SystemWriterValidationFailure;
+
+/**
+ * Reject-unmarked system-writer mode (default OFF). When enabled, an adapter
+ * refuses unmarked (and clean legacy-marked) schema-valid records for a migrated
+ * system-writer class instead of legacy-accepting them. Shared single source so
+ * the env-var names and default cannot drift across the adapters that consult it.
+ * Evaluated lazily per parse so operators (and tests) can toggle it without a
+ * module reload; absent flag preserves legacy-accept behavior exactly.
+ *
+ * SCOPE — the flag now hardens ALL migrated system-writer record classes read by
+ * the gun-client adapters: news story bundles, synthesis-lifecycle, latest/hot
+ * index entries (incl. relay `stories`/`lifecycle` convenience fields), topic
+ * synthesis / digest / correction, discovery items + index pages, storyline
+ * groups, topic-engagement summaries, civic-representative snapshots, and
+ * analysis artifacts + latest pointers. District-aggregate summaries are
+ * unconditionally fail-closed (no flag needed). Each adapter consulting this flag
+ * has a corresponding `check:luma-*-system-v1` gate pinning the reject-unmarked
+ * branch, so the enforcement cannot silently regress. Flipping the flag on in a
+ * deployed profile remains an operator decision, sequenced after live records
+ * are confirmed marked.
+ */
+export function rejectUnmarkedSystemRecords(): boolean {
+  return readGunBooleanFlag(
+    ['VITE_VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS', 'VH_GUN_REJECT_UNMARKED_SYSTEM_RECORDS'],
+    false,
+  );
+}
+
+/**
+ * The validation failure an adapter emits when reject-unmarked mode refuses an
+ * unmarked record. Shared so every adapter reports the same reason/message.
+ */
+export function unmarkedRecordRejectedFailure(path: string): SystemWriterValidationFailure {
+  return {
+    valid: false,
+    event: SYSTEM_WRITER_VALIDATION_EVENT,
+    reason: 'unmarked-record-rejected',
+    path,
+    message: 'Unmarked record rejected: reject-unmarked mode requires system-writer records',
+  };
+}
 
 interface AllowedSystemWriterPath {
   readonly recordClass: SystemWriterAllowedClass;
