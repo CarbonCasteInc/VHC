@@ -391,6 +391,86 @@ describe('civicRepresentativeAdapters', () => {
     }
   });
 
+  it('confirms snapshot writes after ack timeout with content-only readback when verification pin is unavailable', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mesh.setPutHandler((path, value, _cb) => {
+      mesh.writes.push({ path, value });
+      mesh.setRead(path, value);
+      // The record was signed and physically written, but the same runtime can
+      // no longer verify it. Durability confirmation must still prove landed
+      // content; consumer reads remain fail-closed below.
+      client.config.systemWriterPin = null;
+    });
+
+    const writePromise = writeCivicRepresentativeSnapshot(client, 'jurisdiction-v1', BASE_DIRECTORY);
+    const resolutionExpectation = expect(writePromise).resolves.toEqual(BASE_DIRECTORY);
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      await resolutionExpectation;
+      expect(mesh.writes).toHaveLength(1);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:civic-reps] put ack timed out, requiring readback confirmation');
+
+      await expect(readCivicRepresentativeSnapshot(client, 'jurisdiction-v1')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects snapshot writes when durability readback is absent or schema-invalid', async () => {
+    const cases: Array<{ name: string; readback?: unknown }> = [
+      { name: 'absent' },
+      {
+        name: 'schema-invalid',
+        readback: {
+          ...BASE_DIRECTORY,
+          jurisdictionVersion: 'jurisdiction-v1',
+          representatives: [
+            {
+              ...BASE_DIRECTORY.representatives[0]!,
+              email: 'not-an-email',
+            },
+          ],
+        },
+      },
+    ];
+
+    for (const { name, readback } of cases) {
+      vi.useFakeTimers();
+      const mesh = createFakeMesh();
+      if (readback !== undefined) {
+        mesh.setRead('civic/reps/jurisdiction-v1', readback);
+      }
+      mesh.setPutHandler((path, value, _cb) => {
+        mesh.writes.push({ path, value });
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const writePromise = writeCivicRepresentativeSnapshot(
+        createClient(mesh, guard),
+        'jurisdiction-v1',
+        BASE_DIRECTORY,
+      );
+      const rejectionExpectation = expect(writePromise).rejects.toThrow(
+        'civic representative snapshot write timed out and readback did not confirm persistence',
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(3_000);
+        await rejectionExpectation;
+        expect(mesh.writes, name).toHaveLength(1);
+        expect(warnSpy, name).toHaveBeenCalledWith('[vh:civic-reps] put ack timed out, requiring readback confirmation');
+      } finally {
+        warnSpy.mockRestore();
+        vi.useRealTimers();
+      }
+    }
+  });
+
   it('validates real signed system writer civic representative snapshots', async () => {
     const { mesh, client, snapshotRecord } = await createSignedSnapshotFixture();
     mesh.setRead('civic/reps/jurisdiction-v1', {
@@ -569,6 +649,50 @@ describe('civicRepresentativeAdapters', () => {
           detail: expect.objectContaining({
             event: SYSTEM_WRITER_VALIDATION_EVENT,
             reason: 'missing-pin',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fails closed with system-writer-validation-failed when the civic representative snapshot signature is invalid', async () => {
+    const { mesh, client, snapshotRecord } = await createSignedSnapshotFixture();
+    mesh.setRead('civic/reps/jurisdiction-v1', {
+      ...snapshotRecord,
+      _systemSignature: `${String(snapshotRecord._systemSignature)}tampered`,
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      await expect(readCivicRepresentativeSnapshot(client, 'jurisdiction-v1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:civic-reps] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'signature-invalid',
+          path: '[REDACTED:mesh-path]',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'signature-invalid',
           }),
         }),
       );

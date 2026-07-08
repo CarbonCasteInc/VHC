@@ -21,6 +21,7 @@ import {
 import type { VennClient } from './types';
 
 const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const SYSTEM_WRITER_COMPAT_NULL_FIELDS = ['_system', '_Signature', '_WriterId', '_IssuedAt'] as const;
 
 type CivicRepresentativeSnapshotRecord = RepresentativeDirectory & Record<string, unknown> & {
   readonly jurisdictionVersion: string;
@@ -99,6 +100,9 @@ function stripSystemWriterAndBindingFields(payload: Record<string, unknown>): Re
     jurisdictionVersion: _omittedJurisdictionVersion,
     ...directoryPayload
   } = payload;
+  for (const field of SYSTEM_WRITER_COMPAT_NULL_FIELDS) {
+    delete directoryPayload[field];
+  }
   return directoryPayload;
 }
 
@@ -185,6 +189,30 @@ async function parseCivicRepresentativeSnapshotFromStoredRecord(
   }
 
   return parseLegacyCivicRepresentativeSnapshotPayload(payload);
+}
+
+/**
+ * Durability readback: confirm the directory content we just wrote actually
+ * landed, WITHOUT re-verifying our own signature. The consumer read
+ * (readCivicRepresentativeSnapshot) stays fail-closed and pin-validating; this
+ * helper only proves persistence after an ack timeout, so a writer that signs
+ * correctly but cannot verify its own system-writer record does not misreport a
+ * landed write as failed. The caller's directoriesMatch predicate requires
+ * field-for-field equality with the directory we wrote, so a concurrent forged
+ * record could confirm only by being byte-identical to ours.
+ */
+async function readCivicRepresentativeSnapshotForDurability(
+  client: VennClient,
+  jurisdictionVersion: string,
+): Promise<RepresentativeDirectory | null> {
+  const payload = stripGunMetadata(
+    await readOnce(getCivicRepresentativeSnapshotChain(client, jurisdictionVersion)),
+  );
+  if (!isRecord(payload)) {
+    return null;
+  }
+  const parsed = RepresentativeDirectorySchema.safeParse(stripSystemWriterAndBindingFields(payload));
+  return parsed.success ? parsed.data : null;
 }
 
 async function buildSystemWriterCivicRepresentativeSnapshotRecord(
@@ -307,7 +335,9 @@ export async function writeCivicRepresentativeSnapshot(
   await putWithAck(getCivicRepresentativeSnapshotChain(client, normalizedJurisdictionVersion), snapshotRecord, {
     writeClass: 'civic-representative-snapshot',
     timeoutError: 'civic representative snapshot write timed out and readback did not confirm persistence',
-    readback: () => readCivicRepresentativeSnapshot(client, normalizedJurisdictionVersion),
+    // Durability readback confirms persistence via content equality only, not
+    // signature re-verification; see readCivicRepresentativeSnapshotForDurability.
+    readback: () => readCivicRepresentativeSnapshotForDurability(client, normalizedJurisdictionVersion),
     readbackPredicate: (observed) => directoriesMatch(observed as RepresentativeDirectory | null, parsedDirectory),
   });
 
