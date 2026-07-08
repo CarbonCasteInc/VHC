@@ -341,6 +341,9 @@ export async function buildSignedSystemWriterRecord<T extends Record<string, unk
   if (!input.sign) {
     throw new Error(input.missingSignerError);
   }
+  if (!getSystemWriterAllowedClass(input.path)) {
+    throw new Error('system writer path is not in the allowed class matrix');
+  }
 
   const writerId = resolveSystemWriterId({
     configuredWriterId: input.writerId,

@@ -46,6 +46,18 @@ function changedFilesSince(mergeBase) {
   return raw ? raw.split('\n').map((line) => line.trim()).filter(Boolean) : [];
 }
 
+function repoPackageManagerSpec() {
+  try {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+    const packageManager = typeof packageJson.packageManager === 'string'
+      ? packageJson.packageManager.trim()
+      : '';
+    return packageManager.split('+')[0] || 'pnpm@9.7.1';
+  } catch {
+    return 'pnpm@9.7.1';
+  }
+}
+
 const COVERAGE_ALLOWLIST = [
   /^apps\/web-pwa\/src\/components\/feed\/CellVoteControls\.tsx$/,
   /^apps\/web-pwa\/src\/components\/AnalysisView\.tsx$/,
@@ -100,6 +112,7 @@ function runVitestCoverage(includedFiles) {
   rmSync(coverageDir, { recursive: true, force: true });
 
   const vitestArgs = [
+    'exec',
     'vitest',
     'run',
     '--coverage',
@@ -117,7 +130,13 @@ function runVitestCoverage(includedFiles) {
     vitestArgs.push(`--coverage.include=${filePath}`);
   }
 
-  const result = spawnSync('pnpm', vitestArgs, { stdio: 'inherit' });
+  const result = spawnSync('corepack', [repoPackageManagerSpec(), ...vitestArgs], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: process.env.COREPACK_ENABLE_DOWNLOAD_PROMPT ?? '0',
+    },
+  });
   if (result.error) {
     fail(`failed to execute vitest: ${result.error.message}`);
   }

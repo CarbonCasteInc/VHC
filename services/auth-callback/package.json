@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node --check src/auth-core.mjs && node --check src/apple-client-secret.mjs && node --check src/worker.mjs",
-    "typecheck": "pnpm build",
+    "typecheck": "node --check src/auth-core.mjs && node --check src/apple-client-secret.mjs && node --check src/worker.mjs",
     "test": "node --test src/*.test.mjs",
     "lint": "echo 'lint: ok (auth-callback uses node --test guards)'"
   }

@@ -601,6 +601,16 @@ describe('system writer validation foundation', () => {
       missingSignerError: 'signer missing',
     })).rejects.toThrow('signer missing');
 
+    const forbiddenSign = vi.fn(async () => 'signature');
+    await expect(buildSignedSystemWriterRecord({
+      path: 'vh/forum/threads/thread-1',
+      payload: { thread_id: 'thread-1' },
+      sign: forbiddenSign,
+      defaultWriterId: WRITER_ID,
+      missingSignerError: 'signer missing',
+    })).rejects.toThrow('system writer path is not in the allowed class matrix');
+    expect(forbiddenSign).not.toHaveBeenCalled();
+
     await expect(buildSignedSystemWriterRecord({
       path: 'vh/news/stories/story-1/',
       payload: { story_id: 'story-1' },
