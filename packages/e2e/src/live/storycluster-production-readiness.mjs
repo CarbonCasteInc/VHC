@@ -60,6 +60,10 @@ function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
 }
 
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 function readRequiredArtifactJson(filePath, label, readFile = readFileSync) {
   try {
     return readJson(filePath, readFile);
@@ -260,6 +264,162 @@ function resolveCorrectnessGateStatus({
   };
 }
 
+function extractRuntimeLogLines(runtimeLogs) {
+  if (!isRecord(runtimeLogs)) {
+    return [];
+  }
+
+  return [
+    runtimeLogs.browserLogs,
+    runtimeLogs.storyclusterLogs,
+    runtimeLogs.daemonLogs,
+  ].flatMap((lines) => (Array.isArray(lines) ? lines : []))
+    .filter((line) => typeof line === 'string');
+}
+
+function classifyRuntimeLogLines(lines) {
+  const joined = lines.join('\n');
+  if (!joined) {
+    return null;
+  }
+
+  if (
+    /\binvalid_api_key\b/i.test(joined)
+    || /incorrect api key/i.test(joined)
+  ) {
+    return {
+      failureClass: 'storycluster_openai_invalid_api_key',
+      component: 'storycluster_openai',
+      recommendedAction: 'repair_storycluster_openai_credential_or_endpoint',
+    };
+  }
+
+  if (/openai/i.test(joined) && /\bHTTP 401\b/i.test(joined)) {
+    return {
+      failureClass: 'storycluster_openai_authentication_failed',
+      component: 'storycluster_openai',
+      recommendedAction: 'repair_storycluster_openai_credential_or_endpoint',
+    };
+  }
+
+  if (/remote cluster request failed/i.test(joined)) {
+    return {
+      failureClass: 'storycluster_remote_cluster_request_failed',
+      component: 'storycluster_service',
+      recommendedAction: 'inspect_storycluster_runtime_logs_and_endpoint',
+    };
+  }
+
+  return null;
+}
+
+function readOptionalJson(filePath, {
+  exists = existsSync,
+  readFile = readFileSync,
+} = {}) {
+  if (!filePath || !exists(filePath)) {
+    return { record: null, error: filePath ? 'missing' : 'path_unavailable' };
+  }
+
+  try {
+    return { record: readJson(filePath, readFile), error: null };
+  } catch {
+    return { record: null, error: 'invalid_json' };
+  }
+}
+
+function resolveLatestHeadlineSoakArtifactDir(headlineSoakTrend) {
+  return normalizeNonEmpty(headlineSoakTrend?.latestExecution?.artifactDir)
+    ?? normalizeNonEmpty(headlineSoakTrend?.latestStrictFailureExecution?.artifactDir)
+    ?? null;
+}
+
+function resolveLatestHeadlineSoakIndexPath(headlineSoakTrend) {
+  const explicitPath = normalizeNonEmpty(headlineSoakTrend?.latestExecution?.artifactPaths?.indexPath)
+    ?? normalizeNonEmpty(headlineSoakTrend?.latestStrictFailureExecution?.artifactPaths?.indexPath);
+  if (explicitPath) {
+    return explicitPath;
+  }
+
+  const artifactDir = resolveLatestHeadlineSoakArtifactDir(headlineSoakTrend);
+  return artifactDir ? path.join(artifactDir, 'release-artifact-index.json') : null;
+}
+
+export function diagnoseHeadlineSoakFailure({
+  headlineSoakTrend,
+  exists = existsSync,
+  readFile = readFileSync,
+} = {}) {
+  const latestExecution = headlineSoakTrend?.latestExecution ?? null;
+  const latestStrictFailureExecution = headlineSoakTrend?.latestStrictFailureExecution ?? null;
+  const latestFailure = latestExecution?.readinessStatus === 'not_ready'
+    ? latestExecution
+    : latestStrictFailureExecution;
+  const artifactDir = resolveLatestHeadlineSoakArtifactDir(headlineSoakTrend);
+  const indexPath = resolveLatestHeadlineSoakIndexPath(headlineSoakTrend);
+  const diagnosis = {
+    schemaVersion: 'headline-soak-failure-diagnosis-v1',
+    available: Boolean(latestFailure || artifactDir || indexPath),
+    secretSafe: true,
+    artifactDir,
+    indexPath,
+    latestReadinessStatus: latestExecution?.readinessStatus ?? null,
+    latestStrictSoakPass: latestExecution?.strictSoakPass ?? null,
+    latestPromotionBlockingReasons: latestExecution?.promotionBlockingReasons ?? [],
+    latestClassifications: latestExecution?.classifications ?? null,
+    inspectedRunCount: 0,
+    inspectedRuntimeLogCount: 0,
+    runtimeLogReadErrorCount: 0,
+    failureClass: null,
+    component: null,
+    recommendedAction: 'collect_or_inspect_headline_soak_artifacts',
+  };
+
+  const indexRead = readOptionalJson(indexPath, { exists, readFile });
+  if (!isRecord(indexRead.record)) {
+    diagnosis.indexReadError = indexRead.error;
+    if ((latestExecution?.classifications?.artifact_missing ?? 0) > 0) {
+      diagnosis.failureClass = 'headline_soak_artifact_missing';
+      diagnosis.component = 'headline_soak_audit';
+      diagnosis.recommendedAction = 'inspect_headline_soak_runtime_logs';
+    }
+    return diagnosis;
+  }
+
+  const runs = Array.isArray(indexRead.record.runs) ? indexRead.record.runs : [];
+  diagnosis.inspectedRunCount = runs.length;
+
+  for (const run of runs) {
+    if (!isRecord(run) || run.pass === true) {
+      continue;
+    }
+    const runtimeLogsPath = normalizeNonEmpty(run.runtimeLogsPath)
+      ?? normalizeNonEmpty(run.artifactPaths?.runtimeLogsPath);
+    const runtimeRead = readOptionalJson(runtimeLogsPath, { exists, readFile });
+    if (!isRecord(runtimeRead.record)) {
+      diagnosis.runtimeLogReadErrorCount += 1;
+      continue;
+    }
+
+    diagnosis.inspectedRuntimeLogCount += 1;
+    const classification = classifyRuntimeLogLines(extractRuntimeLogLines(runtimeRead.record));
+    if (classification) {
+      return {
+        ...diagnosis,
+        ...classification,
+      };
+    }
+  }
+
+  if ((latestExecution?.classifications?.artifact_missing ?? 0) > 0) {
+    diagnosis.failureClass = 'headline_soak_artifact_missing';
+    diagnosis.component = 'headline_soak_audit';
+    diagnosis.recommendedAction = 'inspect_headline_soak_runtime_logs';
+  }
+
+  return diagnosis;
+}
+
 export function loadProductionReadinessArtifacts({
   repoRoot = DEFAULT_REPO_ROOT,
   sourceHealthReportPath,
@@ -315,6 +475,11 @@ export function loadProductionReadinessArtifacts({
     'headline-soak-trend',
     readFile,
   );
+  const headlineSoakFailureDiagnosis = diagnoseHeadlineSoakFailure({
+    headlineSoakTrend,
+    exists,
+    readFile,
+  });
   const correctnessGate = resolveCorrectnessGateStatus({
     rule,
     correctnessGateStatusPath,
@@ -355,6 +520,7 @@ export function loadProductionReadinessArtifacts({
     sourceHealthReport,
     sourceHealthTrend,
     headlineSoakTrend,
+    headlineSoakFailureDiagnosis,
     continuityTrend,
     sourceHealthFreshness: assessArtifactFreshness(
       resolvedSourceHealthReportPath,
@@ -384,6 +550,7 @@ export function buildProductionReadinessDecision({
   sourceHealthReport,
   sourceHealthTrend,
   headlineSoakTrend,
+  headlineSoakFailureDiagnosis,
   continuityTrendPath,
   continuityTrend,
   continuityFreshness,
@@ -489,6 +656,7 @@ export function buildProductionReadinessDecision({
       executionCount: headlineSoakTrend?.executionCount ?? null,
       promotableExecutionCount: headlineSoakTrend?.promotableExecutionCount ?? null,
       latestExecution: headlineSoakTrend?.latestExecution ?? null,
+      latestFailureDiagnosis: headlineSoakFailureDiagnosis ?? null,
     },
     continuityTelemetry: {
       trendPath: continuityTrendPath,
@@ -591,6 +759,7 @@ export const storyclusterProductionReadinessInternal = {
   parseBoolean,
   parseCorrectnessStatus,
   readRequiredArtifactJson,
+  diagnoseHeadlineSoakFailure,
   resolveArtifactTimestamp,
   resolveCorrectnessGateStatus,
   resolvePreferredHeadlineSoakTrendPath,

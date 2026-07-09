@@ -163,6 +163,99 @@ describe('storycluster-production-readiness', () => {
     expect(decision.continuityTelemetry.error).toMatch(/invalid production-readiness artifact JSON \(continuity-trend\)/);
   });
 
+  it('diagnoses headline-soak OpenAI credential failures without copying secret-bearing log text', () => {
+    const files = new Map([
+      ['/repo/.tmp/daemon-feed-semantic-soak/123/release-artifact-index.json', JSON.stringify({
+        runs: [{
+          run: 1,
+          pass: false,
+          classification: 'artifact_missing',
+          runtimeLogsPath: '/repo/.tmp/daemon-feed-semantic-soak/123/run-1.runtime-logs.json',
+        }],
+      })],
+      ['/repo/.tmp/daemon-feed-semantic-soak/123/run-1.runtime-logs.json', JSON.stringify({
+        daemonLogs: [
+          'remote cluster request failed: HTTP 503',
+          'storycluster stage language_translation failed: OpenAI chat request failed: HTTP 401 {"error":{"message":"Incorrect API key provided: sk-[REDACTED]","code":"invalid_api_key"}}',
+        ],
+      })],
+    ]);
+
+    const diagnosis = storyclusterProductionReadinessInternal.diagnoseHeadlineSoakFailure({
+      headlineSoakTrend: {
+        latestExecution: {
+          artifactDir: '/repo/.tmp/daemon-feed-semantic-soak/123',
+          strictSoakPass: false,
+          readinessStatus: 'not_ready',
+          promotionBlockingReasons: ['insufficient_sample_fill_rate'],
+          classifications: { artifact_missing: 1 },
+          artifactPaths: {
+            indexPath: '/repo/.tmp/daemon-feed-semantic-soak/123/release-artifact-index.json',
+          },
+        },
+      },
+      exists: (filePath) => files.has(filePath),
+      readFile: (filePath) => files.get(filePath),
+    });
+
+    expect(diagnosis).toMatchObject({
+      secretSafe: true,
+      failureClass: 'storycluster_openai_invalid_api_key',
+      component: 'storycluster_openai',
+      recommendedAction: 'repair_storycluster_openai_credential_or_endpoint',
+      inspectedRunCount: 1,
+      inspectedRuntimeLogCount: 1,
+    });
+    expect(JSON.stringify(diagnosis)).not.toMatch(/sk-|Incorrect API key provided|OpenAI chat request failed/);
+  });
+
+  it('embeds headline-soak failure diagnosis in the production-readiness report', () => {
+    const rule = buildProductionReadinessRule('/repo');
+    const decision = buildProductionReadinessDecision({
+      rule,
+      correctnessStatus: 'pass',
+      artifactDir: '/repo/.tmp/storycluster-production-readiness/1',
+      reportPath: '/repo/.tmp/storycluster-production-readiness/1/production-readiness-report.json',
+      latestArtifactDir: '/repo/.tmp/storycluster-production-readiness/latest',
+      latestReportPath: '/repo/.tmp/storycluster-production-readiness/latest/production-readiness-report.json',
+      sourceHealthReportPath: '/repo/source-health-report.json',
+      sourceHealthTrendPath: '/repo/source-health-trend.json',
+      headlineSoakTrendPath: '/repo/headline-soak-trend-index.json',
+      sourceHealthFreshness: { stale: false },
+      headlineSoakFreshness: { stale: false },
+      sourceHealthReport: {
+        releaseEvidence: { status: 'pass', reasons: [] },
+        observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 },
+      },
+      sourceHealthTrend: { releaseEvidence: { status: 'pass', reasons: [] } },
+      headlineSoakTrend: {
+        releaseEvidence: { status: 'fail', reasons: ['latest_headline_soak_execution_not_promotable'] },
+        executionCount: 2,
+        promotableExecutionCount: 1,
+        latestExecution: { readinessStatus: 'not_ready' },
+      },
+      headlineSoakFailureDiagnosis: {
+        schemaVersion: 'headline-soak-failure-diagnosis-v1',
+        secretSafe: true,
+        failureClass: 'storycluster_openai_invalid_api_key',
+        component: 'storycluster_openai',
+        recommendedAction: 'repair_storycluster_openai_credential_or_endpoint',
+      },
+    });
+
+    expect(decision).toMatchObject({
+      status: 'blocked',
+      reasons: ['headline_soak_release_evidence_failed'],
+      headlineSoakTrend: {
+        latestFailureDiagnosis: {
+          secretSafe: true,
+          failureClass: 'storycluster_openai_invalid_api_key',
+          recommendedAction: 'repair_storycluster_openai_credential_or_endpoint',
+        },
+      },
+    });
+  });
+
   it('builds pass, review, and blocked release decisions', () => {
     const rule = buildProductionReadinessRule('/repo');
     const base = {

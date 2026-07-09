@@ -25,6 +25,10 @@ Two separate facts are true right now:
      - `sourceHealthTrend.releaseEvidence.status: "pass"`
      - `status: "blocked"` only because headline-soak release evidence is
        still red
+     - `headlineSoakTrend.latestFailureDiagnosis.failureClass:
+       "storycluster_openai_invalid_api_key"`
+     - `headlineSoakTrend.latestFailureDiagnosis.recommendedAction:
+       "repair_storycluster_openai_credential_or_endpoint"`
      - starter surface: `24` keep / `0` watch / `0` remove
    - Fresh source-health artifact:
      - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
@@ -44,9 +48,13 @@ Two separate facts are true right now:
      - `totalSampledStories: 0`
      - `totalAuditedPairs: 0`
      - classification: `artifact_missing: 3`
-     - runtime logs show the real StoryCluster path failed before audit
-       attachment because the local OpenAI credential was rejected
-       (`invalid_api_key`, key redacted in artifacts)
+     - the combined production-readiness report now surfaces the secret-safe
+       diagnosis before operators need to open raw logs:
+       `headlineSoakTrend.latestFailureDiagnosis.failureClass:
+       "storycluster_openai_invalid_api_key"`
+     - runtime logs, if inspected, show the real StoryCluster path failed
+       before audit attachment because the local OpenAI credential was
+       rejected; the key is redacted in artifacts
    - Fresh combined readiness artifact still blocks on:
      - `headline_soak_release_evidence_failed`
 
@@ -82,6 +90,9 @@ Primary paths:
   - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
 - Unified readiness:
   - `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/<run>/production-readiness-report.json`
+  - read `headlineSoakTrend.latestFailureDiagnosis` first when headline-soak
+    evidence is red; it is a secret-safe classifier/action summary and is the
+    preferred operator diagnostic before opening runtime logs
 - Analysis/eval artifacts:
   - `/Users/bldt/Desktop/VHC/VHC/.tmp/analysis-eval-artifacts/analysis-eval-artifacts.jsonl`
   - `/Users/bldt/Desktop/VHC/VHC/.tmp/analysis-eval-artifacts/artifacts/analysis-eval:<hash>.json`
