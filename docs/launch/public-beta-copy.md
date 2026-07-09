@@ -1,6 +1,9 @@
 # Venn Public Beta Copy
 
-Status: bounded copy for the current Web PWA / Scope A public-news packet.
+Status: bounded standing copy for the current Web PWA / Scope A public-news
+packet. The first tester-wave invite copy is controlled by
+`docs/ops/public-beta-distribution-packet-2026-07-09.md` after the release
+evidence packet, provider rehearsal, and manual three-browser rehearsal pass.
 
 Venn is a Web PWA beta for news, context, and conversation in one feed.
 
@@ -21,8 +24,13 @@ Support intake: GitHub issue form in `CarbonCasteInc/VHC`.
 Private escalation: Venn Core; single-developer project.
 
 Do not claim legal approval, commercial approval, 48-hour Scope A stability,
-production-grade live headline freshness, accepted synthesis readiness, Mesh
-`release_ready`, production app canary pass, full app readiness, LUMA Silver,
-verified-human identity, one-human-one-vote, Sybil resistance, native App
-Store/TestFlight readiness, nested `gun-a/b/c.venn.carboncaste.io` peer TLS
-validity, or a private support desk/SLA from this copy.
+production-grade live headline freshness, accepted synthesis readiness, social
+sign-in readiness, provider rehearsal, Mesh `release_ready`, production app
+canary pass, full app readiness, LUMA Silver, verified-human identity,
+one-human-one-vote, Sybil resistance, native App Store/TestFlight readiness,
+nested `gun-a/b/c.venn.carboncaste.io` peer TLS validity, or a private support
+desk/SLA from this copy.
+
+For tester-wave invitation copy, use only the template in
+`docs/ops/public-beta-distribution-packet-2026-07-09.md` and delete any sentence
+whose live surface did not pass release-commit evidence and rehearsal.
