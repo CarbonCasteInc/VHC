@@ -935,9 +935,13 @@ The release-readiness sprint is complete when all of these are true:
 
 ## Immediate Next Actions
 
-1. Record the Lane 0 launch note: envelope, owners (including incident owner),
-   PWA hosting target, release-commit pinning rule, and the external-approval
-   decision. The first A6 read-only readback (2026-07-08, `347d2018`, services
+1. Fill the operator-owned blanks in the Lane 0 launch-control packet:
+   `docs/ops/public-beta-launch-control-2026-07-09.md`. The packet now records
+   the envelope, target URLs, claim boundaries, rollback/stop rules, and the
+   current `no_go_pending_operator_decisions_and_live_evidence` decision; it
+   remains no-go until real owners, rollback contacts, release commit, external
+   approval disposition, auth host, and advertised-provider decisions are
+   recorded. The first A6 read-only readback (2026-07-08, `347d2018`, services
    green, freshness pass) is already recorded above.
 2. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
 3. Merge the `ap-topnews` source-surface fix and rerun source-health on the
