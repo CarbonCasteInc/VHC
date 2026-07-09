@@ -2,7 +2,7 @@
 
 > Status: Operational Scorecard (Canonical)
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-28
+> Last Reviewed: 2026-07-09
 > Depends On: `/Users/bldt/Desktop/VHC/VHC/docs/specs/spec-news-aggregator-v0.md`, `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`, `/Users/bldt/Desktop/VHC/VHC/docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
 
 This document turns the remaining story-bundler hard problems into measurable gates.
@@ -14,7 +14,7 @@ Use it for two different decisions:
 This scorecard does not replace the canonical product/spec contract in `/Users/bldt/Desktop/VHC/VHC/docs/specs/spec-news-aggregator-v0.md`.
 It defines the operational evidence required to call the current implementation release-ready.
 
-## Current Read (2026-03-28)
+## Current Read (2026-07-09)
 
 Two separate facts are true right now:
 
@@ -23,32 +23,39 @@ Two separate facts are true right now:
      - `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
      - `correctnessGate.status: "pass"`
      - `sourceHealthTrend.releaseEvidence.status: "pass"`
+     - `status: "blocked"` only because headline-soak release evidence is
+       still red
      - starter surface: `24` keep / `0` watch / `0` remove
    - Fresh source-health artifact:
      - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
      - `readinessStatus: "ready"`
      - `releaseEvidence.status: "pass"`
-     - AP Top News is now in the starter surface.
+     - AP Politics remains in the starter surface. AP Top News was later
+       escalated by source-health history and is pruned from the starter
+       surface in the 2026-07-09 release-readiness source-health lane.
 
 2. **Headline-soak release evidence is still the blocker, even though startup and source health recovered.**
-   - Latest complete usable post-fix soak:
-     - `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774695043848/run-1.semantic-audit.json`
-     - `story_count: 4`
-     - `auditable_count: 1`
-     - `sample_fill_rate: 1`
-     - `audited_pair_count: 1`
-     - `related_topic_only_pair_count: 0`
-     - `article_fetch_failure_count: 0`
-   - Latest headline-soak trend execution:
-     - `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774707755214/semantic-soak-summary.json`
+   - Latest headline-soak trend execution on this lane:
+     - `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1783601906259/semantic-soak-summary.json`
      - `readinessStatus: "not_ready"`
-     - classification: `artifact_missing`
+     - `runCount: 3`
+     - `passCount: 0`
+     - `failCount: 3`
+     - `totalSampledStories: 0`
+     - `totalAuditedPairs: 0`
+     - classification: `artifact_missing: 3`
+     - runtime logs show the real StoryCluster path failed before audit
+       attachment because the local OpenAI credential was rejected
+       (`invalid_api_key`, key redacted in artifacts)
    - Fresh combined readiness artifact still blocks on:
      - `headline_soak_release_evidence_failed`
 
 Interpretation:
 - the integrated app can move forward in constrained beta on current `main`
-- the live corroborated-headlines lane is still not production-ready
+- the source-health blocker is cleared locally after pruning AP Top News
+- the live corroborated-headlines lane is still not production-ready until a
+  valid StoryCluster/OpenAI credential or approved shared StoryCluster endpoint
+  produces promotable headline-soak evidence
 - the active blockers are now:
   - headline-soak release evidence
   - live public yield
@@ -118,11 +125,11 @@ Current posture on `main`:
 
 ## Scorecard
 
-| Gate ID | Profile | Artifact Path | Threshold | Current Read (2026-03-28) | Status |
+| Gate ID | Profile | Artifact Path | Threshold | Current Read (2026-07-09) | Status |
 |---|---|---|---|---|---|
-| `correctness.primary` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/<run>/production-readiness-report.json` and `pnpm test:storycluster:correctness` | `correctness.status == "pass"` | fresh combined report records `correctnessGate.status: "pass"` | Pass |
+| `correctness.primary` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/<run>/production-readiness-report.json` and `corepack pnpm@9.7.1 test:storycluster:correctness` | `correctness.status == "pass"` | fresh combined report records `correctnessGate.status: "pass"` | Pass |
 | `sources.health` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json` | `readinessStatus == "ready"` and `watchSourceCount == 0` and `releaseEvidence.status == "pass"` | fresh latest source-health report is `ready/pass` with `24 keep / 0 watch / 0 remove` | Pass |
-| `public.soak.operational` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/semantic-soak-trend.json` | latest complete run is not `artifact_missing`, `runner_failure`, or `report_parse_error`; required attachments present | latest headline-soak trend execution `1774707755214` classified `artifact_missing` | Fail |
+| `public.soak.operational` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/semantic-soak-trend.json` | latest complete run is not `artifact_missing`, `runner_failure`, or `report_parse_error`; required attachments present | latest headline-soak trend execution `1783601906259` classified `artifact_missing: 3` after the real StoryCluster/OpenAI path rejected the local credential | Fail |
 | `public.yield.floor` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit-failure-snapshot.json` | `story_count >= 12` and `auditable_count >= 3` | latest usable complete run `1774695043848` had `4 stories / 1 auditable` | Fail |
 | `public.yield.sample` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit.json` | `sample_fill_rate >= 0.5` with default public sample count | latest usable run passed with `requested_sample_count = 1`; default-sample evidence still missing | Fail |
 | `public.precision` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit.json` | `related_topic_only_pair_count == 0` and no failing bundle labeled semantic contamination | latest usable run had `related_topic_only_pair_count: 0` and `article_fetch_failure_count: 0` | Pass on latest usable run |
@@ -161,10 +168,10 @@ Run:
 
 ```bash
 cd /Users/bldt/Desktop/VHC/VHC
-pnpm test:storycluster:correctness
-pnpm report:news-sources:health
-VH_DAEMON_FEED_SOAK_RUNS=1 pnpm collect:storycluster:headline-soak
-pnpm report:storycluster:production-readiness
+corepack pnpm@9.7.1 test:storycluster:correctness
+corepack pnpm@9.7.1 report:news-sources:health
+VH_DAEMON_FEED_SOAK_RUNS=1 corepack pnpm@9.7.1 collect:storycluster:headline-soak
+corepack pnpm@9.7.1 report:storycluster:production-readiness
 ```
 
 Snapshot-ready is allowed only if:
@@ -181,8 +188,8 @@ Keep the spaced single-run automation active, then read:
 
 ```bash
 cd /Users/bldt/Desktop/VHC/VHC
-pnpm report:storycluster:offline-cluster-replay
-pnpm report:storycluster:production-readiness
+corepack pnpm@9.7.1 report:storycluster:offline-cluster-replay
+corepack pnpm@9.7.1 report:storycluster:production-readiness
 ```
 
 Retained-feed-ready is allowed only if:

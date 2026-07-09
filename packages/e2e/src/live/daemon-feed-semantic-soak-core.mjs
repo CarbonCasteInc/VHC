@@ -38,6 +38,8 @@ import {
 } from './daemon-feed-semantic-soak-offline-replay.mjs';
 import { resolveAutomationStackState } from './daemon-feed-canary-shared.mjs';
 
+const PNPM_COMMAND = 'corepack';
+const PNPM_ARGS = ['pnpm@9.7.1'];
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
   'exec',
@@ -71,7 +73,6 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'pbs-politics',
   'fox-latest',
   'washingtonexaminer-politics',
-  'ap-topnews',
   'ap-politics',
   'latimes-california',
   'bbc-general',
@@ -1528,7 +1529,7 @@ export async function runDaemonFeedSemanticSoak({
   mkdir(path.dirname(summaryPath), { recursive: true });
 
   log('[vh:daemon-soak] build starting');
-  const build = spawn('pnpm', BUILD_ARGS, {
+  const build = spawn(PNPM_COMMAND, [...PNPM_ARGS, ...BUILD_ARGS], {
     cwd,
     env,
     encoding: 'utf8',
@@ -1598,7 +1599,7 @@ export async function runDaemonFeedSemanticSoak({
         }
       }
 
-      proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
+      proc = spawn(PNPM_COMMAND, [...PNPM_ARGS, ...PLAYWRIGHT_ARGS], {
         cwd,
         env: spawnEnv,
         encoding: 'utf8',

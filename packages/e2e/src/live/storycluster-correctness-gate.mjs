@@ -12,6 +12,8 @@ const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',
 );
+const PNPM_SPEC = 'pnpm@9.7.1';
+const CORRECTNESS_GATE_COMMAND = `corepack ${PNPM_SPEC} test:storycluster:correctness`;
 
 function normalizeNonEmpty(value) {
   const trimmed = value?.trim();
@@ -33,7 +35,7 @@ export function buildCorrectnessGateStatusPaths(repoRoot = DEFAULT_REPO_ROOT, no
 
 export function buildCorrectnessGateStatusReport({
   repoRoot = DEFAULT_REPO_ROOT,
-  command = 'pnpm test:storycluster:correctness',
+  command = CORRECTNESS_GATE_COMMAND,
   status = 'unknown',
   exitCode = null,
   generatedAt = new Date().toISOString(),
@@ -88,7 +90,7 @@ export function buildCorrectnessGateEnv(env = process.env) {
 export function runStoryclusterCorrectnessGate({
   env = process.env,
   repoRoot = normalizeNonEmpty(env.VH_STORYCLUSTER_PRODUCTION_READINESS_REPO_ROOT) ?? DEFAULT_REPO_ROOT,
-  command = 'pnpm test:storycluster:correctness',
+  command = CORRECTNESS_GATE_COMMAND,
   spawn = spawnSync,
   log = console.log,
   now = Date.now,
@@ -96,7 +98,7 @@ export function runStoryclusterCorrectnessGate({
   writeFile = writeFileSync,
 } = {}) {
   const paths = buildCorrectnessGateStatusPaths(repoRoot, now());
-  const proc = spawn('pnpm', ['test:storycluster:correctness'], {
+  const proc = spawn('corepack', [PNPM_SPEC, 'test:storycluster:correctness'], {
     cwd: repoRoot,
     env: buildCorrectnessGateEnv(env),
     stdio: 'inherit',

@@ -435,7 +435,7 @@ const localWebServers: TestConfig['webServer'] = [
   {
     command: wrapLoggedWebServerCommand('web-pwa', [
       buildPortClearShellCommand(basePort),
-      `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort --force`,
+      `corepack pnpm@9.7.1 --filter @vh/web-pwa dev --port ${basePort} --strictPort --force`,
     ].join(' && ')),
     url: baseUrl,
     reuseExistingServer: false,

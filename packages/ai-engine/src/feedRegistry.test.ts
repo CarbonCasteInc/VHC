@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(25);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(24);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -42,7 +42,7 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(5);
+      expect(wire.length).toBeGreaterThanOrEqual(4);
     });
 
     it('includes the highest-confidence statehouse and specialist additions', () => {
@@ -158,18 +158,6 @@ describe('feedRegistry', () => {
         rssUrl: 'https://feeds.npr.org/1001/rss.xml',
         perspectiveTag: 'public-radio',
         iconKey: 'npr',
-        enabled: true,
-      });
-    });
-
-    it('includes evidence-admitted AP top news coverage', () => {
-      expect(
-        STARTER_FEED_SOURCES.find((source) => source.id === 'ap-topnews'),
-      ).toMatchObject({
-        name: 'Associated Press Top News',
-        rssUrl: 'https://apnews.com/hub/apf-topnews',
-        perspectiveTag: 'international-wire',
-        iconKey: 'ap',
         enabled: true,
       });
     });
@@ -309,9 +297,9 @@ describe('feedRegistry', () => {
         perspectiveTag: 'statehouse',
         iconKey: 'texastribune',
       });
-      expect(getSourceMetadata('ap-topnews')).toEqual({
+      expect(getSourceMetadata('ap-politics')).toEqual({
         displayName: 'AP',
-        perspectiveTag: 'international-wire',
+        perspectiveTag: 'wire-service',
         iconKey: 'ap',
       });
       expect(getSourceMetadata('latimes-california')).toEqual({
@@ -337,6 +325,7 @@ describe('feedRegistry', () => {
       expect(getSourceMetadata('nypost-politics')).toBeUndefined();
       expect(getSourceMetadata('democracydocket-alerts')).toBeUndefined();
       expect(getSourceMetadata('scotusblog-main')).toBeUndefined();
+      expect(getSourceMetadata('ap-topnews')).toBeUndefined();
     });
 
     it('falls back to name when displayName is absent', () => {
