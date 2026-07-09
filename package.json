@@ -64,6 +64,7 @@
     "check:mvp-closeout": "node ./packages/e2e/src/mvp-closeout.mjs --check",
     "check:launch-content-snapshot": "node ./packages/e2e/src/launch-content-snapshot.mjs",
     "check:public-beta-compliance": "node ./tools/scripts/check-public-beta-compliance.mjs",
+    "check:public-beta-launch-control": "node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs",
     "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",
     "check:linkability-domain-registry": "node ./tools/scripts/check-linkability-domain-registry.mjs",
     "check:luma-provider-surface": "node ./tools/scripts/check-luma-provider-surface.mjs",

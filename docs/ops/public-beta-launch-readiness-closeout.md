@@ -2,8 +2,8 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-06
-> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
+> Last Reviewed: 2026-07-09
+> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md
 
 Version: 0.10
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
@@ -145,7 +145,19 @@ row passed on the clean runtime evidence head. These are launch blockers, not
 `setup_scarcity`, because source-health evidence still reports 25 admitted
 sources and 54 corroborated bundles.
 
-The release-owner decision handoff is recorded in `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`. That packet converts the engineering release-candidate evidence into an explicit go/hold control surface with approvals, bounded launch copy, support/escalation ownership, rollback ownership, and final launch status. The launch-control packet must not fake signoff; if any required approval or owner field is pending, its final status remains `hold_external_approval_pending`.
+The release-owner decision handoff is now recorded in
+`docs/ops/public-beta-launch-control-2026-07-09.md`. That packet converts the
+engineering release-candidate evidence into an explicit go/no-go control
+surface with approvals, bounded launch copy, support/escalation ownership,
+rollback ownership, and final launch status. The launch-control packet must not
+fake signoff: while any required approval, owner, release commit, auth host,
+provider decision, A6 readback, release evidence, or rehearsal field is pending,
+its status remains `no_go_pending_operator_decisions_and_live_evidence`. A
+future `go_for_dev_small_tester_wave` status is valid only after the packet's
+operator fields and evidence rows are filled. `pnpm
+check:public-beta-launch-control` statically enforces that no-go packets retain
+explicit blockers and go packets do not retain TBDs, release-blocker rows, stale
+blocked-evidence text, or "No tester wave" language.
 
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
@@ -215,8 +227,8 @@ Run these commands on the final public-beta release commit and preserve their ou
 
 | Evidence | Command | Deterministic report or artifact | Required result |
 | --- | --- | --- | --- |
-| Release-owner launch control | committed launch-control packet | `docs/reports/mvp-public-beta-launch-control-2026-05-13.md` and optional JSON mirror | `go_for_public_beta_launch` only when deterministic evidence passes and required approvals/owners are recorded; otherwise `hold_external_approval_pending` |
-| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass` |
+| Release-owner launch control | `pnpm check:public-beta-launch-control` | `docs/ops/public-beta-launch-control-2026-07-09.md` plus `tools/scripts/check-public-beta-launch-control.mjs` | Current no-go packet must retain explicit operator blanks and live-evidence blockers; a future `go_for_dev_small_tester_wave` packet must have operator fields and evidence rows filled and must not retain stale no-go/blocker language |
+| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control checker above |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
 | Public feed analysis/frame reliability | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm test:public-feed:browser-smoke` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` plus `.tmp/analysis-frame-pipeline/<timestamp>/` consistency probes | `pass`; public top-N latest-index body 404 count is zero or inside an explicitly recorded repair/tombstone window; app-open feed population succeeds without a manual refresh click; at least one current accepted synthesis is visible by default with frame/reframe rows and point ids when relay lifecycle matches the current story/source-set revision; pending/terminal stories still render honest non-votable states |
 | Public feed composition/freshness | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm check:public-feed:composition-freshness` | `.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json` | `pass`; public latest feed includes both singleton and multi-source/corroborated stories, reports composition/per-story public-state counts, verifies latest-index product metadata, verifies relay cursor pagination for older latest-index rows, independently verifies latest-index and sampled story-body readback on every configured public relay peer, and fails instead of `setup_scarcity` when source-health evidence proves corroborated supply exists but the deployed feed remains singleton-only |
