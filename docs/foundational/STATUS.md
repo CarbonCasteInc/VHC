@@ -7,8 +7,8 @@
 
 
 **Last Updated:** 2026-07-09
-**Version:** 0.9.10 (release-readiness source-health lane after #747 sprint outline)
-**Assessment:** Controlled beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. This source-health lane is based on `main@6db555a5` after #747 added the release-readiness sprint outline; it removes the dead `ap-topnews` starter source and pins source/storycluster script dispatch through `corepack pnpm@9.7.1`. Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: public accepted-synthesis/feed gates still depend on A6/operator enablement, and the packet must be regenerated at the intended release commit. A 2026-07-09 source-health rerun on this lane is `ready` with 24 enabled keep sources, no watch/remove sources, and `releaseEvidence.status: pass` after the configured five-run window; the broader StoryCluster production-readiness report still blocks on headline-soak release evidence because the local real StoryCluster/OpenAI path rejected its credential (`invalid_api_key`, redacted in artifacts). The stale packet's LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit after live/operator blockers clear. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. While A6 stays fresh, the posture remains wait/watch: no publisher/relay restart, pager cutover, Codex live execution, retention/compaction/memory remediation, or accepted-synthesis enablement without its own operator packet.
+**Version:** 0.9.11 (release-readiness runsheet update after #748 source-health merge)
+**Assessment:** Controlled beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. The repository includes #748 at merge commit `0a85b2f8`, which removed the dead `ap-topnews` starter source and pinned source/storycluster script dispatch through `corepack pnpm@9.7.1`. Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: public accepted-synthesis/feed gates still depend on A6/operator enablement, and the packet must be regenerated at the intended release commit. A 2026-07-09 source-health rerun after #748 is `ready` with 24 enabled keep sources, no watch/remove sources, and `releaseEvidence.status: pass` after the configured five-run window; the broader StoryCluster production-readiness report still blocks on headline-soak release evidence because the local real StoryCluster/OpenAI path rejected its credential (`invalid_api_key`, redacted in artifacts). The beta session runsheet now contains the manual account sign-in and account-to-LUMA binding rehearsal required before any tester-facing sign-in claim. The stale packet's LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit after live/operator blockers clear. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. While A6 stays fresh, the posture remains wait/watch: no publisher/relay restart, pager cutover, Codex live execution, retention/compaction/memory remediation, or accepted-synthesis enablement without its own operator packet.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher proven at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #744 watch-closure restart-baseline fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines are repo-capable but not yet proven/enabled on live A6. | ⚠️ Scope A fresh and paging by email; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; branch-local source-health release evidence passes after pruning `ap-topnews`; StoryCluster production-readiness still needs a valid live headline-soak credential/endpoint; Scope B/live accepted synthesis enablement pending operator packet |
+| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher proven at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #744 watch-closure restart-baseline fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines are repo-capable but not yet proven/enabled on live A6. | ⚠️ Scope A fresh and paging by email; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; post-#748 source-health release evidence passes after pruning `ap-topnews`; StoryCluster production-readiness still needs a valid live headline-soak credential/endpoint; Scope B/live accepted synthesis enablement pending operator packet |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -64,8 +64,8 @@ Current policy state:
   at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
   `selected_bundle_count=8`, `raw_wrote_count=8`, and
   `raw_write_failed_count=0`, and publisher/freshness/relay/snapshot/alert
-  readbacks passing. Newer repo commits through the #747 base
-  (`main@6db555a5`) are not automatically live on A6.
+  readbacks passing. Newer repo commits after that A6 proof, including #748,
+  are not automatically live on A6.
 - Current repo-side Functioning MVP state is materially newer than the live A6
   raw-feed state:
   - #728 accepted-current synthesis detail and votability gating;
@@ -86,17 +86,17 @@ Current policy state:
   - latest release pipeline artifact:
     `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json`;
   - latest artifact commit: `1a83434b0d33278369791891ba9212fcc6b859f6`, not
-    the #747/source-health branch base `main@6db555a5`;
+    the post-#748 source-health evidence base;
   - pipeline status: `blocked`;
   - `check:luma:mvp-production-readiness`: `pass` in that packet;
   - blocking release-gate classes in the stale packet: source-health release
     evidence before the `ap-topnews` source-surface fix plus public
     accepted-synthesis/feed gates that require operator-owned A6
     enablement/evidence refresh;
-  - branch-local source-health evidence on 2026-07-09 now passes with 24 keep
+  - post-#748 source-health evidence on 2026-07-09 now passes with 24 keep
     sources after pruning `ap-topnews`; the consolidated packet still needs a
     fresh run on the intended release commit;
-  - branch-local StoryCluster production-readiness evidence on 2026-07-09 has
+  - post-#748 StoryCluster production-readiness evidence on 2026-07-09 has
     correctness and source-health passing, but remains blocked by
     `headline_soak_release_evidence_failed` because the real local
     StoryCluster/OpenAI path rejected its credential (`invalid_api_key`,
@@ -356,7 +356,7 @@ Current truth for the news bundler and feed hardening lane:
   raw path as of the 2026-06-28 stability bake:
   - #687 first deployed the durable rerank fix at
     `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - this lane is based on `main@6db555a5`, with #691-#708 diagnostics,
+  - the repo includes #748 (`0a85b2f8`), with #691-#708 diagnostics,
     publisher-priority, relay-stagger, total-transport restartability, alert
     classification, first-tick ingest-cap, #722 incident-response/pager
     primitives, #723 StoryCluster timeout bounding, #744 watch-closure baseline

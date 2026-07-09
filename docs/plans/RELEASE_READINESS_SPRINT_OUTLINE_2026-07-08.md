@@ -948,8 +948,11 @@ The release-readiness sprint is complete when all of these are true:
 6. Stand up the auth-callback edge host, start Apple provider registration,
    and plan the origin-image rebuild that bakes the auth and CSP env into the
    deployed PWA.
-7. Extend `docs/ops/BETA_SESSION_RUNSHEET.md` with the sign-in and
-   account-binding rehearsal steps via a small repo PR.
+7. Keep the sign-in/account-binding rehearsal in
+   `docs/ops/BETA_SESSION_RUNSHEET.md` current with the deployed
+   auth-callback/provider surface; the runsheet now defines provider health,
+   same-browser sign-out/sign-in preservation, Reset Identity re-bind, and
+   cross-browser distinct-principal checks.
 8. Regenerate release evidence only after the live blockers are cleared.
 9. Run the 3-browser rehearsal against the deployed target.
 10. Ship `dev-small` tester invites with claim-safe copy.

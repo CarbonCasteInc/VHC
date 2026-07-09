@@ -22,7 +22,7 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: `cd ../.. && VITE_E2E_MODE=true pnpm --filter @vh/web-pwa preview --host 127.0.0.1 --port ${Number.isFinite(e2ePort) ? e2ePort : 5173}`,
+        command: `cd ../.. && VITE_E2E_MODE=true corepack pnpm@9.7.1 --filter @vh/web-pwa preview --host 127.0.0.1 --port ${Number.isFinite(e2ePort) ? e2ePort : 5173}`,
         url: baseURL,
         reuseExistingServer: false,
         timeout: 120 * 1000,

@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-04-26
+> Last Reviewed: 2026-07-09
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -88,6 +88,48 @@ Private escalation operator protocol:
    available repository moderation/edit controls when available and continue
    only from public-safe status text.
 
+### 0.2 Account sign-in deployment readiness
+
+Run this gate before any tester-facing session that advertises Apple, Google,
+or X sign-in, account continuity, or account recovery. Account sign-in is a
+continuity/recovery feature only. It is not LUMA Silver, verified-human,
+one-human-one-vote, Sybil resistance, residency proof, or cross-device identity
+merge.
+
+Required deployment facts:
+
+1. The PWA build must have `VITE_AUTH_CALLBACK_BASE_URL` set to the deployed
+   auth-callback boundary outside A6.
+2. The auth-callback boundary must be reachable at:
+
+   ```
+   curl -sf https://<AUTH_CALLBACK_BASE_URL>/api/health
+   ```
+
+3. The health response may expose only booleans and reason codes. It must not
+   expose provider client secrets, tokens, provider subjects, private keys,
+   state HMAC keys, or raw provider error bodies.
+4. Every provider visible in tester copy or UI must be configured in health:
+   `providersConfigured.apple`, `providersConfigured.google`, and/or
+   `providersConfigured.x`.
+5. If a provider is not configured, hide that provider from tester copy and do
+   not count it as rehearsed. A narrowed beta may proceed only if the release
+   envelope explicitly does not advertise the missing provider.
+
+Required local sanity commands before live provider rehearsal:
+
+```
+corepack pnpm@9.7.1 --filter @vh/auth-callback build
+corepack pnpm@9.7.1 --filter @vh/auth-callback test
+corepack pnpm@9.7.1 check:auth-callback
+corepack pnpm@9.7.1 check:account-identity-controls
+corepack pnpm@9.7.1 check:luma-forbidden-claims
+corepack pnpm@9.7.1 check:luma-telemetry-redaction
+```
+
+If any of these fail, do not open a sign-in rehearsal. Fix the repo or
+deployment first.
+
 ### 1. Infrastructure health
 
 ```
@@ -152,6 +194,49 @@ it as a FAIL, not a pass.
 local echo) and no privacy leak observed. Any failure is a session blocker and,
 for a release rehearsal, blocks the Slice F2 evidence packet.
 
+### 4. Account sign-in and account-to-LUMA binding rehearsal
+
+This procedure is required for any release rehearsal that advertises sign-in or
+registration. Run it after the daily gates and before tester invites. Use one
+clean browser profile per tester identity; do not use incognito for release
+evidence because identity persistence is part of the claim.
+
+For each advertised provider (`apple`, `google`, `x`):
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Open `<BASE_URL>/account/identity` in a clean browser profile. | The `Identity` panel loads. If no identity exists, `Create identity` is visible. |
+| 2 | Click `Create identity` if needed. | The page shows `Beta-local identity on this device`; it does not render a raw nullifier, session token, numeric trust score, provider subject, or provider token. |
+| 3 | In `Sign-in accounts`, confirm the provider row is visible only if the provider is advertised for this session. | `signin-provider-<provider>` exists; the status starts as `Not connected`, `Signed out`, or `Session expired — reconnect`. Missing providers are removed from tester copy. |
+| 4 | Click the provider's `Connect` control and complete the provider authorization. | Browser returns through `/auth/callback` to the account page without exposing the PKCE verifier in the URL. |
+| 5 | Check the provider row. | `signin-status-<provider>` shows `Connected`; no raw provider token, provider subject, client secret, or nullifier is visible in page text. |
+| 6 | Confirm the copy boundary in the sign-in panel. | The panel describes sign-in as account continuity/profile recovery and includes the negative uniqueness boundary (`not a proof of a unique person` or equivalent). It does not claim verified-human, one-human-one-vote, Silver, Sybil resistance, residency, anonymity, or same-human continuity. |
+| 7 | Reload the page. | The provider remains connected and the beta-local identity remains present on this device. |
+| 8 | Click the provider `Disconnect` control. | The provider status changes to `Signed out`; the page does not claim network deletion or deletion of public activity. |
+| 9 | Reconnect the same provider in the same browser profile. | The provider returns to `Connected`; the local beta-LUMA identity is preserved unless the operator explicitly uses `Reset identity`. |
+| 10 | Click `Reset identity`, type `reset`, and confirm only in a rehearsal browser/profile. | The identity rotates; the reset dialog states previous public history remains under the old pseudonym and connected sign-in accounts must be re-bound. |
+| 11 | After reset, inspect `Sign-in accounts`. | No provider row remains silently connected to the pre-reset identity; the provider must require re-bind before further account-continuity claims. |
+
+**Cross-device boundary check.** Repeat steps 1-7 for the same provider in a
+second clean browser profile. The second profile must get its own beta-local
+identity. Do not claim that sign-in merges votes, proves the same human, or
+transfers the old browser's LUMA principal. If copy or telemetry implies that
+cross-device sign-in proves same-human continuity, the rehearsal fails.
+
+**Secret and privacy spot-check.** During one provider run, inspect the browser
+URL, network requests, console, local telemetry, and public mesh paths touched
+by the session. Record only booleans in the evidence packet. Do not paste raw
+provider subjects, email addresses, nullifiers, PKCE verifiers, state values,
+client secrets, access/refresh/id tokens, or provider error bodies into issue
+comments, PRs, session notes, or release artifacts.
+
+**Required:** every advertised provider passes the provider matrix above; the
+same-browser sign-out/sign-in path preserves the local beta-LUMA identity; Reset
+Identity clears account binding and requires re-bind; a second browser profile
+does not get or claim the first browser's LUMA principal; no forbidden claim or
+secret leak is observed. Any failure blocks sign-in claims and, if sign-in is
+required by the release envelope, blocks the release rehearsal.
+
 ---
 
 ## Flip-Switch Criteria (dev-small -> beta-scale)
@@ -202,6 +287,9 @@ Profile:        dev-small | beta-scale
 Production readiness: release_ready | review_required | blocked (reason)
 Headline soak:  pass | warn | fail (reason)
 Source scout:   top promotable candidate | none | blocked (reason)
+Auth callback:  PASS | FAIL (reason) | not in envelope
+Advertised providers: apple PASS/FAIL/hidden, google PASS/FAIL/hidden, x PASS/FAIL/hidden
+Account/LUMA:   PASS (same-browser preserved, reset cleared, cross-browser distinct) | FAIL (reason)
 Strict gate:    PASS N/N | FAIL (reason)
 3-browser:      PASS | FAIL at step N (reason)
 Cross-client:   PASS (convergence proven, not local echo) | FAIL (reason)
@@ -220,6 +308,7 @@ Flip-switch:    eligible (day N of 2) | not eligible (reason)
 ## Beta Policy (communicate to testers)
 
 1. **Identity:** single browser profile per tester. No incognito, no storage clears, no device switching. Clearing browser data = new identity; prior votes become orphaned.
-2. **Vote mutation:** last-write-wins per user. You can change your vote; aggregate updates accordingly.
-3. **Degradation:** if the bias table doesn't load within ~10s after clicking a headline, reload once. If it still doesn't load, report to operator. Do not repeatedly click — it burns analysis budget.
-4. **Feedback:** report live-session issues immediately to the operator with: what you clicked, what you expected, what you saw, browser console screenshot if possible. Out-of-session public beta support uses `/support`; do not post private details into public GitHub issues.
+2. **Account sign-in:** Apple/Google/X sign-in, when enabled, is for account continuity and profile recovery on this beta surface. It does not verify a unique person, merge LUMA identities across browsers/devices, prove residency, or make votes one-human-one-vote.
+3. **Vote mutation:** last-write-wins per user. You can change your vote; aggregate updates accordingly.
+4. **Degradation:** if the bias table doesn't load within ~10s after clicking a headline, reload once. If it still doesn't load, report to operator. Do not repeatedly click — it burns analysis budget.
+5. **Feedback:** report live-session issues immediately to the operator with: what you clicked, what you expected, what you saw, browser console screenshot if possible. Out-of-session public beta support uses `/support`; do not post private details into public GitHub issues.

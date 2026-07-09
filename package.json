@@ -16,7 +16,7 @@
     "test:storycluster:quality": "corepack pnpm@9.7.1 --filter @vh/storycluster-engine exec vitest run src/vectorBackend.test.ts src/server.test.ts src/stageRunner.pipeline.test.ts src/coherenceAudit.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:storycluster:live-benchmark": "corepack pnpm@9.7.1 --filter @vh/storycluster-engine exec vitest run src/liveBenchmark.integration.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:storycluster:correctness": "corepack pnpm@9.7.1 --filter @vh/storycluster-engine exec vitest run src/benchmarkCorpusKnownEventOngoingFixtures.test.ts src/storyclusterKnownEventOngoingReplay.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose && corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:build && corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:semantic-gate",
-    "check:account-identity-controls": "pnpm --filter @vh/e2e check:account-identity-controls",
+    "check:account-identity-controls": "corepack pnpm@9.7.1 --filter @vh/e2e check:account-identity-controls",
     "check:storycluster:correctness": "node ./packages/e2e/src/live/storycluster-correctness-gate.mjs",
     "test:storycluster:gates": "corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:build && corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:gates",
     "test:storycluster:publisher-canary": "corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:build && corepack pnpm@9.7.1 --filter @vh/e2e test:live:daemon-feed:publisher-canary",
