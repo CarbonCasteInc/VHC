@@ -470,17 +470,29 @@ Cross-audience replay, cross-origin replay, and cross-profile replay MUST be rej
 ```ts
 interface VaultV2 {
   schemaVersion: 2;
-  deviceCredential: { material: ArrayBuffer; createdAt: number };
-  identityRecord: IdentityRecordV2;          // session carries AssuranceEnvelope
-  seaDevicePair: SEAPair;
+  identityRecord?: IdentityRecordV2;         // session carries AssuranceEnvelope
+  deviceCredential?: DeviceCredential;
+  seaDevicePair?: SEAPair;
+  delegationSigningKey?: DelegationSigningKey;
   walletBinding?: WalletBinding;
-  delegationSigningKey: DelegationSigningKey;
   operatorAuthorizationToken?: OperatorToken;
-  evidence?: { [sessionId: string]: EvidenceRecord };
+  signInSession?: SignInSession;
 }
 ```
 
 Migration from v1: forward-only. v1's opaque blob is decrypted; if it contains a usable `attestation.deviceKey`, that material is reused as `deviceCredential.material` so legacy users keep their existing per-device nullifier. v2 vaults on a v1 client are rejected (unknown version).
+
+VaultV2 writes are strict for this bundle's owned fields and forward-compatible
+for authenticated stored data. The write chokepoint normalizes the caller's
+VaultV2 through the current bundle's validators first; malformed owned
+compartments fail closed and are not persisted. After normalization, the write
+path MAY re-attach unknown top-level compartments and unknown fields inside
+closed-key-set compartments (`walletBinding`, `operatorAuthorizationToken`,
+`signInSession`) **only from the raw decrypted vault already stored locally**.
+Caller-supplied unknown keys are never preserved, and JavaScript
+object/prototype magic keys are never preserved. This prevents an old bundle
+from erasing a newer bundle's vault compartment or field at rest while keeping
+the write-side public API strict.
 
 ### 11.2 Key-compartment manifest
 
@@ -494,6 +506,7 @@ Migration from v1: forward-only. v1's opaque blob is decrypted; if it contains a
 | `walletBinding` | Address bound to principal (record only) | Vault | No | Reset Identity | Preserved | Cleared (forces re-bind) | Restored from Lazarus shards | Future |
 | `delegationSigningKey` | Signs `OnBehalfOfAssertion` for familiars | Vault | No | Reset Identity | Preserved | Rotated | N/A | No |
 | `operatorAuthorizationToken` | Cached operator authorization | Vault | No | Server-issued; re-fetched on re-attest | Preserved | Cleared (new principal requires a new authorization grant) | N/A | No |
+| `signInSession` | Account-provider continuity/session material returned by the auth-callback boundary; provider subjects, labels, and any token material are vault-only | Vault | No | Sign Out, session expiry/refresh, Reset Identity | Cleared on Sign Out | Cleared | N/A | No |
 | `recoveryKey` (Phase 2) | Lazarus shard-recombine target | Future | Encrypted export only | Lazarus event | Preserved | Preserved (recovery survives reset) | N/A | Future |
 
 Each compartment has a typed accessor (`compartments.deviceCredential.loadOrCreate()`, etc.). The only path that wipes a compartment is the row's named trigger.

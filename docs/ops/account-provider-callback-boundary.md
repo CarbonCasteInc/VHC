@@ -2,7 +2,7 @@
 
 > Status: Accepted Decision / Repo Capability (deployment pending)
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Last Reviewed: 2026-07-07
+> Last Reviewed: 2026-07-08
 > Depends On: docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md, docs/specs/spec-linked-socials-v0.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/secure-storage-policy.md, docs/ops/vhc-incident-response.md
 
 ## Decision
@@ -167,6 +167,31 @@ The browser holds only the non-secret `vh-auth-session-v1` payload; the
 provider subject/label live in the identity-vault `signInSession`
 compartment (vault/local-only), and the account-to-LUMA binding
 (`boundPrincipalNullifier`) is local continuity/recovery only.
+
+## Apple form_post return leg
+
+Apple uses `response_mode=form_post` when scopes are requested. The boundary
+therefore exposes `POST /auth/apple/return` as an Apple-only browser navigation
+receiver. It reads only `state` and either `code` or a sanitized provider
+`error`, then issues a `303` redirect to the PWA callback route with the same
+query semantics as the ordinary GET callback leg.
+
+Routing is origin-bound:
+
+- `handleStart` binds the initiating PWA origin into the signed state after
+  validating it against `VH_AUTH_ALLOWED_ORIGINS`.
+- The form_post receiver verifies the state without consuming the nonce, so the
+  PWA can still complete the normal PKCE exchange exactly once through
+  `POST /auth/apple/callback`.
+- In a multi-origin deployment, the receiver redirects to the origin carried in
+  the state; if the state lacks a usable origin, it may fall back to
+  `VH_AUTH_PWA_ORIGIN` or to the sole allowed origin. Multi-origin deployments
+  with no resolvable target fail closed.
+- User-cancel and provider-error returns are forwarded to the PWA as sanitized
+  errors rather than dead-ending on the service.
+
+The verifier never travels this leg and the browser never sends a
+`code_verifier` through it.
 
 ## Relationship to the plan
 

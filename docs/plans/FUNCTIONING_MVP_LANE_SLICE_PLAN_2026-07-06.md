@@ -1,8 +1,9 @@
 # Functioning MVP Lane Slice Plan - 2026-07-06
 
-> Status: Technical implementation and operating plan, v3 scrutinized and refined
+> Status: Technical implementation and operating plan; repo implementation merged,
+>   release remains operator-gated
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-08
 > Target: Venn News Web PWA initial release MVP
 > Depends On: `docs/foundational/STATUS.md`, `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`, `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-civic-sentiment.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-civic-action-kit-v0.md`, `docs/specs/spec-linked-socials-v0.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/vhc-incident-response.md`, `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
 
@@ -23,9 +24,10 @@ features." Users must be able to:
 8. tie those civic sentiments to a beta-local constituency/representative
    mapping through aggregate-only district/office surfaces.
 
-Goal 1 requires new server-side work: no OAuth/PKCE flow, callback service, or
-provider registration exists in the repo today, so the account lane includes
-building and deploying that boundary, not just client wiring.
+At the time this plan was written, Goal 1 required new server-side work: no
+OAuth/PKCE flow, callback service, or provider registration existed in the repo.
+That repo-side boundary now exists as `services/auth-callback`; provider
+registration and live deployment remain operator-owned release steps.
 
 This is still a Web PWA release. Native app packaging, public WSS mesh
 `release_ready`, LUMA Silver, verified-human proof, one-human-one-vote,
@@ -48,9 +50,10 @@ accurate, but found and verified these gaps, all closed in this v3:
 
 - **No slice delivered the OAuth backend.** Slice C1 mandated a
   backend/callback boundary, but no lane, grounded surface, or PR built,
-  hosted, or validated it — and no such service exists in the repo. Lane C now
-  has Slice C0 owning the callback boundary, provider registration, and an
-  explicit outside-A6 deployment target, with rehearsal evidence in Lane F.
+  hosted, or validated it. Lane C added Slice C0 owning the callback boundary,
+  provider registration, and an explicit outside-A6 deployment target, with
+  rehearsal evidence in Lane F. Repo-side implementation has since landed in
+  `services/auth-callback`; live deployment/provider registration remain open.
 - **Slice A3's canary gate was undefined.** "Until the safety rail allows
   enrichment" had no defined condition, silently conflicted with STATUS.md's
   attended-soak/runbook re-enablement rule, and would have voided the 14-day
@@ -89,7 +92,7 @@ accurate, but found and verified these gaps, all closed in this v3:
 
 ## Current State Of Play
 
-As of this plan:
+As of the original 2026-07-06 plan:
 
 - Repo `main` is `76f3c77c` after PR #724 aligned docs with the post-Slice-0
   recovery state.
@@ -118,6 +121,31 @@ As of this plan:
 - Codex live execution/autonomy is disabled. The executor stays dry-run.
 - The custom pager/PWA exists in repo after PR #722, but email remains the
   active live alert path until a later pager deployment outside A6.
+
+### 2026-07-08 repo implementation update
+
+Current repository `main` is
+`eb53af67dc46764e4d8afe1c5f932c771fe5a4c8`. The product lanes A-F and their
+follow-up hardening sequence are merged:
+
+- #728, #730, #729/#734, #727/#735, #732, and #736 delivered the accepted
+  synthesis read model, stance/vote persistence, account/sign-in shell, LUMA
+  binding, constituency/representative mapping, and closeout docs.
+- #737 delivered the final MVP vote/identity readiness hardening and the first
+  `check:luma:mvp-production-readiness` pass in the release packet at
+  `1a83434b0d33278369791891ba9212fcc6b859f6`.
+- #738 delivered deferred hardening across mesh-read authentication, vote
+  queue behavior, auth-callback `form_post`, telemetry redaction, vault
+  salvage, and system-writer signing/validation.
+- #741/#742/#745 closed the tracked follow-ups for reject-unmarked scope,
+  VaultV2 forward-compatible old-bundle writes, and civic representative
+  durability readback.
+
+No open PRs remain. The latest consolidated release packet is still blocked by
+operator/live evidence (`source_health` and public accepted-synthesis/feed
+gates) and is not stamped at current `main`. The plan's product scope is built;
+the release decision still depends on the operator-owned canary/deployment and
+fresh evidence steps below.
 
 ## Non-Negotiable Release Semantics
 
@@ -578,8 +606,10 @@ continuity and recovery, not human uniqueness proof.
 
 ### Slice C0 - OAuth Callback Boundary And Provider Registration
 
-No OAuth/PKCE flow, callback service, or provider app registration exists in
-the repo today; this slice builds the server component Slice C1 depends on.
+Repo-side status: implemented as `services/auth-callback`, with the decision
+record in `docs/ops/account-provider-callback-boundary.md`. Provider app
+registration, secret provisioning, host deployment, and live per-provider
+rehearsal remain operator-owned.
 
 Implementation plan:
 
