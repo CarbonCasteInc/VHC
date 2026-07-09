@@ -244,9 +244,13 @@ commit. The broader StoryCluster production-readiness check still blocks on
 headline-soak release evidence after this recovery: correctness and
 source-health pass, but the latest live headline-soak attempt produced no audit
 attachments because the local real StoryCluster/OpenAI path rejected its
-credential (`invalid_api_key`, redacted in artifacts). This lane is
-source-surface and release-window recovery, not a generic StoryCluster
-correctness failure.
+credential. Current production-readiness reports surface this as the
+secret-safe diagnostic
+`headlineSoakTrend.latestFailureDiagnosis.failureClass:
+"storycluster_openai_invalid_api_key"` with recommended action
+`repair_storycluster_openai_credential_or_endpoint`; raw key material remains
+redacted and must not be copied into docs or issues. This lane is source-surface
+and release-window recovery, not a generic StoryCluster correctness failure.
 
 ### Implementation steps
 
@@ -942,6 +946,11 @@ The release-readiness sprint is complete when all of these are true:
    `corepack pnpm@9.7.1 collect:storycluster:headline-soak` plus
    `corepack pnpm@9.7.1 check:storycluster:production-readiness` until the
    blocker is real product evidence rather than a local secret/config failure.
+   When the gate is red, read
+   `.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+   and use `headlineSoakTrend.latestFailureDiagnosis` as the first diagnostic;
+   it is designed to expose a stable failure class and action without copying
+   credential-bearing runtime logs.
 5. Draft the A6 accepted-synthesis canary packet, but do not run it until
    source health and pre-canary readbacks are green and the standing
    attended-soak preconditions are met.
