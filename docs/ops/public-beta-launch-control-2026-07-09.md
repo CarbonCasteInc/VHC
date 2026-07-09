@@ -19,13 +19,14 @@ packet, or authorization to mutate A6.
 
 `no_go_pending_operator_decisions_and_live_evidence`
 
-The repo is on `main@9095ffbf` after #750. Source-health release evidence has
-recovered in the latest local packet, and StoryCluster production-readiness now
-surfaces the headline-soak blocker as the secret-safe class
-`storycluster_openai_invalid_api_key`. The release evidence pipeline remains
-blocked. A public tester wave must not start until the owner/signoff fields
-below are filled, the live blockers are cleared, and a release packet passes on
-the intended release commit.
+This packet's current control basis is `main@84360f64` after #751. That commit
+is a launch-control documentation basis, not the intended release commit.
+Source-health release evidence has recovered in the latest local packet, and
+StoryCluster production-readiness now surfaces the headline-soak blocker as the
+secret-safe class `storycluster_openai_invalid_api_key`. The release evidence
+pipeline remains blocked. A public tester wave must not start until the
+owner/signoff fields below are filled, the live blockers are cleared, and a
+release packet passes on the intended release commit.
 
 ## Release Envelope
 
@@ -119,7 +120,7 @@ Do not claim any of the following from this release packet:
 
 | Evidence | Current state | Launch implication |
 | --- | --- | --- |
-| Repo head | `main@9095ffbf` | Current code basis after #750 |
+| Packet control basis | `main@84360f64` after #751 | Documentation/control basis only; the intended release commit is still `TBD` |
 | Source health | Latest local source-health release evidence `pass` after the pruned source surface | Must be regenerated on the intended release commit |
 | StoryCluster production-readiness | `blocked`; headline-soak diagnosis is `storycluster_openai_invalid_api_key` with action `repair_storycluster_openai_credential_or_endpoint` | Operator must repair live credential/endpoint and rerun the gate |
 | Release evidence pipeline | `blocked` | No tester wave |
