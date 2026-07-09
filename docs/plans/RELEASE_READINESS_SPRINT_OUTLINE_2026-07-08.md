@@ -950,6 +950,10 @@ The release-readiness sprint is complete when all of these are true:
    `corepack pnpm@9.7.1 collect:storycluster:headline-soak` plus
    `corepack pnpm@9.7.1 check:storycluster:production-readiness` until the
    blocker is real product evidence rather than a local secret/config failure.
+   Use the secret-safe operator packet in
+   `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`;
+   it distinguishes the local release-evidence runner from A6 service env and
+   does not authorize a publisher restart.
    When the gate is red, read
    `.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
    and use `headlineSoakTrend.latestFailureDiagnosis` as the first diagnostic;

@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-07-02
+> Last Reviewed: 2026-07-09
 > Depends On: docs/ops/news-aggregator-production-service.md
 
 ## Purpose
@@ -63,6 +63,15 @@ VH_STORYCLUSTER_QDRANT_URL
 
 The real file must be mode `600`. For operator evidence, print only mode, owner,
 hash, and sorted variable names. Do not print secret values.
+
+2026-07-09 release-readiness note: if
+`.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+reports
+`headlineSoakTrend.latestFailureDiagnosis.failureClass:
+"storycluster_openai_invalid_api_key"`, use
+`docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`. That
+packet separates local release-runner credential repair from A6 service env
+repair and does not authorize a publisher restart.
 
 ## Install / Start
 
