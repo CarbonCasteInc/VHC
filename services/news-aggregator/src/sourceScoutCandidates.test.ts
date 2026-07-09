@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SOURCE_SCOUT_CANDIDATE_FEED_SOURCES } from './sourceScoutCandidates';
 
 describe('SOURCE_SCOUT_CANDIDATE_FEED_SOURCES', () => {
-  it('drops ap-topnews from the scout backlog once it is in the starter surface', () => {
+  it('keeps ap-topnews out of the scout backlog after source-health removal', () => {
     expect(
       SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'ap-topnews'),
     ).toBe(false);

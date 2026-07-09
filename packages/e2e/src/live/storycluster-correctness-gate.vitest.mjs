@@ -71,12 +71,13 @@ describe('storycluster-correctness-gate', () => {
       writeFile: (filePath, content) => writes.set(filePath, String(content)),
     });
 
-    expect(spawn).toHaveBeenCalledWith('pnpm', ['test:storycluster:correctness'], expect.objectContaining({
+    expect(spawn).toHaveBeenCalledWith('corepack', ['pnpm@9.7.1', 'test:storycluster:correctness'], expect.objectContaining({
       cwd: '/repo',
       env: {},
       stdio: 'inherit',
     }));
     expect(report.status).toBe('pass');
+    expect(report.command).toBe('corepack pnpm@9.7.1 test:storycluster:correctness');
     expect(writes.get('/repo/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json')).toContain('"exitCode": 0');
   });
 });

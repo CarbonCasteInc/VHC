@@ -111,7 +111,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'pbs',
     enabled: true,
   }),
-  // International wire (3)
+  // International wire (2)
   FeedSourceSchema.parse({
     id: 'bbc-general',
     name: 'BBC News',
@@ -128,15 +128,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',
     perspectiveTag: 'international-wire',
     iconKey: 'bbc',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'ap-topnews',
-    name: 'Associated Press Top News',
-    displayName: 'AP',
-    rssUrl: 'https://apnews.com/hub/apf-topnews',
-    perspectiveTag: 'international-wire',
-    iconKey: 'ap',
     enabled: true,
   }),
   FeedSourceSchema.parse({

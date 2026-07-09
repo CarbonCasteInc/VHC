@@ -383,8 +383,8 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
 
   const daemon = spawnLoggedProcess(
     'news-daemon',
-    'pnpm',
-    ['--filter', '@vh/news-aggregator', 'daemon'],
+    'corepack',
+    ['pnpm@9.7.1', '--filter', '@vh/news-aggregator', 'daemon'],
     env,
     RUN_ID,
   );

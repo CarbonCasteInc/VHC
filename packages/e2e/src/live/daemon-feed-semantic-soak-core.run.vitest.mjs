@@ -158,7 +158,7 @@ function makeSpawnMock(...pnpmResults) {
         stderr: '',
       };
     }
-    if (command !== 'pnpm') {
+    if (command !== 'corepack') {
       throw new Error(`unexpected spawn command: ${command}`);
     }
 
@@ -590,7 +590,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'pbs-politics',
       'fox-latest',
       'washingtonexaminer-politics',
-      'ap-topnews',
       'ap-politics',
       'latimes-california',
       'bbc-general',
@@ -636,7 +635,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'pbs-politics',
       'fox-latest',
       'washingtonexaminer-politics',
-      'ap-topnews',
       'ap-politics',
       'latimes-california',
       'bbc-general',
@@ -864,8 +862,9 @@ describe('runDaemonFeedSemanticSoak', () => {
     }
 
     const playwrightSpawnCall = spawn.mock.calls.find(([command, args]) => (
-      command === 'pnpm'
+      command === 'corepack'
       && Array.isArray(args)
+      && args[0] === 'pnpm@9.7.1'
       && args.includes('playwright')
       && args.includes('test')
     ));
@@ -1185,10 +1184,10 @@ describe('runDaemonFeedSemanticSoak', () => {
           stderr: '',
         };
       }
-      if (command !== 'pnpm') {
+      if (command !== 'corepack') {
         throw new Error(`unexpected spawn command: ${command}`);
       }
-      if (args?.[0] === 'test:live:daemon-feed:build') {
+      if (args?.[0] === 'pnpm@9.7.1' && args?.[1] === 'test:live:daemon-feed:build') {
         return { status: 0, stdout: 'build ok', stderr: '' };
       }
       expect(options.timeout).toBe(300000);
@@ -1252,7 +1251,7 @@ describe('runDaemonFeedSemanticSoak', () => {
           stderr: '',
         };
       }
-      if (command !== 'pnpm') {
+      if (command !== 'corepack') {
         throw new Error(`unexpected spawn command: ${command}`);
       }
 

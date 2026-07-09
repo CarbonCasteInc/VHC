@@ -10,8 +10,8 @@ describe('package scripts', () => {
     };
     const buildScript = packageJson.scripts?.['build:source-health-deps'];
 
-    expect(buildScript).toContain('pnpm --filter @vh/luma-sdk build');
-    expect(buildScript).toContain('pnpm --filter @vh/gun-client build');
+    expect(buildScript).toContain('corepack pnpm@9.7.1 --filter @vh/luma-sdk build');
+    expect(buildScript).toContain('corepack pnpm@9.7.1 --filter @vh/gun-client build');
     expect(buildScript?.indexOf('@vh/luma-sdk')).toBeLessThan(buildScript?.indexOf('@vh/gun-client'));
   });
 

@@ -234,9 +234,19 @@ contract.
 
 ### Current blocker
 
-`ap-topnews` is escalated to removal in the latest source-health packet. The
-release evidence window has no ready runs. This is a content/operator decision,
-not a generic StoryCluster correctness failure.
+The sprint-start packet had `ap-topnews` escalated to removal with no ready
+runs in the release evidence window. The 2026-07-09 source-health lane removes
+that source from the starter surface; the latest branch-local source-health run
+is `ready` with 24 enabled keep sources, no watch/remove sources, and
+`releaseEvidence.status: pass` after the configured five-run window. The
+consolidated release packet still has to be regenerated on the intended release
+commit. The broader StoryCluster production-readiness check still blocks on
+headline-soak release evidence after this recovery: correctness and
+source-health pass, but the latest live headline-soak attempt produced no audit
+attachments because the local real StoryCluster/OpenAI path rejected its
+credential (`invalid_api_key`, redacted in artifacts). This lane is
+source-surface and release-window recovery, not a generic StoryCluster
+correctness failure.
 
 ### Implementation steps
 
@@ -247,15 +257,18 @@ not a generic StoryCluster correctness failure.
    node -e "console.log(require('./services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json').releaseEvidence)"
    ```
 
-2. Confirm the current `ap-topnews` verdict and reasons in the latest artifact:
-   `feed_links_unavailable`, `feed_non_xml_payload`, and/or
-   `watchlist_escalated_by_history`.
+2. Confirm the current source-health verdict:
+   - before the 2026-07-09 source-health fix, `ap-topnews` showed
+     `feed_links_unavailable`, `feed_non_xml_payload`, and/or
+     `watchlist_escalated_by_history`;
+   - after the fix, `ap-topnews` should be absent from the enabled source
+     surface and the latest run should have no watch/remove sources.
 
 3. Make the source-surface decision:
-   - remove `ap-topnews` from the starter/keep surface if the artifact still
-     marks it remove;
-   - or remediate only if a real source feed URL is available and passes the
-     runbook criteria.
+   - keep `ap-topnews` pruned from the starter/keep surface while the source
+     continues to fail the runbook criteria;
+   - readmit it only if a real source feed URL is available and passes the
+     admission/health workflow.
 
 4. If a repo change is needed, keep it narrow to the source registry and source
    evidence expectations. Do not add a new source merely to preserve count
@@ -271,8 +284,14 @@ not a generic StoryCluster correctness failure.
    corepack pnpm@9.7.1 check:storycluster:production-readiness
    ```
 
-6. Let the configured release window accumulate clean runs. Do not bypass
-   `insufficient_release_evidence_window`,
+   The final StoryCluster production-readiness check is expected to stay red
+   until headline-soak release evidence recovers. A source-health fix is not
+   allowed to mask or downgrade `headline_soak_release_evidence_failed`.
+
+6. Let the configured release window accumulate clean runs after the source
+   surface is clean. The 2026-07-09 lane proved this locally with
+   `check:news-sources:health`; repeat it on the intended release commit and do
+   not bypass `insufficient_release_evidence_window`,
    `blocked_run_within_release_window`, `non_ready_runs_exceed_threshold`, or
    `latest_run_not_ready`.
 
@@ -860,7 +879,8 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
 | Area | Go condition | No-go condition |
 | --- | --- | --- |
 | Repo state | `main` clean, release commit known, no blocking PRs | dirty tree (beyond the documented preserved untracked operator docs handled per Lane 6), unmerged release PR, unknown commit |
-| Source health | release evidence `pass`, full clean window | `ap-topnews` or any source keeps window blocked |
+| Source health | release evidence `pass`, full clean window on release commit | any source keeps the window blocked, or the clean window has not accrued |
+| Headline soak | fresh promotable trend evidence from the real StoryCluster path | `headline_soak_release_evidence_failed`, missing audit attachments, or invalid live credentials |
 | A6 raw feed | freshness, relay liveness, relay snapshot, watch closure pass | stale feed, parked publisher, relay quorum loss |
 | Accepted synthesis | accepted-current story proven live if claimed | no live accepted synthesis but copy claims summaries/table |
 | Auth callback | deployed outside A6, health secret-safe | no deployed callback while copy advertises social sign-in |
@@ -876,7 +896,7 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| `ap-topnews` remains dead | Release gates stay blocked | Remove/remediate per source runbook; wait for clean window |
+| Source-health window regresses on the release commit | Release gates stay blocked | Keep the pruned source surface clean and rerun the configured clean window |
 | Accepted synthesis increases A6 load | Fresh raw feed regresses | Bounded canary, low scope, alert watch active, rollback packet |
 | Auth provider setup lags | Sign-in claim delayed | Start Apple first; hide unavailable providers; allow narrowed beta only if copy is honest |
 | Provider secret leakage | Severe security/privacy incident | Host secret store only; secret scans; health booleans only; no logs/evidence values |
@@ -916,15 +936,20 @@ The release-readiness sprint is complete when all of these are true:
    decision. The first A6 read-only readback (2026-07-08, `347d2018`, services
    green, freshness pass) is already recorded above.
 2. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
-3. Resolve `ap-topnews` and recover the source-health window.
-4. Draft the A6 accepted-synthesis canary packet, but do not run it until
+3. Merge the `ap-topnews` source-surface fix and rerun source-health on the
+   intended release commit.
+4. Repair the live headline-soak credential/endpoint and rerun
+   `corepack pnpm@9.7.1 collect:storycluster:headline-soak` plus
+   `corepack pnpm@9.7.1 check:storycluster:production-readiness` until the
+   blocker is real product evidence rather than a local secret/config failure.
+5. Draft the A6 accepted-synthesis canary packet, but do not run it until
    source health and pre-canary readbacks are green and the standing
    attended-soak preconditions are met.
-5. Stand up the auth-callback edge host, start Apple provider registration,
+6. Stand up the auth-callback edge host, start Apple provider registration,
    and plan the origin-image rebuild that bakes the auth and CSP env into the
    deployed PWA.
-6. Extend `docs/ops/BETA_SESSION_RUNSHEET.md` with the sign-in and
+7. Extend `docs/ops/BETA_SESSION_RUNSHEET.md` with the sign-in and
    account-binding rehearsal steps via a small repo PR.
-7. Regenerate release evidence only after the live blockers are cleared.
-8. Run the 3-browser rehearsal against the deployed target.
-9. Ship `dev-small` tester invites with claim-safe copy.
+8. Regenerate release evidence only after the live blockers are cleared.
+9. Run the 3-browser rehearsal against the deployed target.
+10. Ship `dev-small` tester invites with claim-safe copy.
