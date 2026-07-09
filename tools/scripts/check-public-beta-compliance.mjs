@@ -108,6 +108,9 @@ if (packageJson.scripts?.['check:public-beta-distribution-packet'] !== 'node --t
 if (packageJson.scripts?.['check:release-readiness-operator-packets'] !== 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs') {
   issues.push('package.json: missing check:release-readiness-operator-packets script');
 }
+if (packageJson.scripts?.['check:beta-session-runsheet'] !== 'node --test ./tools/scripts/beta-session-runsheet.test.mjs') {
+  issues.push('package.json: missing check:beta-session-runsheet script');
+}
 
 requireIncludes(files.routes, routes, '<ComplianceFooter />', 'global compliance footer');
 requireIncludes(files.routes, routes, `path: '${complianceIndex.route}'`, `${complianceIndex.route} route`);
@@ -197,6 +200,7 @@ const requiredDocsPhrases = [
   'minimum trusted beta operator authorization gate is implemented',
   'pnpm check:public-beta-distribution-packet',
   'pnpm check:release-readiness-operator-packets',
+  'pnpm check:beta-session-runsheet',
   'docs/ops/public-beta-distribution-packet-2026-07-09.md',
   'Public reports are workflow records, not a private support inbox',
   'Support requests are public workflow records, not private correspondence',
@@ -293,5 +297,5 @@ if (issues.length > 0) {
 }
 
 console.log(
-  `Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, operator trust gate, private escalation protocol, distribution packet command, and operator packet command checked)`,
+  `Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, operator trust gate, private escalation protocol, distribution packet command, operator packet command, and beta-session runsheet command checked)`,
 );

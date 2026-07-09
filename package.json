@@ -65,6 +65,7 @@
     "check:launch-content-snapshot": "node ./packages/e2e/src/launch-content-snapshot.mjs",
     "check:public-beta-compliance": "node ./tools/scripts/check-public-beta-compliance.mjs",
     "check:public-beta-distribution-packet": "node --test ./tools/scripts/public-beta-distribution-packet.test.mjs",
+    "check:beta-session-runsheet": "node --test ./tools/scripts/beta-session-runsheet.test.mjs",
     "check:public-beta-launch-control": "node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs",
     "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",
     "check:release-readiness-operator-packets": "node --test ./tools/scripts/release-readiness-operator-packets.test.mjs",

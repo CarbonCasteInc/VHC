@@ -2,7 +2,8 @@
 
 > Status: Execution outline for fastest credible tester distribution
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Current repo basis: `main@9c35a676` after #757
+> Basis for this outline revision: `main@1f860ae7` after #758; this revision
+> adds the beta-session runsheet guard
 > Latest release evidence basis: stale packet at `1a83434b`
 > Latest recorded Scope A proof packet: `47ba218d`
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
@@ -78,8 +79,9 @@ Claim boundaries:
 
 Repository and GitHub state at this alignment point:
 
-- current repo: `main@9c35a676`;
-- open PRs: none at the time of this branch;
+- repo basis for this outline revision: `main@1f860ae7`;
+- revision PR: #759, adding
+  `pnpm check:beta-session-runsheet` and wiring it into launch closeout;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
   `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
@@ -126,7 +128,7 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 - A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
   12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
   (2026-07-06);
-- A6 is 35 commits behind `main@9c35a676`; the delta includes #741
+- A6 is 37 commits behind `main@1f860ae7`; the delta includes #741
   reject-unmarked system-writer adapters, #742 VaultV2 old-bundle write
   preservation, #745 civic representative durability readback, #746 docs
   alignment, #747 release-readiness sprint outline, #748 source-health
@@ -134,7 +136,8 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
   diagnostics, #751/#752 launch control, #753 StoryCluster credential repair
   packet, #754 A6 accepted-synthesis canary packet, #755 auth-callback
   deployment packet/provider allowlist wiring, #756 launch-control gate, and
-  #757 first-wave distribution packet;
+  #757 first-wave distribution packet, and #758 release-readiness state
+  alignment plus operator-packet guard;
 - `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
   `active/running` with `ExecMainStatus=0`;
 - `vh-public-feed-alert-watch.timer` and
@@ -702,6 +705,7 @@ release commit.
    corepack pnpm@9.7.1 check:public-beta-launch-control
    corepack pnpm@9.7.1 check:public-beta-distribution-packet
    corepack pnpm@9.7.1 check:release-readiness-operator-packets
+   corepack pnpm@9.7.1 check:beta-session-runsheet
    corepack pnpm@9.7.1 check:launch-content-snapshot
    corepack pnpm@9.7.1 check:public-beta-compliance
    corepack pnpm@9.7.1 docs:check
@@ -952,6 +956,7 @@ The release-readiness sprint is complete when all of these are true:
    `check:public-beta-launch-closeout`, `check:public-beta-launch-control`,
    `check:public-beta-distribution-packet`,
    `check:release-readiness-operator-packets`,
+   `check:beta-session-runsheet`,
    `check:launch-content-snapshot`, `check:public-beta-compliance`,
    `docs:check`, typecheck, lint, build, and
    `git diff --check` all pass — the accepted mesh/canary boundary outcomes
