@@ -961,7 +961,10 @@ The release-readiness sprint is complete when all of these are true:
    credential-bearing runtime logs.
 5. Draft the A6 accepted-synthesis canary packet, but do not run it until
    source health and pre-canary readbacks are green and the standing
-   attended-soak preconditions are met.
+   attended-soak preconditions are met. The draft packet is
+   `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`; it uses a
+   one-shot `catchup:public-synthesis` canary and does not authorize a live
+   Scope B publisher flip.
 6. Stand up the auth-callback edge host, start Apple provider registration,
    and plan the origin-image rebuild that bakes the auth and CSP env into the
    deployed PWA.
