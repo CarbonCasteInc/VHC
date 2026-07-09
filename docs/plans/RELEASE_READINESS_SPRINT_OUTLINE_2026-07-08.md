@@ -2,7 +2,7 @@
 
 > Status: Execution outline for fastest credible tester distribution
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Current repo basis: `main@ec252804` after #746
+> Current repo basis: `main@069006f0` after #754
 > Latest release evidence basis: stale packet at `1a83434b`
 > Latest recorded Scope A proof packet: `47ba218d`
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
@@ -78,8 +78,8 @@ Claim boundaries:
 
 Repository and GitHub state at sprint start:
 
-- current repo: `main@ec252804`;
-- open PRs: only #747, this outline's own draft PR;
+- current repo: `main@069006f0`;
+- open PRs: none at the time of this branch;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
   `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
@@ -98,6 +98,8 @@ Merged repo capabilities:
 - VaultV2 forward-compatible old-bundle write preservation;
 - civic representative non-validating durability readback for writes;
 - docs alignment after the hardening sequence.
+- release-readiness operator packets for Lane 0 launch control, StoryCluster
+  headline-soak credential repair, and A6 accepted-synthesis canary.
 
 Latest local evidence state:
 
@@ -113,8 +115,9 @@ Latest local evidence state:
   `stance_aggregate_decay_public_mesh`;
 - `.tmp/mvp-closeout/latest/mvp-closeout-report.json` is `blocked`;
 - `services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
-  has release evidence `fail` with `blocked_run_within_release_window`,
-  `non_ready_runs_exceed_threshold`, and `latest_run_not_ready`.
+  now has readiness `ready` and release evidence `pass` in the local packet
+  generated 2026-07-09T13:58:21Z. The consolidated release evidence pipeline
+  still has to be regenerated on the intended release commit.
 
 Live A6 state must not be inferred from repo `main`. Operator read-only
 readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
@@ -122,9 +125,13 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 - A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
   12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
   (2026-07-06);
-- A6 is 10 commits behind `main@ec252804`; the delta is #741 reject-unmarked
-  system-writer adapters, #742 VaultV2 old-bundle write preservation, #745
-  civic representative durability readback, and #746 docs alignment;
+- A6 is 28 commits behind `main@069006f0`; the delta includes #741
+  reject-unmarked system-writer adapters, #742 VaultV2 old-bundle write
+  preservation, #745 civic representative durability readback, #746 docs
+  alignment, #747 release-readiness sprint outline, #748 source-health
+  recovery, #749 beta runsheet sign-in rehearsal, #750 headline-soak
+  diagnostics, #751/#752 launch control, #753 StoryCluster credential repair
+  packet, and #754 A6 accepted-synthesis canary packet;
 - `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
   `active/running` with `ExecMainStatus=0`;
 - `vh-public-feed-alert-watch.timer` and
@@ -475,7 +482,9 @@ service outside A6.
 
 `services/auth-callback` owns the server side of OAuth/OIDC with PKCE. Browser
 clients receive only non-secret session payloads. Provider secrets stay in the
-boundary host's private secret store.
+boundary host's private secret store. The Web PWA now also has a build-time
+provider allowlist, `VITE_AUTH_CALLBACK_PROVIDERS`, so a staged release can
+show only providers that have passed live registration and rehearsal.
 
 ### Deployment target
 
@@ -495,18 +504,22 @@ Workers-family edge host outside A6, with:
    corepack pnpm@9.7.1 --filter @vh/auth-callback build
    corepack pnpm@9.7.1 --filter @vh/auth-callback test
    corepack pnpm@9.7.1 check:auth-callback
+   corepack pnpm@9.7.1 --filter @vh/web-pwa exec vitest run src/auth/signInFlow.test.ts --config vite.config.ts
    ```
 
-2. Provision the edge host and secret store.
+2. Use the dedicated operator packet:
+   `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`.
 
-3. Configure CORS/origin allowlist for the tester PWA origins only.
+3. Provision the edge host and secret store.
 
-4. Deploy the boundary service.
+4. Configure CORS/origin allowlist for the tester PWA origins only.
 
-5. Verify `/api/health` returns only constant status strings and
+5. Deploy the boundary service.
+
+6. Verify `/api/health` returns only constant status strings and
    configuration-presence booleans, never configuration values.
 
-6. Verify no provider secret appears in:
+7. Verify no provider secret appears in:
    - repository files;
    - build output;
    - browser bundle;
@@ -514,11 +527,12 @@ Workers-family edge host outside A6, with:
    - error responses;
    - release artifacts.
 
-7. Configure the Web PWA public env:
+8. Configure the Web PWA public env:
 
    ```bash
    VITE_AUTH_CALLBACK_BASE_URL=https://<auth-boundary>
    VITE_AUTH_CALLBACK_ROUTE=/auth/callback
+   VITE_AUTH_CALLBACK_PROVIDERS=<space-or-comma-separated rehearsed provider ids>
    ```
 
    These `VITE_*` values are baked into the PWA bundle at build time. Applying
@@ -528,7 +542,7 @@ Workers-family edge host outside A6, with:
    Lane 2 current-main packet). The auth-callback service itself still stays
    outside A6.
 
-8. Extend the content-security policy to reach the boundary. The PWA's
+9. Extend the content-security policy to reach the boundary. The PWA's
    `connect-src` is restricted to self, the relay origins, and localhost, so
    browser fetches to the auth boundary are CSP-blocked unless
    `https://<auth-boundary>` is added to `VITE_VH_CSP_CONNECT_SRC` at PWA/origin
@@ -605,7 +619,9 @@ For each provider:
 
 - At least one provider can support tester sign-in before distribution.
 - If Apple/Google/X are all claimed in tester copy, all three pass the matrix.
-- Any unavailable provider is hidden or labeled unavailable, not advertised.
+- Any unavailable provider is removed from tester copy and from
+  `VITE_AUTH_CALLBACK_PROVIDERS`, not merely left visible with a failing start
+  action.
 
 ## Lane 6 - Fresh Release Evidence On The Release Commit
 
@@ -966,8 +982,12 @@ The release-readiness sprint is complete when all of these are true:
    one-shot `catchup:public-synthesis` canary and does not authorize a live
    Scope B publisher flip.
 6. Stand up the auth-callback edge host, start Apple provider registration,
-   and plan the origin-image rebuild that bakes the auth and CSP env into the
-   deployed PWA.
+   and plan the origin-image rebuild that bakes the auth, provider allowlist,
+   and CSP env into the deployed PWA. Use
+   `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`; it
+   records the Apple/Google/X redirect URI split, the
+   `VITE_AUTH_CALLBACK_PROVIDERS` build-time allowlist, start-leg smoke, secret
+   scan, and rollback sequence.
 7. Keep the sign-in/account-binding rehearsal in
    `docs/ops/BETA_SESSION_RUNSHEET.md` current with the deployed
    auth-callback/provider surface; the runsheet now defines provider health,

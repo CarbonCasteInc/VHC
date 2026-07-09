@@ -215,6 +215,15 @@ when the helper reports `build_ready=yes`, review any reported `default_names`
 and `blank_names`; those are behavior-preserving defaults, not proof of the
 exact previous build.
 
+Auth-callback public env values are part of this provenance contract. Leaving
+`VITE_AUTH_CALLBACK_BASE_URL` blank hides real sign-in. Setting it enables the
+account-provider tiles, and `VITE_AUTH_CALLBACK_PROVIDERS` narrows the visible
+provider rows to the providers that have passed live registration/rehearsal.
+If the auth boundary is enabled, append the boundary origin to
+`VITE_VH_CSP_CONNECT_SRC` and mirror that value into the deployed origin
+runtime `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC`; otherwise browser fetches to the
+boundary fail under strict CSP.
+
 If the deployed origin image path differs from `/app/dist`, identify it from:
 
 ```bash
@@ -258,12 +267,15 @@ VITE_LUMA_PROFILE
 VITE_LUMA_DEV_FALLBACK
 VITE_ATTESTATION_URL
 VITE_CONSTITUENCY_PROOF_REAL
+VITE_AUTH_CALLBACK_BASE_URL
+VITE_AUTH_CALLBACK_ROUTE
+VITE_AUTH_CALLBACK_PROVIDERS
 VITE_E2E_MODE
 ```
 
 Use shell-compatible quoting for values containing spaces or JSON. For example,
-quote `VITE_VH_CSP_CONNECT_SRC` and `VITE_NEWS_SYSTEM_WRITER_PIN_JSON` in the
-private provenance file.
+quote `VITE_VH_CSP_CONNECT_SRC`, `VITE_NEWS_SYSTEM_WRITER_PIN_JSON`, and
+space-separated `VITE_AUTH_CALLBACK_PROVIDERS` in the private provenance file.
 
 Also capture the signed `mesh-peer-config.json` served by the current origin.
 It is public trust material, not a secret, but keep the capture packet together

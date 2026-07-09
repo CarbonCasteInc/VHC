@@ -2,7 +2,7 @@
 
 > Status: Accepted Decision / Repo Capability (deployment pending)
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Last Reviewed: 2026-07-08
+> Last Reviewed: 2026-07-09
 > Depends On: docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md, docs/specs/spec-linked-socials-v0.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/secure-storage-policy.md, docs/ops/vhc-incident-response.md
 
 ## Decision
@@ -154,14 +154,38 @@ no secret is involved:
   against it. Unset hides real sign-in; beta-local identity creation
   still works.
 - `VITE_AUTH_CALLBACK_ROUTE` — optional override of the in-app OAuth
-  redirect route (default `/auth/callback`); this is the redirect target
-  registered per provider and per environment, and it must match the
-  provider `VH_AUTH_*_REDIRECT_URI` origin.
+  redirect route (default `/auth/callback`); Google and X provider redirect
+  URIs point at this PWA route, while Apple's form-post provider redirect points
+  at the worker receiver that 303-redirects back to this route.
+- `VITE_AUTH_CALLBACK_PROVIDERS` — optional comma/space-separated
+  allowlist of visible provider ids (`apple`, `google`, `x`). When unset,
+  a real build with `VITE_AUTH_CALLBACK_BASE_URL` offers all three
+  providers. Set this for staged releases so the PWA hides providers that
+  have not passed live registration/rehearsal yet. Set it to `none`, `off`, or
+  `false` to hide every provider in a rollback build while leaving the boundary
+  URL present.
 - Under `VITE_E2E_MODE`, the same provider ids run an in-process mock
   exchange (no network, no boundary URL) so the full browser flow —
   PKCE, callback, account-to-LUMA binding, reset re-bind — is CI-testable
   (`packages/e2e/src/luma/account-identity-controls.spec.ts`,
   `check:account-identity-controls`).
+
+Provider redirect URI shape:
+
+- Apple, with the default non-empty scope set, uses `form_post`: register
+  and set `VH_AUTH_APPLE_REDIRECT_URI` to the worker receiver
+  `https://<auth-boundary>/auth/apple/return`. The receiver 303-redirects
+  to the PWA route after verify-only state inspection.
+- Google and X use query redirects to the PWA: register and set
+  `VH_AUTH_GOOGLE_REDIRECT_URI` / `VH_AUTH_X_REDIRECT_URI` to
+  `https://<pwa-origin>/auth/callback` unless the PWA route is deliberately
+  changed. The browser then posts `code`, `state`, and the stored PKCE
+  verifier to `https://<auth-boundary>/auth/:provider/callback`.
+
+Do not register Google or X directly to the worker callback endpoint for
+this release path: the worker never receives the browser-held PKCE verifier
+on a provider navigation GET, so that route intentionally fails PKCE and
+steers clients back to the PWA POST flow.
 
 The browser holds only the non-secret `vh-auth-session-v1` payload; the
 provider subject/label live in the identity-vault `signInSession`

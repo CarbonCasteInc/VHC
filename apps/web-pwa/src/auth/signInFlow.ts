@@ -16,8 +16,10 @@
  *      browser — that custody lives entirely in the boundary.
  *
  * Real providers are gated behind the deployment profile (a configured
- * `VITE_AUTH_CALLBACK_BASE_URL`). Under `VITE_E2E_MODE` the same
- * `apple`/`google`/`x` provider ids instead run an in-process mock
+ * `VITE_AUTH_CALLBACK_BASE_URL`) and may be narrowed with
+ * `VITE_AUTH_CALLBACK_PROVIDERS` so release builds can hide providers that
+ * have not passed live registration/rehearsal yet. Under `VITE_E2E_MODE` the
+ * same `apple`/`google`/`x` provider ids instead run an in-process mock
  * exchange with no network (permitted just like the dev/e2e entries of
  * PROVIDER_PROFILE_ALLOW_LIST), so the whole flow is testable in CI and
  * the account record ids line up with the offered provider tiles.
@@ -106,16 +108,35 @@ function callbackBaseUrl(env: SignInFlowEnv): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function configuredProviders(env: SignInFlowEnv): SignInProviderIdType[] {
+  const raw = env.VITE_AUTH_CALLBACK_PROVIDERS;
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return [...REAL_PROVIDERS];
+  }
+  if (/^(?:none|off|false)$/iu.test(raw.trim())) {
+    return [];
+  }
+  const allowed = new Set(
+    raw
+      .split(/[,\s]+/u)
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry): entry is SignInProviderIdType =>
+        REAL_PROVIDERS.includes(entry as SignInProviderIdType)
+      )
+  );
+  return REAL_PROVIDERS.filter((provider) => allowed.has(provider));
+}
+
 /**
  * Whether a provider can begin a sign-in flow in the current build.
- * Under VITE_E2E_MODE every real provider id runs the in-process mock
- * exchange; otherwise a provider requires a configured boundary base URL.
+ * Under VITE_E2E_MODE each configured provider id runs the in-process mock
+ * exchange; otherwise each configured provider requires a boundary base URL.
  */
 export function isSignInProviderAvailable(
   provider: SignInFlowProvider,
   env: SignInFlowEnv = readEnv()
 ): boolean {
-  if (!REAL_PROVIDERS.includes(provider)) {
+  if (!configuredProviders(env).includes(provider)) {
     return false;
   }
   return isE2eMode(env) || typeof callbackBaseUrl(env) === 'string';
@@ -123,7 +144,7 @@ export function isSignInProviderAvailable(
 
 /** The list of providers offered to the user in the current build. */
 export function availableSignInProviders(env: SignInFlowEnv = readEnv()): SignInFlowProvider[] {
-  return REAL_PROVIDERS.filter((provider) => isSignInProviderAvailable(provider, env));
+  return configuredProviders(env).filter((provider) => isSignInProviderAvailable(provider, env));
 }
 
 function sessionStore(): Storage | null {

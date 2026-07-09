@@ -58,6 +58,9 @@ test('public beta image build dry-run passes build args by name without leaking 
         'VITE_LUMA_DEV_FALLBACK=false',
         'VITE_ATTESTATION_URL=',
         'VITE_CONSTITUENCY_PROOF_REAL=true',
+        'VITE_AUTH_CALLBACK_BASE_URL=',
+        'VITE_AUTH_CALLBACK_ROUTE=/auth/callback',
+        'VITE_AUTH_CALLBACK_PROVIDERS=',
         'VITE_E2E_MODE=false',
       ].join('\n') + '\n',
       'utf8',
@@ -77,6 +80,8 @@ test('public beta image build dry-run passes build args by name without leaking 
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /--platform linux\/amd64/);
     assert.match(result.stdout, /--build-arg VITE_GUN_PEER_CONFIG_PUBLIC_KEY/);
+    assert.match(result.stdout, /--build-arg VITE_AUTH_CALLBACK_BASE_URL/);
+    assert.match(result.stdout, /--build-arg VITE_AUTH_CALLBACK_PROVIDERS/);
     assert.doesNotMatch(result.stdout, /public-key-not-secret/);
     assert.doesNotMatch(result.stdout, /public-pin/);
   } finally {
@@ -256,6 +261,9 @@ test('origin provenance recovery writes private env without printing recovered v
     assert.match(env, /VITE_GUN_PEER_CONFIG_URL=\n/);
     assert.match(env, /VITE_GUN_PEER_MINIMUM=3/);
     assert.match(env, /VITE_GUN_PEER_QUORUM_REQUIRED=2/);
+    assert.match(env, /VITE_AUTH_CALLBACK_BASE_URL=\n/);
+    assert.match(env, /VITE_AUTH_CALLBACK_ROUTE=\/auth\/callback/);
+    assert.match(env, /VITE_AUTH_CALLBACK_PROVIDERS=\n/);
     assert.match(env, /# TODO\(operator\): set VITE_VH_CSP_CONNECT_SRC/);
     assert.match(env, /# TODO\(operator\): set VITE_NEWS_SYSTEM_WRITER_PIN_JSON/);
 

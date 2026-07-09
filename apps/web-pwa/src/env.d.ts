@@ -51,6 +51,9 @@ interface ImportMetaEnv {
   readonly VITE_VH_ANALYSIS_PIPELINE?: 'true' | 'false';
   readonly VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT?: 'true' | 'false';
   readonly VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS?: string;
+  readonly VITE_AUTH_CALLBACK_BASE_URL?: string;
+  readonly VITE_AUTH_CALLBACK_ROUTE?: string;
+  readonly VITE_AUTH_CALLBACK_PROVIDERS?: string;
 }
 
 interface ImportMeta {
