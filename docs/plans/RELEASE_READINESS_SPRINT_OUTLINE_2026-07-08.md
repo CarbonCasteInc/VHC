@@ -4,7 +4,9 @@
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Current repo basis: `main@ec252804` after #746
 > Latest release evidence basis: stale packet at `1a83434b`
-> Live A6 proof basis: raw Scope A proof at `47ba218d`
+> Latest recorded Scope A proof packet: `47ba218d`
+> Live A6 readback basis: operator read-only readback 2026-07-08, host at
+> `347d2018` (#744), services green, freshness monitor pass
 > Target surface: Venn News Web PWA initial controlled tester release
 > Depends On: `docs/foundational/STATUS.md`,
 > `docs/reports/state-of-play-docs-alignment-audit-2026-07-08.md`,
@@ -12,6 +14,7 @@
 > `docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md`,
 > `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`,
 > `docs/ops/news-aggregator-production-service.md`,
+> `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/public-feed-freshness-monitor.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
@@ -28,7 +31,7 @@ release commit, and run the manual tester rehearsal.
 
 The current blocker class is therefore:
 
-1. live source-health evidence;
+1. live source-health and public-feed/stance-aggregate gate evidence;
 2. A6 accepted-synthesis enablement/proof;
 3. auth-provider registration and callback deployment;
 4. fresh release evidence at current `main`;
@@ -76,7 +79,7 @@ Claim boundaries:
 Repository and GitHub state at sprint start:
 
 - current repo: `main@ec252804`;
-- open PRs: none;
+- open PRs: only #747, this outline's own draft PR;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
   `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
@@ -112,14 +115,29 @@ Latest local evidence state:
   has release evidence `fail` with `blocked_run_within_release_window`,
   `non_ready_runs_exceed_threshold`, and `latest_run_not_ready`.
 
-Live A6 state must not be inferred from repo `main`:
+Live A6 state must not be inferred from repo `main`. Operator read-only
+readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 
-- latest recorded A6 live proof is raw Scope A at `main@47ba218d`;
-- email alerting and watch-closure timers are enabled;
+- A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
+  12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
+  (2026-07-06);
+- A6 is 10 commits behind `main@ec252804`; the delta is #741 reject-unmarked
+  system-writer adapters, #742 VaultV2 old-bundle write preservation, #745
+  civic representative durability readback, and #746 docs alignment;
+- `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
+  `active/running` with `ExecMainStatus=0`;
+- `vh-public-feed-alert-watch.timer` and
+  `vh-phase5-scope-a-watch-closure.timer` are both active and firing on
+  schedule;
+- the public-feed freshness monitor summary at 2026-07-09T02:06Z is `pass`
+  with zero blockers across `https://venn.carboncaste.io/` and the three
+  `gun-{a,b,c}.carboncaste.io` relays;
+- the latest recorded formal Scope A proof packet still dates from
+  `main@47ba218d`; the readback above is live-state evidence, not a new proof
+  packet;
 - the recovered raw feed should remain untouched while fresh;
 - accepted synthesis is repo-capable but not yet operator-enabled and proven on
-  A6;
-- no current evidence proves newer repo commits are deployed on A6.
+  A6.
 
 ## Sprint Operating Rules
 
@@ -139,9 +157,10 @@ Live A6 state must not be inferred from repo `main`:
 
 ## Sprint Structure
 
-The sprint has eight incremental lanes. Lanes 1-3 unblock live product
-availability. Lanes 4-5 make account continuity real. Lanes 6-8 convert the
-system from "repo implemented" to "tester distributable".
+The sprint has nine lanes, Lane 0 through Lane 8. Lane 0 locks the release
+envelope and owners. Lanes 1-3 unblock live product availability. Lanes 4-5
+make account continuity real. Lanes 6-8 convert the system from "repo
+implemented" to "tester distributable".
 
 ```text
 Lane 0  Release envelope and ownership lock
@@ -168,18 +187,35 @@ surface before any operator action starts.
    - full intended MVP: live accepted synthesis, social sign-in, LUMA binding,
      vote persistence, and district/office aggregate sentiment;
    - or a deliberately narrower beta that does not claim whichever live surface
-     is not yet deployed.
+     is not yet deployed. Narrowing changes tester-facing claims only; it does
+     not waive any release gate (see Lane 3).
 2. Tester audience:
    - `dev-small`: 1-3 testers;
-   - `beta-scale`: up to 10 testers only after two consecutive daily gates and
-     3-browser passes.
+   - `beta-scale`: up to 10 testers, only after the run-sheet flip-switch
+     criteria in Lane 8 are met. A "daily gate" here means a daily
+     `check:mvp-release-gates` run recorded in the evidence workspace.
 3. Owners:
    - source-health/content policy owner;
    - A6 operator;
    - auth boundary deploy owner;
    - Apple/Google/X registration owners;
    - release evidence owner;
-   - session operator for tester wave.
+   - session operator for tester wave;
+   - incident owner and alert-channel owner for the tester wave.
+4. Release commit pinning: the launch note names the intended release commit
+   once known. If `main` advances past the commit read back or deployed in
+   Lane 2, the Lane 2 readback/update packet must be re-run before Lane 6
+   evidence counts, or the envelope must explicitly avoid A6-newer claims.
+5. Web PWA hosting target: keep the current A6-hosted
+   `vhc-public-beta-origin` container at `https://venn.carboncaste.io`, or
+   stand up a non-A6 host. Changing the PWA origin orphans every existing
+   beta-local identity and its votes, because identity is origin-scoped
+   encrypted IndexedDB — an origin change is a tester-visible reset and must
+   be treated as one.
+6. External release approval: record whether legal/commercial signoff is
+   required for this controlled tester distribution. The closeout evidence
+   classifies `external_release_approval_not_recorded` as a ship blocker, so
+   capture either the signoff record or the explicit not-required decision.
 
 ### Exit criteria
 
@@ -263,7 +299,10 @@ explicitly scope the release away from unproven live accepted synthesis.
 
 ### Read-only A6 readback
 
-Before mutating anything, Launch Ops reads:
+A first read-only readback was performed 2026-07-08 ~22:05 EDT and is recorded
+in Current State Grounding: A6 at `347d2018`, both services active, both
+timers firing, freshness monitor pass. Re-run the readback immediately before
+any maintenance packet, because this state goes stale:
 
 ```bash
 cd /home/humble/VHC
@@ -278,12 +317,14 @@ systemctl --user status vh-phase5-scope-a-watch-closure.timer --no-pager
 ```
 
 Then capture the latest freshness/relay/snapshot/watch summaries and confirm
-whether the host is still at `47ba218d` or has already moved.
+whether the host is still at `347d2018` or has already moved.
 
 ### Current-main update
 
-If the tester release depends on post-`47ba218d` repo code, the operator packet
-must explicitly update A6 to the intended release commit. The packet must state:
+If the tester release depends on post-`347d2018` repo code (the current
+10-commit delta includes the #741/#742 system-writer and vault hardening and
+the #745 civic representative durability fix), the operator packet must
+explicitly update A6 to the intended release commit. The packet must state:
 
 - whether publisher restart is included or explicitly excluded;
 - how freshness is observed before and after;
@@ -291,11 +332,32 @@ must explicitly update A6 to the intended release commit. The packet must state:
 - rollback target and command;
 - what evidence artifact records success.
 
+Updating the A6 repo checkout does not update the tester-facing Web PWA. The
+public origin at `https://venn.carboncaste.io` serves PWA assets from the
+`vhc-public-beta-origin` container image, so shipping release-commit PWA
+assets (and any baked `VITE_*` values) requires an origin image rebuild and
+redeploy per `docs/ops/public-beta-image-deploy.md`. That is an A6-touching
+operator action: fold it into this packet or write a dedicated packet, and
+preserve the relay data mounts and latest-index snapshots exactly as the
+runbook's invariants require.
+
 ### Accepted-synthesis canary
 
 If the release envelope claims accepted summaries/framing tables on live public
-stories, enable accepted synthesis only through a dedicated canary packet. The
-packet must:
+stories, enable accepted synthesis only through a dedicated canary packet.
+The standing operator preconditions from
+`docs/reports/functioning-mvp-lane-repo-closeout-2026-07-07.md` and
+`docs/foundational/STATUS.md` apply in full:
+
+- the 48-hour clean-window target (`2026-07-08T22:44:08Z`) has passed — as of
+  the 2026-07-08 readback the target time is behind us, but the packet must
+  verify the window actually stayed clean;
+- the canary runs as a separate attended soak with an updated runbook entry
+  per `STATUS.md`;
+- the packet explicitly acknowledges that this touch ends the 14-day
+  unattended evidence window and records the trade-off.
+
+The packet must:
 
 1. state exact env changes, including any `VH_BUNDLE_SYNTHESIS_*` variables;
 2. use low, bounded canary scope before general enablement;
@@ -312,6 +374,9 @@ packet must:
 ### Exit criteria
 
 - A6 commit and service state are read back and recorded.
+- If the release depends on newer PWA assets or baked `VITE_*` values, the
+  origin image redeploy is executed and recorded, and
+  `https://venn.carboncaste.io` serves the release-commit assets.
 - If accepted synthesis is in the release envelope, at least one live public
   accepted-current story is proven end to end.
 - If accepted synthesis is not enabled, the release envelope and tester copy do
@@ -361,14 +426,19 @@ release evidence.
    operator packets. Do not use local fixture success to clear a live public
    gate.
 
-5. Rerun until the gate failures are either green or explicitly excluded by a
-   narrowed release envelope.
+5. Rerun until every gate is green. `check:mvp-release-gates` is a fixed gate
+   list with no release-envelope or exclusion mechanism: it passes only when
+   every gate passes, and any red gate keeps `check:mvp-closeout` and the
+   release evidence pipeline blocked. Narrowing the release envelope changes
+   what tester copy may claim; it does not skip, waive, or reinterpret any
+   gate.
 
 ### Exit criteria
 
-- `check:mvp-release-gates` passes for the intended release envelope; or
-- the release packet records a narrower claim and explains why excluded gates
-  are not part of tester distribution.
+- `check:mvp-release-gates` passes — all gates, no exclusions.
+- If the envelope was narrowed, the narrowing is recorded as a claims
+  decision in the launch note; it is never cited as a reason a red gate is
+  acceptable.
 
 ## Lane 4 - Auth-Callback Deployment Outside A6
 
@@ -409,7 +479,8 @@ Workers-family edge host outside A6, with:
 
 4. Deploy the boundary service.
 
-5. Verify `/api/health` returns configuration booleans only.
+5. Verify `/api/health` returns only constant status strings and
+   configuration-presence booleans, never configuration values.
 
 6. Verify no provider secret appears in:
    - repository files;
@@ -425,6 +496,21 @@ Workers-family edge host outside A6, with:
    VITE_AUTH_CALLBACK_BASE_URL=https://<auth-boundary>
    VITE_AUTH_CALLBACK_ROUTE=/auth/callback
    ```
+
+   These `VITE_*` values are baked into the PWA bundle at build time. Applying
+   them to the deployed tester surface means rebuilding and redeploying the
+   `vhc-public-beta-origin` image per `docs/ops/public-beta-image-deploy.md`,
+   which touches A6 and needs its own operator packet (or inclusion in the
+   Lane 2 current-main packet). The auth-callback service itself still stays
+   outside A6.
+
+8. Extend the content-security policy to reach the boundary. The PWA's
+   `connect-src` is restricted to self, the relay origins, and localhost, so
+   browser fetches to the auth boundary are CSP-blocked unless
+   `https://<auth-boundary>` is added to `VITE_VH_CSP_CONNECT_SRC` at PWA/origin
+   image build time and to `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC` on the deployed
+   origin. Verify the deployed page's effective `connect-src` includes the
+   boundary before starting Lane 5 rehearsal.
 
 ### Exit criteria
 
@@ -507,11 +593,13 @@ release commit.
 ### Preconditions
 
 - Clean git tree except intentionally ignored/generated artifacts.
-- Untracked operator docs are either left untouched and moved out of the evidence
-  workspace if they trip `repo_dirty`, or the pipeline is run in a clean clone.
+- Untracked operator docs are either left untouched and moved out of the
+  evidence workspace if they trip
+  `repo_dirty_before_release_evidence_regeneration`, or the pipeline is run in
+  a clean clone.
 - Source health passes.
-- Accepted synthesis/public-feed gates are expected to pass for the release
-  envelope.
+- Accepted synthesis/public-feed gates are expected to pass — Lane 3 left no
+  red gates behind.
 - Auth deployment and provider rehearsal evidence are recorded.
 
 ### Command sequence
@@ -538,18 +626,24 @@ release commit.
    corepack pnpm@9.7.1 check:luma:mvp-production-readiness
    ```
 
-4. When running mesh readiness, pass the coverage report explicitly:
+4. Export the coverage report path for the whole remaining sequence, then run
+   mesh readiness. An inline (single-command) env assignment is not enough: the
+   step 5 pipeline re-runs `check:mesh:production-readiness` in its own
+   environment, and without the exported variable that re-run overwrites
+   `.tmp/mesh-production-readiness/latest` with a blocked no-coverage packet.
 
    ```bash
-   VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json \
-     corepack pnpm@9.7.1 check:mesh:production-readiness
+   export VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT=.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json
+   corepack pnpm@9.7.1 check:mesh:production-readiness
    ```
 
-5. Regenerate the release evidence pipeline at the release commit:
+5. Regenerate the release evidence pipeline at the release commit. Do not
+   insert a bare `--` before `--commit`: the pipeline's argument parser
+   rejects the literal `--` token with `unknown argument: --` and exits 64.
 
    ```bash
    RELEASE_COMMIT="$(git rev-parse HEAD)"
-   corepack pnpm@9.7.1 report:mvp-release-evidence -- --commit "$RELEASE_COMMIT"
+   corepack pnpm@9.7.1 report:mvp-release-evidence --commit "$RELEASE_COMMIT"
    corepack pnpm@9.7.1 check:mvp-closeout
    ```
 
@@ -567,23 +661,39 @@ release commit.
    git diff --check
    ```
 
+7. Decide the multi-user product-loop claim. The closeout evidence classifies
+   `full_product_engagement_claim_without_live_lane` as a ship blocker: do not
+   claim the full multi-user product loop was exercised against release-like
+   service wiring unless the live lane passes on the release candidate:
+
+   ```bash
+   corepack pnpm@9.7.1 live:stack:up:analysis-stub
+   corepack pnpm@9.7.1 test:live:five-user-engagement
+   ```
+
+   Either run this lane at the release commit, or exclude the claim from the
+   distribution packet and tester copy.
+
 ### Expected interpretation
 
 - `luma_mvp` must pass.
 - `source_health` must pass.
-- `mvp_release_gates` must pass for the intended release envelope.
-- `mvp_closeout` must pass or record only expected boundary blocks that are not
-  claimed, such as mesh/canary readiness outside the release envelope.
+- `mvp_release_gates` must pass — every gate; the check has no envelope or
+  exclusion mechanism.
+- `mvp_closeout` must pass. The only accepted boundary outcomes
+  (mesh-not-release-ready and canary-blocked-on-mesh) occur inside a passing
+  closeout and produce no blocker entries; any entry that does appear in the
+  pipeline report's `blockers` is release-stopping by construction.
 - Any packet stamped at an older commit is not release evidence for current
   `main`.
 
 ### Exit criteria
 
 - `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json`
-  is generated at the release commit.
-- Closeout status is compatible with the release claim.
-- Blockers are zero, or any remaining block is outside the explicit release
-  envelope and forbidden from tester-facing copy.
+  has `status: pass` and `release_commit_verified: true` at the release
+  commit. A passing run already accommodates the accepted mesh/canary
+  boundary outcomes.
+- Blockers are zero. There is no category of acceptable remaining blocker.
 
 ## Lane 7 - Manual 3-Browser Tester Rehearsal And Privacy Proof
 
@@ -594,7 +704,9 @@ deterministic reports.
 
 ### Preconditions
 
-- Deployed Web PWA target selected.
+- Deployed Web PWA target selected; the current deployed target is
+  `https://venn.carboncaste.io` served by the `vhc-public-beta-origin` image
+  on A6, and it must carry the release-commit assets before rehearsal.
 - Auth callback target deployed and configured.
 - Live accepted-current story available if the release envelope claims it.
 - Source health and release gates green.
@@ -602,8 +714,11 @@ deterministic reports.
 
 ### Rehearsal
 
-Use `docs/ops/BETA_SESSION_RUNSHEET.md` as canonical procedure. Required
-workflow:
+Use `docs/ops/BETA_SESSION_RUNSHEET.md` as canonical procedure. The runsheet
+predates the account/sign-in surface (#729/#734), so a small repo PR must
+first extend it with the provider sign-in, account-to-LUMA binding, and
+provider-availability steps below — keeping it the single canonical
+procedure rather than forking it here. Required workflow:
 
 1. open three browser profiles to the same deployed PWA target;
 2. create distinct beta-local LUMA identities;
@@ -673,11 +788,27 @@ Tester copy must say:
   GitHub support issues;
 - report failures with story/topic ids, screenshots, and browser context.
 
-Tester copy must not say:
+Tester copy must not say (the first block is the full
+`check:luma-forbidden-claims` registry from `spec-luma-service-v0.md` §20,
+which binds UI copy, marketing, and docs):
 
 - verified human;
 - one-human-one-vote;
-- residency verified;
+- Sybil-resistant;
+- district-proof;
+- cryptographic residency (or "residency verified");
+- anonymous / fully anonymous;
+- untraceable / untraceable across devices;
+- permanently delete(d) (from the network);
+- "Reset Identity deletes your activity";
+- "Sign Out removes your data from the network";
+
+and additionally:
+
+- test-group ready (the closeout packet's own forbidden-claims list includes
+  "The app is test-group ready." — distribution authority comes from the
+  packet combined with the Lane 7 rehearsal and Lane 5 provider evidence,
+  never from that claim);
 - production attestation;
 - full production-ready app;
 - mesh release-ready;
@@ -690,17 +821,22 @@ Tester copy must not say:
 - Start with `dev-small`: 1-3 testers.
 - Keep one operator watching email alerts and session telemetry.
 - Pause intake on freshness alert, ack-timeout degradation, convergence p95
-  above 10 seconds for 15 minutes, analysis 429 above threshold, or support
-  privacy leak.
-- Move to `beta-scale` only after two consecutive daily gates and two passing
-  manual 3-browser checks.
+  above 10 seconds for 15 minutes, analysis 429 rate above 3% for 10 minutes
+  or 5% for 5 minutes, or support privacy leak.
+- Move to `beta-scale` only after the run-sheet flip-switch criteria: two
+  consecutive daily gates on `dev-small`, two passing manual 3-browser checks,
+  no sustained 429 or ack-timeout degradation during either qualifying
+  session, and the flip changes profile values only.
 
 ### Rollback
 
 Rollback must be possible without A6 mutation unless A6 was the changed surface:
 
-- disable provider button by removing `VITE_AUTH_CALLBACK_BASE_URL` and
-  redeploying PWA;
+- disable provider buttons by removing `VITE_AUTH_CALLBACK_BASE_URL` and
+  redeploying the PWA — note this is an origin-image redeploy on A6 per
+  `docs/ops/public-beta-image-deploy.md`, so faster non-A6 mitigations
+  (disabling the auth-callback service or its provider configuration at the
+  edge host) come first;
 - disable or roll back auth-callback service at the edge host;
 - if accepted synthesis canary causes failures, execute the canary packet's
   explicit rollback;
@@ -708,11 +844,21 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
   otherwise;
 - preserve evidence before rollback.
 
+### Exit criteria
+
+- The distribution packet is complete with every listed field filled in.
+- The first `dev-small` wave is invited with claim-safe copy only.
+- One operator is actively watching email alerts and session telemetry for the
+  wave.
+- The rollback path has been read through by the incident owner and is
+  executable without improvisation.
+- Every pause-intake trigger has a named owner who can act on it.
+
 ## Go / No-Go Matrix
 
 | Area | Go condition | No-go condition |
 | --- | --- | --- |
-| Repo state | `main` clean, release commit known, no blocking PRs | dirty tree, unmerged release PR, unknown commit |
+| Repo state | `main` clean, release commit known, no blocking PRs | dirty tree (beyond the documented preserved untracked operator docs handled per Lane 6), unmerged release PR, unknown commit |
 | Source health | release evidence `pass`, full clean window | `ap-topnews` or any source keeps window blocked |
 | A6 raw feed | freshness, relay liveness, relay snapshot, watch closure pass | stale feed, parked publisher, relay quorum loss |
 | Accepted synthesis | accepted-current story proven live if claimed | no live accepted synthesis but copy claims summaries/table |
@@ -721,7 +867,8 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
 | LUMA | current release commit passes MVP readiness | stale pass only, current run blocked |
 | Vote persistence | 3-browser convergence and reload pass | local echo only, ack timeouts, reload loss |
 | Privacy | no sensitive fields in public paths/telemetry | any raw proof/provider/nullifier leak |
-| Evidence packet | regenerated at release commit | stale packet reused |
+| Evidence packet | `status: pass` with `release_commit_verified: true` at release commit | stale packet reused, blocked/failed pipeline, or unverified commit |
+| External approval | signoff recorded, or not-required decision recorded | approval required but unrecorded |
 | Ops | email alert path active, incident owner assigned | silent failure mode or owner missing |
 
 ## Risk Register
@@ -736,7 +883,7 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
 | Browser local echo mistaken for mesh convergence | Vote loop appears healthier than it is | Run-sheet requires observation on non-voting browsers |
 | District/proof material leaks | Privacy violation | Public namespace leak gates plus manual devtools spot-check |
 | A6 touch resets unattended window | Reliability proof ambiguity | Record every touch; do not conflate raw-feed proof with accepted-synthesis canary |
-| Heap retainer remains unknown | Sustained-operation risk | Keep alerting on; wait for 500 MB -> 700 MB analyzer before memory remediation |
+| Heap retainer remains unknown | Sustained-operation risk | Keep alerting on; wait for the post-recovery 500 MB -> 700 MB heap-summary pair and its secret-safe analyzer verdict before memory remediation |
 
 ## Sprint Definition Of Done
 
@@ -753,7 +900,9 @@ The release-readiness sprint is complete when all of these are true:
 7. `check:mvp-release-gates`, `check:mvp-closeout`,
    `check:public-beta-launch-closeout`, `check:launch-content-snapshot`,
    `check:public-beta-compliance`, `docs:check`, typecheck, lint, build, and
-   `git diff --check` pass or have explicit non-claimed boundary blocks;
+   `git diff --check` all pass — the accepted mesh/canary boundary outcomes
+   already occur inside a passing closeout, and no red check is excusable by
+   envelope narrowing;
 8. the manual 3-browser rehearsal passes;
 9. tester copy and support instructions are claim-safe;
 10. rollback and incident owners are named;
@@ -761,11 +910,20 @@ The release-readiness sprint is complete when all of these are true:
 
 ## Immediate Next Actions
 
-1. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
-2. Resolve `ap-topnews` and recover the source-health window.
-3. Draft the A6 accepted-synthesis canary packet, but do not run it until source
-   health and pre-canary readbacks are green.
-4. Stand up the auth-callback edge host and start Apple provider registration.
-5. Regenerate release evidence only after the live blockers are cleared.
-6. Run the 3-browser rehearsal against the deployed target.
-7. Ship `dev-small` tester invites with claim-safe copy.
+1. Record the Lane 0 launch note: envelope, owners (including incident owner),
+   PWA hosting target, release-commit pinning rule, and the external-approval
+   decision. The first A6 read-only readback (2026-07-08, `347d2018`, services
+   green, freshness pass) is already recorded above.
+2. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
+3. Resolve `ap-topnews` and recover the source-health window.
+4. Draft the A6 accepted-synthesis canary packet, but do not run it until
+   source health and pre-canary readbacks are green and the standing
+   attended-soak preconditions are met.
+5. Stand up the auth-callback edge host, start Apple provider registration,
+   and plan the origin-image rebuild that bakes the auth and CSP env into the
+   deployed PWA.
+6. Extend `docs/ops/BETA_SESSION_RUNSHEET.md` with the sign-in and
+   account-binding rehearsal steps via a small repo PR.
+7. Regenerate release evidence only after the live blockers are cleared.
+8. Run the 3-browser rehearsal against the deployed target.
+9. Ship `dev-small` tester invites with claim-safe copy.
