@@ -82,8 +82,9 @@ Repository and GitHub state at sprint start:
 - open PRs: only #747, this outline's own draft PR;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
-  `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
-  `docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md`.
+  `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
+  `DISTRIBUTION_READINESS_SLICES_2026-07-05.md`. They are intentionally not
+  cited as committed `docs/...` dependencies because CI does not have them.
 
 Merged repo capabilities:
 
