@@ -1,10 +1,15 @@
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import {
+  LAUNCH_CONTROL_PATH,
+  validatePublicBetaLaunchControl,
+} from './check-public-beta-launch-control.mjs';
 
 const repoRoot = process.cwd();
 
 const files = {
   packageJson: 'package.json',
+  launchControl: LAUNCH_CONTROL_PATH,
   closeout: 'docs/ops/public-beta-launch-readiness-closeout.md',
   roadmap: 'docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md',
   status: 'docs/foundational/STATUS.md',
@@ -20,6 +25,7 @@ const requiredScripts = {
   'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
   'check:public-beta-compliance': 'node ./tools/scripts/check-public-beta-compliance.mjs',
+  'check:public-beta-launch-control': 'node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
   'docs:check': 'node tools/scripts/check-docs-governance.mjs',
 };
@@ -62,6 +68,7 @@ const requiredLaunchSnapshotCoverage = [
 
 const requiredEvidenceNeedles = [
   'pnpm check:public-beta-launch-closeout',
+  'pnpm check:public-beta-launch-control',
   'pnpm check:mvp-release-gates',
   'pnpm check:mvp-closeout',
   'pnpm check:launch-content-snapshot',
@@ -71,6 +78,7 @@ const requiredEvidenceNeedles = [
   '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
   '.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json',
   'docs/ops/public-beta-launch-readiness-closeout.md',
+  LAUNCH_CONTROL_PATH,
   'ship_blocker',
   'post_beta_follow_up',
   'release_commit_gate_packet_missing_or_failing',
@@ -115,6 +123,7 @@ function requireRegex(relPath, content, regex, description) {
 }
 
 const packageJson = JSON.parse(readRepoFile(files.packageJson));
+const launchControl = readRepoFile(files.launchControl);
 const closeout = readRepoFile(files.closeout);
 const roadmap = readRepoFile(files.roadmap);
 const status = readRepoFile(files.status);
@@ -128,6 +137,10 @@ for (const [scriptName, expectedCommand] of Object.entries(requiredScripts)) {
   if (packageJson.scripts?.[scriptName] !== expectedCommand) {
     issues.push(`${files.packageJson}: script "${scriptName}" must be "${expectedCommand}"`);
   }
+}
+
+for (const issue of validatePublicBetaLaunchControl(launchControl)) {
+  issues.push(issue);
 }
 
 for (const gateId of requiredMvpGateIds) {
