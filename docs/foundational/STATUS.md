@@ -225,10 +225,11 @@ Current policy state:
   - this is not legal approval, a private support inbox, full RBAC/admin membership management, automated escalation/SLA handling, or a full trust-and-safety operations console.
 - Web PWA public-beta launch closeout is implemented as an explicit evidence map:
   - closeout doc: `docs/ops/public-beta-launch-readiness-closeout.md`;
-  - focused gate: `pnpm check:public-beta-launch-closeout`;
+  - launch-control packet: `docs/ops/public-beta-launch-control-2026-07-09.md`;
+  - focused gates: `pnpm check:public-beta-launch-control` and `pnpm check:public-beta-launch-closeout`;
   - MVP report gates: `public_feed_analysis_frame_reliability`, `public_feed_composition_freshness`, `public_feed_lifecycle_accountability`, `story_identity_growth`, `public_feed_pagination_refresh`, `stance_aggregate_decay_public_mesh`, and `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
   - consolidated truth packet: `pnpm check:mvp-closeout`, writing `.tmp/mvp-closeout/latest/mvp-closeout-report.json`;
-  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
+  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:public-beta-launch-control`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
   - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
 - LUMA public-beta MVP readiness is now an explicit deterministic gate:
   - focused gate: `pnpm check:luma:mvp-production-readiness`;
@@ -283,6 +284,7 @@ Current policy state:
   commit:
   - `pnpm check:mvp-release-gates`
   - `pnpm check:mvp-closeout`
+  - `pnpm check:public-beta-launch-control`
   - `pnpm check:public-beta-launch-closeout`
   - `pnpm check:launch-content-snapshot`
   - `pnpm check:public-beta-compliance`
@@ -326,6 +328,7 @@ Current policy state:
   - live raw public-news headlines are live under the Phase 5 Scope A profile;
   - live corroborated/accepted-synthesis headline claims remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
   - public-beta policy/support minimums are gated by `pnpm check:public-beta-compliance` and represented in the MVP gate report;
+  - public-beta launch control is gated by `pnpm check:public-beta-launch-control` and recorded in `docs/ops/public-beta-launch-control-2026-07-09.md`;
   - public-beta launch closeout is gated by `pnpm check:public-beta-launch-closeout` and recorded in `docs/ops/public-beta-launch-readiness-closeout.md`;
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.

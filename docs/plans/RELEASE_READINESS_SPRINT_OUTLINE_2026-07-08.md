@@ -2,7 +2,7 @@
 
 > Status: Execution outline for fastest credible tester distribution
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Current repo basis: `main@069006f0` after #754
+> Current repo basis: `main@590a496e` after #755
 > Latest release evidence basis: stale packet at `1a83434b`
 > Latest recorded Scope A proof packet: `47ba218d`
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
@@ -78,7 +78,7 @@ Claim boundaries:
 
 Repository and GitHub state at sprint start:
 
-- current repo: `main@069006f0`;
+- current repo: `main@590a496e`;
 - open PRs: none at the time of this branch;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
@@ -125,13 +125,14 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 - A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
   12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
   (2026-07-06);
-- A6 is 28 commits behind `main@069006f0`; the delta includes #741
+- A6 is 30 commits behind `main@590a496e`; the delta includes #741
   reject-unmarked system-writer adapters, #742 VaultV2 old-bundle write
   preservation, #745 civic representative durability readback, #746 docs
   alignment, #747 release-readiness sprint outline, #748 source-health
   recovery, #749 beta runsheet sign-in rehearsal, #750 headline-soak
   diagnostics, #751/#752 launch control, #753 StoryCluster credential repair
-  packet, and #754 A6 accepted-synthesis canary packet;
+  packet, #754 A6 accepted-synthesis canary packet, and #755 auth-callback
+  deployment packet/provider allowlist wiring;
 - `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
   `active/running` with `ExecMainStatus=0`;
 - `vh-public-feed-alert-watch.timer` and
@@ -229,6 +230,10 @@ surface before any operator action starts.
 
 - A one-page launch note records the release envelope, forbidden claims,
   operator owners, deployed target URLs, and rollback contacts.
+- `corepack pnpm@9.7.1 check:public-beta-launch-control` passes. The current
+  no-go packet must retain explicit operator blanks and live-evidence blockers;
+  a future `go_for_dev_small_tester_wave` packet must not retain stale no-go
+  language.
 - If the release envelope is narrowed, every excluded claim is removed from
   tester-facing copy before distribution.
 
@@ -692,6 +697,7 @@ release commit.
    ```bash
    corepack pnpm@9.7.1 check:mvp-release-gates
    corepack pnpm@9.7.1 check:public-beta-launch-closeout
+   corepack pnpm@9.7.1 check:public-beta-launch-control
    corepack pnpm@9.7.1 check:launch-content-snapshot
    corepack pnpm@9.7.1 check:public-beta-compliance
    corepack pnpm@9.7.1 docs:check
@@ -939,8 +945,9 @@ The release-readiness sprint is complete when all of these are true:
 5. every advertised provider passes live sign-in and account-to-LUMA binding;
 6. release evidence is regenerated at the release commit;
 7. `check:mvp-release-gates`, `check:mvp-closeout`,
-   `check:public-beta-launch-closeout`, `check:launch-content-snapshot`,
-   `check:public-beta-compliance`, `docs:check`, typecheck, lint, build, and
+   `check:public-beta-launch-closeout`, `check:public-beta-launch-control`,
+   `check:launch-content-snapshot`, `check:public-beta-compliance`,
+   `docs:check`, typecheck, lint, build, and
    `git diff --check` all pass — the accepted mesh/canary boundary outcomes
    already occur inside a passing closeout, and no red check is excusable by
    envelope narrowing;
