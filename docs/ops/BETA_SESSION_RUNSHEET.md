@@ -100,21 +100,26 @@ Required deployment facts:
 
 1. The PWA build must have `VITE_AUTH_CALLBACK_BASE_URL` set to the deployed
    auth-callback boundary outside A6.
-2. The auth-callback boundary must be reachable at:
+2. The PWA build must have `VITE_AUTH_CALLBACK_PROVIDERS` set to the exact
+   providers advertised for the session, or to `none` when sign-in is disabled.
+   Leaving it blank offers all three supported providers once the boundary URL
+   is set.
+3. The auth-callback boundary must be reachable at:
 
    ```
    curl -sf https://<AUTH_CALLBACK_BASE_URL>/api/health
    ```
 
-3. The health response may expose only booleans and reason codes. It must not
+4. The health response may expose only booleans and reason codes. It must not
    expose provider client secrets, tokens, provider subjects, private keys,
    state HMAC keys, or raw provider error bodies.
-4. Every provider visible in tester copy or UI must be configured in health:
+5. Every provider visible in tester copy or UI must be configured in health:
    `providersConfigured.apple`, `providersConfigured.google`, and/or
    `providersConfigured.x`.
-5. If a provider is not configured, hide that provider from tester copy and do
-   not count it as rehearsed. A narrowed beta may proceed only if the release
-   envelope explicitly does not advertise the missing provider.
+6. If a provider is not configured, remove it from
+   `VITE_AUTH_CALLBACK_PROVIDERS`, hide it from tester copy, and do not count it
+   as rehearsed. A narrowed beta may proceed only if the release envelope
+   explicitly does not advertise the missing provider.
 
 Required local sanity commands before live provider rehearsal:
 

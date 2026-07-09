@@ -98,6 +98,40 @@ describe('provider availability', () => {
     expect(isSignInProviderAvailable('x', e2eEnv())).toBe(true);
   });
 
+  it('narrows real providers with VITE_AUTH_CALLBACK_PROVIDERS', () => {
+    const env = realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'google x' });
+    expect(isSignInProviderAvailable('apple', env)).toBe(false);
+    expect(isSignInProviderAvailable('google', env)).toBe(true);
+    expect(isSignInProviderAvailable('x', env)).toBe(true);
+    expect(availableSignInProviders(env)).toEqual(['google', 'x']);
+  });
+
+  it('ignores unknown provider names in the configured provider allowlist', () => {
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'reddit, google, facebook' }))).toEqual(['google']);
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'reddit facebook' }))).toEqual([]);
+  });
+
+  it('supports an explicit none/off provider allowlist for sign-in rollback builds', () => {
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'none' }))).toEqual([]);
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'off' }))).toEqual([]);
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'false' }))).toEqual([]);
+  });
+
+  it('keeps configured provider order stable and de-duplicates allowlist entries', () => {
+    expect(availableSignInProviders(realEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'x,google,x,apple' }))).toEqual([
+      'apple',
+      'google',
+      'x',
+    ]);
+  });
+
+  it('applies the configured provider allowlist in e2e mode too', () => {
+    const env = e2eEnv({ VITE_AUTH_CALLBACK_PROVIDERS: 'apple' });
+    expect(isSignInProviderAvailable('apple', env)).toBe(true);
+    expect(isSignInProviderAvailable('google', env)).toBe(false);
+    expect(availableSignInProviders(env)).toEqual(['apple']);
+  });
+
   it('lists available providers for a real build and an e2e build', () => {
     expect(availableSignInProviders(realEnv())).toEqual(['apple', 'google', 'x']);
     expect(availableSignInProviders(e2eEnv())).toEqual(['apple', 'google', 'x']);

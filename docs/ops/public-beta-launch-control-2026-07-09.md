@@ -6,6 +6,7 @@
 > Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
+> `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`,
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
 > `docs/ops/public-beta-image-deploy.md`
 
@@ -127,7 +128,7 @@ Do not claim any of the following from this release packet:
 | MVP release gates | Stale packet still `fail`; public-feed and stance aggregate gates not refreshed on current live target | Must pass on release commit |
 | LUMA MVP readiness | Previously passed at stale evidence commit | Must be included in the release-commit packet |
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
-| Auth callback | Repo capability exists; deployment/provider setup pending | Required before advertising sign-in providers |
+| Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
 
 ## Rollback And Stop Rules

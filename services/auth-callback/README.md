@@ -101,7 +101,7 @@ VH_AUTH_APPLE_CLIENT_ID=              # Services ID
 VH_AUTH_APPLE_TEAM_ID=
 VH_AUTH_APPLE_KEY_ID=
 VH_AUTH_APPLE_PRIVATE_KEY=            # PKCS#8 PEM (.p8 contents)
-VH_AUTH_APPLE_REDIRECT_URI=           # per-env
+VH_AUTH_APPLE_REDIRECT_URI=           # https://<auth-boundary>/auth/apple/return for form_post
 VH_AUTH_APPLE_SCOPES=email            # optional override
 VH_AUTH_PWA_CALLBACK_ROUTE=/auth/callback  # optional; PWA route the /auth/apple/return 303 targets
 VH_AUTH_PWA_ORIGIN=                   # optional; only needed for a MULTI-origin deployment — the origin /auth/apple/return redirects to when the signed state carries no usable origin (must be one of VH_AUTH_ALLOWED_ORIGINS)
@@ -109,18 +109,47 @@ VH_AUTH_PWA_ORIGIN=                   # optional; only needed for a MULTI-origin
 # Google
 VH_AUTH_GOOGLE_CLIENT_ID=
 VH_AUTH_GOOGLE_CLIENT_SECRET=
-VH_AUTH_GOOGLE_REDIRECT_URI=          # per-env
+VH_AUTH_GOOGLE_REDIRECT_URI=          # https://<pwa-origin>/auth/callback
 VH_AUTH_GOOGLE_SCOPES="openid email"  # optional override
 
 # X (OAuth 2.0 confidential client)
 VH_AUTH_X_CLIENT_ID=
 VH_AUTH_X_CLIENT_SECRET=
-VH_AUTH_X_REDIRECT_URI=               # per-env
+VH_AUTH_X_REDIRECT_URI=               # https://<pwa-origin>/auth/callback
 VH_AUTH_X_SCOPES="users.read tweet.read"  # optional override
 ```
 
 Test-only injection points (never set in deployment): `__TEST_STORE`,
 `__TEST_FETCH`, `__TEST_NOW_MS`.
+
+Public PWA build-time env:
+
+```bash
+VITE_AUTH_CALLBACK_BASE_URL=          # https://<auth-boundary>; unset hides real sign-in
+VITE_AUTH_CALLBACK_ROUTE=/auth/callback
+VITE_AUTH_CALLBACK_PROVIDERS=         # optional allowlist: apple google x
+```
+
+When `VITE_AUTH_CALLBACK_BASE_URL` is set, the PWA can start real provider
+flows. `VITE_AUTH_CALLBACK_PROVIDERS` narrows the visible provider rows for a
+staged release: for example, `google` offers only Google even if Apple and X are
+compiled into the client. Unknown provider names are ignored. If the variable is
+unset or blank, all three supported providers are offered. Set it to `none`,
+`off`, or `false` to hide every provider in a rollback build while leaving the
+boundary URL present.
+
+Redirect URI shape:
+
+- Apple uses the worker receiver by default because non-empty scopes require
+  `response_mode=form_post`: register and set `VH_AUTH_APPLE_REDIRECT_URI` to
+  `https://<auth-boundary>/auth/apple/return`.
+- Google and X use query redirects to the PWA route: register and set
+  `VH_AUTH_GOOGLE_REDIRECT_URI` / `VH_AUTH_X_REDIRECT_URI` to
+  `https://<pwa-origin>/auth/callback`.
+- Do not register Google or X directly to the worker callback endpoint for this
+  release path. The worker never accepts the browser-held PKCE verifier from a
+  provider navigation GET, so that route intentionally fails PKCE and steers
+  clients back to the PWA POST flow.
 
 ## Deployment target
 
