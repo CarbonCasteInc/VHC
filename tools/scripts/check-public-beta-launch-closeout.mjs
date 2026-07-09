@@ -15,6 +15,7 @@ const files = {
   status: 'docs/foundational/STATUS.md',
   compliance: 'docs/ops/public-beta-compliance-minimums.md',
   betaRunbook: 'docs/ops/BETA_SESSION_RUNSHEET.md',
+  distributionPacket: 'docs/ops/public-beta-distribution-packet-2026-07-09.md',
   mvpReleaseGates: 'packages/e2e/src/mvp-release-gates.mjs',
   launchContentSnapshot: 'packages/e2e/src/launch-content-snapshot.mjs',
   publicBetaCompliance: 'tools/scripts/check-public-beta-compliance.mjs',
@@ -25,8 +26,10 @@ const requiredScripts = {
   'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
   'check:public-beta-compliance': 'node ./tools/scripts/check-public-beta-compliance.mjs',
+  'check:public-beta-distribution-packet': 'node --test ./tools/scripts/public-beta-distribution-packet.test.mjs',
   'check:public-beta-launch-control': 'node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
+  'check:release-readiness-operator-packets': 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs',
   'docs:check': 'node tools/scripts/check-docs-governance.mjs',
 };
 
@@ -69,6 +72,8 @@ const requiredLaunchSnapshotCoverage = [
 const requiredEvidenceNeedles = [
   'pnpm check:public-beta-launch-closeout',
   'pnpm check:public-beta-launch-control',
+  'pnpm check:public-beta-distribution-packet',
+  'pnpm check:release-readiness-operator-packets',
   'pnpm check:mvp-release-gates',
   'pnpm check:mvp-closeout',
   'pnpm check:launch-content-snapshot',
@@ -79,6 +84,10 @@ const requiredEvidenceNeedles = [
   '.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json',
   'docs/ops/public-beta-launch-readiness-closeout.md',
   LAUNCH_CONTROL_PATH,
+  'docs/ops/public-beta-distribution-packet-2026-07-09.md',
+  'docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md',
+  'docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md',
+  'docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md',
   'ship_blocker',
   'post_beta_follow_up',
   'release_commit_gate_packet_missing_or_failing',
@@ -125,6 +134,7 @@ function requireRegex(relPath, content, regex, description) {
 const packageJson = JSON.parse(readRepoFile(files.packageJson));
 const launchControl = readRepoFile(files.launchControl);
 const closeout = readRepoFile(files.closeout);
+const distributionPacket = readRepoFile(files.distributionPacket);
 const roadmap = readRepoFile(files.roadmap);
 const status = readRepoFile(files.status);
 const compliance = readRepoFile(files.compliance);
@@ -175,6 +185,14 @@ for (const [relPath, requiredLink] of requiredDocLinks) {
 
 requireIncludes(files.publicBetaCompliance, publicBetaCompliance, 'operator_trust_gate', 'operator trust public-beta compliance check');
 requireIncludes(files.publicBetaCompliance, publicBetaCompliance, 'private escalation protocol coverage', 'private escalation public-beta compliance check');
+requireIncludes(
+  files.distributionPacket,
+  distributionPacket,
+  'blocked_pending_release_evidence_rehearsal_and_operator_fields',
+  'blocked distribution packet status',
+);
+requireIncludes(files.distributionPacket, distributionPacket, 'go_for_dev_small_distribution', 'distribution go status');
+requireIncludes(files.distributionPacket, distributionPacket, 'Rollback is claim-first', 'distribution rollback boundary');
 
 requireRegex(
   files.closeout,

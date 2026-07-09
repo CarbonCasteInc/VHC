@@ -3,7 +3,7 @@
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-09
-> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md
+> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md
 
 Version: 0.10
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
@@ -159,6 +159,23 @@ check:public-beta-launch-control` statically enforces that no-go packets retain
 explicit blockers and go packets do not retain TBDs, release-blocker rows, stale
 blocked-evidence text, or "No tester wave" language.
 
+The first-wave distribution packet is recorded in
+`docs/ops/public-beta-distribution-packet-2026-07-09.md`. It is intentionally
+blocked until release evidence, provider rehearsal, A6/origin readbacks,
+operator owners, rollback ownership, alert ownership, private support,
+external approval disposition, and manual rehearsal fields are filled. `pnpm
+check:public-beta-distribution-packet` pins that blocked state, the required
+evidence rows, claim-safe tester invite copy, stop rules, and rollback
+boundaries so launch closeout cannot drift away from the actual distribution
+control surface.
+
+The remaining operator packets are guarded by
+`pnpm check:release-readiness-operator-packets`: StoryCluster headline-soak
+credential repair, A6 accepted-synthesis canary, and auth-callback/provider
+deployment. The check keeps those packets pending or draft until their
+preconditions are met, and pins their secret-safe evidence, non-goals, stop
+rules, rollback boundaries, and no-live-authority claims.
+
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
 Superseding public app/feed recovery update, 2026-05-31: PR #631 head
@@ -228,7 +245,9 @@ Run these commands on the final public-beta release commit and preserve their ou
 | Evidence | Command | Deterministic report or artifact | Required result |
 | --- | --- | --- | --- |
 | Release-owner launch control | `pnpm check:public-beta-launch-control` | `docs/ops/public-beta-launch-control-2026-07-09.md` plus `tools/scripts/check-public-beta-launch-control.mjs` | Current no-go packet must retain explicit operator blanks and live-evidence blockers; a future `go_for_dev_small_tester_wave` packet must have operator fields and evidence rows filled and must not retain stale no-go/blocker language |
-| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control checker above |
+| First-wave distribution packet | `pnpm check:public-beta-distribution-packet` | `docs/ops/public-beta-distribution-packet-2026-07-09.md` plus `tools/scripts/public-beta-distribution-packet.test.mjs` | Current packet must remain blocked until every release evidence, A6/origin readback, provider rehearsal, manual rehearsal, owner, alert, support, rollback, and external-approval field is filled; tester copy remains claim-safe and rollback remains claim-first |
+| Operator packet boundary guard | `pnpm check:release-readiness-operator-packets` | `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`, `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`, `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`, plus `tools/scripts/release-readiness-operator-packets.test.mjs` | Pending/draft operator packets retain secret-safe handling, exact live authority boundaries, non-goals, stop rules, and rollback constraints before any live execution |
+| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control, distribution-packet, and operator-packet checks above |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
 | Public feed analysis/frame reliability | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm test:public-feed:browser-smoke` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` plus `.tmp/analysis-frame-pipeline/<timestamp>/` consistency probes | `pass`; public top-N latest-index body 404 count is zero or inside an explicitly recorded repair/tombstone window; app-open feed population succeeds without a manual refresh click; at least one current accepted synthesis is visible by default with frame/reframe rows and point ids when relay lifecycle matches the current story/source-set revision; pending/terminal stories still render honest non-votable states |
 | Public feed composition/freshness | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm check:public-feed:composition-freshness` | `.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json` | `pass`; public latest feed includes both singleton and multi-source/corroborated stories, reports composition/per-story public-state counts, verifies latest-index product metadata, verifies relay cursor pagination for older latest-index rows, independently verifies latest-index and sampled story-body readback on every configured public relay peer, and fails instead of `setup_scarcity` when source-health evidence proves corroborated supply exists but the deployed feed remains singleton-only |

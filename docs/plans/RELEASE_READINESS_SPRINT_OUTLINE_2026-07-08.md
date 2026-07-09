@@ -2,7 +2,7 @@
 
 > Status: Execution outline for fastest credible tester distribution
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Current repo basis: `main@590a496e` after #755
+> Current repo basis: `main@9c35a676` after #757
 > Latest release evidence basis: stale packet at `1a83434b`
 > Latest recorded Scope A proof packet: `47ba218d`
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
@@ -76,9 +76,9 @@ Claim boundaries:
 
 ## Current State Grounding
 
-Repository and GitHub state at sprint start:
+Repository and GitHub state at this alignment point:
 
-- current repo: `main@590a496e`;
+- current repo: `main@9c35a676`;
 - open PRs: none at the time of this branch;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
@@ -97,9 +97,10 @@ Merged repo capabilities:
 - full migrated system-writer read-class hardening;
 - VaultV2 forward-compatible old-bundle write preservation;
 - civic representative non-validating durability readback for writes;
-- docs alignment after the hardening sequence.
+- docs alignment after the hardening sequence;
 - release-readiness operator packets for Lane 0 launch control, StoryCluster
-  headline-soak credential repair, and A6 accepted-synthesis canary.
+  headline-soak credential repair, A6 accepted-synthesis canary,
+  auth-callback/provider deployment, and first-wave distribution.
 
 Latest local evidence state:
 
@@ -125,14 +126,15 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 - A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
   12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
   (2026-07-06);
-- A6 is 30 commits behind `main@590a496e`; the delta includes #741
+- A6 is 35 commits behind `main@9c35a676`; the delta includes #741
   reject-unmarked system-writer adapters, #742 VaultV2 old-bundle write
   preservation, #745 civic representative durability readback, #746 docs
   alignment, #747 release-readiness sprint outline, #748 source-health
   recovery, #749 beta runsheet sign-in rehearsal, #750 headline-soak
   diagnostics, #751/#752 launch control, #753 StoryCluster credential repair
-  packet, #754 A6 accepted-synthesis canary packet, and #755 auth-callback
-  deployment packet/provider allowlist wiring;
+  packet, #754 A6 accepted-synthesis canary packet, #755 auth-callback
+  deployment packet/provider allowlist wiring, #756 launch-control gate, and
+  #757 first-wave distribution packet;
 - `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
   `active/running` with `ExecMainStatus=0`;
 - `vh-public-feed-alert-watch.timer` and
@@ -698,6 +700,8 @@ release commit.
    corepack pnpm@9.7.1 check:mvp-release-gates
    corepack pnpm@9.7.1 check:public-beta-launch-closeout
    corepack pnpm@9.7.1 check:public-beta-launch-control
+   corepack pnpm@9.7.1 check:public-beta-distribution-packet
+   corepack pnpm@9.7.1 check:release-readiness-operator-packets
    corepack pnpm@9.7.1 check:launch-content-snapshot
    corepack pnpm@9.7.1 check:public-beta-compliance
    corepack pnpm@9.7.1 docs:check
@@ -946,6 +950,8 @@ The release-readiness sprint is complete when all of these are true:
 6. release evidence is regenerated at the release commit;
 7. `check:mvp-release-gates`, `check:mvp-closeout`,
    `check:public-beta-launch-closeout`, `check:public-beta-launch-control`,
+   `check:public-beta-distribution-packet`,
+   `check:release-readiness-operator-packets`,
    `check:launch-content-snapshot`, `check:public-beta-compliance`,
    `docs:check`, typecheck, lint, build, and
    `git diff --check` all pass — the accepted mesh/canary boundary outcomes
@@ -967,8 +973,10 @@ The release-readiness sprint is complete when all of these are true:
    recorded. The first A6 read-only readback (2026-07-08, `347d2018`, services
    green, freshness pass) is already recorded above.
 2. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
-3. Merge the `ap-topnews` source-surface fix and rerun source-health on the
-   intended release commit.
+3. Rerun source-health on the intended release commit. The `ap-topnews`
+   source-surface fix is already merged, and the latest local source-health
+   packet is `ready`/`pass`; the consolidated release evidence packet still
+   needs the current-commit run.
 4. Repair the live headline-soak credential/endpoint and rerun
    `corepack pnpm@9.7.1 collect:storycluster:headline-soak` plus
    `corepack pnpm@9.7.1 check:storycluster:production-readiness` until the

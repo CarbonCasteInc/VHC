@@ -102,6 +102,12 @@ const supportIssueTemplate = readRepoFile(files.supportIssueTemplate);
 if (packageJson.scripts?.['check:public-beta-compliance'] !== 'node ./tools/scripts/check-public-beta-compliance.mjs') {
   issues.push('package.json: missing check:public-beta-compliance script');
 }
+if (packageJson.scripts?.['check:public-beta-distribution-packet'] !== 'node --test ./tools/scripts/public-beta-distribution-packet.test.mjs') {
+  issues.push('package.json: missing check:public-beta-distribution-packet script');
+}
+if (packageJson.scripts?.['check:release-readiness-operator-packets'] !== 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs') {
+  issues.push('package.json: missing check:release-readiness-operator-packets script');
+}
 
 requireIncludes(files.routes, routes, '<ComplianceFooter />', 'global compliance footer');
 requireIncludes(files.routes, routes, `path: '${complianceIndex.route}'`, `${complianceIndex.route} route`);
@@ -189,6 +195,9 @@ const requiredDocsPhrases = [
   'The reachable public beta support channel is the VHC GitHub Issue Form',
   'Private Escalation Protocol',
   'minimum trusted beta operator authorization gate is implemented',
+  'pnpm check:public-beta-distribution-packet',
+  'pnpm check:release-readiness-operator-packets',
+  'docs/ops/public-beta-distribution-packet-2026-07-09.md',
   'Public reports are workflow records, not a private support inbox',
   'Support requests are public workflow records, not private correspondence',
   'The private escalation protocol is an operator handoff rule, not a private support desk',
@@ -284,5 +293,5 @@ if (issues.length > 0) {
 }
 
 console.log(
-  `Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, operator trust gate, and private escalation protocol checked)`,
+  `Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, operator trust gate, private escalation protocol, distribution packet command, and operator packet command checked)`,
 );
