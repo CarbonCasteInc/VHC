@@ -7,8 +7,8 @@
 
 
 **Last Updated:** 2026-07-09
-**Version:** 0.9.11 (release-readiness runsheet update after #748 source-health merge)
-**Assessment:** Controlled beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. The repository includes #748 at merge commit `0a85b2f8`, which removed the dead `ap-topnews` starter source and pinned source/storycluster script dispatch through `corepack pnpm@9.7.1`. Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: public accepted-synthesis/feed gates still depend on A6/operator enablement, and the packet must be regenerated at the intended release commit. A 2026-07-09 source-health rerun after #748 is `ready` with 24 enabled keep sources, no watch/remove sources, and `releaseEvidence.status: pass` after the configured five-run window; the broader StoryCluster production-readiness report still blocks on headline-soak release evidence because the local real StoryCluster/OpenAI path rejected its credential (`invalid_api_key`, redacted in artifacts). The beta session runsheet now contains the manual account sign-in and account-to-LUMA binding rehearsal required before any tester-facing sign-in claim. The stale packet's LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit after live/operator blockers clear. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. While A6 stays fresh, the posture remains wait/watch: no publisher/relay restart, pager cutover, Codex live execution, retention/compaction/memory remediation, or accepted-synthesis enablement without its own operator packet.
+**Version:** 0.9.12 (release-readiness control surface update after #757 distribution packet merge)
+**Assessment:** Controlled beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. The repository includes #757 at merge commit `9c35a676`, so the launch-control packet, public-beta distribution packet, auth-callback deployment packet, accepted-synthesis canary packet, StoryCluster credential-repair packet, runsheet sign-in rehearsal, and source-health recovery are now all committed control surfaces. Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: public accepted-synthesis/feed gates still depend on A6/operator enablement, and the packet must be regenerated at the intended release commit. A 2026-07-09 source-health rerun after #748 is `ready` with 24 enabled keep sources, no watch/remove sources, and `releaseEvidence.status: pass` after the configured five-run window; the broader StoryCluster production-readiness report still blocks on headline-soak release evidence because the local real StoryCluster/OpenAI path rejected its credential (`invalid_api_key`, redacted in artifacts). The beta session runsheet now contains the manual account sign-in and account-to-LUMA binding rehearsal required before any tester-facing sign-in claim, and the first-wave distribution packet is explicitly blocked until release evidence, live/operator readbacks, provider rehearsal, manual rehearsal, alert ownership, rollback ownership, support ownership, and external approval disposition are filled. The stale packet's LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit after live/operator blockers clear. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery plus the later read-only A6 readback at `347d2018`; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. While A6 stays fresh, the posture remains wait/watch: no publisher/relay restart, pager cutover, Codex live execution, retention/compaction/memory remediation, or accepted-synthesis enablement without its own operator packet.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -82,6 +82,10 @@ Current policy state:
     reject-unmarked mode to every migrated system-writer read class, preserving
     newer VaultV2 data on old-bundle writes, and using non-validating
     durability readback for civic representative snapshot writes.
+  - #756/#757 add the deterministic launch-control and first-wave distribution
+    packet gates that keep release approval, operator ownership, provider
+    rehearsal, manual rehearsal, rollback, alert ownership, and tester-copy
+    claims explicit before any dev-small wave.
 - Current consolidated evidence posture:
   - latest release pipeline artifact:
     `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json`;
@@ -226,10 +230,11 @@ Current policy state:
 - Web PWA public-beta launch closeout is implemented as an explicit evidence map:
   - closeout doc: `docs/ops/public-beta-launch-readiness-closeout.md`;
   - launch-control packet: `docs/ops/public-beta-launch-control-2026-07-09.md`;
-  - focused gates: `pnpm check:public-beta-launch-control` and `pnpm check:public-beta-launch-closeout`;
+  - first-wave distribution packet: `docs/ops/public-beta-distribution-packet-2026-07-09.md`;
+  - focused gates: `pnpm check:public-beta-launch-control`, `pnpm check:public-beta-distribution-packet`, `pnpm check:release-readiness-operator-packets`, and `pnpm check:public-beta-launch-closeout`;
   - MVP report gates: `public_feed_analysis_frame_reliability`, `public_feed_composition_freshness`, `public_feed_lifecycle_accountability`, `story_identity_growth`, `public_feed_pagination_refresh`, `stance_aggregate_decay_public_mesh`, and `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
   - consolidated truth packet: `pnpm check:mvp-closeout`, writing `.tmp/mvp-closeout/latest/mvp-closeout-report.json`;
-  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:public-beta-launch-control`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
+  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:public-beta-launch-control`, `pnpm check:public-beta-distribution-packet`, `pnpm check:release-readiness-operator-packets`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
   - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
 - LUMA public-beta MVP readiness is now an explicit deterministic gate:
   - focused gate: `pnpm check:luma:mvp-production-readiness`;
@@ -279,12 +284,14 @@ Current policy state:
   - collapsed news cards are compact and place available story media beside the headline/title, with extra source images kept for expanded detail.
 - Story bundler release claims now have an explicit operational scorecard:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
-- Merge-time CI through #745 was green on `main`, but a public-beta
+- Merge-time CI through #757 was green on `main`, but a public-beta
   release claim still requires a fresh release packet on the intended release
   commit:
   - `pnpm check:mvp-release-gates`
   - `pnpm check:mvp-closeout`
   - `pnpm check:public-beta-launch-control`
+  - `pnpm check:public-beta-distribution-packet`
+  - `pnpm check:release-readiness-operator-packets`
   - `pnpm check:public-beta-launch-closeout`
   - `pnpm check:launch-content-snapshot`
   - `pnpm check:public-beta-compliance`
@@ -329,6 +336,8 @@ Current policy state:
   - live corroborated/accepted-synthesis headline claims remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
   - public-beta policy/support minimums are gated by `pnpm check:public-beta-compliance` and represented in the MVP gate report;
   - public-beta launch control is gated by `pnpm check:public-beta-launch-control` and recorded in `docs/ops/public-beta-launch-control-2026-07-09.md`;
+  - public-beta first-wave distribution is gated by `pnpm check:public-beta-distribution-packet` and recorded in `docs/ops/public-beta-distribution-packet-2026-07-09.md`;
+  - release-readiness operator packets are gated by `pnpm check:release-readiness-operator-packets` and record the current StoryCluster credential repair, accepted-synthesis canary, and auth-callback/provider boundaries;
   - public-beta launch closeout is gated by `pnpm check:public-beta-launch-closeout` and recorded in `docs/ops/public-beta-launch-readiness-closeout.md`;
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
