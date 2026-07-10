@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   newsAggregatorPublisherLivenessWatchInternal,
   runNewsAggregatorPublisherLivenessWatch,
@@ -10,6 +11,7 @@ import {
 
 const NOW = Date.now();
 const RUN_ID = '20260620T101500Z-1234';
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function makeTempState() {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-publisher-liveness-'));
@@ -347,6 +349,49 @@ test('publisher liveness classifies exit 78 fail-close and guard refusal separat
   } finally {
     rmSync(paths.root, { recursive: true, force: true });
   }
+});
+
+test('publisher liveness classifies the attended-or-automatic authority refusal as a guard refusal', () => {
+  const refusal = newsAggregatorPublisherLivenessWatchInternal.LIVE_START_AUTHORITY_REFUSAL;
+  const failureClass = newsAggregatorPublisherLivenessWatchInternal.classifyJournal(
+    refusal,
+    {
+      ActiveState: 'failed',
+      ExecMainStatus: '78',
+    },
+  );
+
+  assert.equal(failureClass, 'guard_refusal');
+});
+
+test('publisher liveness authority-refusal literal matches every producer refusal site', () => {
+  const refusal = newsAggregatorPublisherLivenessWatchInternal.LIVE_START_AUTHORITY_REFUSAL;
+  const producerSource = readFileSync(
+    path.join(SCRIPT_DIR, 'start-news-aggregator-daemon-production.sh'),
+    'utf8',
+  );
+  const producerRefusalLines = producerSource
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.includes('refusing live start without'));
+
+  assert.ok(producerRefusalLines.length > 0, 'producer must retain an authority-refusal site');
+  assert.deepEqual(
+    [...new Set(producerRefusalLines)],
+    [`echo "${refusal}" >&2`],
+  );
+});
+
+test('publisher liveness does not broaden the authority refusal classifier to nearby text', () => {
+  const failureClass = newsAggregatorPublisherLivenessWatchInternal.classifyJournal(
+    '[vh:news-daemon:prod] refusing live start without attended or automatic-restart authority',
+    {
+      ActiveState: 'failed',
+      ExecMainStatus: '78',
+    },
+  );
+
+  assert.equal(failureClass, 'exit_78_unknown');
 });
 
 test('publisher liveness falls back to active-enter timestamp when current run marker is absent', async () => {
