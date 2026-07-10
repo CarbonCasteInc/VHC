@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 REPO_ROOT="${VHC_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+COMMON_SH="${REPO_ROOT}/tools/scripts/lib/news-aggregator-publisher-recovery-common.sh"
 ENV_FILE="${VH_NEWS_DAEMON_ENV_FILE:-${HOME}/.config/vhc/news-aggregator.env}"
 STATE_DIR="${VH_NEWS_DAEMON_STATE_DIR:-${HOME}/.local/state/vhc/news-aggregator}"
 ARTIFACT_ROOT="${VH_DAEMON_FEED_ARTIFACT_ROOT:-${STATE_DIR}/artifacts}"
+EXPECTED_REVISION_FROM_EXECSTART="${VH_NEWS_DAEMON_EXPECTED_REVISION:-}"
+PREFLIGHT_ONLY_FROM_CALLER="${VH_NEWS_DAEMON_PREFLIGHT_ONLY:-}"
+PREFLIGHT_APPROVAL_FROM_CALLER="${VH_NEWS_DAEMON_PREFLIGHT_APPROVED:-}"
+RESTART_AUTHORITY_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json}"
+RESTART_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json}"
+ATTENDED_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json}"
+ATTENDED_RECEIPT_FROM_UNIT="${VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-consumption-receipt.json}"
+SYSTEMD_UNIT_FROM_UNIT="${VH_NEWS_DAEMON_SYSTEMD_UNIT:-vh-news-aggregator.service}"
+
+if [[ ! -r "${COMMON_SH}" ]]; then
+  echo "[vh:news-daemon:prod] recovery common checks are unavailable" >&2
+  exit 78
+fi
+# shellcheck disable=SC1090
+source "${COMMON_SH}"
+vh_publisher_require_exact_checkout "${REPO_ROOT}" "${EXPECTED_REVISION_FROM_EXECSTART}"
 
 if [[ ! -r "${ENV_FILE}" ]]; then
   echo "[vh:news-daemon:prod] env file is required and must be readable: ${ENV_FILE}" >&2
@@ -17,6 +35,18 @@ set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
+
+# Control authority is intentionally captured before the persistent host env is
+# sourced. A value parked in news-aggregator.env cannot authorize live writes.
+export VH_NEWS_DAEMON_EXPECTED_REVISION="${EXPECTED_REVISION_FROM_EXECSTART}"
+export VH_NEWS_DAEMON_PREFLIGHT_ONLY="${PREFLIGHT_ONLY_FROM_CALLER}"
+export VH_NEWS_DAEMON_PREFLIGHT_APPROVED="${PREFLIGHT_APPROVAL_FROM_CALLER}"
+export VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE="${RESTART_AUTHORITY_FROM_UNIT}"
+export VH_NEWS_DAEMON_RESTART_PERMIT_FILE="${RESTART_PERMIT_FROM_UNIT}"
+export VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE="${ATTENDED_PERMIT_FROM_UNIT}"
+export VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE="${ATTENDED_RECEIPT_FROM_UNIT}"
+export VH_NEWS_DAEMON_SYSTEMD_UNIT="${SYSTEMD_UNIT_FROM_UNIT}"
+unset VH_NEWS_DAEMON_ATTENDED_START_APPROVED VH_NEWS_DAEMON_START_APPROVED
 
 truthy_flag() {
   case "${1:-}" in
@@ -85,7 +115,22 @@ if truthy_flag "${VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE:-${VH_NEWS_DAEMON_NO_WRITE:
   export VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1
 fi
 
-if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
+PREFLIGHT_ONLY=false
+if truthy_flag "${VH_NEWS_DAEMON_PREFLIGHT_ONLY:-}"; then
+  PREFLIGHT_ONLY=true
+fi
+
+if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
+  if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
+    echo "[vh:news-daemon:prod] refusing ambiguous preflight-only and diagnostic modes" >&2
+    exit 78
+  fi
+  if [[ "${VH_NEWS_DAEMON_PREFLIGHT_APPROVED:-}" != "1" ]]; then
+    echo "[vh:news-daemon:prod] refusing preflight-only mode without distinct approval" >&2
+    exit 78
+  fi
+  echo "[vh:news-daemon:prod] exact-revision preflight-only mode approved; publisher start is suppressed"
+elif [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
   if [[ "${VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED:-}" != "1" ]]; then
     echo "[vh:news-daemon:prod] refusing no-write diagnostic without VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1 in ${ENV_FILE}" >&2
     exit 78
@@ -101,9 +146,73 @@ if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
     exit 78
   fi
   DIAGNOSTIC_TIMEOUT_BIN="${VH_NEWS_DAEMON_DIAGNOSTIC_TIMEOUT_BIN:-timeout}"
-elif [[ "${VH_NEWS_DAEMON_START_APPROVED:-}" != "1" ]]; then
-  echo "[vh:news-daemon:prod] refusing to start without VH_NEWS_DAEMON_START_APPROVED=1 in ${ENV_FILE}" >&2
-  exit 78
+else
+  # Manager-environment flags were the legacy attended-start mechanism. They
+  # are never authority now, and every live invocation clears them before
+  # consuming exactly one private file permit.
+  if ! systemctl --user unset-environment \
+    VH_NEWS_DAEMON_ATTENDED_START_APPROVED \
+    VH_NEWS_DAEMON_START_APPROVED >/dev/null 2>&1; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval could not be cleared" >&2
+    exit 78
+  fi
+  if ! manager_environment="$(systemctl --user show-environment 2>/dev/null)"; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval state is unavailable" >&2
+    exit 78
+  fi
+  if grep -Eq '^(VH_NEWS_DAEMON_ATTENDED_START_APPROVED|VH_NEWS_DAEMON_START_APPROVED)=' \
+    <<<"${manager_environment}"; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval remained set" >&2
+    exit 78
+  fi
+  current_nrestarts="$(systemctl --user show "${VH_NEWS_DAEMON_SYSTEMD_UNIT}" --property=NRestarts --value 2>/dev/null || true)"
+  attended_present=false
+  automatic_present=false
+  [[ -e "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" || -L "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" ]] \
+    && attended_present=true
+  [[ -e "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" || -L "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" ]] \
+    && automatic_present=true
+  if [[ ! "${current_nrestarts}" =~ ^[0-9]+$ || "${attended_present}" == "${automatic_present}" ]]; then
+    echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+    exit 78
+  fi
+  if [[ "${attended_present}" == "true" ]]; then
+    runtime_pin_json="$(
+      unset VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
+      node "${REPO_ROOT}/tools/scripts/verify-news-aggregator-publisher-recovery.mjs" pin-sha256
+    )" || {
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    }
+    runtime_pin_sha256="$(node -e '
+      const value = JSON.parse(process.argv[1]);
+      if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+      process.stdout.write(value.systemWriterPinSha256);
+    ' "${runtime_pin_json}")" || {
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    }
+    if ! node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume-attended \
+      --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
+      --attended-permit-file "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" \
+      --attended-receipt-file "${VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE}" \
+      --current-nrestarts "${current_nrestarts}" \
+      --system-writer-pin-sha256 "${runtime_pin_sha256}" >/dev/null 2>&1; then
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    fi
+    echo "[vh:news-daemon:prod] verified private single-use attended start permit"
+  elif ! node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume \
+    --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
+    --authority-file "${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE}" \
+    --permit-file "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" \
+    --current-nrestarts "${current_nrestarts}" \
+    --max-age-ms 120000 >/dev/null 2>&1; then
+    echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+    exit 78
+  else
+    echo "[vh:news-daemon:prod] verified single-use automatic restart after exit 69"
+  fi
 fi
 
 require_no_news_daemon_siblings "start"
@@ -125,6 +234,8 @@ export VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY="${VH_NEWS_RUNTIME_RAW_BUNDL
 export VH_NEWS_RUNTIME_TICK_WATCHDOG_MS="${VH_NEWS_RUNTIME_TICK_WATCHDOG_MS:-420000}"
 export VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH="${VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH:-256}"
 LAST_SUCCESS_FILE="${VH_NEWS_DAEMON_LAST_SUCCESS_FILE:-${VH_NEWS_DAEMON_STATE_DIR}/last-success.json}"
+export VH_NEWS_DAEMON_LAST_SUCCESS_FILE="${LAST_SUCCESS_FILE}"
+export VH_NEWS_DAEMON_PREFLIGHT_ARTIFACT="${VH_NEWS_DAEMON_PREFLIGHT_ARTIFACT:-${VH_NEWS_DAEMON_STATE_DIR}/recovery/preflight.json}"
 OPENAI_PREFLIGHT_TIMEOUT_MS="${VH_NEWS_PUBLISHER_OPENAI_PREFLIGHT_TIMEOUT_MS:-120000}"
 
 mkdir -p "${VH_NEWS_DAEMON_STATE_DIR}" "${VH_DAEMON_FEED_ARTIFACT_ROOT}" "$(dirname "${LAST_SUCCESS_FILE}")"
@@ -218,39 +329,17 @@ NODE
 echo "[vh:news-daemon:prod] raw publication readiness preflight starting"
 node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-preflight.mjs"
 
-LAST_SUCCESS_FILE="${LAST_SUCCESS_FILE}" node --input-type=module <<'NODE'
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+if [[ "${PREFLIGHT_ONLY}" == "true" ]]; then
+  node "${REPO_ROOT}/tools/scripts/write-news-aggregator-production-start-artifact.mjs" --mode preflight
+  echo "[vh:news-daemon:prod] exact-revision preflight artifact written; publisher remains parked"
+  exit 0
+fi
 
-const filePath = process.env.LAST_SUCCESS_FILE;
-const currentRunFilePath = process.env.VH_NEWS_DAEMON_CURRENT_RUN_FILE;
-const generatedAt = new Date().toISOString();
-const currentRun = {
-  schemaVersion: 'vh-news-daemon-current-run-v1',
-  generatedAt,
-  status: 'preflight_passed',
-  runId: process.env.VH_DAEMON_FEED_RUN_ID,
-  stateDir: process.env.VH_NEWS_DAEMON_STATE_DIR,
-  artifactRoot: process.env.VH_DAEMON_FEED_ARTIFACT_ROOT,
-  queueDir: process.env.VH_BUNDLE_SYNTHESIS_QUEUE_DIR,
-  lifecycleLedger: process.env.VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER,
-};
-await mkdir(path.dirname(filePath), { recursive: true });
-await writeFile(filePath, `${JSON.stringify({
-  schemaVersion: 'vh-news-daemon-production-start-v1',
-  generatedAt,
-  status: 'preflight_passed',
-  runId: process.env.VH_DAEMON_FEED_RUN_ID,
-  stateDir: process.env.VH_NEWS_DAEMON_STATE_DIR,
-  artifactRoot: process.env.VH_DAEMON_FEED_ARTIFACT_ROOT,
-  queueDir: process.env.VH_BUNDLE_SYNTHESIS_QUEUE_DIR,
-  lifecycleLedger: process.env.VH_BUNDLE_SYNTHESIS_LIFECYCLE_LEDGER,
-}, null, 2)}\n`, 'utf8');
-if (currentRunFilePath) {
-  await mkdir(path.dirname(currentRunFilePath), { recursive: true });
-  await writeFile(currentRunFilePath, `${JSON.stringify(currentRun, null, 2)}\n`, 'utf8');
-}
-NODE
+if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
+  node "${REPO_ROOT}/tools/scripts/write-news-aggregator-production-start-artifact.mjs" --mode diagnostic
+else
+  node "${REPO_ROOT}/tools/scripts/write-news-aggregator-production-start-artifact.mjs" --mode start
+fi
 
 echo "[vh:news-daemon:prod] preflights passed; starting canonical @vh/news-aggregator daemon"
 if [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then

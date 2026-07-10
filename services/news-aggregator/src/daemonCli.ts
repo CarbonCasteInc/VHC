@@ -10,8 +10,8 @@ export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
  * zero relays produced a validated acknowledgement after bounded endpoint-local
  * reconciliation and every POST remained network/deadline-unacknowledged. No
  * write-safety invariant is in doubt and the writes are id-keyed idempotent
- * upserts. systemd restarts this
- * exit code (`Restart=on-failure`; only 78 is in `RestartPreventExitStatus`),
+ * upserts. systemd restarts exactly this exit code (`Restart=no` with
+ * `RestartForceExitStatus=69`),
  * bounded by `StartLimitBurst`/`StartLimitIntervalSec`, giving transient
  * network blips a bounded self-recovery path while genuine write-safety halts
  * stay parked on 78 for operator inspection.
