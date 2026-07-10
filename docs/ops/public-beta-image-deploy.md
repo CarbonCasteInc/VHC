@@ -427,13 +427,24 @@ The publisher is considered parked only when the live tuple is exactly
 `failed/failed`, `Result=exit-code`, `ExecMainStatus=78`. Initial precheck and the
 final command before each A/B/C removal require that tuple; inactive, active,
 activating, deactivating, a different exit code, or a resume between stages all
-stop before mutation. Initial and per-stage relay metrics must contain the
-watchdog-trip metric at zero; the secret-safe metric evidence is retained and a
-pre-existing trip cannot be hidden by restart-reset counters. Unexpected exact
-readback bodies remain private and only a closed mismatch reason is printed.
-Rollback remove, start, readiness, topology, OOM, snapshot-integrity, and
-evidence-permission failures are individually guarded and normalized to exit
-`78`.
+stop before mutation. The tuple is checked again after each relay verifies and
+before GO; a resume during verification rolls back that already-mutated relay
+and stops. Topology, relay-health/watchdog, or publisher refusal before removal
+exits `78` without `docker rm`, `docker run`, or rollback of the untouched relay;
+rollback is reachable only after the mutation-started latch.
+
+Initial and per-stage metrics treat an absent watchdog-trip row as semantic zero
+because the relay emits rows from an initially empty reason map, but only when
+exactly one numeric uptime row and one positive numeric process-RSS row prove
+the payload came from the relay metrics producer. A present trip row must be
+exactly one well-formed zero row; empty, random, malformed, duplicate, or
+nonzero telemetry stops. The secret-safe metric evidence is retained so a
+pre-existing trip cannot be hidden by restart-reset counters. Before any evidence write, the packet
+requires a non-symlink current-user-owned `0700` work directory under private
+umask. Unexpected exact-readback bodies remain private and only a closed
+mismatch reason is printed. Rollback remove, start, readiness, topology, OOM,
+snapshot-integrity, and evidence-permission failures are individually guarded
+and normalized to exit `78`.
 
 The canonical blocked packet and authority checklist are in
 `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.

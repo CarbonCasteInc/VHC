@@ -123,7 +123,7 @@ would still not authorize publisher recovery or make S1B green.
 
 The fail-closed packet contract now treats parked as exactly `failed/failed`,
 `Result=exit-code`, `ExecMainStatus=78` and rechecks that tuple as the final gate
-before each A/B/C removal. It also compares every stage's live
+before each A/B/C removal and after verification before GO. It also compares every stage's live
 image/env/mount/network/port/restart/user/memory topology with the capture,
 preserves and rejects pre-existing watchdog-trip evidence before counters can
 reset, never prints hostile unexpected 404 bodies, and normalizes each rollback
@@ -131,6 +131,17 @@ failure class to a closed reason and exit `78`. Deterministic adversarial tests
 cover transitional/resumed publisher state, every captured topology dimension,
 pre-existing trips, secret-bearing bodies, and rollback remove/run/readiness/
 checksum failures. These are repo safeguards, not live proof or authority.
+
+Pre-mutation refusals are isolated from rollback: topology,
+readiness/watchdog, or publisher failure exits `78` without removing, running,
+or rolling back the untouched relay. Only the mutation-started latch at the
+removal boundary can enter recovery. The packet creates and validates its
+non-symlink, current-user-owned `0700` evidence directory before the first
+write. Healthy relays may omit the watchdog-trip row because its source map is
+initially empty; absence is semantic zero only when exactly one valid uptime and
+process-RSS row authenticates the producer, while empty/random, malformed,
+duplicate, or nonzero telemetry fails closed. The executable fixture covers these cases plus a
+publisher resume during/post-verification.
 
 ## Current GitHub/Repo State
 

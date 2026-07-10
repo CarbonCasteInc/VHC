@@ -814,7 +814,9 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
     assert.match(packet, /vh_relay_resource_watchdog_trips_total/);
     assert.match(packet, /publisher_not_exactly_parked_exit_78/);
     assert.match(packet, /captured_live_topology_parity_failed/);
-    assert.match(packet, /preexisting_watchdog_trip_or_metric_missing/);
+    assert.match(packet, /preexisting_relay_metrics_invalid_or_watchdog_nonzero/);
+    assert.match(packet, /pre_mutation_refused_no_change/);
+    assert.match(packet, /relay_mutation_started=true/);
     assert.doesNotMatch(packet, /closed missing-key response mismatch/);
     assert.match(packet, /\/vh\/news\/story.*readback=exact.*news-story-not-found/);
     assert.match(packet, /\/vh\/news\/latest-index.*news-latest-index-not-found/);
@@ -825,10 +827,16 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
       assert.match(packet, new RegExp(`sha256:${name}`));
       const stageStart = packet.indexOf(`# Stage ${name.endsWith('-a') ? 'A' : name.endsWith('-b') ? 'B' : 'C'}:`);
       const remove = packet.indexOf(`sudo docker rm -f ${name} &&`, stageStart);
-      const publisherCheck = packet.indexOf('assert_publisher_parked &&', stageStart);
+      const publisherCheck = packet.indexOf('assert_publisher_parked', stageStart);
+      const postVerifyPublisherCheck = packet.indexOf('assert_publisher_parked', publisherCheck + 1);
       const topologyCheck = packet.indexOf(`assert_live_topology_parity '${name}'`, stageStart);
       const prestateCheck = packet.indexOf(`assert_relay_prestate '${name}'`, stageStart);
-      assert.ok(stageStart > 0 && topologyCheck < prestateCheck && prestateCheck < publisherCheck && publisherCheck < remove, packet);
+      const refusal = packet.indexOf(`${name}: pre_mutation_refused_no_change`, stageStart);
+      const latch = packet.indexOf('relay_mutation_started=true', stageStart);
+      const verify = packet.indexOf(`verify_relay_only_runtime '${name}'`, stageStart);
+      const go = packet.indexOf(`${name}: GO for next relay`, stageStart);
+      assert.ok(stageStart > 0 && topologyCheck < prestateCheck && prestateCheck < publisherCheck && publisherCheck < refusal && refusal < latch && latch < remove, packet);
+      assert.ok(remove < verify && verify < postVerifyPublisherCheck && postVerifyPublisherCheck < go, packet);
     }
     for (const reason of [
       'rollback_remove_failed',
@@ -843,6 +851,13 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
     assert.match(packet, /Keep the publisher parked/);
     assert.doesNotMatch(packet, /sudo docker rm -f vhc-public-origin|--name vhc-public-origin|Origin Deploy/);
     assert.doesNotMatch(packet, /do-not-print/);
+    const readOnlyPrecheck = packet.match(/## Read-Only Precheck[\s\S]*?```bash\n([\s\S]*?)\n```/)?.[1];
+    assert.ok(readOnlyPrecheck);
+    const privateDirCreate = readOnlyPrecheck.indexOf('install -d -m 700 /tmp/vhc-public-beta-deploy');
+    const firstPrivateWrite = readOnlyPrecheck.indexOf('> /tmp/vhc-public-beta-deploy/');
+    assert.ok(readOnlyPrecheck.indexOf('umask 077') >= 0 && privateDirCreate >= 0 && privateDirCreate < firstPrivateWrite, readOnlyPrecheck);
+    assert.match(readOnlyPrecheck, /relay_packet_private_dir_unsafe/);
+    assert.match(readOnlyPrecheck, /stat -c '%a'/);
     const bashBlocks = [...packet.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]);
     assert.ok(bashBlocks.length >= 5, packet);
     for (const [index, block] of bashBlocks.entries()) {
@@ -869,7 +884,7 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
   }
 });
 
-test('relay-only approval block rejects publisher resume, stale topology, prior trips, hostile bodies, and rollback failures', () => {
+test('relay-only approval block keeps precondition refusal nonmutating and closes publisher, topology, watchdog, body, and rollback failures', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-adversarial-'));
   const evidenceDir = '/tmp/vhc-public-beta-deploy';
   const evidenceDirExisted = existsSync(evidenceDir);
@@ -1048,7 +1063,18 @@ done
 if [[ "\${FAKE_CURL_MODE:-}" == "hostile" ]]; then
   payload='{"ok":false,"error":"wrong","story_id":"wrong","secret":"HOSTILE_404_SECRET_DO_NOT_LEAK"}'
 elif [[ "\${url}" == */metrics ]]; then
-  if [[ "\${FAKE_CURL_MODE:-}" == "preexisting_trip" ]]; then payload='vh_relay_resource_watchdog_trips_total 7'; else payload='vh_relay_resource_watchdog_trips_total 0'; fi
+  base_metrics=$'vh_relay_uptime_seconds 12\\nvh_relay_process_rss_bytes 123456'
+  case "\${FAKE_CURL_MODE:-}" in
+    preexisting_trip) payload="\${base_metrics}"$'\\n''vh_relay_resource_watchdog_trips_total{reason="rss"} 7' ;;
+    duplicate_watchdog) payload="\${base_metrics}"$'\\n''vh_relay_resource_watchdog_trips_total{reason="rss"} 0'$'\\n''vh_relay_resource_watchdog_trips_total{reason="heap"} 0' ;;
+    malformed_watchdog) payload="\${base_metrics}"$'\\n''vh_relay_resource_watchdog_trips_total{reason="rss" 0' ;;
+    nonnumeric_watchdog) payload="\${base_metrics}"$'\\n''vh_relay_resource_watchdog_trips_total{reason="rss"} nope' ;;
+    explicit_zero) payload="\${base_metrics}"$'\\n''vh_relay_resource_watchdog_trips_total{reason="rss"} 0' ;;
+    empty_metrics) payload='' ;;
+    random_metrics) payload='totally_unrelated_metric 1' ;;
+    duplicate_authentic) payload="\${base_metrics}"$'\\n''vh_relay_uptime_seconds 13' ;;
+    *) payload="\${base_metrics}" ;;
+  esac
 elif [[ "\${url}" == */healthz ]]; then payload='{"ok":true,"service":"vh-relay"}'
 else payload='{"ok":true,"service":"vh-relay"}'
 fi
@@ -1146,14 +1172,36 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
       assert.doesNotMatch(rejected.stderr, /HOSTILE_SECRET_DO_NOT_LEAK/);
     }
 
+    const prestateScript = `${helpers}\nassert_relay_prestate 'vhc-relay-a' 'http://127.0.0.1:8765' 'prestage-a'`;
     resetFakes();
-    const priorTrip = runBash(`${helpers}\nassert_relay_prestate 'vhc-relay-a' 'http://127.0.0.1:8765' 'prestage-a'`, {
-      FAKE_CURL_MODE: 'preexisting_trip',
+    const absentMetric = runBash(prestateScript, {
       FAKE_PUBLISHER_SEQUENCE: 'failed,failed,exit-code,78',
     });
-    assert.equal(priorTrip.status, 78, priorTrip.stderr);
-    assert.match(priorTrip.stderr, /preexisting_watchdog_trip_or_metric_missing/);
-    assert.match(readFileSync(path.join(evidenceDir, 'vhc-relay-a.prestage-a.metrics'), 'utf8'), /trips_total 7/);
+    assert.equal(absentMetric.status, 0, absentMetric.stderr);
+    assert.doesNotMatch(readFileSync(path.join(evidenceDir, 'vhc-relay-a.prestage-a.metrics'), 'utf8'), /watchdog_trips_total/);
+    for (const mode of [
+      'preexisting_trip',
+      'duplicate_watchdog',
+      'malformed_watchdog',
+      'nonnumeric_watchdog',
+      'empty_metrics',
+      'random_metrics',
+      'duplicate_authentic',
+    ]) {
+      resetFakes();
+      const rejected = runBash(prestateScript, {
+        FAKE_CURL_MODE: mode,
+        FAKE_PUBLISHER_SEQUENCE: 'failed,failed,exit-code,78',
+      });
+      assert.equal(rejected.status, 78, `${mode}: ${rejected.stderr}`);
+      assert.match(rejected.stderr, /preexisting_relay_metrics_invalid_or_watchdog_nonzero/);
+    }
+    resetFakes();
+    const explicitZero = runBash(prestateScript, {
+      FAKE_CURL_MODE: 'explicit_zero',
+      FAKE_PUBLISHER_SEQUENCE: 'failed,failed,exit-code,78',
+    });
+    assert.equal(explicitZero.status, 0, explicitZero.stderr);
 
     resetFakes();
     const hostile = runBash(`${helpers}\nverify_exact_missing_key 'http://127.0.0.1:8765' '/vh/news/story' 'story_id=sentinel&readback=exact' 'news-story-not-found' 'sentinel' 'vhc-relay-a.story'`, {
@@ -1163,6 +1211,55 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
     assert.equal(hostile.status, 78, hostile.stderr);
     assert.match(hostile.stderr, /exact_missing_key_contract_mismatch/);
     assert.doesNotMatch(hostile.stderr, /HOSTILE_404_SECRET_DO_NOT_LEAK|"secret"|"error"/);
+
+    const preconditionCases = [
+      {
+        label: 'topology',
+        overrides: 'assert_live_topology_parity() { echo forced_topology_refusal >&2; return 78; }\nassert_relay_prestate() { return 0; }\nassert_publisher_parked() { return 0; }',
+        publisher: 'failed,failed,exit-code,78',
+      },
+      {
+        label: 'watchdog',
+        overrides: 'assert_live_topology_parity() { return 0; }\nassert_relay_prestate() { echo forced_watchdog_refusal >&2; return 78; }\nassert_publisher_parked() { return 0; }',
+        publisher: 'failed,failed,exit-code,78',
+      },
+      {
+        label: 'publisher',
+        overrides: 'assert_live_topology_parity() { return 0; }\nassert_relay_prestate() { return 0; }',
+        publisher: 'active,running,success,0',
+      },
+    ];
+    for (const precondition of preconditionCases) {
+      resetFakes();
+      const rejected = runBash(`${helpers}
+${precondition.overrides}
+verify_relay_only_runtime() { return 0; }
+${stageA}`, { FAKE_PUBLISHER_SEQUENCE: precondition.publisher });
+      assert.equal(rejected.status, 78, `${precondition.label}: ${rejected.stderr}`);
+      assert.match(rejected.stderr, /pre_mutation_refused_no_change/);
+      assert.doesNotMatch(rejected.stderr, /verification failed|rollback_/);
+      assert.equal(readFileSync(files.dockerLog, 'utf8'), '', `${precondition.label}: mutation log was not empty`);
+      assert.equal(readFileSync(files.rmCount, 'utf8').trim(), '0');
+      assert.equal(readFileSync(files.runCount, 'utf8').trim(), '0');
+    }
+
+    resetFakes();
+    const resumedAfterVerification = runBash(`${helpers}
+assert_live_topology_parity() { return 0; }
+assert_relay_prestate() { return 0; }
+verify_relay_only_runtime() { return 0; }
+${stageA}`, {
+      FAKE_PUBLISHER_SEQUENCE: 'failed,failed,exit-code,78;active,running,success,0',
+    });
+    assert.equal(resumedAfterVerification.status, 78, resumedAfterVerification.stderr);
+    assert.match(resumedAfterVerification.stderr, /publisher_not_exactly_parked_exit_78/);
+    assert.match(resumedAfterVerification.stderr, /verification failed; rolling back only this relay/);
+    assert.match(resumedAfterVerification.stderr, /rollback_completed_closed/);
+    const resumedDockerLog = readFileSync(files.dockerLog, 'utf8');
+    assert.equal((resumedDockerLog.match(/^rm:vhc-relay-a$/gm) || []).length, 2, resumedDockerLog);
+    assert.match(resumedDockerLog, /run:vhc-public-beta-relay:reviewed/);
+    assert.match(resumedDockerLog, /run:sha256:vhc-relay-a/);
+    assert.doesNotMatch(resumedDockerLog, /vhc-relay-b|vhc-relay-c/);
 
     const rollbackHarness = `${helpers}
 assert_publisher_parked() { return 0; }

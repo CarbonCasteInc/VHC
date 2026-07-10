@@ -414,6 +414,16 @@ function shellSingleQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
+function privateDeployWorkDirSetupLines() {
+  return [
+    'umask 077',
+    'if [[ -L /tmp/vhc-public-beta-deploy || ( -e /tmp/vhc-public-beta-deploy && ! -d /tmp/vhc-public-beta-deploy ) ]]; then echo "relay_packet_private_dir_unsafe" >&2; exit 78; fi',
+    'install -d -m 700 /tmp/vhc-public-beta-deploy',
+    'if ! relay_packet_private_dir_mode="$(stat -c \'%a\' /tmp/vhc-public-beta-deploy 2>/dev/null || stat -f \'%Lp\' /tmp/vhc-public-beta-deploy 2>/dev/null)"; then echo "relay_packet_private_dir_unsafe" >&2; exit 78; fi',
+    'if [[ ! -O /tmp/vhc-public-beta-deploy || "${relay_packet_private_dir_mode}" != "700" ]]; then echo "relay_packet_private_dir_unsafe" >&2; exit 78; fi',
+  ];
+}
+
 function relayDiagnosticEvidenceCommand(name) {
   const container = byName.get(name);
   const mount = dataMount(container);
@@ -543,8 +553,8 @@ function relayOnlyVerifierFunction() {
     '  if ! curl -fsS --max-time 5 "${origin}/readyz" > "${ready}" 2>/dev/null; then echo "${name}: prestage_readiness_failed" >&2; return 78; fi',
     '  if ! curl -fsS --max-time 5 "${origin}/metrics" > "${metrics}" 2>/dev/null; then echo "${name}: prestage_metrics_failed" >&2; return 78; fi',
     '  chmod 600 "${ready}" "${metrics}" || return 78',
-    '  if ! awk \'BEGIN{seen=0} /^vh_relay_resource_watchdog_trips_total(\\{| )/ {seen=1; if ($NF !~ /^[0-9]+([.][0-9]+)?$/ || $NF + 0 != 0) exit 1} END{if(!seen) exit 1}\' "${metrics}"; then',
-    '    echo "${name}: preexisting_watchdog_trip_or_metric_missing" >&2',
+    '  if ! awk \'BEGIN{trip=0;uptime=0;rss=0} $1 ~ /^vh_relay_resource_watchdog_trips_total/ {trip+=1; if (trip > 1 || NF != 2 || $1 !~ /^vh_relay_resource_watchdog_trips_total(\\{[^}]*\\})?$/ || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 != 0) exit 1; next} $1 ~ /^vh_relay_uptime_seconds/ {uptime+=1; if (uptime > 1 || NF != 2 || $1 != "vh_relay_uptime_seconds" || $2 !~ /^[0-9]+$/) exit 1; next} $1 ~ /^vh_relay_process_rss_bytes/ {rss+=1; if (rss > 1 || NF != 2 || $1 != "vh_relay_process_rss_bytes" || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 <= 0) exit 1; next} END{if(uptime != 1 || rss != 1) exit 1}\' "${metrics}"; then',
+    '    echo "${name}: preexisting_relay_metrics_invalid_or_watchdog_nonzero" >&2',
     '    return 78',
     '  fi',
     '}',
@@ -613,8 +623,8 @@ function relayOnlyVerifierFunction() {
     '  sudo docker exec "${name}" test -s "${data_destination}/topic-synthesis-latest-snapshot.json" || return 78',
     '  sudo sha256sum -c "/tmp/vhc-public-beta-deploy/${name}.snapshots.sha256" || return 78',
     '  curl -fsS --max-time 5 "${origin}/metrics" > "${metrics}" || return 78',
-    '  if ! awk \'/^vh_relay_resource_watchdog_trips_total(\\{| )/ { if ($NF != 0) exit 1 }\' "${metrics}"; then',
-    '    echo "${name}: relay watchdog trip observed; rollback and stop" >&2',
+    '  if ! awk \'BEGIN{trip=0;uptime=0;rss=0} $1 ~ /^vh_relay_resource_watchdog_trips_total/ {trip+=1; if (trip > 1 || NF != 2 || $1 !~ /^vh_relay_resource_watchdog_trips_total(\\{[^}]*\\})?$/ || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 != 0) exit 1; next} $1 ~ /^vh_relay_uptime_seconds/ {uptime+=1; if (uptime > 1 || NF != 2 || $1 != "vh_relay_uptime_seconds" || $2 !~ /^[0-9]+$/) exit 1; next} $1 ~ /^vh_relay_process_rss_bytes/ {rss+=1; if (rss > 1 || NF != 2 || $1 != "vh_relay_process_rss_bytes" || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 <= 0) exit 1; next} END{if(uptime != 1 || rss != 1) exit 1}\' "${metrics}"; then',
+    '    echo "${name}: relay_metrics_invalid_or_watchdog_nonzero" >&2',
     '    return 78',
     '  fi',
     '  LC_ALL=C sort "/tmp/vhc-public-beta-deploy/${name}.env" > "/tmp/vhc-public-beta-deploy/${name}.env.expected" || return 78',
@@ -776,7 +786,7 @@ lines.push('## Read-Only Precheck');
 lines.push('');
 lines.push('```bash');
 lines.push('set -euo pipefail');
-if (relayOnly) lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy');
+if (relayOnly) lines.push(...privateDeployWorkDirSetupLines());
 lines.push(`sudo docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" | grep -E ${shellSingleQuote(psPattern)}`);
 lines.push('python3 <<\'PY\'');
 lines.push('import json, os, time');
@@ -818,7 +828,7 @@ if (relayOnly) {
     lines.push(`curl -fsS --max-time 5 ${shellSingleQuote(`${origin}/readyz`)} > /tmp/vhc-public-beta-deploy/${name}.initial.readyz.json`);
     lines.push(`curl -fsS --max-time 5 ${shellSingleQuote(`${origin}/metrics`)} > /tmp/vhc-public-beta-deploy/${name}.initial.metrics`);
     lines.push(`chmod 600 /tmp/vhc-public-beta-deploy/${name}.initial.readyz.json /tmp/vhc-public-beta-deploy/${name}.initial.metrics`);
-    lines.push(`if ! awk 'BEGIN{seen=0} /^vh_relay_resource_watchdog_trips_total(\\{| )/ {seen=1; if ($NF !~ /^[0-9]+([.][0-9]+)?$/ || $NF + 0 != 0) exit 1} END{if(!seen) exit 1}' /tmp/vhc-public-beta-deploy/${name}.initial.metrics; then echo "${name}: preexisting_watchdog_trip_or_metric_missing" >&2; exit 78; fi`);
+    lines.push(`if ! awk 'BEGIN{trip=0;uptime=0;rss=0} $1 ~ /^vh_relay_resource_watchdog_trips_total/ {trip+=1; if (trip > 1 || NF != 2 || $1 !~ /^vh_relay_resource_watchdog_trips_total(\\{[^}]*\\})?$/ || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 != 0) exit 1; next} $1 ~ /^vh_relay_uptime_seconds/ {uptime+=1; if (uptime > 1 || NF != 2 || $1 != "vh_relay_uptime_seconds" || $2 !~ /^[0-9]+$/) exit 1; next} $1 ~ /^vh_relay_process_rss_bytes/ {rss+=1; if (rss > 1 || NF != 2 || $1 != "vh_relay_process_rss_bytes" || $2 !~ /^[0-9]+([.][0-9]+)?$/ || $2 + 0 <= 0) exit 1; next} END{if(uptime != 1 || rss != 1) exit 1}' /tmp/vhc-public-beta-deploy/${name}.initial.metrics; then echo "${name}: preexisting_relay_metrics_invalid_or_watchdog_nonzero" >&2; exit 78; fi`);
   }
   lines.push("if ! publisher_active_state=\"$(systemctl --user show vh-news-aggregator.service --property=ActiveState --value 2>/dev/null)\"; then echo \"publisher_parked_state_unavailable\" >&2; exit 78; fi");
   lines.push("if ! publisher_sub_state=\"$(systemctl --user show vh-news-aggregator.service --property=SubState --value 2>/dev/null)\"; then echo \"publisher_parked_state_unavailable\" >&2; exit 78; fi");
@@ -837,6 +847,7 @@ lines.push('Relay `.heapsnapshot` and `.heapprofile` artifacts are host-private 
 lines.push('');
 lines.push('```bash');
 lines.push('set -euo pipefail');
+if (relayOnly) lines.push(...privateDeployWorkDirSetupLines());
 lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy/relay-diagnostics-evidence');
 for (const name of relayNames) {
   lines.push(relayDiagnosticEvidenceCommand(name));
@@ -848,7 +859,8 @@ lines.push('## Env Capture');
 lines.push('');
 lines.push('```bash');
 lines.push('set -euo pipefail');
-lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy');
+if (relayOnly) lines.push(...privateDeployWorkDirSetupLines());
+else lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy');
 for (const name of relayNames) {
   lines.push(envCaptureCommand(name, false, !relayOnly));
   if (relayOnly) {
@@ -882,10 +894,11 @@ if (includeRecreate) {
     lines.push('');
     lines.push('Hard authority gate: do not run this section until Lou explicitly approves replacing the contradictory no-relay-restart boundary for this exact reviewed revision. Approval is limited to A, then B, then C; it does not authorize origin, publisher, data, quorum, timeout, recipient, provider, pager, or monitor mutation.');
     lines.push('');
-    lines.push('Each relay is verified before the next is touched. A fresh live/captured topology comparison and zero-trip prestate run for that relay, then the publisher must still be exactly `failed/failed`, `Result=exit-code`, `ExecMainStatus=78` as the final gate before removal. Any transition, resume, drift, or prior trip stops before mutation. Any later failure immediately recreates only the current relay from its captured immutable image id, verifies readiness/topology/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
+    lines.push('Each relay is verified before the next is touched. A fresh live/captured topology comparison and authenticated zero-trip prestate run for that relay, then the publisher must still be exactly `failed/failed`, `Result=exit-code`, `ExecMainStatus=78` as the final gate before removal. An absent watchdog-trip row is semantic zero only when exactly one valid uptime row and one positive process-RSS row authenticate the payload. Any precondition refusal exits `78` without remove, run, or rollback; only the mutation-started latch at the removal boundary enables recovery. After runtime verification, the publisher is checked again before GO. Any failure after mutation begins immediately recreates only the current relay from its captured immutable image id, verifies readiness/topology/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
     lines.push('');
     lines.push('```bash');
     lines.push('set -euo pipefail');
+    lines.push(...privateDeployWorkDirSetupLines());
     lines.push(relayOnlyVerifierFunction());
     lines.push('');
     for (const name of relayNames) {
@@ -903,14 +916,22 @@ if (includeRecreate) {
       lines.push('if ! {');
       lines.push(`  assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(expectedTopology)} &&`);
       lines.push(`  assert_relay_prestate ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(`prestage-${stage.toLowerCase()}`)} &&`);
-      lines.push('  assert_publisher_parked &&');
+      lines.push('  assert_publisher_parked');
+      lines.push('}; then');
+      lines.push(`  echo "${name}: pre_mutation_refused_no_change" >&2`);
+      lines.push('  exit 78');
+      lines.push('fi');
+      lines.push('relay_mutation_started=true');
+      lines.push('if ! {');
       lines.push(`  sudo docker rm -f ${name} &&`);
       lines.push(`${relayOnlyRunCommandFor(name, newRelayImage)} &&`.split('\n').map((line) => `  ${line}`).join('\n'));
       lines.push(`  test "$(sudo docker inspect ${name} --format '{{.Config.Image}}')" = ${shellSingleQuote(newRelayImage)} &&`);
       lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{.Os}}/{{.Architecture}}')" = "linux/amd64" &&`);
       lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = ${shellSingleQuote(expectedRelayRevision)} &&`);
-      lines.push(`  verify_relay_only_runtime ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(dataDestination)} ${shellSingleQuote(expectedRelayRevision)}`);
+      lines.push(`  verify_relay_only_runtime ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(dataDestination)} ${shellSingleQuote(expectedRelayRevision)} &&`);
+      lines.push('  assert_publisher_parked');
       lines.push('}; then');
+      lines.push('  if [[ "${relay_mutation_started}" != "true" ]]; then echo "relay_mutation_latch_missing" >&2; exit 78; fi');
       lines.push(`  echo "${name}: verification failed; rolling back only this relay and stopping" >&2`);
       lines.push(`  if sudo docker inspect ${name} >/dev/null 2>&1; then`);
       lines.push(`    if ! sudo docker rm -f ${name} >/dev/null 2>&1; then echo "${name}: rollback_remove_failed" >&2; exit 78; fi`);
@@ -935,6 +956,7 @@ if (includeRecreate) {
       lines.push(`  echo "${name}: rollback_completed_closed" >&2`);
       lines.push('  exit 78');
       lines.push('fi');
+      lines.push('relay_mutation_started=false');
       lines.push(`echo "${name}: GO for next relay"`);
       lines.push('');
     }
@@ -942,8 +964,8 @@ if (includeRecreate) {
     lines.push('');
     lines.push('## Hard Stop Conditions');
     lines.push('');
-    lines.push('- Stop before container removal on absent explicit Lou approval, wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78 (including a transition/resume between stages), missing relay, any live/captured image/env/mount/network/port/restart/user/memory drift, unreadable or changed snapshot, pre-existing OOM/watchdog trip, or non-green readiness.');
-    lines.push('- Roll back the current relay and stop on readiness/health failure, environment mismatch, snapshot checksum drift, OOM/watchdog trip, wrong image id/revision/platform, or any of the four exact missing-key probes returning anything other than its closed 404 body. Unexpected bodies remain private; only a closed reason code may print.');
+    lines.push('- Stop before container removal on absent explicit Lou approval, wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78, missing relay, any live/captured image/env/mount/network/port/restart/user/memory drift, unreadable or changed snapshot, pre-existing OOM/watchdog trip, unauthenticated or malformed metrics, or non-green readiness. A pre-mutation refusal does not invoke rollback.');
+    lines.push('- After mutation begins, roll back the current relay and stop on publisher transition/resume during verification, readiness/health failure, environment mismatch, snapshot checksum drift, OOM/watchdog trip, wrong image id/revision/platform, or any of the four exact missing-key probes returning anything other than its closed 404 body. Unexpected bodies remain private; only a closed reason code may print.');
     lines.push('- Never batch removals, skip A/B/C order, continue after rollback, clear data, alter quorum/timeouts, start the publisher, recreate origin, or use the generic packet executor for this action.');
     lines.push('');
     lines.push('## Post-Run Decision');

@@ -129,7 +129,12 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'Keep `tools/scripts/vhc-packet-executor.mjs` unchanged',
     'Define parked as exactly `failed/failed`, `Result=exit-code`,',
     'fresh live inspect differs from that captured prestate',
-    'missing or nonzero watchdog-trip metric',
+    'again after verification before GO',
+    'all pre-mutation refusals outside rollback',
+    'only a set mutation-started latch can enter rollback',
+    'non-symlink `0700` private work',
+    'absent watchdog-trip row as semantic zero only with exactly one valid uptime',
+    'empty/random, malformed, duplicate, or nonzero telemetry',
     'hostile/unexpected exact-readback bodies private',
   ]) {
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
@@ -149,8 +154,12 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'prestate image id',
     'does not prove publisher recovery',
     'final gate immediately before each A/B/C removal',
+    'no `docker rm`, no `docker run`, and no rollback of the untouched',
+    'mutation-started latch is set at',
+    'exactly one valid uptime and RSS',
+    'Empty/random telemetry and malformed/duplicate/nonzero',
+    'again after each relay passes all verification',
     'live image id/ref, env, mounts, network mode',
-    'pre-existing nonzero watchdog trip',
     'never printed, even when they contain hostile secret-bearing fields',
     'normalize to exit `78`',
   ]) {

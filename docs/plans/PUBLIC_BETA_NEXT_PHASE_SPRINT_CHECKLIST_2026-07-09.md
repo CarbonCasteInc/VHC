@@ -997,9 +997,18 @@ preparation is not authority and no live recovery is claimed.
   stop conditions.
 - [x] Define parked as exactly `failed/failed`, `Result=exit-code`,
   `ExecMainStatus=78`, then recheck it as the final gate before every A/B/C
-  removal so a transition or resume between stages cannot mutate the next relay.
-- [x] Preserve and parse initial/per-stage metrics before mutation; reject a
-  missing or nonzero watchdog-trip metric before restart can reset counters.
+  removal and again after verification before GO, so a transition/resume cannot
+  mutate the next relay or pass unnoticed during verification.
+- [x] Keep all pre-mutation refusals outside rollback: topology,
+  watchdog/readiness, or publisher failure exits `78` with zero remove/run of
+  the untouched relay; only a set mutation-started latch can enter rollback.
+- [x] Create and validate a current-user-owned, non-symlink `0700` private work
+  directory before any initial evidence write.
+- [x] Preserve and parse initial/per-stage metrics before mutation; treat an
+  absent watchdog-trip row as semantic zero only with exactly one valid uptime
+  and process-RSS producer row, allow one well-formed zero trip row, and reject
+  empty/random, malformed, duplicate, or nonzero telemetry before restart can
+  reset counters.
 - [x] Keep hostile/unexpected exact-readback bodies private and normalize every
   rollback remove/run/readiness/topology/OOM/checksum/evidence failure to a
   closed reason plus exit `78`.

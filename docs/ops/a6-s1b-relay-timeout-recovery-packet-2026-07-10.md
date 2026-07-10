@@ -158,7 +158,12 @@ captured input hash, then return `GO` only if all of these are true:
 - snapshot checks cover latest-index, synthesis-lifecycle, and topic-synthesis;
 - readiness, health, Docker OOM state, and watchdog metrics are checked before
   proceeding; the pre-mutation and per-stage metric artifacts are retained and
-  any pre-existing nonzero watchdog trip or missing trip metric is a hard stop;
+  an absent watchdog-trip row is semantic zero because the relay initializes an
+  empty reason map, but only when exactly one numeric
+  `vh_relay_uptime_seconds` and one positive numeric
+  `vh_relay_process_rss_bytes` prove the payload is authentic relay telemetry;
+  if a trip row exists it must be one well-formed zero row, while an empty,
+  unrelated, malformed, duplicate, or nonzero payload is a hard stop;
 - all four endpoint-local exact missing-key contracts are closed 404s with the
   expected error and story id; unexpected bodies are retained privately but
   never printed, even when they contain hostile secret-bearing fields;
@@ -192,11 +197,16 @@ the A6 checkout is not relay-restart approval.
 Only after the preceding gates pass may an operator regenerate the exact packet
 with `--include-recreate-commands`. Its contract is:
 
-1. Confirm the publisher matches exactly `failed/failed`, `Result=exit-code`,
-   `ExecMainStatus=78`; all three relays are running; loopback readiness and
-   metrics respond; every watchdog-trip metric is present and zero; no relay
-   reports OOM; and the three required snapshot files are nonempty,
-   schema-valid, and checksummed. Preserve the initial metrics privately.
+1. Create `/tmp/vhc-public-beta-deploy` with private umask, refuse symlinks or
+   non-directories, and require current-user ownership plus mode `0700` before
+   any evidence write. Confirm the publisher matches exactly `failed/failed`,
+   `Result=exit-code`, `ExecMainStatus=78`; all three relays are running;
+   loopback readiness and metrics respond; no relay reports OOM; and the three
+   required snapshot files are nonempty, schema-valid, and checksummed.
+   Preserve initial metrics privately. An absent watchdog-trip row means zero;
+   that absence is accepted only alongside exactly one valid uptime and RSS
+   producer row. Empty/random telemetry and malformed/duplicate/nonzero trip or
+   producer rows fail closed.
 2. Confirm the loaded image is `linux/amd64` and its OCI revision exactly equals
    the approved merged commit.
 3. Capture each relay's env privately, without rewriting defaults or printing
@@ -205,6 +215,10 @@ with `--include-recreate-commands`. Its contract is:
    network, ports, restart policy, configured user, and memory limits with the
    captured inspect prestate; reject any drift. Recheck the exact exit-78 parked
    publisher tuple as the final command before removal, then replace A only.
+   A refusal in topology, watchdog/readiness, or publisher preconditions exits
+   `78` with no `docker rm`, no `docker run`, and no rollback of the untouched
+   relay. Rollback is reachable only after the mutation-started latch is set at
+   the removal boundary.
 5. Require A readiness/health, running/non-OOM Docker state, unchanged snapshot
    checksums, zero watchdog trips, and exact env parity.
 6. Probe one unique definitely-missing story id through all four endpoint-local
@@ -220,6 +234,9 @@ with `--include-recreate-commands`. Its contract is:
    Repeat the full live/captured topology comparison, zero-trip prestate, and
    final exact publisher-state check immediately before each removal. A publisher
    resume or transitional state between stages stops before the next mutation.
+   Recheck the exact parked tuple again after each relay passes all verification
+   and before emitting GO or entering the next stage; a resume during
+   verification rolls back the already-mutated current relay and stops.
 8. On any failure, recreate only the current relay from its captured immutable
    prestate image id, require readiness, live topology/env parity, non-OOM and
    snapshot proof, exit `78`, and do not touch the next relay. Every rollback
@@ -243,6 +260,9 @@ Stop before any removal on:
 - missing, invalid, empty, or changed snapshot;
 - failed readiness/health, pre-existing OOM/watchdog trip, or secret-bearing
   output;
+- unsafe/symlinked/non-private evidence directory, malformed or duplicate
+  watchdog metric, or any pre-mutation refusal that would otherwise enter
+  rollback;
 - any unrelated active A6 maintenance.
 
 Roll back the current relay and stop on any post-recreate mismatch, non-404
