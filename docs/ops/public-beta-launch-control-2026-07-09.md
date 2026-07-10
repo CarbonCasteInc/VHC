@@ -88,21 +88,26 @@ release gates.
 | Private support/escalation contact | `carboncasteit@gmail.com` | recorded |
 | Legal/commercial approval owner | Lou: `not_required_for_public_beta` | recorded |
 
-## Authorized Live Actions
+## Live-Action Authority Ledger
 
-Lou has authorized Codex to perform the following after the relevant packet
-preconditions pass:
+Lou has authorized the existing A6 SSH path for read-only capture and approved
+#763's serial A/B/C incident boundary. That boundary does not bind a future
+unknown tuple: relay A remains blocked until independent `GO` and Lou
+confirmation bind the exact final revision/image/capture/packet tuple. The
+publisher remains a separate not-yet-authorized mutation; after C and independent
+relay-evidence acceptance, Lou must separately confirm attended publisher
+recovery authority for the exact same revision.
 
-1. use the existing A6 SSH path for readback;
-2. execute the scoped serial relay replacement in order `A -> B -> C` only
-   after independent `GO` and Lou confirmation bind the exact final
-   revision/image/capture/packet tuple, with the publisher parked and
-   current-relay-only rollback;
-3. recover the publisher separately through the reviewed exact-revision
-   park/preflight/start/verify/T0/finalize controller after relay evidence is
-   independently accepted;
-4. update A6 to the later intended release commit only after S1 T0+48h closure;
-5. rebuild/redeploy the `vhc-public-beta-origin` PWA image only after S1 closure;
+Authority state by action:
+
+1. read-only A6 capture through the existing SSH path: authorized;
+2. scoped serial relay replacement in order `A -> B -> C`: boundary approved,
+   but not executable until the exact tuple is reviewed and Lou confirms it;
+   keep the publisher parked and roll back only the current relay;
+3. exact-revision publisher park/preflight/start/verify/T0/finalize: pending a
+   separate Lou confirmation after C and independent relay-evidence acceptance;
+4. update A6 to a later intended release commit: blocked until S1 T0+48h closure;
+5. rebuild/redeploy the `vhc-public-beta-origin` PWA image: blocked until S1 closure;
 6. enable the accepted-synthesis canary only after its preconditions pass;
 7. create/configure Apple and Google OAuth app records after Lou completes
    browser login/MFA;

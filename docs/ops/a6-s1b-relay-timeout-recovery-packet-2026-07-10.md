@@ -91,8 +91,15 @@ instructions.
 
 ## Preparation Inputs
 
-Do not collect live inputs until the repo remediation is merged, independent
-packet review is `GO`, and Lou authorizes the read-only capture session.
+Do not collect live inputs until the shared integration is reviewed and merged
+and its full merge SHA is frozen as `FINAL_REV`. After that freeze, the artifact
+author may build the exact local image and use the already authorized A6
+read-only path to capture fresh secret-safe inputs and generate the inert packet.
+Those inputs are what the independent exact-tuple reviewer must review, so their
+collection necessarily precedes packet `GO`. Read-only capture and inert packet
+generation authorize no container, service, timer, env, or other live mutation.
+No relay removal may begin until the resulting exact tuple receives independent
+`GO` and Lou confirms that exact tuple for relay A.
 
 Required inputs are:
 
