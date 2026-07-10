@@ -955,8 +955,9 @@ git diff --check
   prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
   sprint, docs, and diff gates pass. The same G2 reviewer returned final `GO`
   with no P0/P1/P2 at `d6e03308`; PR #762 completed hosted CI without failure
-  (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged at `5116616a`. PR #759
-  exact-head CI and merge to `main` remain required.
+  (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged at `5116616a`. Final
+  coordination head `0e5bac8f` passed same-reviewer audit and 9/9 hosted CI;
+  PR #759 merged to `main` as `98277475`.
 
 - G3 packet preparation found an authority contradiction before any live action:
   `infra/relay/server.js` is copied into immutable relay images and is not bind
@@ -976,7 +977,7 @@ git diff --check
 - [x] Require review of idempotency, quorum, retry eligibility, exit mapping,
   state-schema migration, and secret redaction.
 - [x] CI and every required test above pass on the PR head.
-- [ ] Merge before preparing any A6 mutation packet.
+- [x] Merge before preparing any A6 mutation packet.
 
 ### Lou-Approved A6 Recovery Packet
 
@@ -984,6 +985,58 @@ The packet must be generated from the merged remediation commit. It is not the
 existing exit-69-only executor action because the pre-action state is exit 78.
 Lou must explicitly authorize the exit-78 incident recovery after independent
 review.
+
+#### G3 repo preparation and relay-restart boundary - 2026-07-10
+
+The S1B route remediation changes `infra/relay/server.js`. The relay Dockerfile
+copies that file into an immutable image, while the public-beta compose mounts
+only `/data`; an A6 checkout update cannot install the new exact-readback routes
+into running relays. A rolling relay image replacement is therefore technically
+required before publisher recovery can exercise the merged contract.
+
+That fact conflicts with the standing no-relay-restart line below. G3 remains
+`blocked_pending_relay_restart_boundary_correction` and `WAITING_FOR_LOU`; repo
+preparation is not authority and no live recovery is claimed.
+
+- [x] Add inert `--relay-only` image-export and deploy-packet generation that
+  excludes origin, requires exactly relay A/B/C, and defaults to no recreate
+  commands.
+- [x] Preserve captured env, mount, network, ports, restart policy, user, and
+  memory limits; verify exact revision plus `linux/amd64`; and fail before each
+  removal if a fresh live inspect differs from that captured prestate.
+- [x] Encode A/B/C readiness, three-snapshot integrity, liveness/OOM/watchdog,
+  all-four exact missing-key probes, immediate current-relay rollback, and hard
+  stop conditions.
+- [x] Define parked as exactly `failed/failed`, `Result=exit-code`,
+  `ExecMainStatus=78`, then recheck it as the final gate before every A/B/C
+  removal and again after verification before GO, so a transition/resume cannot
+  mutate the next relay or pass unnoticed during verification.
+- [x] Keep all pre-mutation refusals outside rollback: topology,
+  watchdog/readiness, or publisher failure exits `78` with zero remove/run of
+  the untouched relay; only a set mutation-started latch can enter rollback.
+- [x] Create and validate a current-user-owned, non-symlink `0700` private work
+  directory before any initial evidence write.
+- [x] Preserve and parse initial/per-stage metrics before mutation; treat an
+  absent watchdog-trip row as semantic zero only with exactly one valid uptime
+  and process-RSS producer row, allow one well-formed zero trip row, and reject
+  empty/random, malformed, duplicate, or nonzero telemetry before restart can
+  reset counters.
+- [x] Keep hostile/unexpected exact-readback bodies private and normalize every
+  rollback remove/run/readiness/topology/OOM/checksum/evidence failure to a
+  closed reason plus exit `78`.
+- [x] Keep `tools/scripts/vhc-packet-executor.mjs` unchanged; the executor is not
+  authorized for this rolling action.
+- [x] Register the blocked authority packet at
+  `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.
+- [x] Merge S1B remediation to `main` at `98277475`.
+- [ ] Generate the exact packet from the merged commit and fresh secret-safe
+  inspect evidence.
+- [ ] Independent packet reviewer returns `GO` on the exact packet hash; any
+  correction receives subsequent review by the same reviewer.
+- [ ] Lou explicitly replaces the no-relay-restart boundary for that exact
+  revision and authorizes attended A/B/C rolling replacement plus rollback.
+- [ ] The approved rolling relay packet passes and evidence is independently
+  reviewed before a separate publisher recovery is considered.
 
 Pre-mutation readback:
 
@@ -998,10 +1051,16 @@ Mutation boundary:
 
 - [ ] Update only to the reviewed remediation commit using the existing deploy
   packet controls.
-- [ ] Do not restart relays, alter quorum, increase timeouts, clear relay data,
-  edit alert recipients, or enable autonomy/pager cutover.
+- [ ] Do not restart relays unless Lou first replaces this boundary for the exact
+  independently reviewed S1B relay-only packet. If approved, replace only
+  `vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`, with publisher parked,
+  per-relay verification, and immediate serial rollback on failure.
+- [ ] Never alter quorum, increase timeouts, clear relay data, recreate origin,
+  edit alert recipients, enable autonomy/pager cutover, or broaden the generic
+  packet executor as part of that relay-only action.
 - [ ] Reset/start the publisher only after Lou's explicit incident approval and
-  the packet's preconditions pass.
+  the separately reviewed relay deployment evidence and publisher packet's
+  preconditions pass.
 - [ ] Stop on any commit mismatch, failed relay readiness probe, unexpected
   exit code, secret-bearing output, or packet verification failure.
 
