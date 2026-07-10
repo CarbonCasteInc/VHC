@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { runPublicFeedFreshnessMonitor } from './public-feed-freshness-monitor.mjs';
 import { newsAggregatorPublisherLivenessWatchInternal } from './news-aggregator-publisher-liveness-watch.mjs';
 
-const REPORT_SCHEMA_VERSION = 'vh-public-feed-alert-watch-v1';
+const REPORT_SCHEMA_VERSION = 'vh-public-feed-alert-watch-v2';
 const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v3';
 const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
@@ -21,10 +21,8 @@ const DEFAULT_WATCH_CLOSURE_MAX_AGE_MS = 90 * 60 * 1000;
 const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
 const NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE = '75';
 const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
-// URL-shaped text is deliberately consumed through the next whitespace. Flat
-// blocker strings cannot distinguish a structural `:` or `|` from the same
-// bytes inside a URL, so guessing at those delimiters can expose a suffix.
-const URL_IN_TEXT_PATTERN = /https?:\/\/\S+/gi;
+// Public projections are constructed only from closed enums, exact numeric
+// grammars, hashes, and ordinals. Raw report and error text is never emitted.
 const FRESHNESS_FAILURE_REASON_CODES = new Set([
   'latest_index_empty',
   'latest_index_fetch_failed',
@@ -37,14 +35,101 @@ const FRESHNESS_BLOCKER_CLASSES = new Set([
   'openai_preflight_failed',
   'origins_not_configured',
 ]);
-const FAILURE_NUMERIC_DIAGNOSTIC_FIELDS = [
-  { source: 'http_status', target: 'httpStatus', min: 100, max: 599 },
-  { source: 'attempt', target: 'attempt', min: 0, max: 1_000_000 },
-  { source: 'age', target: 'age', min: 0, max: Number.MAX_SAFE_INTEGER },
-  { source: 'age_ms', target: 'ageMs', min: 0, max: Number.MAX_SAFE_INTEGER },
-  { source: 'max_age_ms', target: 'maxAgeMs', min: 0, max: Number.MAX_SAFE_INTEGER },
-  { source: 'count', target: 'count', min: 0, max: Number.MAX_SAFE_INTEGER },
-];
+const PASS_FAIL_STATUSES = new Set(['pass', 'fail']);
+const PASS_WARN_FAIL_STATUSES = new Set(['pass', 'warn', 'fail']);
+const REPORT_STATUSES = new Set(['pass', 'fail', 'skipped']);
+const WATCH_VERDICT_STATUSES = new Set(['pass', 'fail', 'in_progress']);
+const THRESHOLD_STATUSES = new Set(['pass', 'fail', 'not_ready']);
+const DELIVERY_STATUSES = new Set(['pending', 'sent', 'suppressed', 'failed', 'missing_channel']);
+const DELIVERY_REASONS = new Set([
+  'test_fire',
+  'first_failure',
+  'retry_failed_delivery',
+  'state_changed',
+  'heartbeat_due',
+  'unchanged_suppressed',
+]);
+const SYSTEMD_ACTIVE_STATES = new Set(['active', 'inactive', 'failed', 'activating', 'deactivating']);
+const SYSTEMD_SUB_STATES = new Set(['running', 'dead', 'failed', 'auto-restart', 'exited']);
+const SYSTEMD_RESULTS = new Set(['success', 'exit-code', 'signal', 'timeout', 'watchdog', 'start-limit-hit']);
+const HEAP_PLATEAU_VERDICTS = new Set(['heap_driver_unknown', 'heap_plateau_observed', 'heap_still_linear']);
+const RELAY_LIVENESS_REASON_CODES = new Set([
+  'docker_inspect_failed',
+  'restart_count_increased',
+  'readyz_unhealthy',
+  'readyz_failed',
+  'metrics_unhealthy',
+  'rss_hot',
+  'heap_hot',
+  'early_heap_snapshot_missing',
+  'event_loop_lag_hot',
+  'critical_readbacks_queued',
+  'watchdog_trips_increased',
+  'metrics_failed',
+]);
+const SNAPSHOT_REASON_CODES = new Set([
+  'path_not_absolute',
+  'unexpected_snapshot_filename',
+  'unexpected_snapshot_path',
+  'snapshot_missing',
+  'mtime_not_sane',
+  'snapshot_size_not_sane',
+  'snapshot_parse_failed',
+  'schema_mismatch',
+  'entries_not_array',
+  'entries_empty',
+  'entry_count_mismatch',
+  'cached_at_not_sane',
+  'newest_entry_not_sane',
+  'newest_entry_stale',
+]);
+const WATCH_CLOSURE_REASON_CODES = new Set([
+  'archive_samples_missing',
+  'archive_sample_failures',
+  'publisher_nrestarts',
+  'publisher_liveness_status',
+  'relay_liveness_status',
+  'relay_snapshot_status',
+  'public_freshness_status',
+  'runtime_failed_ticks',
+  'runtime_raw_write_failures',
+  'runtime_nonfatal_prewrite_failures',
+  'storycluster_failure_artifact_dir_missing',
+  'storycluster_failure_artifacts',
+  'storycluster_degeneracy_warnings',
+  'window_short',
+  'relay_memory_trend_fail',
+  'relay_memory_trend_warn',
+  'sample_parse_failed',
+]);
+const PROJECTED_BLOCKER_CODES = new Set([
+  'publisher_systemctl_failed',
+  'publisher_exit_69_transport_unavailable',
+  'publisher_exit_69_start_limit_parked',
+  'publisher_exit_75_wrapper_refusal',
+  'publisher_exit_78',
+  'publisher_not_running',
+  'publisher_restart_churn',
+  'public_feed',
+  'alert_delivery_failed',
+  'alert_delivery_missing_channel',
+]);
+const PROJECTED_FAMILY_REASONS = new Map([
+  ['public_feed', new Set([...FRESHNESS_BLOCKER_CLASSES, 'unclassified_blocker', 'status_fail'])],
+  ['relay_liveness', new Set([
+    ...RELAY_LIVENESS_REASON_CODES,
+    'report_missing', 'report_invalid', 'output_stale', 'generated_at_missing', 'status_fail', 'unclassified',
+  ])],
+  ['relay_snapshot', new Set([
+    ...SNAPSHOT_REASON_CODES,
+    'report_missing', 'report_invalid', 'output_stale', 'generated_at_missing', 'status_fail', 'unclassified',
+  ])],
+  ['watch_closure', new Set([
+    ...WATCH_CLOSURE_REASON_CODES,
+    'verdict_missing', 'verdict_invalid', 'output_stale', 'generated_at_missing', 'status_fail',
+    'heap_limit_source_default', 'unclassified',
+  ])],
+]);
 const SEVERITY_RANK = {
   none: 0,
   warning: 1,
@@ -68,8 +153,15 @@ function boolEnv(value, fallback = false) {
 }
 
 function nonNegativeInt(value, fallback) {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  const parsed = strictNonNegativeInteger(value);
+  return parsed === null ? fallback : parsed;
+}
+
+function strictNonNegativeInteger(value, max = Number.MAX_SAFE_INTEGER) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d{1,15}$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed <= max ? parsed : null;
 }
 
 function resolveHome(env) {
@@ -95,21 +187,6 @@ function hashValue(value, length = 16) {
   return createHash('sha256').update(String(value ?? '')).digest('hex').slice(0, length);
 }
 
-function sanitizeAlertText(value) {
-  return String(value ?? '').replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
-}
-
-function sanitizeAlertError(error, redactions = []) {
-  let message = error instanceof Error ? error.message : String(error);
-  for (const raw of redactions) {
-    const value = String(raw ?? '');
-    if (value) {
-      message = message.split(value).join(`value_hash:${hashValue(value)}`);
-    }
-  }
-  return sanitizeAlertText(message);
-}
-
 function sortedUniqueStrings(values) {
   return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
 }
@@ -128,31 +205,15 @@ function structuredFailureReasonCodes(values) {
 
 function failureNumericDiagnostics(value) {
   const text = String(value ?? '');
-  const byTarget = new Map();
-  const add = (target, raw, min = 0, max = Number.MAX_SAFE_INTEGER) => {
-    if (!/^\d{1,15}$/.test(String(raw ?? ''))) return;
-    const parsed = Number(raw);
-    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) return;
-    if (!byTarget.has(target)) byTarget.set(target, new Set());
-    byTarget.get(target).add(parsed);
-  };
-
-  const staleMatch = text.match(/^latest_index_stale:(\d{1,15})\/(\d{1,15})(?=$|[^a-z0-9_./])/i);
+  const staleMatch = text.match(/^latest_index_stale:(\d{1,15})\/(\d{1,15})$/);
   if (staleMatch) {
-    add('newestAgeMs', staleMatch[1]);
-    add('maxAgeMs', staleMatch[2]);
+    const newestAgeMs = strictNonNegativeInteger(staleMatch[1]);
+    const maxAgeMs = strictNonNegativeInteger(staleMatch[2]);
+    return newestAgeMs !== null && maxAgeMs !== null
+      ? { maxAgeMs: [maxAgeMs], newestAgeMs: [newestAgeMs] }
+      : {};
   }
-
-  const fieldBySource = new Map(FAILURE_NUMERIC_DIAGNOSTIC_FIELDS.map((field) => [field.source, field]));
-  const pattern = /(?:^|[^a-z0-9_])(http_status|attempt|age|age_ms|max_age_ms|count)\s*[=:]\s*(\d{1,15})(?=$|[^a-z0-9_./])/gi;
-  for (const match of text.matchAll(pattern)) {
-    const field = fieldBySource.get(match[1].toLowerCase());
-    if (field) add(field.target, match[2], field.min, field.max);
-  }
-
-  return Object.fromEntries([...byTarget.entries()]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([target, values]) => [target, [...values].sort((left, right) => left - right)]));
+  return {};
 }
 
 function structuredFailureDiagnostics(values) {
@@ -177,24 +238,13 @@ function blockerClasses(values) {
 }
 
 function blockerReasonCode(value) {
-  const hashMarkers = new Set(['url_hash', 'value_hash', 'snapshot_file_hash']);
-  const segments = sanitizeAlertText(value)
-    .split(/[:|]/)
-    .map((segment) => segment.trim().toLowerCase())
-    .filter(Boolean);
-  const codes = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (hashMarkers.has(segment)) {
-      index += 1;
-      continue;
-    }
-    if (!/^[a-z][a-z0-9_-]*$/.test(segment)) continue;
-    if (index === 0 || segment.includes('_')) {
-      codes.push(segment);
-    }
+  const text = String(value ?? '').trim().toLowerCase();
+  const familyMatch = text.match(/^([a-z][a-z0-9_-]*):([a-z][a-z0-9_-]*)(?=:|$)/);
+  if (familyMatch && PROJECTED_FAMILY_REASONS.get(familyMatch[1])?.has(familyMatch[2])) {
+    return `${familyMatch[1]}:${familyMatch[2]}`;
   }
-  return codes.length > 0 ? sortedUniqueStrings(codes).join(':') : 'unclassified_blocker';
+  const codeMatch = text.match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+  return codeMatch && PROJECTED_BLOCKER_CODES.has(codeMatch[1]) ? codeMatch[1] : 'unclassified_blocker';
 }
 
 function blockerReasonCodes(values) {
@@ -212,9 +262,154 @@ function canonicalObjectSet(values) {
     .map(([, value]) => value);
 }
 
-function identityHash(value) {
-  const normalized = String(value ?? '').trim();
-  return normalized ? hashValue(normalized) : null;
+function strictRelayIdentityHash(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return /^vhc-relay-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized) ? hashValue(normalized) : null;
+}
+
+function endpointIdentityHash(value) {
+  try {
+    const parsed = new URL(String(value ?? ''));
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    const endpoint = `${parsed.protocol.toLowerCase()}//${parsed.hostname.toLowerCase()}${parsed.port ? `:${parsed.port}` : ''}`;
+    return hashValue(endpoint);
+  } catch {
+    return null;
+  }
+}
+
+function canonicalIdentifiedEntries(values, identityKey = 'identityHash') {
+  return values
+    .map((value, index) => ({ ...value, sourceOrdinal: index + 1 }))
+    .sort((left, right) => {
+      const leftKey = left[identityKey] ?? `~${String(left.sourceOrdinal).padStart(8, '0')}`;
+      const rightKey = right[identityKey] ?? `~${String(right.sourceOrdinal).padStart(8, '0')}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    })
+    .map(({ sourceOrdinal, ...value }, index) => ({ ...value, ordinal: index + 1 }));
+}
+
+function projectedEnum(value, allowed, fallback = 'unknown') {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return allowed.has(normalized) ? normalized : fallback;
+}
+
+function safeIsoTimestamp(value) {
+  const parsed = Date.parse(String(value ?? ''));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function safeNonNegativeNumber(value, { integer = false } = {}) {
+  if (!Number.isFinite(value) || value < 0 || (integer && !Number.isSafeInteger(value))) return null;
+  return value;
+}
+
+function projectedSchemaVersion(value, expected) {
+  if (value === null || value === undefined) return null;
+  return value === expected ? expected : 'unrecognized';
+}
+
+function projectedFingerprint(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{24}$/.test(normalized) ? normalized : null;
+}
+
+function projectAlertState(value) {
+  if (!value || typeof value !== 'object') return null;
+  const sourceStatuses = value.sourceStatuses && typeof value.sourceStatuses === 'object'
+    ? Object.fromEntries(['publisher', 'freshness', 'relayLiveness', 'relaySnapshot', 'watchClosure']
+        .map((key) => [key, projectedEnum(value.sourceStatuses[key], REPORT_STATUSES, 'fail')]))
+    : null;
+  return {
+    schemaVersion: projectedSchemaVersion(value.schemaVersion, STATE_SCHEMA_VERSION),
+    generatedAt: safeIsoTimestamp(value.generatedAt),
+    lastObservedFingerprint: projectedFingerprint(value.lastObservedFingerprint),
+    lastObservedStatus: projectedEnum(value.lastObservedStatus, PASS_FAIL_STATUSES, 'fail'),
+    lastDeliveredFingerprint: projectedFingerprint(value.lastDeliveredFingerprint),
+    lastDeliveredStatus: projectedEnum(value.lastDeliveredStatus, PASS_FAIL_STATUSES, 'fail'),
+    lastDeliveredAt: safeIsoTimestamp(value.lastDeliveredAt),
+    lastDeliveryStatus: projectedEnum(value.lastDeliveryStatus, DELIVERY_STATUSES, 'failed'),
+    lastDeliveryReason: projectedEnum(value.lastDeliveryReason, DELIVERY_REASONS, 'unchanged_suppressed'),
+    lastPublisherNRestarts: strictNonNegativeInteger(value.lastPublisherNRestarts),
+    sourceStatuses,
+  };
+}
+
+function projectedReasonCode(value, allowed, fallback = 'unclassified') {
+  const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+  return match && allowed.has(match[1]) ? match[1] : fallback;
+}
+
+function projectedReasonCodes(values, allowed, fallback = 'unclassified') {
+  return sortedUniqueStrings((Array.isArray(values) ? values : [])
+    .map((value) => projectedReasonCode(value, allowed, fallback)));
+}
+
+function exactPair(text, pattern) {
+  const match = text.match(pattern);
+  if (!match) return null;
+  const left = strictNonNegativeInteger(match[1]);
+  const right = strictNonNegativeInteger(match[2]);
+  return left === null || right === null ? null : [left, right];
+}
+
+function relayReasonNumericDiagnostics(value, reasonCode) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (reasonCode === 'readyz_unhealthy' || reasonCode === 'metrics_unhealthy') {
+    const match = text.match(new RegExp(`^${reasonCode}:(\\d{3})$`));
+    const httpStatus = match ? strictNonNegativeInteger(match[1], 599) : null;
+    return httpStatus !== null && httpStatus >= 100 ? { httpStatus: [httpStatus] } : {};
+  }
+  if (reasonCode === 'event_loop_lag_hot') {
+    const numberPattern = '(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[+-]?\\d+)?';
+    const match = text.match(new RegExp(`^event_loop_lag_hot:(${numberPattern})/(${numberPattern})$`, 'i'));
+    if (!match) return {};
+    const observedMs = Number(match[1]);
+    const limitMs = Number(match[2]);
+    return Number.isFinite(observedMs) && Number.isFinite(limitMs)
+      && observedMs >= 0 && limitMs >= 0
+      && observedMs <= Number.MAX_SAFE_INTEGER && limitMs <= Number.MAX_SAFE_INTEGER
+      ? { limitMs: [limitMs], observedMs: [observedMs] }
+      : {};
+  }
+  const pair = exactPair(text, new RegExp(`^${reasonCode}:(\\d{1,15})/(\\d{1,15})$`));
+  if (!pair) return {};
+  const [observed, limit] = pair;
+  if (reasonCode === 'restart_count_increased') return { currentRestartCount: [limit], previousRestartCount: [observed] };
+  if (reasonCode === 'watchdog_trips_increased') return { currentWatchdogTrips: [limit], previousWatchdogTrips: [observed] };
+  if (reasonCode === 'rss_hot') return { limitBytes: [limit], rssBytes: [observed] };
+  if (reasonCode === 'heap_hot') return { heapUsedBytes: [observed], limitBytes: [limit] };
+  if (reasonCode === 'early_heap_snapshot_missing') return { heapUsedBytes: [observed], thresholdBytes: [limit] };
+  if (reasonCode === 'critical_readbacks_queued') return { limitCount: [limit], observedCount: [observed] };
+  return {};
+}
+
+function relayReasonDiagnostics(values) {
+  return canonicalObjectSet((Array.isArray(values) ? values : []).map((value) => {
+    const reasonCode = projectedReasonCode(value, RELAY_LIVENESS_REASON_CODES);
+    return { reasonCode, numericDiagnostics: relayReasonNumericDiagnostics(value, reasonCode) };
+  }));
+}
+
+function snapshotReasonNumericDiagnostics(value, reasonCode) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (reasonCode === 'snapshot_size_not_sane') {
+    const match = text.match(/^snapshot_size_not_sane:(\d{1,15})$/);
+    const sizeBytes = match ? strictNonNegativeInteger(match[1]) : null;
+    return sizeBytes === null ? {} : { sizeBytes: [sizeBytes] };
+  }
+  const pair = exactPair(text, new RegExp(`^${reasonCode}:(\\d{1,15})/(\\d{1,15})$`));
+  if (!pair) return {};
+  if (reasonCode === 'entry_count_mismatch') return { actualCount: [pair[0]], expectedCount: [pair[1]] };
+  if (reasonCode === 'newest_entry_stale') return { maxAgeMs: [pair[1]], newestEntryAgeMs: [pair[0]] };
+  return {};
+}
+
+function snapshotReasonDiagnostics(values) {
+  return canonicalObjectSet((Array.isArray(values) ? values : []).map((value) => {
+    const reasonCode = projectedReasonCode(value, SNAPSHOT_REASON_CODES);
+    return { reasonCode, numericDiagnostics: snapshotReasonNumericDiagnostics(value, reasonCode) };
+  }));
 }
 
 function thresholdFingerprintState(threshold) {
@@ -270,11 +465,11 @@ async function writeJson(filePath, value) {
 
 function summarizeFreshnessReadback(readback) {
   return {
-    originHash: hashValue(readback?.origin),
-    status: readback?.status ?? null,
-    recordCount: Number.isFinite(readback?.recordCount) ? readback.recordCount : null,
-    newestAgeMs: Number.isFinite(readback?.newestAgeMs) ? readback.newestAgeMs : null,
-    maxAgeMs: Number.isFinite(readback?.maxAgeMs) ? readback.maxAgeMs : null,
+    endpointHash: endpointIdentityHash(readback?.origin),
+    status: projectedEnum(readback?.status, PASS_FAIL_STATUSES, 'fail'),
+    recordCount: safeNonNegativeNumber(readback?.recordCount, { integer: true }),
+    newestAgeMs: safeNonNegativeNumber(readback?.newestAgeMs, { integer: true }),
+    maxAgeMs: safeNonNegativeNumber(readback?.maxAgeMs, { integer: true }),
     failureCount: Array.isArray(readback?.failures) ? readback.failures.length : 0,
     failureReasonCodes: structuredFailureReasonCodes(readback?.failures),
     failureDiagnostics: structuredFailureDiagnostics(readback?.failures),
@@ -282,18 +477,19 @@ function summarizeFreshnessReadback(readback) {
 }
 
 function summarizeFreshness(summary) {
+  const origins = Array.isArray(summary?.config?.origins) ? summary.config.origins : [];
+  const latestIndexReadbacks = Array.isArray(summary?.latestIndexReadbacks)
+    ? canonicalIdentifiedEntries(summary.latestIndexReadbacks.map(summarizeFreshnessReadback), 'endpointHash')
+    : [];
   return {
-    schemaVersion: summary?.schemaVersion ?? null,
-    generatedAt: summary?.generatedAt ?? null,
-    status: summary?.status ?? null,
+    schemaVersion: projectedSchemaVersion(summary?.schemaVersion, 'public-feed-freshness-monitor-v1'),
+    generatedAt: safeIsoTimestamp(summary?.generatedAt),
+    status: projectedEnum(summary?.status, PASS_FAIL_STATUSES, 'fail'),
     blockers: blockerClasses(Array.isArray(summary?.blockers) ? summary.blockers : []),
-    maxAgeMs: Number.isFinite(summary?.config?.maxAgeMs) ? summary.config.maxAgeMs : null,
-    originHashes: Array.isArray(summary?.config?.origins)
-      ? summary.config.origins.map((origin) => hashValue(origin))
-      : [],
-    latestIndexReadbacks: Array.isArray(summary?.latestIndexReadbacks)
-      ? summary.latestIndexReadbacks.map(summarizeFreshnessReadback)
-      : [],
+    maxAgeMs: safeNonNegativeNumber(summary?.config?.maxAgeMs, { integer: true }),
+    originCount: origins.length,
+    originEndpointHashes: sortedUniqueStrings(origins.map(endpointIdentityHash).filter(Boolean)),
+    latestIndexReadbacks,
   };
 }
 
@@ -312,22 +508,14 @@ function reportFreshnessBlockers({ label, report, maxAgeMs, now }) {
   const blockers = [];
   const ageMs = reportGeneratedAgeMs(report, now);
   if (ageMs === null) {
-    blockers.push(`${label}_generated_at_missing`);
+    blockers.push(`${label}:generated_at_missing`);
   } else if (ageMs > maxAgeMs) {
-    blockers.push(`${label}_output_stale:${ageMs}/${maxAgeMs}`);
+    blockers.push(`${label}:output_stale:${ageMs}/${maxAgeMs}`);
   }
   return {
     ageMs,
     blockers,
   };
-}
-
-function reportStatusBlockers({ label, report, sanitizeBlocker = sanitizeAlertText }) {
-  if (report?.status === 'pass') return [];
-  const blockers = Array.isArray(report?.blockers) && report.blockers.length > 0
-    ? report.blockers.map((blocker) => `${label}:${sanitizeBlocker(blocker)}`)
-    : [`${label}_status:${sanitizeAlertText(report?.status ?? 'missing')}`];
-  return blockers;
 }
 
 function hasBlockers(value) {
@@ -358,7 +546,7 @@ function summarizeRelayLivenessReport({ env, now }) {
   const filePath = relayLivenessFile(env);
   const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS, DEFAULT_RELAY_LIVENESS_MAX_AGE_MS);
   if (!enabled) {
-    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+    return { status: 'skipped', severity: 'none', required: false, sourceRole: 'relay_liveness', blockers: [] };
   }
   const read = readJsonReport(filePath);
   if (!read.exists) {
@@ -366,11 +554,11 @@ function summarizeRelayLivenessReport({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'relay_liveness',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: ['relay_liveness_report_missing'],
+      blockers: ['relay_liveness:report_missing'],
       relays: [],
     };
   }
@@ -379,11 +567,11 @@ function summarizeRelayLivenessReport({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'relay_liveness',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: [`relay_liveness_report_invalid:${sanitizeAlertError(read.error)}`],
+      blockers: ['relay_liveness:report_invalid'],
       relays: [],
     };
   }
@@ -393,13 +581,35 @@ function summarizeRelayLivenessReport({ env, now }) {
     maxAgeMs,
     now,
   });
-  const statusBlockers = reportStatusBlockers({ label: 'relay_liveness', report: read.parsed });
+  const relays = Array.isArray(read.parsed.relays)
+    ? canonicalIdentifiedEntries(read.parsed.relays.map((relay) => ({
+        identityHash: strictRelayIdentityHash(relay.name),
+        status: projectedEnum(relay.status, PASS_FAIL_STATUSES, 'fail'),
+        reasonCodes: projectedReasonCodes(relay.blockers, RELAY_LIVENESS_REASON_CODES),
+        reasonDiagnostics: relayReasonDiagnostics(relay.blockers),
+        blockerCount: Array.isArray(relay.blockers) ? relay.blockers.length : 0,
+        restartCount: safeNonNegativeNumber(relay.docker?.restartCount, { integer: true }),
+        rssBytes: safeNonNegativeNumber(relay.metrics?.rssBytes, { integer: true }),
+        heapUsedBytes: safeNonNegativeNumber(relay.metrics?.heapUsedBytes, { integer: true }),
+        watchdogTrips: safeNonNegativeNumber(relay.metrics?.watchdogTrips, { integer: true }),
+        eventLoopLagP99Ms: safeNonNegativeNumber(relay.metrics?.eventLoopLagP99Ms),
+        criticalReadbacksQueued: safeNonNegativeNumber(relay.metrics?.criticalReadbacksQueued, { integer: true }),
+      })))
+    : [];
+  const relayReasonCodes = sortedUniqueStrings(relays.flatMap((relay) => relay.reasonCodes));
+  const statusBlockers = read.parsed.status === 'pass'
+    ? []
+    : relayReasonCodes.length > 0
+      ? relayReasonCodes.map((code) => code === 'unclassified'
+          ? 'relay_liveness:unclassified'
+          : `relay_liveness:${code}`)
+      : ['relay_liveness:status_fail'];
   const blockers = [
     ...freshness.blockers,
     ...statusBlockers,
   ];
   return {
-    schemaVersion: read.parsed.schemaVersion ?? null,
+    schemaVersion: projectedSchemaVersion(read.parsed.schemaVersion, 'vh-news-relay-liveness-watch-v1'),
     status: blockers.length > 0 ? 'fail' : 'pass',
     severity: hasBlockers(statusBlockers)
       ? 'critical'
@@ -407,40 +617,17 @@ function summarizeRelayLivenessReport({ env, now }) {
         ? 'warning'
         : 'none',
     required: true,
-    sourceFileHash: hashValue(filePath),
-    generatedAt: read.parsed.generatedAt ?? null,
+    sourceRole: 'relay_liveness',
+    generatedAt: safeIsoTimestamp(read.parsed.generatedAt),
     ageMs: freshness.ageMs,
     maxAgeMs,
     blockers,
-    relays: Array.isArray(read.parsed.relays)
-      ? read.parsed.relays.map((relay) => ({
-          name: String(relay.name ?? ''),
-          status: relay.status ?? null,
-          blockerCount: Array.isArray(relay.blockers) ? relay.blockers.length : 0,
-          restartCount: Number.isFinite(relay.docker?.restartCount) ? relay.docker.restartCount : null,
-          rssBytes: Number.isFinite(relay.metrics?.rssBytes) ? relay.metrics.rssBytes : null,
-          heapUsedBytes: Number.isFinite(relay.metrics?.heapUsedBytes) ? relay.metrics.heapUsedBytes : null,
-          watchdogTrips: Number.isFinite(relay.metrics?.watchdogTrips) ? relay.metrics.watchdogTrips : null,
-          eventLoopLagP99Ms: Number.isFinite(relay.metrics?.eventLoopLagP99Ms) ? relay.metrics.eventLoopLagP99Ms : null,
-          criticalReadbacksQueued: Number.isFinite(relay.metrics?.criticalReadbacksQueued)
-            ? relay.metrics.criticalReadbacksQueued
-            : null,
-        }))
-      : [],
+    relays,
   };
 }
 
 function relayNameFromSnapshotPath(filePath) {
   return String(filePath ?? '').split(/[\\/]+/).find((segment) => segment.startsWith('vhc-relay-')) ?? null;
-}
-
-function sanitizeSnapshotBlocker(blocker) {
-  const text = String(blocker ?? '');
-  const separatorIndex = text.indexOf(':');
-  if (separatorIndex > 0 && text.slice(0, separatorIndex).includes('news-latest-index-snapshot.json')) {
-    return `snapshot_file_hash:${hashValue(text.slice(0, separatorIndex))}:${sanitizeAlertText(text.slice(separatorIndex + 1))}`;
-  }
-  return sanitizeAlertText(text);
 }
 
 function summarizeRelaySnapshotReport({ env, now }) {
@@ -452,7 +639,7 @@ function summarizeRelaySnapshotReport({ env, now }) {
   const filePath = relaySnapshotFile(env);
   const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS, DEFAULT_RELAY_SNAPSHOT_MAX_AGE_MS);
   if (!enabled) {
-    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+    return { status: 'skipped', severity: 'none', required: false, sourceRole: 'relay_snapshot', blockers: [] };
   }
   const read = readJsonReport(filePath);
   if (!read.exists) {
@@ -460,11 +647,11 @@ function summarizeRelaySnapshotReport({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'relay_snapshot',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: ['relay_snapshot_report_missing'],
+      blockers: ['relay_snapshot:report_missing'],
       snapshots: [],
     };
   }
@@ -473,11 +660,11 @@ function summarizeRelaySnapshotReport({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'relay_snapshot',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: [`relay_snapshot_report_invalid:${sanitizeAlertError(read.error)}`],
+      blockers: ['relay_snapshot:report_invalid'],
       snapshots: [],
     };
   }
@@ -487,46 +674,94 @@ function summarizeRelaySnapshotReport({ env, now }) {
     maxAgeMs,
     now,
   });
-  const statusBlockers = reportStatusBlockers({
-    label: 'relay_snapshot',
-    report: read.parsed,
-    sanitizeBlocker: sanitizeSnapshotBlocker,
-  });
+  const snapshots = Array.isArray(read.parsed.snapshots)
+    ? canonicalIdentifiedEntries(read.parsed.snapshots.map((snapshot) => ({
+        relayIdentityHash: strictRelayIdentityHash(relayNameFromSnapshotPath(snapshot.file)),
+        status: projectedEnum(snapshot.status, PASS_FAIL_STATUSES, 'fail'),
+        reasonCodes: projectedReasonCodes([
+          ...(Array.isArray(snapshot.failures) ? snapshot.failures : []),
+          ...(Array.isArray(snapshot.freshnessFailures) ? snapshot.freshnessFailures : []),
+        ], SNAPSHOT_REASON_CODES),
+        reasonDiagnostics: snapshotReasonDiagnostics([
+          ...(Array.isArray(snapshot.failures) ? snapshot.failures : []),
+          ...(Array.isArray(snapshot.freshnessFailures) ? snapshot.freshnessFailures : []),
+        ]),
+        entryCount: safeNonNegativeNumber(snapshot.entryCount, { integer: true }),
+        cachedAgeMs: safeNonNegativeNumber(snapshot.cachedAgeMs, { integer: true }),
+        newestEntryAgeMs: safeNonNegativeNumber(snapshot.newestEntryAgeMs, { integer: true }),
+        failureCount: Array.isArray(snapshot.failures) ? snapshot.failures.length : 0,
+        freshnessFailureCount: Array.isArray(snapshot.freshnessFailures) ? snapshot.freshnessFailures.length : 0,
+      })), 'relayIdentityHash')
+    : [];
+  const snapshotReasonCodes = sortedUniqueStrings(snapshots.flatMap((snapshot) => snapshot.reasonCodes));
+  const statusBlockers = read.parsed.status === 'pass'
+    ? []
+    : snapshotReasonCodes.length > 0
+      ? snapshotReasonCodes.map((code) => code === 'unclassified'
+          ? 'relay_snapshot:unclassified'
+          : `relay_snapshot:${code}`)
+      : ['relay_snapshot:status_fail'];
   const blockers = [
     ...freshness.blockers,
     ...statusBlockers,
   ];
   return {
-    schemaVersion: read.parsed.schemaVersion ?? null,
+    schemaVersion: projectedSchemaVersion(read.parsed.schemaVersion, 'vh-relay-latest-index-snapshot-watch-v1'),
     status: blockers.length > 0 ? 'fail' : 'pass',
     severity: blockers.length > 0 ? 'warning' : 'none',
     required: true,
-    sourceFileHash: hashValue(filePath),
-    generatedAt: read.parsed.generatedAt ?? null,
+    sourceRole: 'relay_snapshot',
+    generatedAt: safeIsoTimestamp(read.parsed.generatedAt),
     ageMs: freshness.ageMs,
     maxAgeMs,
     blockers,
-    snapshots: Array.isArray(read.parsed.snapshots)
-      ? read.parsed.snapshots.map((snapshot) => ({
-          fileHash: hashValue(snapshot.file),
-          relay: relayNameFromSnapshotPath(snapshot.file),
-          status: snapshot.status ?? null,
-          entryCount: Number.isFinite(snapshot.entryCount) ? snapshot.entryCount : null,
-          cachedAgeMs: Number.isFinite(snapshot.cachedAgeMs) ? snapshot.cachedAgeMs : null,
-          newestEntryAgeMs: Number.isFinite(snapshot.newestEntryAgeMs) ? snapshot.newestEntryAgeMs : null,
-          failureCount: Array.isArray(snapshot.failures) ? snapshot.failures.length : 0,
-          freshnessFailureCount: Array.isArray(snapshot.freshnessFailures) ? snapshot.freshnessFailures.length : 0,
-        }))
-      : [],
+    snapshots,
   };
-}
-
-function sanitizeWatchClosureBlocker(blocker) {
-  return sanitizeAlertText(blocker);
 }
 
 function defaultLimitSource(value) {
   return String(value ?? '').startsWith('default:');
+}
+
+function limitSourceClass(value) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return 'missing';
+  return defaultLimitSource(normalized) ? 'default' : 'configured';
+}
+
+function projectWatchClosureBlocker(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  const code = projectedReasonCode(text, WATCH_CLOSURE_REASON_CODES);
+  if (code === 'unclassified') return 'watch_closure:unclassified';
+  if (code === 'window_short') {
+    const match = text.match(/^window_short:(\d{1,6}(?:\.\d{1,2})?)\/(24|48)$/);
+    return match ? `watch_closure:window_short:${match[1]}/${match[2]}` : 'watch_closure:window_short';
+  }
+  const countCodes = new Set([
+    'archive_sample_failures',
+    'runtime_failed_ticks',
+    'runtime_raw_write_failures',
+    'runtime_nonfatal_prewrite_failures',
+    'storycluster_failure_artifacts',
+    'storycluster_degeneracy_warnings',
+  ]);
+  if (countCodes.has(code)) {
+    const match = text.match(new RegExp(`^${code}:(\\d{1,15})$`));
+    return match && Number.isSafeInteger(Number(match[1]))
+      ? `watch_closure:${code}:${match[1]}`
+      : `watch_closure:${code}`;
+  }
+  if (code === 'publisher_nrestarts') {
+    const match = text.match(/^publisher_nrestarts:(\d{1,15})->(\d{1,15})$/);
+    return match && Number.isSafeInteger(Number(match[1])) && Number.isSafeInteger(Number(match[2]))
+      ? `watch_closure:publisher_nrestarts:${match[1]}/${match[2]}`
+      : 'watch_closure:publisher_nrestarts';
+  }
+  return `watch_closure:${code}`;
+}
+
+function projectWatchClosureBlockers(values) {
+  return sortedUniqueStrings((Array.isArray(values) ? values : []).map(projectWatchClosureBlocker));
 }
 
 function watchClosureProvenanceBlockers(verdict) {
@@ -534,21 +769,15 @@ function watchClosureProvenanceBlockers(verdict) {
   if (!relayMemory) return [];
   const blockers = [];
   if (defaultLimitSource(relayMemory.heapLimitSource)) {
-    blockers.push([
-      'watch_closure_heap_limit_source_default',
-      'aggregate',
-      sanitizeWatchClosureBlocker(relayMemory.heapLimitSource),
-    ].join(':'));
+    blockers.push('watch_closure:heap_limit_source_default');
   }
   if (Array.isArray(relayMemory.relays)) {
     for (const relay of relayMemory.relays) {
       if (!defaultLimitSource(relay?.heapLimitSource)) continue;
-      blockers.push(
-        `watch_closure_heap_limit_source_default:${sanitizeWatchClosureBlocker(relay?.name ?? 'unknown')}:${sanitizeWatchClosureBlocker(relay.heapLimitSource)}`,
-      );
+      blockers.push('watch_closure:heap_limit_source_default');
     }
   }
-  return blockers;
+  return sortedUniqueStrings(blockers);
 }
 
 function summarizeWatchClosureVerdict({ env, now }) {
@@ -560,7 +789,7 @@ function summarizeWatchClosureVerdict({ env, now }) {
   const filePath = watchClosureVerdictFile(env);
   const maxAgeMs = nonNegativeInt(env.VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS, DEFAULT_WATCH_CLOSURE_MAX_AGE_MS);
   if (!enabled) {
-    return { status: 'skipped', severity: 'none', required: false, sourceFileHash: hashValue(filePath), blockers: [] };
+    return { status: 'skipped', severity: 'none', required: false, sourceRole: 'watch_closure', blockers: [] };
   }
   const read = readJsonReport(filePath);
   if (!read.exists) {
@@ -568,11 +797,11 @@ function summarizeWatchClosureVerdict({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'watch_closure',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: ['watch_closure_verdict_missing'],
+      blockers: ['watch_closure:verdict_missing'],
       verdictStatus: null,
     };
   }
@@ -581,11 +810,11 @@ function summarizeWatchClosureVerdict({ env, now }) {
       status: 'fail',
       severity: 'critical',
       required: true,
-      sourceFileHash: hashValue(filePath),
+      sourceRole: 'watch_closure',
       generatedAt: null,
       ageMs: null,
       maxAgeMs,
-      blockers: [`watch_closure_verdict_invalid:${sanitizeAlertError(read.error)}`],
+      blockers: ['watch_closure:verdict_invalid'],
       verdictStatus: null,
     };
   }
@@ -595,61 +824,62 @@ function summarizeWatchClosureVerdict({ env, now }) {
     maxAgeMs,
     now,
   });
-  const verdictFailed = read.parsed.status === 'fail';
+  const verdictStatus = projectedEnum(read.parsed.status, WATCH_VERDICT_STATUSES, 'fail');
+  const verdictFailed = verdictStatus === 'fail';
   const verdictBlockers = verdictFailed
     ? Array.isArray(read.parsed.blockers) && read.parsed.blockers.length > 0
-      ? read.parsed.blockers.map((blocker) => `watch_closure:${sanitizeWatchClosureBlocker(blocker)}`)
-      : ['watch_closure_status:fail']
+      ? projectWatchClosureBlockers(read.parsed.blockers)
+      : ['watch_closure:status_fail']
     : [];
   const provenanceBlockers = watchClosureProvenanceBlockers(read.parsed);
   const blockers = [...freshness.blockers, ...verdictBlockers, ...provenanceBlockers];
   return {
-    schemaVersion: read.parsed.schemaVersion ?? null,
+    schemaVersion: projectedSchemaVersion(read.parsed.schemaVersion, 'vh-phase5-scope-a-watch-closure-verdict-v1'),
     status: blockers.length > 0 ? 'fail' : 'pass',
     severity: blockers.length > 0 ? 'warning' : 'none',
     required: true,
-    sourceFileHash: hashValue(filePath),
-    generatedAt: read.parsed.generatedAt ?? null,
+    sourceRole: 'watch_closure',
+    generatedAt: safeIsoTimestamp(read.parsed.generatedAt),
     ageMs: freshness.ageMs,
     maxAgeMs,
     blockers,
-    verdictStatus: read.parsed.status ?? null,
-    verdictSeverity: read.parsed.severity ?? null,
-    window: read.parsed.window ?? null,
+    verdictStatus,
+    verdictSeverity: verdictStatus === 'fail' ? 'critical' : verdictStatus === 'pass' ? 'ok' : 'info',
+    window: read.parsed.window
+      ? {
+          startAt: safeIsoTimestamp(read.parsed.window.startAt),
+          cleanStartAt: safeIsoTimestamp(read.parsed.window.cleanStartAt),
+          hoursObserved: safeNonNegativeNumber(read.parsed.window.hoursObserved),
+        }
+      : null,
     thresholds: {
       twentyFourHour: read.parsed.thresholds?.twentyFourHour
         ? {
-            status: read.parsed.thresholds.twentyFourHour.status ?? null,
-            blockers: Array.isArray(read.parsed.thresholds.twentyFourHour.blockers)
-              ? read.parsed.thresholds.twentyFourHour.blockers.map(sanitizeWatchClosureBlocker)
-              : [],
+            status: projectedEnum(read.parsed.thresholds.twentyFourHour.status, THRESHOLD_STATUSES),
+            blockers: projectWatchClosureBlockers(read.parsed.thresholds.twentyFourHour.blockers),
           }
         : null,
       fortyEightHour: read.parsed.thresholds?.fortyEightHour
         ? {
-            status: read.parsed.thresholds.fortyEightHour.status ?? null,
-            blockers: Array.isArray(read.parsed.thresholds.fortyEightHour.blockers)
-              ? read.parsed.thresholds.fortyEightHour.blockers.map(sanitizeWatchClosureBlocker)
-              : [],
+            status: projectedEnum(read.parsed.thresholds.fortyEightHour.status, THRESHOLD_STATUSES),
+            blockers: projectWatchClosureBlockers(read.parsed.thresholds.fortyEightHour.blockers),
           }
         : null,
     },
     relayMemory: read.parsed.relayMemory
       ? {
-          status: read.parsed.relayMemory.status ?? null,
-          heapPlateauVerdict: read.parsed.relayMemory.heapPlateauVerdict ?? null,
-          heapLimitSource: read.parsed.relayMemory.heapLimitSource ?? null,
-          rssLimitSource: read.parsed.relayMemory.rssLimitSource ?? null,
+          status: projectedEnum(read.parsed.relayMemory.status, PASS_WARN_FAIL_STATUSES, 'fail'),
+          heapPlateauVerdict: projectedEnum(read.parsed.relayMemory.heapPlateauVerdict, HEAP_PLATEAU_VERDICTS),
+          heapLimitSourceClass: limitSourceClass(read.parsed.relayMemory.heapLimitSource),
+          rssLimitSourceClass: limitSourceClass(read.parsed.relayMemory.rssLimitSource),
           relays: Array.isArray(read.parsed.relayMemory.relays)
-            ? read.parsed.relayMemory.relays.map((relay) => ({
-                name: relay.name ?? null,
-                trendStatus: relay.trendStatus ?? null,
-                heapPlateauVerdict: relay.heapPlateauVerdict ?? null,
-                heapLimitSource: relay.heapLimitSource ?? null,
-                shortestProjectedLimitHours: Number.isFinite(relay.shortestProjectedLimitHours)
-                  ? relay.shortestProjectedLimitHours
-                  : null,
-              }))
+            ? canonicalIdentifiedEntries(read.parsed.relayMemory.relays.map((relay) => ({
+                identityHash: strictRelayIdentityHash(relay.name),
+                trendStatus: projectedEnum(relay.trendStatus, PASS_WARN_FAIL_STATUSES, 'fail'),
+                heapPlateauVerdict: projectedEnum(relay.heapPlateauVerdict, HEAP_PLATEAU_VERDICTS),
+                heapLimitSourceClass: limitSourceClass(relay.heapLimitSource),
+                shortestProjectedLimitHours: safeNonNegativeNumber(relay.shortestProjectedLimitHours),
+              })))
             : [],
         }
       : null,
@@ -676,7 +906,7 @@ function readPublisherSystemctlShow(unit, spawnSyncImpl = spawnSync) {
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(String(result.stderr ?? result.stdout ?? '').trim() || `systemctl_show_failed:${unit}`);
+    throw new Error('systemctl_show_failed');
   }
   return String(result.stdout ?? '');
 }
@@ -693,21 +923,23 @@ function inspectPublisherUnit({
     properties = newsAggregatorPublisherLivenessWatchInternal.parseSystemctlShow(
       systemctlShowText ?? readPublisherSystemctlShow(unit, spawnSyncImpl),
     );
-  } catch (error) {
-    blockers.push(`publisher_systemctl_failed:${sanitizeAlertError(error)}`);
+  } catch {
+    blockers.push('publisher_systemctl_failed');
   }
 
-  const activeState = properties.ActiveState ?? null;
-  const subState = properties.SubState ?? null;
-  const execMainStatus = properties.ExecMainStatus ?? null;
-  const result = properties.Result ?? null;
-  const nRestarts = Number.parseInt(String(properties.NRestarts ?? ''), 10);
+  const activeState = projectedEnum(properties.ActiveState, SYSTEMD_ACTIVE_STATES);
+  const subState = projectedEnum(properties.SubState, SYSTEMD_SUB_STATES);
+  const parsedExecMainStatus = strictNonNegativeInteger(properties.ExecMainStatus, 255);
+  const execMainStatus = parsedExecMainStatus !== null
+    ? String(parsedExecMainStatus)
+    : null;
+  const result = projectedEnum(properties.Result, SYSTEMD_RESULTS);
+  const nRestarts = strictNonNegativeInteger(properties.NRestarts);
   const running = activeState === 'active' && subState === 'running';
   const systemdRestarting = activeState === 'activating' || subState === 'auto-restart';
-  const normalizedExecMainStatus = String(execMainStatus ?? '').trim();
-  const exit69 = normalizedExecMainStatus === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE;
-  const exit75 = normalizedExecMainStatus === NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE;
-  const exit78 = normalizedExecMainStatus === NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
+  const exit69 = execMainStatus === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE;
+  const exit75 = execMainStatus === NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE;
+  const exit78 = execMainStatus === NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
   const startLimitHit = result === 'start-limit-hit';
   const exit69Restarting = !running && exit69 && systemdRestarting && !startLimitHit;
   const exit69Parked = !running && exit69 && (startLimitHit || !systemdRestarting);
@@ -741,27 +973,27 @@ function inspectPublisherUnit({
 
   if (!running && blockers.length === 0) {
     if (failureClass === 'exit_69_transport_unavailable') {
-      blockers.push(`publisher_exit_69_transport_unavailable:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+      blockers.push('publisher_exit_69_transport_unavailable');
     } else if (failureClass === 'exit_69_start_limit_parked') {
-      blockers.push(`publisher_exit_69_start_limit_parked:${activeState ?? 'missing'}/${subState ?? 'missing'}:${result ?? 'missing'}`);
+      blockers.push('publisher_exit_69_start_limit_parked');
     } else if (failureClass === 'exit_75_wrapper_refusal') {
-      blockers.push(`publisher_exit_75_wrapper_refusal:${activeState ?? 'missing'}/${subState ?? 'missing'}:${result ?? 'missing'}`);
+      blockers.push('publisher_exit_75_wrapper_refusal');
     } else if (exit78) {
-      blockers.push(`publisher_exit_78:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+      blockers.push('publisher_exit_78');
     } else {
-      blockers.push(`publisher_not_running:${activeState ?? 'missing'}/${subState ?? 'missing'}`);
+      blockers.push('publisher_not_running');
     }
   }
 
   return {
-    unit,
+    unitRole: 'publisher',
     status: blockers.length === 0 ? 'pass' : 'fail',
     blockers,
     activeState,
     subState,
     execMainStatus,
     result,
-    nRestarts: Number.isFinite(nRestarts) && nRestarts >= 0 ? nRestarts : null,
+    nRestarts,
     failureClass,
     severity,
     recoveryHint,
@@ -769,8 +1001,7 @@ function inspectPublisherUnit({
 }
 
 function previousPublisherRestartCount(previousState) {
-  const parsed = Number.parseInt(String(previousState?.lastPublisherNRestarts ?? ''), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  return strictNonNegativeInteger(previousState?.lastPublisherNRestarts);
 }
 
 function restartChurnBlocker({ publisher, previousState }) {
@@ -793,14 +1024,11 @@ function fingerprintFor({
 }) {
   // Diagnostics retain their full secret-safe values; only this projection is
   // reduced to stable semantic state before hashing for delivery dedupe.
-  // Freshness flat blockers are disclosure-only: their fail-closed URL hashes
-  // are intentionally ignored here, while structured readback reasons drive
-  // genuine reason-set transitions.
+  // Closed family/reason codes and token-free endpoint identities drive real
+  // transitions; raw report strings and secret-bearing URL components do not.
   return hashValue(JSON.stringify({
     status,
-    blockerReasonCodes: blockerReasonCodes(
-      blockers.filter((blocker) => !String(blocker).startsWith('public_feed:')),
-    ),
+    blockerReasonCodes: blockerReasonCodes(blockers),
     publisher: {
       status: publisher.status,
       activeState: publisher.activeState,
@@ -811,9 +1039,10 @@ function fingerprintFor({
     freshness: {
       status: freshness.status,
       blockerClasses: blockerClasses(freshness.blockers),
-      originIdentities: sortedUniqueStrings(freshness.originHashes ?? []),
+      originCount: freshness.originCount ?? 0,
+      originEndpointHashes: sortedUniqueStrings(freshness.originEndpointHashes ?? []),
       latestIndexReadbacks: canonicalObjectSet(freshness.latestIndexReadbacks.map((entry) => ({
-        identityHash: entry.originHash ?? null,
+        identity: entry.endpointHash ?? `ordinal:${entry.ordinal}`,
         status: entry.status,
         ageState: freshnessAgeState(entry),
         failureReasonCodes: sortedUniqueStrings(entry.failureReasonCodes ?? []),
@@ -823,16 +1052,18 @@ function fingerprintFor({
       status: relayLiveness.status,
       blockerReasonCodes: blockerReasonCodes(relayLiveness.blockers),
       relays: canonicalObjectSet((relayLiveness.relays ?? []).map((relay) => ({
-        identityHash: identityHash(relay.name),
+        identity: relay.identityHash ?? `ordinal:${relay.ordinal}`,
         status: relay.status,
+        reasonCodes: sortedUniqueStrings(relay.reasonCodes ?? []),
       }))),
     },
     relaySnapshot: {
       status: relaySnapshot.status,
       blockerReasonCodes: blockerReasonCodes(relaySnapshot.blockers),
       snapshots: canonicalObjectSet((relaySnapshot.snapshots ?? []).map((snapshot) => ({
-        identityHash: identityHash(snapshot.relay ?? snapshot.fileHash),
+        identity: snapshot.relayIdentityHash ?? `ordinal:${snapshot.ordinal}`,
         status: snapshot.status,
+        reasonCodes: sortedUniqueStrings(snapshot.reasonCodes ?? []),
       }))),
     },
     watchClosure: {
@@ -846,7 +1077,7 @@ function fingerprintFor({
       relayMemoryStatus: watchClosure.relayMemory?.status ?? null,
       relayMemoryVerdict: watchClosure.relayMemory?.heapPlateauVerdict ?? null,
       relayMemoryRelays: canonicalObjectSet((watchClosure.relayMemory?.relays ?? []).map((relay) => ({
-        identityHash: identityHash(relay.name),
+        identity: relay.identityHash ?? `ordinal:${relay.ordinal}`,
         status: relay.trendStatus ?? null,
         verdict: relay.heapPlateauVerdict ?? null,
       }))),
@@ -913,11 +1144,11 @@ function sourceStatusesFor({
   watchClosure,
 }) {
   return {
-    publisher: publisher?.status ?? null,
-    freshness: freshness?.status ?? null,
-    relayLiveness: relayLiveness?.status ?? null,
-    relaySnapshot: relaySnapshot?.status ?? null,
-    watchClosure: watchClosure?.status ?? null,
+    publisher: projectedEnum(publisher?.status, REPORT_STATUSES, 'fail'),
+    freshness: projectedEnum(freshness?.status, REPORT_STATUSES, 'fail'),
+    relayLiveness: projectedEnum(relayLiveness?.status, REPORT_STATUSES, 'fail'),
+    relaySnapshot: projectedEnum(relaySnapshot?.status, REPORT_STATUSES, 'fail'),
+    watchClosure: projectedEnum(watchClosure?.status, REPORT_STATUSES, 'fail'),
   };
 }
 
@@ -1001,14 +1232,38 @@ function formatEmail({ to, from, subject, payload }) {
   ].join('\r\n');
 }
 
+function validatedMailbox(value) {
+  const mailbox = String(value ?? '').trim();
+  if (!mailbox || /[\r\n]/.test(mailbox)) return null;
+  return /^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+$/i.test(mailbox) ? mailbox : null;
+}
+
+function deliveryErrorClass(channel, error) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (channel === 'webhook') {
+    const httpMatch = message.match(/^webhook_http_(\d{3})$/);
+    const httpStatus = httpMatch ? Number(httpMatch[1]) : null;
+    if (Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599) {
+      return `webhook_http_${httpStatus}`;
+    }
+    return error instanceof Error && error.name === 'AbortError' ? 'webhook_timeout' : 'webhook_network';
+  }
+  if (message === 'email_address_invalid') return 'email_address_invalid';
+  if (message === 'sendmail_exit') return 'sendmail_exit';
+  return 'email_transport';
+}
+
 function deliverEmail({
   env,
   payload,
   spawnSyncImpl = spawnSync,
 }) {
-  const to = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_EMAIL_TO);
-  if (!to) return null;
-  const from = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_EMAIL_FROM, 'vhc-public-feed-alert@localhost');
+  const rawTo = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_EMAIL_TO);
+  const to = validatedMailbox(rawTo);
+  if (!rawTo) return null;
+  if (!to) throw new Error('email_address_invalid');
+  const from = validatedMailbox(firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_EMAIL_FROM, 'vhc-public-feed-alert@localhost'));
+  if (!from) throw new Error('email_address_invalid');
   const sendmail = firstNonEmpty(env.VH_PUBLIC_FEED_ALERT_SENDMAIL, '/usr/sbin/sendmail');
   const subject = `[VHC] public feed alert ${payload.status} ${payload.fingerprint}`;
   const result = spawnSyncImpl(sendmail, ['-t'], {
@@ -1016,7 +1271,7 @@ function deliverEmail({
     encoding: 'utf8',
   });
   if (result.status !== 0) {
-    throw new Error(`sendmail_exit_${result.status ?? 'signal'}:${String(result.stderr ?? '').trim()}`);
+    throw new Error('sendmail_exit');
   }
   return { status: 'sent', channel: 'email' };
 }
@@ -1049,7 +1304,7 @@ async function deliverAlert({
     try {
       channels.push(await deliverWebhook({ webhookUrl, payload, timeoutMs, hmacSecret, fetchImpl }));
     } catch (error) {
-      errors.push(`webhook:${sanitizeAlertError(error, [webhookUrl])}`);
+      errors.push(deliveryErrorClass('webhook', error));
     }
   }
 
@@ -1058,7 +1313,7 @@ async function deliverAlert({
       const result = deliverEmail({ env, payload, spawnSyncImpl });
       if (result) channels.push(result);
     } catch (error) {
-      errors.push(`email:${sanitizeAlertError(error)}`);
+      errors.push(deliveryErrorClass('email', error));
     }
   }
 
@@ -1067,7 +1322,7 @@ async function deliverAlert({
       status: 'missing_channel',
       reason: deliveryDecision.reason,
       channels: [],
-      error: 'no webhook or email channel configured',
+      error: 'missing_channel',
     };
   }
 
@@ -1076,7 +1331,7 @@ async function deliverAlert({
       status: 'failed',
       reason: deliveryDecision.reason,
       channels,
-      error: errors.join('; ') || 'no channel delivered',
+      error: sortedUniqueStrings(errors).join('|') || 'delivery_channel_failed',
     };
   }
 
@@ -1136,7 +1391,7 @@ export async function runPublicFeedAlertWatch({
   const generatedAt = new Date(now).toISOString();
   const stateFile = resolveStateFile(env);
   const outputFile = resolveOutputFile(env);
-  const previousState = readJsonFile(stateFile);
+  const previousState = projectAlertState(readJsonFile(stateFile));
   const freshnessRaw = await freshnessMonitorImpl({ env, repoRoot, now });
   const freshness = summarizeFreshness(freshnessRaw);
   const publisher = inspectPublisherUnit({ env, systemctlShowText, spawnSyncImpl });
@@ -1150,8 +1405,10 @@ export async function runPublicFeedAlertWatch({
     ...(freshness.status === 'pass'
       ? []
       : freshness.blockers.length > 0
-        ? freshness.blockers.map((blocker) => `public_feed:${blocker}`)
-        : [`public_feed_status:${freshness.status ?? 'missing'}`]),
+        ? freshness.blockers.map((blocker) => FRESHNESS_BLOCKER_CLASSES.has(blocker)
+            ? `public_feed:${blocker}`
+            : 'public_feed:unclassified_blocker')
+        : ['public_feed:status_fail']),
     ...relayLiveness.blockers,
     ...relaySnapshot.blockers,
     ...watchClosure.blockers,
@@ -1190,8 +1447,8 @@ export async function runPublicFeedAlertWatch({
     severity: observedSeverity,
     blockers: observedBlockers,
     fingerprint,
-    stateFile,
-    outputFile,
+    stateFileRole: 'state',
+    outputFileRole: 'latest',
     publisher,
     freshness,
     relayLiveness,
@@ -1246,18 +1503,26 @@ export async function runPublicFeedAlertWatch({
 
 async function main() {
   const summary = await runPublicFeedAlertWatch();
-  console.info(JSON.stringify({
+  console.info(JSON.stringify(alertConsoleProjection(summary), null, 2));
+  if (summary.status !== 'pass') {
+    process.exit(1);
+  }
+}
+
+function alertConsoleProjection(summary) {
+  return {
     status: summary.status,
     observedStatus: summary.observedStatus,
     severity: summary.severity,
     blockers: summary.blockers,
     fingerprint: summary.fingerprint,
     delivery: summary.delivery,
-    outputFile: summary.outputFile,
-  }, null, 2));
-  if (summary.status !== 'pass') {
-    process.exit(1);
-  }
+    outputFileRole: summary.outputFileRole,
+  };
+}
+
+function unhandledErrorClass() {
+  return 'alert_watch_unhandled_error';
 }
 
 export const publicFeedAlertWatchInternal = {
@@ -1275,11 +1540,13 @@ export const publicFeedAlertWatchInternal = {
   summarizeWatchClosureVerdict,
   watchClosureProvenanceBlockers,
   signedWebhookHeaders,
+  alertConsoleProjection,
+  unhandledErrorClass,
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error('[vh:public-feed-alert-watch] failed', error);
+  main().catch(() => {
+    console.error('[vh:public-feed-alert-watch] failed', unhandledErrorClass());
     process.exit(1);
   });
 }
