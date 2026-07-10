@@ -82,14 +82,18 @@ were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
   `relay_snapshot`, and `watch_closure` now resolve to the same incident keys.
 - Combined local validation passes 181 gun-client tests, 23 focused daemon
   write/coverage tests, 24 daemon/exit tests, 54 AI-runtime tests, 54 relay
-  integration tests, 55 alert tests, 6 publisher-liveness tests, 28 pager tests,
-  60 incident-response tests plus its 27-file contract, both focused
+  integration tests, 55 alert tests, 6 publisher-liveness tests, 29 pager tests,
+  61 incident-response tests plus its 28-file contract, both focused
   typechecks, pager build, docs governance, and `git diff --check`.
 
-This is repo evidence only. The combined head still requires the distinct G2
-cross-lane review, integration CI, and merge gate. No A6 update, service action,
-relay action, Gmail/provider mutation, alert-channel change, or recovery was
-performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
+This is repo evidence only. The first distinct G2 cross-lane review at
+`ddae488e` correctly returned `NO-GO`: a present conflicting exact relay row
+could collapse to retry-eligible 404, and durable producer fixtures were
+v1-only. The v2 fixture/replay correction is green; the relay-boundary P1 is
+back with the Runtime owner for all-four-route coverage, same-reviewer follow-up,
+and subsequent G2 review. Integration remains unpushed. No A6 update, service
+action, relay action, Gmail/provider mutation, alert-channel change, or recovery
+was performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
 
 ## Current GitHub/Repo State
 

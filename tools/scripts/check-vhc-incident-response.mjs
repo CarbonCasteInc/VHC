@@ -25,6 +25,7 @@ const REQUIRED_FILES = [
   'tools/scripts/vhc-pager-deadman.mjs',
   'tools/scripts/validate-public-feed-alert-pager-output.mjs',
   'tools/fixtures/incidents/exit69-start-limit.json',
+  'tools/fixtures/incidents/exit69-start-limit-v2.json',
   'tools/fixtures/incidents/github-issue-exit69.json',
   'tools/fixtures/incidents/operator-packet-exit69.json',
   'infra/systemd/user/vh-vhc-packet-executor.service',

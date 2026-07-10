@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   createKvPagerStore,
@@ -98,6 +99,32 @@ test('v1 and v2 producer blockers preserve pager incident-family continuity', ()
     assert.equal(legacyKey, expected);
     assert.equal(currentKey, expected);
   }
+});
+
+test('historical v1 and current v2 producer fixtures ingest into one incident family', async () => {
+  const fixtureNames = ['exit69-start-limit.json', 'exit69-start-limit-v2.json'];
+  const results = [];
+
+  for (const fixtureName of fixtureNames) {
+    const bodyText = readFileSync(
+      new URL(`../../../tools/fixtures/incidents/${fixtureName}`, import.meta.url),
+      'utf8',
+    );
+    const store = createMemoryPagerStore();
+    const result = await handleA6Alert({
+      bodyText,
+      headers: { 'x-vhc-bootstrap-secret': 'bootstrap' },
+      env: { VH_PAGER_UNSIGNED_BOOTSTRAP_SECRET: 'bootstrap' },
+      store,
+      nowMs: Date.parse('2026-07-10T00:00:01.000Z'),
+    });
+
+    assert.equal(result.status, 202);
+    assert.equal(store.state.alerts.length, 1);
+    results.push(result.body.incidentKey);
+  }
+
+  assert.deepEqual(results, ['a6:public-feed:exit_69', 'a6:public-feed:exit_69']);
 });
 
 test('signed ingest persists before returning success and latches unsigned mode off', async () => {

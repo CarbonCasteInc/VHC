@@ -929,7 +929,7 @@ git diff --check
   current v2 colon forms preserve the four public-feed incident families.
 - Combined local evidence: gun client 181, daemon write/coverage 23, daemon/exit
   24, AI runtime 54, relay integration 54, alert 55, publisher liveness 6,
-  pager 28, incident response 60 plus 27 required files; focused typechecks,
+  pager 29, incident response 61 plus 28 required files; focused typechecks,
   pager build, docs governance, and `git diff --check` pass.
 - Authority used: repo-only plus read-only incident evidence. No A6/service,
   relay, Gmail/provider, pager, alert-channel, or production mutation occurred.
@@ -939,6 +939,13 @@ git diff --check
 - G2 status at this record: combined exact-head cross-lane review, hosted CI,
   and merge remain required. Every recovery, immediate-readback, soak, and
   live-green checkbox below intentionally remains open.
+- First G2 cross review at `ddae488e` returned `NO-GO`: P1 present conflicting
+  latest/hot/lifecycle rows were hidden as retry-eligible 404s at the real relay
+  boundary; P2 the durable producer-fixture set was v1-only despite the
+  dual-version claim. The v2 fixture/replay is now added and green. The P1 is
+  assigned back to the Runtime owner for all-four-route adversarial coverage,
+  same Runtime reviewer follow-up, and subsequent review by the same G2
+  cross-lane reviewer. Integration remains unpushed and unmergeable until then.
 
 ### Review And Merge Gate
 
