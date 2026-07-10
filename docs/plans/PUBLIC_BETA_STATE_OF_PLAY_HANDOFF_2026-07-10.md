@@ -83,7 +83,7 @@ were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
   `relay_snapshot`, and `watch_closure` now resolve to the same incident keys.
 - Combined local validation passes 187 gun-client tests, 23 focused daemon
   write/coverage tests, 24 daemon/exit tests, 54 AI-runtime tests, 60 relay
-  integration tests, 55 alert tests, 6 publisher-liveness tests, 29 pager tests,
+  integration tests, 56 alert tests, 6 publisher-liveness tests, 29 pager tests,
   61 incident-response tests plus its 28-file contract, both focused
   typechecks, pager build, docs governance, and `git diff --check`.
 
@@ -92,10 +92,14 @@ This is repo evidence only. The first distinct G2 cross-lane review at
 could collapse to retry-eligible 404, and durable producer fixtures were
 v1-only. Both corrections are now integrated at `cb03c44c`; the Runtime lane's
 same reviewer returned final `GO` at `2a7b0109`, and the v1/v2 replay is green.
-The corrected combined head still requires the same G2 reviewer's subsequent
-review, hosted CI, and merge. Integration remains unpushed. No A6 update, service
-action, relay action, Gmail/provider mutation, alert-channel change, or recovery
-was performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
+A subsequent G2 review at `231962bc` found that the v2 fixture was hand-shaped
+rather than producer-authentic. It is now the exact deterministic producer
+webhook payload with a producer-side deep-equality guard. The focused alert,
+pager, incident-response, sprint, docs, and diff gates pass. The corrected head
+remains `NO-GO` pending subsequent review by the same G2 reviewer, hosted CI,
+and merge. Integration remains unpushed. No A6 update, service action, relay
+action, Gmail/provider mutation, alert-channel change, or recovery was
+performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
 
 ## Current GitHub/Repo State
 
