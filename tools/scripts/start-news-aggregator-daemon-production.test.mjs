@@ -20,6 +20,7 @@ import {
   armRestartAuthority,
   recordRestartableExit,
 } from './news-aggregator-publisher-automatic-restart-authority.mjs';
+import { canonicalSystemWriterPinSha256 } from './verify-news-aggregator-publisher-recovery.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
@@ -27,6 +28,17 @@ const SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/start-news-aggregator-da
 const ARTIFACT_SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/write-news-aggregator-production-start-artifact.mjs');
 const AUTHORITY_SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs');
 const EXPECTED_REVISION = '1883841555c4924be8d35747272c38ce8f2071d9';
+const SYSTEM_WRITER_PUBLIC_KEY = 'MCowBQYDK2VwAyEA4ZHLho6yDOsGogTtrVUWiTRIGYlxKexsprzKjbuy9js';
+const SYSTEM_WRITER_PIN_SHA256 = canonicalSystemWriterPinSha256({
+  pinVersion: 1,
+  schemaEpoch: 'luma-public-v1',
+  maxProtocolVersion: 'luma-public-v1',
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  writers: [{
+    id: 'test-writer', status: 'active',
+    publicKey: { encoding: 'spki-base64url', material: SYSTEM_WRITER_PUBLIC_KEY },
+  }],
+});
 
 function makeHarness({
   approved,
@@ -57,6 +69,7 @@ function makeHarness({
   const restartAuthorityFile = path.join(root, 'state/recovery/automatic-restart-authority.json');
   const restartPermitFile = path.join(root, 'state/recovery/automatic-restart-permit.json');
   const attendedPermitFile = path.join(root, 'state/recovery/attended-start-permit.json');
+  const attendedReceiptFile = path.join(root, 'state/recovery/attended-start-consumption-receipt.json');
   const managerApprovalFile = path.join(root, 'manager-approval');
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
@@ -126,6 +139,8 @@ function makeHarness({
       [
         '#!/usr/bin/env bash',
         'if [[ "${1:-}" == *"news-aggregator-publisher-automatic-restart-authority.mjs" ]]; then exec "${VH_TEST_REAL_NODE:?}" "$@"; fi',
+        'if [[ "${1:-}" == *"verify-news-aggregator-publisher-recovery.mjs" && "${2:-}" == "pin-sha256" ]]; then exec "${VH_TEST_REAL_NODE:?}" "$@"; fi',
+        'if [[ "${1:-}" == "-e" ]]; then exec "${VH_TEST_REAL_NODE:?}" "$@"; fi',
         'printf "node_args=%s\\n" "$*" >> "${VH_TEST_NODE_MARKER:?}"',
         'exit "${VH_TEST_NODE_STATUS:?}"',
         '',
@@ -194,6 +209,8 @@ function makeHarness({
       `VH_NEWS_DAEMON_STATE_DIR=${path.join(root, 'state')}`,
       `VH_DAEMON_FEED_ARTIFACT_ROOT=${path.join(root, 'artifacts')}`,
       `VH_NEWS_DAEMON_LAST_SUCCESS_FILE=${path.join(root, 'state/last-success.json')}`,
+      'VH_NEWS_SYSTEM_WRITER_ID=test-writer',
+      `VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=${SYSTEM_WRITER_PUBLIC_KEY}`,
       ...extraEnv,
     ].filter(Boolean).join('\n') + '\n',
     'utf8',
@@ -207,12 +224,14 @@ function makeHarness({
       relayCaptureSha256: '4'.repeat(64),
       mailboxSha256: '5'.repeat(64),
       mailboxCriticalCount: 2,
+      systemWriterPinSha256: SYSTEM_WRITER_PIN_SHA256,
     });
     const issued = spawnSync(process.execPath, [
       AUTHORITY_SCRIPT_PATH,
       'issue-attended',
       '--expected-revision', EXPECTED_REVISION,
       '--attended-permit-file', attendedPermitFile,
+      '--attended-receipt-file', attendedReceiptFile,
       '--baseline-nrestarts', '0',
       '--start-control-output', path.join(root, 'start-control.json'),
       '--evidence-bindings-json', evidenceBindings,
@@ -241,6 +260,7 @@ function makeHarness({
     restartAuthorityFile,
     restartPermitFile,
     attendedPermitFile,
+    attendedReceiptFile,
     managerApprovalFile,
     systemdNRestarts: 0,
   };
@@ -263,6 +283,7 @@ function runStartScript(harness) {
     VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE: harness.restartAuthorityFile,
     VH_NEWS_DAEMON_RESTART_PERMIT_FILE: harness.restartPermitFile,
     VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE: harness.attendedPermitFile,
+    VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE: harness.attendedReceiptFile,
     VH_NEWS_DAEMON_SYSTEMD_UNIT: 'vh-news-aggregator.service',
     VH_TEST_SYSTEMD_NRESTARTS: String(harness.systemdNRestarts),
     VH_TEST_MANAGER_APPROVAL_FILE: harness.managerApprovalFile,

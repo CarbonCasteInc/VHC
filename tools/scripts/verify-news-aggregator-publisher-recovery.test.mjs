@@ -22,6 +22,7 @@ import {
   validateSystemWriterRecord,
 } from '../../packages/gun-client/dist/systemWriter.js';
 import {
+  canonicalSystemWriterPinSha256,
   PublisherRecoveryVerificationError,
   verifyPublisherRecovery,
 } from './verify-news-aggregator-publisher-recovery.mjs';
@@ -52,6 +53,7 @@ const SYSTEM_WRITER_PIN = {
     publicKey: { encoding: 'spki-base64url', material: SYSTEM_WRITER_PUBLIC_KEY },
   }],
 };
+const SYSTEM_WRITER_PIN_SHA256 = canonicalSystemWriterPinSha256(SYSTEM_WRITER_PIN);
 const SIGNED_PATHS = {
   story: (storyId) => `vh/news/stories/${storyId}/`,
   latest: (storyId) => `vh/news/index/latest/${storyId}/`,
@@ -179,8 +181,10 @@ function startControl(overrides = {}) {
     postActivation: {
       activeState: 'active', subState: 'running', nRestarts: 0,
       attendedPermitConsumed: true,
+      attendedReceiptConsumed: true,
       legacyManagerApprovalCleared: true,
       attendedPermitBindingSha256: '7'.repeat(64),
+      attendedReceiptSha256: '8'.repeat(64),
     },
     evidenceBindings: {
       preflight: {
@@ -199,6 +203,7 @@ function startControl(overrides = {}) {
         schemaVersion: 'vhc-failure-mailbox-monitor-v1', sha256: '6'.repeat(64),
         newCriticalCount: 11, generatedAt: '2026-07-10T10:26:00.000Z',
       },
+      systemWriterPin: { sha256: SYSTEM_WRITER_PIN_SHA256 },
     },
     ...overrides,
   };
@@ -527,6 +532,9 @@ test('real Ed25519 verification rejects a valid signature under the wrong pinned
   const wrongPin = structuredClone(SYSTEM_WRITER_PIN);
   wrongPin.writers[0].publicKey.material = wrongPublicKey;
   try {
+    const start = JSON.parse(await readFile(files.startFile, 'utf8'));
+    start.evidenceBindings.systemWriterPin.sha256 = canonicalSystemWriterPinSha256(wrongPin);
+    await privateJson(files.startFile, start);
     await assert.rejects(
       verify(files, relays, { systemWriterPin: wrongPin }),
       (error) => error.code === 'positive_story_signature_invalid',
@@ -879,6 +887,29 @@ test('rejects revision, run, and start-boundary mismatches before network proof'
     }
   } finally {
     await relays.close();
+  }
+});
+
+test('rejects system-writer pin drift from start control before contacting any relay', async () => {
+  const files = await fixture();
+  const relays = await startRelays();
+  try {
+    const start = JSON.parse(await readFile(files.startFile, 'utf8'));
+    start.evidenceBindings.systemWriterPin.sha256 = 'f'.repeat(64);
+    await privateJson(files.startFile, start);
+    await assert.rejects(
+      verify(files, relays),
+      (error) => error.code === 'system_writer_pin_drift',
+    );
+    assert.deepEqual(relays.counts, [
+      { positive: 0, missing: 0 },
+      { positive: 0, missing: 0 },
+      { positive: 0, missing: 0 },
+    ]);
+    await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await relays.close();
+    await rm(files.root, { recursive: true, force: true });
   }
 });
 

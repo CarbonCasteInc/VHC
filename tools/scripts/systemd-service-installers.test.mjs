@@ -89,7 +89,18 @@ test('news aggregator publisher unit restarts only exit 69, keeps fail-closed ex
   const installer = readScript('install-news-aggregator-production-service.sh');
   assert.match(installer, /Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-authority\.json/);
   assert.match(installer, /Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-permit\.json/);
+  assert.match(installer, /Environment=VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/attended-start-permit\.json/);
+  assert.match(installer, /Environment=VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/attended-start-consumption-receipt\.json/);
   assert.match(installer, /ExecStopPost=.*record-news-aggregator-restartable-exit\.sh \$\{EXPECTED_REVISION\}/);
+  const staticUnit = readInfraUnit('vh-news-aggregator.service');
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_EXPECTED_REVISION=REPLACE_WITH_FULL_40_HEX_COMMIT/);
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_SYSTEMD_UNIT=vh-news-aggregator\.service/);
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-authority\.json/);
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-permit\.json/);
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/attended-start-permit\.json/);
+  assert.match(staticUnit, /Environment=VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/attended-start-consumption-receipt\.json/);
+  assert.match(staticUnit, /ExecStartPre=.*check-news-aggregator-expected-revision\.sh REPLACE_WITH_FULL_40_HEX_COMMIT/);
+  assert.match(staticUnit, /ExecStopPost=.*record-news-aggregator-restartable-exit\.sh REPLACE_WITH_FULL_40_HEX_COMMIT/);
   assert.match(
     readScript('record-news-aggregator-restartable-exit.sh'),
     /ExecStopPost finishes[\s\S]*service_enter_restart\(\) runs afterward[\s\S]*increments n_restarts/,

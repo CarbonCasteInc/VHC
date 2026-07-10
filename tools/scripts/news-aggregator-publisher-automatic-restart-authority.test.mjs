@@ -8,9 +8,12 @@ import { fileURLToPath } from 'node:url';
 import {
   armRestartAuthority,
   consumeAttendedStartPermit,
+  consumeAttendedStartReceipt,
   consumeAutomaticRestartPermit,
   disarmRestartAuthority,
   issueAttendedStartPermit,
+  normalizeCanonicalRecoveryDirectory,
+  parseLinuxProcStat,
   recordRestartableExit,
 } from './news-aggregator-publisher-automatic-restart-authority.mjs';
 
@@ -25,6 +28,7 @@ async function files() {
     authorityFile: path.join(root, 'authority.json'),
     permitFile: path.join(root, 'permit.json'),
     attendedPermitFile: path.join(root, 'attended.json'),
+    attendedReceiptFile: path.join(root, 'attended-receipt.json'),
   };
 }
 
@@ -35,6 +39,7 @@ const EVIDENCE_BINDINGS = {
   relayCaptureSha256: '4'.repeat(64),
   mailboxSha256: '5'.repeat(64),
   mailboxCriticalCount: 2,
+  systemWriterPinSha256: '6'.repeat(64),
 };
 
 const CONTROLLER_IDENTITY = {
@@ -359,6 +364,7 @@ test('attended permit is evidence/revision/counter bound, private, and atomicall
       ...target,
       expectedRevision: REVISION,
       currentNRestarts: 0,
+      systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
       controllerIdentity: CONTROLLER_IDENTITY,
       nowMs: NOW,
     });
@@ -366,16 +372,82 @@ test('attended permit is evidence/revision/counter bound, private, and atomicall
     assert.equal(consumed.permitBindingSha256, issued.permitBindingSha256);
     assert.deepEqual(consumed.evidenceBindings, EVIDENCE_BINDINGS);
     await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+    assert.equal((await lstat(target.attendedReceiptFile)).mode & 0o777, 0o600);
+    const receipt = await consumeAttendedStartReceipt({
+      ...target,
+      expectedRevision: REVISION,
+      expectedPermitBindingSha256: issued.permitBindingSha256,
+      currentNRestarts: 0,
+      startControlOutput: path.join(target.root, 'start-control.json'),
+      evidenceBindings: EVIDENCE_BINDINGS,
+      controllerIdentity: CONTROLLER_IDENTITY,
+      nowMs: NOW,
+    });
+    assert.equal(receipt.status, 'attended_start_receipt_consumed');
+    assert.equal(receipt.permitBindingSha256, issued.permitBindingSha256);
+    assert.match(receipt.receiptSha256, /^[0-9a-f]{64}$/);
+    await assert.rejects(lstat(target.attendedReceiptFile), (error) => error.code === 'ENOENT');
     await assert.rejects(
       consumeAttendedStartPermit({
         ...target,
         expectedRevision: REVISION,
         currentNRestarts: 0,
+        systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
         controllerIdentity: CONTROLLER_IDENTITY,
         nowMs: NOW,
       }),
       (error) => error.code === 'attended_permit_missing',
     );
+  } finally {
+    await rm(target.root, { recursive: true, force: true });
+  }
+});
+
+test('controller rejects a valid-shaped substituted permit through the consumed receipt binding', async () => {
+  const target = await files();
+  try {
+    const issued = await issueAttended(target);
+    const substituted = JSON.parse(await readFile(target.attendedPermitFile, 'utf8'));
+    substituted.nonce = '11111111-1111-1111-1111-111111111111';
+    substituted.evidenceBindings.relayEvidenceSha256 = 'a'.repeat(64);
+    await writeFile(target.attendedPermitFile, `${JSON.stringify(substituted)}\n`, { mode: 0o600 });
+    await chmod(target.attendedPermitFile, 0o600);
+    const consumed = await consumeAttendedStartPermit({
+      ...target,
+      expectedRevision: REVISION,
+      currentNRestarts: 0,
+      systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
+      controllerIdentity: CONTROLLER_IDENTITY,
+      nowMs: NOW,
+    });
+    assert.notEqual(consumed.permitBindingSha256, issued.permitBindingSha256);
+    await assert.rejects(
+      consumeAttendedStartReceipt({
+        ...target,
+        expectedRevision: REVISION,
+        expectedPermitBindingSha256: issued.permitBindingSha256,
+        currentNRestarts: 0,
+        startControlOutput: path.join(target.root, 'start-control.json'),
+        evidenceBindings: EVIDENCE_BINDINGS,
+        controllerIdentity: CONTROLLER_IDENTITY,
+        nowMs: NOW,
+      }),
+      (error) => error.code === 'attended_receipt_contract_invalid',
+    );
+    await assert.rejects(lstat(target.attendedReceiptFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await rm(target.root, { recursive: true, force: true });
+  }
+});
+
+test('issuing a new attended permit removes a stale receipt before publication', async () => {
+  const target = await files();
+  try {
+    await writeFile(target.attendedReceiptFile, '{"stale":true}\n', { mode: 0o600 });
+    await chmod(target.attendedReceiptFile, 0o600);
+    await issueAttended(target);
+    await assert.rejects(lstat(target.attendedReceiptFile), (error) => error.code === 'ENOENT');
+    assert.equal((await lstat(target.attendedPermitFile)).mode & 0o777, 0o600);
   } finally {
     await rm(target.root, { recursive: true, force: true });
   }
@@ -426,6 +498,7 @@ test('attended permit rejects stale, revision, evidence, counter, PID-reuse, and
           ...target,
           expectedRevision: REVISION,
           currentNRestarts: 0,
+          systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
           controllerIdentity: CONTROLLER_IDENTITY,
           nowMs: NOW,
           ...overrides,
@@ -450,6 +523,7 @@ test('attended permit rejects stale, revision, evidence, counter, PID-reuse, and
         ...evidenceTarget,
         expectedRevision: REVISION,
         currentNRestarts: 0,
+        systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
         controllerIdentity: CONTROLLER_IDENTITY,
         nowMs: NOW,
       }),
@@ -469,6 +543,7 @@ test('concurrent attended consumers authorize exactly one invocation', async () 
       ...target,
       expectedRevision: REVISION,
       currentNRestarts: 0,
+      systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
       controllerIdentity: CONTROLLER_IDENTITY,
       nowMs: NOW,
     };
@@ -479,6 +554,7 @@ test('concurrent attended consumers authorize exactly one invocation', async () 
     assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
     await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+    assert.equal((await lstat(target.attendedReceiptFile)).mode & 0o777, 0o600);
   } finally {
     await rm(target.root, { recursive: true, force: true });
   }
@@ -506,6 +582,7 @@ test('SIGKILL of the issuing controller makes a published attended permit unusab
         ...target,
         expectedRevision: REVISION,
         currentNRestarts: 0,
+        systemWriterPinSha256: EVIDENCE_BINDINGS.systemWriterPinSha256,
         nowMs: Date.now(),
       }),
       (error) => error.code === 'controller_not_live',
@@ -514,6 +591,52 @@ test('SIGKILL of the issuing controller makes a published attended permit unusab
   } finally {
     controller.kill('SIGKILL');
     await rm(target.root, { recursive: true, force: true });
+  }
+});
+
+test('Linux stopped and traced controller states are not live authority', () => {
+  for (const state of ['T', 't']) {
+    const fields = [state, ...Array(19).fill('1')];
+    assert.throws(
+      () => parseLinuxProcStat(`4242 (controller) ${fields.join(' ')}`),
+      (error) => error.code === 'controller_not_live',
+    );
+  }
+});
+
+test('canonical recovery directory safely migrates only owned 0755 and rejects symlink paths', async () => {
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), 'vh-recovery-home-')));
+  const canonical = path.join(home, '.local/state/vhc/news-aggregator/recovery');
+  try {
+    await mkdir(canonical, { recursive: true, mode: 0o755 });
+    await chmod(canonical, 0o755);
+    const result = await normalizeCanonicalRecoveryDirectory({
+      homeDirectory: home,
+      directory: canonical,
+    });
+    assert.equal(result.status, 'canonical_recovery_directory_private');
+    assert.equal((await lstat(canonical)).mode & 0o777, 0o700);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+
+  const linkedHome = await realpath(await mkdtemp(path.join(os.tmpdir(), 'vh-recovery-linked-home-')));
+  const target = path.join(linkedHome, 'outside-recovery');
+  const parent = path.join(linkedHome, '.local/state/vhc/news-aggregator');
+  const linkedCanonical = path.join(parent, 'recovery');
+  try {
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    await mkdir(target, { mode: 0o700 });
+    await symlink(target, linkedCanonical);
+    await assert.rejects(
+      normalizeCanonicalRecoveryDirectory({
+        homeDirectory: linkedHome,
+        directory: linkedCanonical,
+      }),
+      (error) => error.code === 'canonical_recovery_directory_not_regular',
+    );
+  } finally {
+    await rm(linkedHome, { recursive: true, force: true });
   }
 });
 

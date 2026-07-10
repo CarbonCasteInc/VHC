@@ -8,12 +8,20 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-# Override VHC_REPO, WorkingDirectory, ExecStart, and VH_NEWS_DAEMON_ENV_FILE in a drop-in if the checkout or env file differs.
+# Replace the fail-closed revision placeholder before installation. Override paths in a drop-in if the checkout or env file differs.
 Environment=VHC_REPO=/home/humble/VHC
 Environment=VH_NEWS_DAEMON_ENV_FILE=%h/.config/vhc/news-aggregator.env
+Environment=VH_NEWS_DAEMON_EXPECTED_REVISION=REPLACE_WITH_FULL_40_HEX_COMMIT
+Environment=VH_NEWS_DAEMON_SYSTEMD_UNIT=vh-news-aggregator.service
+Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json
+Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json
+Environment=VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json
+Environment=VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE=%h/.local/state/vhc/news-aggregator/recovery/attended-start-consumption-receipt.json
 Environment=PATH=/home/humble/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/humble/VHC
+ExecStartPre=/usr/bin/env bash /home/humble/VHC/tools/scripts/check-news-aggregator-expected-revision.sh REPLACE_WITH_FULL_40_HEX_COMMIT
 ExecStart=/usr/bin/env bash /home/humble/VHC/tools/scripts/start-news-aggregator-daemon-production.sh
+ExecStopPost=/usr/bin/env bash /home/humble/VHC/tools/scripts/record-news-aggregator-restartable-exit.sh REPLACE_WITH_FULL_40_HEX_COMMIT
 Restart=no
 RestartForceExitStatus=69
 RestartSec=30

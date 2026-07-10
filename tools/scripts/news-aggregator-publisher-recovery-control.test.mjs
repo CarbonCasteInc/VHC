@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { canonicalSystemWriterPinSha256 } from './verify-news-aggregator-publisher-recovery.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
@@ -29,6 +30,18 @@ const RELAY_ORIGINS = [
   'http://127.0.0.1:8766',
   'http://127.0.0.1:8767',
 ];
+const SYSTEM_WRITER_PUBLIC_KEY = 'MCowBQYDK2VwAyEA4ZHLho6yDOsGogTtrVUWiTRIGYlxKexsprzKjbuy9js';
+const SYSTEM_WRITER_PIN_SHA256 = canonicalSystemWriterPinSha256({
+  pinVersion: 1,
+  schemaEpoch: 'luma-public-v1',
+  maxProtocolVersion: 'luma-public-v1',
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  writers: [{
+    id: 'test-writer',
+    status: 'active',
+    publicKey: { encoding: 'spki-base64url', material: SYSTEM_WRITER_PUBLIC_KEY },
+  }],
+});
 
 function executable(file, lines) {
   writeFileSync(file, `${lines.join('\n')}\n`, 'utf8');
@@ -38,6 +51,8 @@ function executable(file, lines) {
 function harness({
   gitMode = 'match', preflightBash = false, failStart = false,
   nodeMode = 'delegate', stopState = 'inactive', failTempCleanup = false,
+  substituteAttendedPermit = false, signalAfterLink = false, failStagingReservation = false,
+  raceFinalArtifact = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'vh-publisher-control-')));
   const bin = path.join(root, 'bin');
@@ -48,13 +63,20 @@ function harness({
   const approval = path.join(root, 'approval');
   const nrestarts = path.join(root, 'nrestarts');
   const attendedPermit = path.join(root, 'attended-start-permit.json');
+  const attendedReceipt = path.join(root, 'attended-start-consumption-receipt.json');
+  const restartAuthority = path.join(root, 'automatic-restart-authority.json');
+  const restartPermit = path.join(root, 'automatic-restart-permit.json');
   mkdirSync(bin, { recursive: true });
   mkdirSync(home, { recursive: true });
   const publisherEnvDir = path.join(home, '.config/vhc');
   const publisherEnvFile = path.join(publisherEnvDir, 'news-aggregator.env');
   mkdirSync(publisherEnvDir, { recursive: true, mode: 0o700 });
   chmodSync(publisherEnvDir, 0o700);
-  writeFileSync(publisherEnvFile, 'VH_NEWS_SYSTEM_WRITER_ID=test-writer\n', { mode: 0o600 });
+  writeFileSync(publisherEnvFile, [
+    'VH_NEWS_SYSTEM_WRITER_ID=test-writer',
+    `VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=${SYSTEM_WRITER_PUBLIC_KEY}`,
+    '',
+  ].join('\n'), { mode: 0o600 });
   chmodSync(publisherEnvFile, 0o600);
   writeFileSync(state, 'failed\n');
   writeFileSync(enabled, 'disabled\n');
@@ -64,6 +86,33 @@ function harness({
       '#!/bin/bash',
       'if [[ "$*" == *".tmp-"* ]]; then exit 1; fi',
       'exec /bin/rm "$@"',
+    ]);
+  }
+  if (signalAfterLink) {
+    executable(path.join(bin, 'ln'), [
+      '#!/bin/bash',
+      '/bin/ln "$@" || exit $?',
+      'kill -TERM "$PPID"',
+      'sleep 0.1',
+      'exit 0',
+    ]);
+  } else if (raceFinalArtifact) {
+    executable(path.join(bin, 'ln'), [
+      '#!/bin/bash',
+      'destination="${!#}"',
+      'printf "preserve-raced-final\\n" > "${destination}"',
+      'chmod 600 "${destination}"',
+      'exit 1',
+    ]);
+  }
+  if (failStagingReservation) {
+    const preservedStaging = path.join(root, 'preexisting-staging-directory');
+    mkdirSync(preservedStaging, { mode: 0o700 });
+    writeFileSync(path.join(preservedStaging, 'sentinel'), 'preserve-me\n', { mode: 0o600 });
+    executable(path.join(bin, 'mktemp'), [
+      '#!/bin/bash',
+      'printf "%s\\n" "${VH_TEST_PREEXISTING_STAGING:?}"',
+      'exit 1',
     ]);
   }
 
@@ -105,7 +154,15 @@ function harness({
     '  reset-failed) printf "0\\n" > "${VH_TEST_NRESTARTS_FILE}"; exit 0 ;;',
     '  start)',
     '    if [[ "${VH_TEST_FAIL_START}" == "1" ]]; then exit 1; fi',
-    '    rm -f "${VH_TEST_ATTENDED_PERMIT_FILE}"',
+    '    if [[ "${VH_TEST_SUBSTITUTE_ATTENDED_PERMIT}" == "1" ]]; then',
+    "      \"${VH_TEST_REAL_NODE}\" -e 'const fs=require(\"node:fs\"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file)); value.nonce=\"11111111-1111-1111-1111-111111111111\"; value.evidenceBindings.relayEvidenceSha256=\"f\".repeat(64); fs.writeFileSync(file, JSON.stringify(value)+\"\\n\", {mode:0o600}); fs.chmodSync(file,0o600);' \"${VH_TEST_ATTENDED_PERMIT_FILE}\"",
+    '    fi',
+    '    "${VH_TEST_REAL_NODE}" "${VH_TEST_AUTHORITY_SCRIPT}" consume-attended \\',
+    '      --expected-revision "${VH_TEST_REVISION}" \\',
+    '      --attended-permit-file "${VH_TEST_ATTENDED_PERMIT_FILE}" \\',
+    '      --attended-receipt-file "${VH_TEST_ATTENDED_RECEIPT_FILE}" \\',
+    '      --current-nrestarts "$(cat "${VH_TEST_NRESTARTS_FILE}")" \\',
+    '      --system-writer-pin-sha256 "${VH_TEST_SYSTEM_WRITER_PIN_SHA256}" >/dev/null || exit $?',
     '    printf "active\\n" > "${VH_TEST_STATE_FILE}"; exit 0',
     '    ;;',
     '  stop) printf "%s\\n" "${VH_TEST_STOP_STATE:-inactive}" > "${VH_TEST_STATE_FILE}"; exit 0 ;;',
@@ -130,6 +187,7 @@ function harness({
       '#!/bin/bash',
       'script="$1"',
       'name="$(basename "${script}")"',
+      'if [[ "${name}" == "verify-news-aggregator-publisher-recovery.mjs" && "${2:-}" == "pin-sha256" ]]; then exec "${VH_TEST_REAL_NODE}" "$@"; fi',
       'if [[ "${VH_TEST_NODE_MODE}" == "activation-race" && "${name}" == "write-news-aggregator-publisher-start-control-artifact.mjs" ]]; then',
       '  "${VH_TEST_REAL_NODE}" "$@" || exit $?',
       '  printf "1\\n" > "${VH_TEST_NRESTARTS_FILE}"',
@@ -139,7 +197,7 @@ function harness({
       '  case "${VH_TEST_NODE_MODE}" in',
       '    verify-fail) exit 78 ;;',
       '    verify-signal) kill -TERM "$PPID"; sleep 1; exit 78 ;;',
-      '    verify-success|verify-post-drift)',
+    '    verify-success|verify-post-drift|verify-post-pin-drift)',
       '      output=""',
       '      shift',
       '      while [[ "$#" -gt 0 ]]; do',
@@ -150,6 +208,10 @@ function harness({
       '      printf "{\\"status\\":\\"pass\\"}\\n" > "${output}"',
       '      chmod 600 "${output}"',
       '      [[ "${VH_TEST_NODE_MODE}" != "verify-post-drift" ]] || printf "1\\n" > "${VH_TEST_NRESTARTS_FILE}"',
+      '      if [[ "${VH_TEST_NODE_MODE}" == "verify-post-pin-drift" ]]; then',
+      '        sed -i.bak "s/^VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=.*/VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=MCowBQYDK2VwAyEAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/" "${VH_TEST_PUBLISHER_ENV_FILE}"',
+      '        rm -f "${VH_TEST_PUBLISHER_ENV_FILE}.bak"',
+      '      fi',
       '      exit 0',
       '      ;;',
       '  esac',
@@ -180,12 +242,20 @@ function harness({
     approval,
     nrestarts,
     attendedPermit,
+    attendedReceipt,
+    restartAuthority,
+    restartPermit,
     preflightEnvLog: path.join(root, 'preflight-env.log'),
     gitMode,
     failStart,
     nodeMode,
     stopState,
     failTempCleanup,
+    substituteAttendedPermit,
+    signalAfterLink,
+    failStagingReservation,
+    raceFinalArtifact,
+    preexistingStaging: path.join(root, 'preexisting-staging-directory'),
   };
 }
 
@@ -206,12 +276,21 @@ function run(script, args, h) {
       VH_TEST_APPROVAL_FILE: h.approval,
       VH_TEST_NRESTARTS_FILE: h.nrestarts,
       VH_TEST_ATTENDED_PERMIT_FILE: h.attendedPermit,
+      VH_TEST_ATTENDED_RECEIPT_FILE: h.attendedReceipt,
+      VH_TEST_AUTHORITY_SCRIPT: path.join(SCRIPT_DIR, 'news-aggregator-publisher-automatic-restart-authority.mjs'),
+      VH_TEST_SYSTEM_WRITER_PIN_SHA256: SYSTEM_WRITER_PIN_SHA256,
+      VH_TEST_SUBSTITUTE_ATTENDED_PERMIT: h.substituteAttendedPermit ? '1' : '0',
+      VH_TEST_PUBLISHER_ENV_FILE: path.join(h.home, '.config/vhc/news-aggregator.env'),
+      VH_TEST_PREEXISTING_STAGING: h.preexistingStaging,
       VH_TEST_FAIL_START: h.failStart ? '1' : '0',
       VH_TEST_NODE_MODE: h.nodeMode,
       VH_TEST_STOP_STATE: h.stopState,
       VH_TEST_REAL_NODE: process.execPath,
       VH_TEST_PREFLIGHT_ENV_LOG: h.preflightEnvLog,
       VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE: h.attendedPermit,
+      VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE: h.attendedReceipt,
+      VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE: h.restartAuthority,
+      VH_NEWS_DAEMON_RESTART_PERMIT_FILE: h.restartPermit,
     },
   });
 }
@@ -293,6 +372,27 @@ function writeRelayEvidence(h, now) {
   writeFileSync(file, bytes, { mode: 0o600 });
   chmodSync(file, 0o600);
   return { file, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
+function attendedStartArgs(h, output) {
+  const now = new Date();
+  const preflightFile = path.join(h.root, `preflight-${path.basename(output)}.json`);
+  const mailboxFile = path.join(h.root, `mailbox-${path.basename(output)}.json`);
+  writeFileSync(preflightFile, `${JSON.stringify(recoveryPreflight(now))}\n`, { mode: 0o600 });
+  const mailboxBytes = `${JSON.stringify(mailbox(now))}\n`;
+  writeFileSync(mailboxFile, mailboxBytes, { mode: 0o600 });
+  const relayEvidence = writeRelayEvidence(h, now);
+  return [
+    'start', '--expected-revision', REVISION,
+    '--relay-recovery-evidence', relayEvidence.file,
+    '--relay-recovery-expected-sha256', relayEvidence.sha256,
+    '--preflight-artifact', preflightFile,
+    '--mailbox-artifact', mailboxFile,
+    '--mailbox-expected-sha256', createHash('sha256').update(mailboxBytes).digest('hex'),
+    '--mailbox-expected-critical-count', '11',
+    '--start-control-output', output,
+    '--approve-attended-start',
+  ];
 }
 
 test('installer requires exact clean revision and binds every S1 evidence service', () => {
@@ -450,13 +550,17 @@ test('attended start requires exact parked state and consumes a private evidence
     assert.equal(startControl.postActivation.nRestarts, 0);
     assert.equal(startControl.status, 'active_attended_permit_consumed');
     assert.equal(startControl.postActivation.attendedPermitConsumed, true);
+    assert.equal(startControl.postActivation.attendedReceiptConsumed, true);
     assert.equal(startControl.postActivation.legacyManagerApprovalCleared, true);
     assert.match(startControl.postActivation.attendedPermitBindingSha256, /^[0-9a-f]{64}$/);
+    assert.match(startControl.postActivation.attendedReceiptSha256, /^[0-9a-f]{64}$/);
     assert.equal(startControl.evidenceBindings.preflight.runId, 'preflight-test');
     assert.equal(startControl.evidenceBindings.relayRecovery.sha256, relayEvidence.sha256);
     assert.deepEqual(startControl.evidenceBindings.relayRecovery.relayOrigins, RELAY_ORIGINS);
     assert.equal(startControl.evidenceBindings.mailbox.sha256, mailboxSha);
     assert.equal(startControl.evidenceBindings.mailbox.newCriticalCount, 11);
+    assert.equal(startControl.evidenceBindings.systemWriterPin.sha256, SYSTEM_WRITER_PIN_SHA256);
+    assert.equal(existsSync(h.attendedReceipt), false);
     assert.equal(statSync(startControlOutput).mode & 0o777, 0o600);
     const log = readFileSync(h.log, 'utf8');
     assert.doesNotMatch(log, /set-environment VH_NEWS_DAEMON_ATTENDED_START_APPROVED=1/);
@@ -464,6 +568,22 @@ test('attended start requires exact parked state and consumes a private evidence
     assert.match(log, /reset-failed vh-news-aggregator\.service/);
     assert.match(log, /start vh-news-aggregator\.service/);
     assert.match(log, /unset-environment VH_NEWS_DAEMON_ATTENDED_START_APPROVED VH_NEWS_DAEMON_START_APPROVED/);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test('valid-shaped substituted attended permit is rejected by the controller receipt binding', () => {
+  const h = harness({ substituteAttendedPermit: true });
+  try {
+    const output = path.join(h.root, 'substituted-permit-start-control.json');
+    const result = run(CONTROL, attendedStartArgs(h, output), h);
+    assert.equal(result.status, 78);
+    assert.equal(existsSync(output), false);
+    assert.equal(existsSync(h.attendedPermit), false);
+    assert.equal(existsSync(h.attendedReceipt), false);
+    assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
@@ -575,6 +695,47 @@ test('attended start rejects weak-mode and symlink output parents before service
     } finally {
       rmSync(h.root, { recursive: true, force: true });
     }
+  }
+});
+
+test('live control safely migrates only the fixed canonical recovery directory from 0755', () => {
+  const h = harness();
+  try {
+    const recovery = path.join(h.home, '.local/state/vhc/news-aggregator/recovery');
+    mkdirSync(recovery, { recursive: true, mode: 0o755 });
+    chmodSync(recovery, 0o755);
+    h.restartAuthority = path.join(recovery, 'automatic-restart-authority.json');
+    h.restartPermit = path.join(recovery, 'automatic-restart-permit.json');
+    h.attendedPermit = path.join(recovery, 'attended-start-permit.json');
+    h.attendedReceipt = path.join(recovery, 'attended-start-consumption-receipt.json');
+    const output = path.join(h.root, 'canonical-migration-start.json');
+    const result = run(CONTROL, attendedStartArgs(h, output), h);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(statSync(recovery).mode & 0o777, 0o700);
+    assert.equal(existsSync(output), true);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+
+  const linked = harness();
+  try {
+    const canonicalParent = path.join(linked.home, '.local/state/vhc/news-aggregator');
+    const recovery = path.join(canonicalParent, 'recovery');
+    const target = path.join(linked.root, 'outside-recovery');
+    mkdirSync(canonicalParent, { recursive: true, mode: 0o700 });
+    mkdirSync(target, { mode: 0o700 });
+    symlinkSync(target, recovery);
+    linked.restartAuthority = path.join(recovery, 'automatic-restart-authority.json');
+    linked.restartPermit = path.join(recovery, 'automatic-restart-permit.json');
+    linked.attendedPermit = path.join(recovery, 'attended-start-permit.json');
+    linked.attendedReceipt = path.join(recovery, 'attended-start-consumption-receipt.json');
+    const output = path.join(linked.root, 'canonical-symlink-rejected.json');
+    const result = run(CONTROL, attendedStartArgs(linked, output), linked);
+    assert.equal(result.status, 78);
+    assert.equal(existsSync(output), false);
+    assert.equal(existsSync(linked.log), false);
+  } finally {
+    rmSync(linked.root, { recursive: true, force: true });
   }
 });
 
@@ -704,8 +865,9 @@ function writeFinalizationInputs(h) {
     activationBaseline: { nRestarts: 0, capturedAfterResetFailed: true },
     postActivation: {
       activeState: 'active', subState: 'running', nRestarts: 0,
-      attendedPermitConsumed: true, legacyManagerApprovalCleared: true,
+      attendedPermitConsumed: true, attendedReceiptConsumed: true, legacyManagerApprovalCleared: true,
       attendedPermitBindingSha256: '7'.repeat(64),
+      attendedReceiptSha256: '8'.repeat(64),
     },
     evidenceBindings: {
       preflight: {
@@ -723,6 +885,7 @@ function writeFinalizationInputs(h) {
         schemaVersion: 'vhc-failure-mailbox-monitor-v1', sha256: '6'.repeat(64),
         newCriticalCount: 11, generatedAt: isoBefore(now, 44),
       },
+      systemWriterPin: { sha256: SYSTEM_WRITER_PIN_SHA256 },
     },
   });
   const startSha256 = createHash('sha256').update(readFileSync(start)).digest('hex');
@@ -736,6 +899,7 @@ function writeFinalizationInputs(h) {
     inputBindings: {
       startControlSha256: startSha256, preflightSha256: '1'.repeat(64), relayEvidenceSha256: '2'.repeat(64),
       relayPacketSha256: '4'.repeat(64), relayCaptureSha256: '5'.repeat(64), mailboxSha256: '6'.repeat(64),
+      systemWriterPinSha256: SYSTEM_WRITER_PIN_SHA256,
     },
   });
   const watchEnv = path.join(h.root, 'watch.env');
@@ -789,6 +953,7 @@ test('verification succeeds only across stable pre/post state and parks every ap
     { name: 'pre-state drift', nodeMode: 'verify-success', initialState: 'inactive', expectedStatus: 78, expectedState: 'inactive' },
     { name: 'verifier failure', nodeMode: 'verify-fail', expectedStatus: 78, expectedState: 'inactive' },
     { name: 'post-state drift', nodeMode: 'verify-post-drift', expectedStatus: 78, expectedState: 'inactive' },
+    { name: 'post-pin drift', nodeMode: 'verify-post-pin-drift', expectedStatus: 78, expectedState: 'inactive' },
     { name: 'termination signal', nodeMode: 'verify-signal', expectedStatus: 78, expectedState: 'inactive' },
     { name: 'wrong relay count', nodeMode: 'verify-success', wrongRelayCount: true, expectedStatus: 78, expectedState: 'inactive' },
   ]) {
@@ -820,6 +985,32 @@ test('verification succeeds only across stable pre/post state and parks every ap
   }
 });
 
+test('verification rejects system-writer pin drift before invoking readback', () => {
+  const h = harness({ nodeMode: 'verify-success' });
+  try {
+    writeFileSync(h.state, 'active\n');
+    writeFileSync(h.enabled, 'enabled\n');
+    writeFileSync(h.nrestarts, '0\n');
+    const files = writeFinalizationInputs(h);
+    const envFile = path.join(h.home, '.config/vhc/news-aggregator.env');
+    const changed = readFileSync(envFile, 'utf8').replace(
+      /^VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=.*$/m,
+      'VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL=MCowBQYDK2VwAyEAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    writeFileSync(envFile, changed, { mode: 0o600 });
+    chmodSync(envFile, 0o600);
+    const output = path.join(h.root, 'pre-readback-pin-drift.json');
+    const result = run(CONTROL, verificationArgs(files, output), h);
+    assert.equal(result.status, 78);
+    assert.match(result.stderr, /system-writer pin changed before readback/);
+    assert.equal(existsSync(output), false);
+    assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
 test('verification preserves preexisting evidence byte-for-byte and parks without invoking readback', () => {
   const h = harness({ nodeMode: 'verify-success' });
   try {
@@ -836,6 +1027,141 @@ test('verification preserves preexisting evidence byte-for-byte and parks withou
     assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
   } finally {
     rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test('TERM immediately after final link removes invocation-owned start, readback, and finalization pass artifacts', () => {
+  {
+    const h = harness({ signalAfterLink: true });
+    try {
+      const output = path.join(h.root, 'term-after-start-link.json');
+      const result = run(CONTROL, attendedStartArgs(h, output), h);
+      assert.equal(result.status, 78, result.stderr);
+      assert.equal(existsSync(output), false);
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+      assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const h = harness({ nodeMode: 'verify-success', signalAfterLink: true });
+    try {
+      writeFileSync(h.state, 'active\n');
+      writeFileSync(h.enabled, 'enabled\n');
+      writeFileSync(h.nrestarts, '0\n');
+      const files = writeFinalizationInputs(h);
+      const output = path.join(h.root, 'term-after-readback-link.json');
+      const result = run(CONTROL, verificationArgs(files, output), h);
+      assert.equal(result.status, 78, result.stderr);
+      assert.equal(existsSync(output), false);
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+      assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const h = harness({ signalAfterLink: true });
+    try {
+      writeFileSync(h.state, 'active\n');
+      writeFileSync(h.enabled, 'enabled\n');
+      writeFileSync(h.nrestarts, '0\n');
+      const files = writeFinalizationInputs(h);
+      const output = path.join(h.root, 'term-after-finalization-link.json');
+      const result = run(CONTROL, finalizationArgs(files, output), h);
+      assert.equal(result.status, 78, result.stderr);
+      assert.equal(existsSync(output), false);
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+      assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('failed exclusive staging reservation never deletes a preexisting writer or verifier pathname', () => {
+  {
+    const h = harness({ failStagingReservation: true });
+    try {
+      const output = path.join(h.root, 'reservation-failed-start.json');
+      const result = run(CONTROL, attendedStartArgs(h, output), h);
+      assert.equal(result.status, 78);
+      assert.equal(existsSync(output), false);
+      assert.equal(readFileSync(path.join(h.preexistingStaging, 'sentinel'), 'utf8'), 'preserve-me\n');
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const h = harness({ nodeMode: 'verify-success', failStagingReservation: true });
+    try {
+      writeFileSync(h.state, 'active\n');
+      writeFileSync(h.enabled, 'enabled\n');
+      writeFileSync(h.nrestarts, '0\n');
+      const files = writeFinalizationInputs(h);
+      const output = path.join(h.root, 'reservation-failed-readback.json');
+      const result = run(CONTROL, verificationArgs(files, output), h);
+      assert.equal(result.status, 78);
+      assert.equal(existsSync(output), false);
+      assert.equal(readFileSync(path.join(h.preexistingStaging, 'sentinel'), 'utf8'), 'preserve-me\n');
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('a raced preexisting final artifact is never deleted by invocation-owned rollback', () => {
+  {
+    const h = harness({ raceFinalArtifact: true });
+    try {
+      const output = path.join(h.root, 'raced-start-final.json');
+      const result = run(CONTROL, attendedStartArgs(h, output), h);
+      assert.equal(result.status, 78);
+      assert.equal(readFileSync(output, 'utf8'), 'preserve-raced-final\n');
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const h = harness({ nodeMode: 'verify-success', raceFinalArtifact: true });
+    try {
+      writeFileSync(h.state, 'active\n');
+      writeFileSync(h.enabled, 'enabled\n');
+      writeFileSync(h.nrestarts, '0\n');
+      const files = writeFinalizationInputs(h);
+      const output = path.join(h.root, 'raced-readback-final.json');
+      const result = run(CONTROL, verificationArgs(files, output), h);
+      assert.equal(result.status, 78);
+      assert.equal(readFileSync(output, 'utf8'), 'preserve-raced-final\n');
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const h = harness({ raceFinalArtifact: true });
+    try {
+      writeFileSync(h.state, 'active\n');
+      writeFileSync(h.enabled, 'enabled\n');
+      writeFileSync(h.nrestarts, '0\n');
+      const files = writeFinalizationInputs(h);
+      const output = path.join(h.root, 'raced-finalization-final.json');
+      const result = run(CONTROL, finalizationArgs(files, output), h);
+      assert.equal(result.status, 78);
+      assert.equal(readFileSync(output, 'utf8'), 'preserve-raced-final\n');
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
   }
 });
 

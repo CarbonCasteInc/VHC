@@ -113,6 +113,7 @@ Environment=VH_NEWS_DAEMON_SYSTEMD_UNIT=vh-news-aggregator.service
 Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json
 Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json
 Environment=VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json
+Environment=VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE=%h/.local/state/vhc/news-aggregator/recovery/attended-start-consumption-receipt.json
 Environment=PATH=${SERVICE_PATH}
 WorkingDirectory=${REPO_ROOT}
 ExecStartPre=/usr/bin/env bash ${REPO_ROOT}/tools/scripts/check-news-aggregator-expected-revision.sh ${EXPECTED_REVISION}

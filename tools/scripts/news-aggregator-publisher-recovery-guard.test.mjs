@@ -426,8 +426,10 @@ function startControl(overrides = {}) {
       subState: 'running',
       nRestarts: 0,
       attendedPermitConsumed: true,
+      attendedReceiptConsumed: true,
       legacyManagerApprovalCleared: true,
       attendedPermitBindingSha256: '7'.repeat(64),
+      attendedReceiptSha256: '8'.repeat(64),
     },
     evidenceBindings: {
       preflight: {
@@ -445,6 +447,7 @@ function startControl(overrides = {}) {
         schemaVersion: 'vhc-failure-mailbox-monitor-v1', sha256: '6'.repeat(64),
         newCriticalCount: 11, generatedAt: '2026-07-10T10:26:00.000Z',
       },
+      systemWriterPin: { sha256: '9'.repeat(64) },
     },
     ...overrides,
   };
@@ -527,6 +530,7 @@ async function finalizationFixture(root, overrides = {}) {
       relayPacketSha256: '4'.repeat(64),
       relayCaptureSha256: '5'.repeat(64),
       mailboxSha256: '6'.repeat(64),
+      systemWriterPinSha256: '9'.repeat(64),
     },
     ...overrides.readback,
   });

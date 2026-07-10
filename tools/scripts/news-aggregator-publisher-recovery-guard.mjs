@@ -243,6 +243,7 @@ export async function verifyStartControlArtifact(options) {
   const preflight = bindings?.preflight;
   const relay = bindings?.relayRecovery;
   const mailbox = bindings?.mailbox;
+  const systemWriterPin = bindings?.systemWriterPin;
   const relayOrigins = normalizeReviewedRelayOrigins(
     relay?.relayOrigins,
     'start_control_relay_origins_invalid',
@@ -261,10 +262,12 @@ export async function verifyStartControlArtifact(options) {
     || artifact.postActivation?.activeState !== 'active'
     || artifact.postActivation?.subState !== 'running'
     || artifact.postActivation?.attendedPermitConsumed !== true
+    || artifact.postActivation?.attendedReceiptConsumed !== true
     || artifact.postActivation?.legacyManagerApprovalCleared !== true
     || !sha256(artifact.postActivation?.attendedPermitBindingSha256)
+    || !sha256(artifact.postActivation?.attendedReceiptSha256)
     || artifact.postActivation?.nRestarts !== artifact.activationBaseline.nRestarts
-    || !exactKeys(bindings, ['preflight', 'relayRecovery', 'mailbox'])
+    || !exactKeys(bindings, ['preflight', 'relayRecovery', 'mailbox', 'systemWriterPin'])
     || !exactKeys(preflight, ['schemaVersion', 'sha256', 'revision', 'runId', 'generatedAt'])
     || preflight.schemaVersion !== 'vh-news-daemon-recovery-preflight-v1'
     || preflight.revision !== artifact.revision || !sha256(preflight.sha256)
@@ -289,6 +292,8 @@ export async function verifyStartControlArtifact(options) {
     || !sha256(mailbox.sha256)
     || !Number.isSafeInteger(mailbox.newCriticalCount) || mailbox.newCriticalCount < 0
     || !Number.isFinite(Date.parse(mailbox.generatedAt ?? ''))
+    || !exactKeys(systemWriterPin, ['sha256'])
+    || !sha256(systemWriterPin.sha256)
     || Date.parse(preflight.generatedAt) > startedAtMs
     || Date.parse(relay.reviewedAt) > startedAtMs
     || Date.parse(mailbox.generatedAt) > startedAtMs) {
@@ -305,6 +310,8 @@ export async function verifyStartControlArtifact(options) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     evidenceBindings: structuredClone(bindings),
     relayOrigins,
+    attendedReceiptSha256: artifact.postActivation.attendedReceiptSha256,
+    systemWriterPinSha256: systemWriterPin.sha256,
   };
 }
 
@@ -463,14 +470,15 @@ export async function verifyRecoveryFinalization(options) {
     || readback.lifecycleModes.some((mode) => !lifecycleModes.has(mode))
     || !exactKeys(readback.inputBindings, [
       'startControlSha256', 'preflightSha256', 'relayEvidenceSha256',
-      'relayPacketSha256', 'relayCaptureSha256', 'mailboxSha256',
+      'relayPacketSha256', 'relayCaptureSha256', 'mailboxSha256', 'systemWriterPinSha256',
     ])
     || readback.inputBindings.startControlSha256 !== start.sha256
     || readback.inputBindings.preflightSha256 !== start.evidenceBindings.preflight.sha256
     || readback.inputBindings.relayEvidenceSha256 !== start.evidenceBindings.relayRecovery.sha256
     || readback.inputBindings.relayPacketSha256 !== start.evidenceBindings.relayRecovery.packetSha256
     || readback.inputBindings.relayCaptureSha256 !== start.evidenceBindings.relayRecovery.captureSha256
-    || readback.inputBindings.mailboxSha256 !== start.evidenceBindings.mailbox.sha256) {
+    || readback.inputBindings.mailboxSha256 !== start.evidenceBindings.mailbox.sha256
+    || readback.inputBindings.systemWriterPinSha256 !== start.systemWriterPinSha256) {
     fail('readback_artifact_contract_invalid');
   }
   const readbackAtMs = finiteTimestamp(readback.generatedAt, 'readback_generated_at_invalid');

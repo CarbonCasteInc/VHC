@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto';
 import { chmod, link, lstat, open, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,6 +114,52 @@ export function resolveSystemWriterPinFromEnv(env = process.env) {
       },
     }],
   };
+}
+
+export function canonicalSystemWriterPinSha256(pin) {
+  if (!exactKeys(pin, [
+    'pinVersion', 'schemaEpoch', 'maxProtocolVersion', 'signatureSuite', 'writers',
+  ])
+    || pin.pinVersion !== 1
+    || pin.schemaEpoch !== 'luma-public-v1'
+    || pin.maxProtocolVersion !== 'luma-public-v1'
+    || pin.signatureSuite !== 'jcs-ed25519-sha256-v1'
+    || !Array.isArray(pin.writers) || pin.writers.length === 0 || pin.writers.length > 64) {
+    fail('system_writer_pin_invalid');
+  }
+  const writers = pin.writers.map((writer) => {
+    if (!exactKeys(writer, ['id', 'status', 'publicKey'])
+      || typeof writer.id !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(writer.id)
+      || !['active', 'retired'].includes(writer.status)
+      || !exactKeys(writer.publicKey, ['encoding', 'material'])
+      || writer.publicKey.encoding !== 'spki-base64url'
+      || typeof writer.publicKey.material !== 'string'
+      || !/^[A-Za-z0-9_-]{32,4096}$/.test(writer.publicKey.material)) {
+      fail('system_writer_pin_invalid');
+    }
+    return {
+      id: writer.id,
+      status: writer.status,
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: writer.publicKey.material,
+      },
+    };
+  });
+  if (new Set(writers.map((writer) => writer.id)).size !== writers.length
+    || !writers.some((writer) => writer.status === 'active')) {
+    fail('system_writer_pin_invalid');
+  }
+  writers.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  const canonicalPin = {
+    pinVersion: 1,
+    schemaEpoch: 'luma-public-v1',
+    maxProtocolVersion: 'luma-public-v1',
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    writers,
+  };
+  return createHash('sha256').update(JSON.stringify(canonicalPin)).digest('hex');
 }
 
 async function loadCanonicalSystemWriterValidator(override) {
@@ -597,6 +644,7 @@ export async function verifyPublisherRecovery(options) {
   if (!fullRevision(options.expectedRevision)) fail('expected_revision_invalid');
   await requireOutputAbsent(options.outputFile);
   const systemWriterPin = options.systemWriterPin ?? resolveSystemWriterPinFromEnv(options.env ?? process.env);
+  const systemWriterPinSha256 = canonicalSystemWriterPinSha256(systemWriterPin);
   const validateSystemWriterRecord = await loadCanonicalSystemWriterValidator(
     options.validateSystemWriterRecord,
   );
@@ -615,6 +663,9 @@ export async function verifyPublisherRecovery(options) {
     nowMs: fetchOptions.nowMs,
     maxAgeMs: options.startControlMaxAgeMs,
   });
+  if (startControl.systemWriterPinSha256 !== systemWriterPinSha256) {
+    fail('system_writer_pin_drift');
+  }
   const origins = normalizeOrigins(options.relayOrigins, startControl.relayOrigins);
   const currentRunJson = await readRegularJson(options.currentRunFile, 'current_run', { privateMode: true });
   const currentRun = validateCurrentRun(currentRunJson, options.expectedRevision, startControl);
@@ -708,6 +759,7 @@ export async function verifyPublisherRecovery(options) {
       relayPacketSha256: startControl.evidenceBindings.relayRecovery.packetSha256,
       relayCaptureSha256: startControl.evidenceBindings.relayRecovery.captureSha256,
       mailboxSha256: startControl.evidenceBindings.mailbox.sha256,
+      systemWriterPinSha256,
     },
   };
   await writePrivateJsonAtomic(options.outputFile, result);
@@ -733,6 +785,14 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  if (process.argv[2] === 'pin-sha256') {
+    if (process.argv.length !== 3) fail('arguments_invalid');
+    console.info(JSON.stringify({
+      status: 'pass',
+      systemWriterPinSha256: canonicalSystemWriterPinSha256(resolveSystemWriterPinFromEnv()),
+    }));
+    return;
+  }
   const { values, origins } = parseArgs(process.argv.slice(2));
   const required = ['--expected-revision', '--start-control-file', '--current-run-file', '--runtime-diagnostics-file', '--output-file'];
   if (required.some((key) => !values.get(key))) fail('arguments_missing');

@@ -12,6 +12,7 @@ PUBLISHER_ENV_FILE="${VH_NEWS_DAEMON_ENV_FILE:-${HOME}/.config/vhc/news-aggregat
 RESTART_AUTHORITY_FILE="${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json}"
 RESTART_PERMIT_FILE="${VH_NEWS_DAEMON_RESTART_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json}"
 ATTENDED_START_PERMIT_FILE="${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json}"
+ATTENDED_START_RECEIPT_FILE="${VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-consumption-receipt.json}"
 RESTART_AUTHORITY_SCRIPT="${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs"
 
 if [[ ! -r "${COMMON_SH}" ]]; then
@@ -142,6 +143,105 @@ manager_approval_is_set() {
     <<<"${manager_environment}"
 }
 
+normalize_fixed_recovery_directory() {
+  local canonical="${HOME}/.local/state/vhc/news-aggregator/recovery"
+  if [[ "${RESTART_AUTHORITY_FILE}" == "${canonical}/automatic-restart-authority.json"
+    && "${RESTART_PERMIT_FILE}" == "${canonical}/automatic-restart-permit.json"
+    && "${ATTENDED_START_PERMIT_FILE}" == "${canonical}/attended-start-permit.json"
+    && "${ATTENDED_START_RECEIPT_FILE}" == "${canonical}/attended-start-consumption-receipt.json" ]]; then
+    node "${RESTART_AUTHORITY_SCRIPT}" normalize-recovery-dir \
+      --directory "${canonical}" \
+      --home-directory "${HOME}" >/dev/null
+  fi
+}
+
+validate_publisher_env_file() {
+  node -e '
+    const { lstatSync, realpathSync } = require("node:fs");
+    const path = require("node:path");
+    const file = process.argv[1];
+    const stat = lstatSync(file);
+    if (stat.isSymbolicLink() || !stat.isFile()
+      || (typeof process.getuid === "function" && stat.uid !== process.getuid())
+      || (stat.mode & 0o777) !== 0o600
+      || realpathSync(file) !== path.resolve(file)) process.exit(78);
+  ' "${PUBLISHER_ENV_FILE}"
+}
+
+publisher_pin_json() {
+  validate_publisher_env_file
+  (
+    set +x
+    set -a
+    if ! source "${PUBLISHER_ENV_FILE}" >/dev/null 2>&1; then
+      echo "[vh:publisher-recovery] publisher env file could not be loaded for signature verification" >&2
+      exit 78
+    fi
+    set +a
+    unset VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
+    node "${VERIFY_SCRIPT}" pin-sha256
+  )
+}
+
+reserve_staging_directory() {
+  local final_path="$1"
+  local parent base reserved
+  parent="$(dirname "${final_path}")"
+  base="${final_path##*/}"
+  if ! reserved="$(mktemp -d "${parent}/.${base}.pending.XXXXXXXX")"; then
+    return 78
+  fi
+  if ! chmod 700 "${reserved}" || ! node -e '
+    const { lstatSync, realpathSync } = require("node:fs");
+    const path = require("node:path");
+    const dir = process.argv[1];
+    const stat = lstatSync(dir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()
+      || (typeof process.getuid === "function" && stat.uid !== process.getuid())
+      || (stat.mode & 0o777) !== 0o700 || realpathSync(dir) !== path.resolve(dir)) process.exit(78);
+  ' "${reserved}"; then
+    rmdir -- "${reserved}" >/dev/null 2>&1 || true
+    return 78
+  fi
+  printf '%s\n' "${reserved}"
+}
+
+private_file_identity() {
+  node -e '
+    const { lstatSync } = require("node:fs");
+    const stat = lstatSync(process.argv[1]);
+    if (stat.isSymbolicLink() || !stat.isFile()
+      || (typeof process.getuid === "function" && stat.uid !== process.getuid())
+      || (stat.mode & 0o777) !== 0o600) process.exit(78);
+    process.stdout.write(`${stat.dev}:${stat.ino}`);
+  ' "$1"
+}
+
+remove_owned_final_link() {
+  node -e '
+    const { lstatSync, unlinkSync } = require("node:fs");
+    const [file, expected] = process.argv.slice(1);
+    let stat;
+    try { stat = lstatSync(file); } catch (error) {
+      if (error?.code === "ENOENT") process.exit(0);
+      process.exit(78);
+    }
+    if (stat.isSymbolicLink() || !stat.isFile() || `${stat.dev}:${stat.ino}` !== expected) process.exit(78);
+    try { unlinkSync(file); } catch { process.exit(78); }
+    try { lstatSync(file); process.exit(78); } catch (error) {
+      if (error?.code !== "ENOENT") process.exit(78);
+    }
+  ' "$1" "$2"
+}
+
+cleanup_owned_staging() {
+  local directory="$1"
+  local file="$2"
+  rm -f -- "${file}" >/dev/null 2>&1 || return 78
+  rmdir -- "${directory}" >/dev/null 2>&1 || return 78
+  [[ ! -e "${file}" && ! -L "${file}" && ! -e "${directory}" && ! -L "${directory}" ]]
+}
+
 park_internal() {
   local state sub_state result_state exec_status enabled
   state="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
@@ -159,11 +259,13 @@ park_internal() {
   if ! node "${RESTART_AUTHORITY_SCRIPT}" disarm \
     --authority-file "${RESTART_AUTHORITY_FILE}" \
     --permit-file "${RESTART_PERMIT_FILE}" \
-    --attended-permit-file "${ATTENDED_START_PERMIT_FILE}" >/dev/null 2>&1; then
+    --attended-permit-file "${ATTENDED_START_PERMIT_FILE}" \
+    --attended-receipt-file "${ATTENDED_START_RECEIPT_FILE}" >/dev/null 2>&1; then
     echo "[vh:publisher-recovery] automatic restart authority failed to clear" >&2
     return 78
   fi
-  if [[ -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}"
+  if [[ -e "${ATTENDED_START_RECEIPT_FILE}" || -L "${ATTENDED_START_RECEIPT_FILE}"
+    || -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}"
     || -e "${RESTART_PERMIT_FILE}" || -L "${RESTART_PERMIT_FILE}"
     || -e "${RESTART_AUTHORITY_FILE}" || -L "${RESTART_AUTHORITY_FILE}" ]]; then
     echo "[vh:publisher-recovery] automatic restart authority remained after park" >&2
@@ -191,12 +293,17 @@ if [[ "${COMMAND}" == "park" || "${COMMAND}" == "abort" ]]; then
     echo "[vh:publisher-recovery] park requires separate explicit approval" >&2
     exit 78
   }
+  normalize_fixed_recovery_directory
   park_internal
   echo "[vh:publisher-recovery] publisher is stopped, disabled, and approval-free"
   exit 0
 fi
 
 vh_publisher_require_exact_checkout "${REPO_ROOT}" "${EXPECTED_REVISION}"
+
+if [[ "${COMMAND}" != "preflight" ]]; then
+  normalize_fixed_recovery_directory
+fi
 
 if [[ "${COMMAND}" == "preflight" ]]; then
   [[ "${APPROVE_PREFLIGHT}" == "true" && -n "${OUTPUT_FILE}" ]] || {
@@ -245,6 +352,12 @@ if [[ "${COMMAND}" == "start" ]]; then
     --expected-sha256 "${MAILBOX_EXPECTED_SHA256}" \
     --expected-critical-count "${MAILBOX_EXPECTED_CRITICAL_COUNT}" \
     --max-age-ms "${MAILBOX_MAX_AGE_MS}")"
+  system_writer_pin_json="$(publisher_pin_json)"
+  system_writer_pin_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.systemWriterPinSha256);
+  ' "${system_writer_pin_json}")"
 
   active_state="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
   sub_state="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
@@ -261,12 +374,18 @@ if [[ "${COMMAND}" == "start" ]]; then
 
   mutation_started=false
   start_control_staging=""
+  start_control_staging_dir=""
+  start_control_staging_owned=false
+  start_final_path=""
+  start_final_identity=""
   cleanup_start() {
     local status=$?
     trap - EXIT HUP INT TERM
-    if [[ -n "${start_control_staging}" ]]; then
-      rm -f -- "${start_control_staging}" >/dev/null 2>&1 || status=78
-      [[ ! -e "${start_control_staging}" && ! -L "${start_control_staging}" ]] || status=78
+    if [[ "${status}" -ne 0 && -n "${start_final_path}" && -n "${start_final_identity}" ]]; then
+      remove_owned_final_link "${start_final_path}" "${start_final_identity}" || status=78
+    fi
+    if [[ "${start_control_staging_owned}" == "true" ]]; then
+      cleanup_owned_staging "${start_control_staging_dir}" "${start_control_staging}" || status=78
     fi
     systemctl --user unset-environment \
       VH_NEWS_DAEMON_ATTENDED_START_APPROVED \
@@ -295,19 +414,21 @@ if [[ "${COMMAND}" == "start" ]]; then
     --permit-file "${RESTART_PERMIT_FILE}" \
     --baseline-nrestarts "${baseline_nrestarts}" >/dev/null
   attended_evidence_bindings="$(node -e '
-    const [preflight, relay, mailbox] = process.argv.slice(1).map(JSON.parse);
+    const [preflight, relay, mailbox, systemWriterPinSha256] = process.argv.slice(1);
     process.stdout.write(JSON.stringify({
-      preflightSha256: preflight.sha256,
-      relayEvidenceSha256: relay.sha256,
-      relayPacketSha256: relay.packetSha256,
-      relayCaptureSha256: relay.captureSha256,
-      mailboxSha256: mailbox.sha256,
-      mailboxCriticalCount: mailbox.newCriticalCount,
+      preflightSha256: JSON.parse(preflight).sha256,
+      relayEvidenceSha256: JSON.parse(relay).sha256,
+      relayPacketSha256: JSON.parse(relay).packetSha256,
+      relayCaptureSha256: JSON.parse(relay).captureSha256,
+      mailboxSha256: JSON.parse(mailbox).sha256,
+      mailboxCriticalCount: JSON.parse(mailbox).newCriticalCount,
+      systemWriterPinSha256,
     }));
-  ' "${preflight_json}" "${relay_recovery_json}" "${mailbox_current_json}")"
+  ' "${preflight_json}" "${relay_recovery_json}" "${mailbox_current_json}" "${system_writer_pin_sha256}")"
   attended_permit_json="$(node "${RESTART_AUTHORITY_SCRIPT}" issue-attended \
     --expected-revision "${EXPECTED_REVISION}" \
     --attended-permit-file "${ATTENDED_START_PERMIT_FILE}" \
+    --attended-receipt-file "${ATTENDED_START_RECEIPT_FILE}" \
     --baseline-nrestarts "${baseline_nrestarts}" \
     --start-control-output "${START_CONTROL_OUTPUT}" \
     --evidence-bindings-json "${attended_evidence_bindings}" \
@@ -325,7 +446,8 @@ if [[ "${COMMAND}" == "start" ]]; then
     active_state="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
     sub_state="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
     if [[ "${active_state}" == "active" && "${sub_state}" == "running"
-      && ! -e "${ATTENDED_START_PERMIT_FILE}" && ! -L "${ATTENDED_START_PERMIT_FILE}" ]]; then
+      && ! -e "${ATTENDED_START_PERMIT_FILE}" && ! -L "${ATTENDED_START_PERMIT_FILE}"
+      && -e "${ATTENDED_START_RECEIPT_FILE}" && ! -L "${ATTENDED_START_RECEIPT_FILE}" ]]; then
       break
     fi
     if [[ "${active_state}" == "failed" || "${SECONDS}" -ge "${deadline}" ]]; then
@@ -350,8 +472,40 @@ if [[ "${COMMAND}" == "start" ]]; then
     echo "[vh:publisher-recovery] publisher restart count changed during activation" >&2
     exit 78
   fi
+  post_start_pin_json="$(publisher_pin_json)"
+  post_start_pin_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.systemWriterPinSha256);
+  ' "${post_start_pin_json}")"
+  if [[ "${post_start_pin_sha256}" != "${system_writer_pin_sha256}" ]]; then
+    echo "[vh:publisher-recovery] system-writer pin changed during attended activation" >&2
+    exit 78
+  fi
+  attended_receipt_json="$(node "${RESTART_AUTHORITY_SCRIPT}" consume-attended-receipt \
+    --expected-revision "${EXPECTED_REVISION}" \
+    --attended-receipt-file "${ATTENDED_START_RECEIPT_FILE}" \
+    --expected-permit-binding-sha256 "${attended_permit_binding_sha256}" \
+    --current-nrestarts "${post_nrestarts}" \
+    --start-control-output "${START_CONTROL_OUTPUT}" \
+    --evidence-bindings-json "${attended_evidence_bindings}" \
+    --controller-pid "$$" \
+    --max-age-ms 120000)"
+  attended_receipt_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "attended_start_receipt_consumed"
+      || value.permitBindingSha256 !== process.argv[2]
+      || value.systemWriterPinSha256 !== process.argv[3]
+      || !/^[0-9a-f]{64}$/.test(value.receiptSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.receiptSha256);
+  ' "${attended_receipt_json}" "${attended_permit_binding_sha256}" "${system_writer_pin_sha256}")"
   activated_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
-  start_control_staging="$(dirname "${START_CONTROL_OUTPUT}")/.${START_CONTROL_OUTPUT##*/}.pending-$$-${RANDOM}"
+  if ! start_control_staging_dir="$(reserve_staging_directory "${START_CONTROL_OUTPUT}")"; then
+    echo "[vh:publisher-recovery] could not reserve private start-control staging" >&2
+    exit 78
+  fi
+  start_control_staging_owned=true
+  start_control_staging="${start_control_staging_dir}/artifact.json"
   node "${START_CONTROL_WRITER}" \
     --output-file "${start_control_staging}" \
     --expected-revision "${EXPECTED_REVISION}" \
@@ -361,6 +515,8 @@ if [[ "${COMMAND}" == "start" ]]; then
     --baseline-nrestarts "${baseline_nrestarts}" \
     --post-nrestarts "${post_nrestarts}" \
     --attended-permit-binding-sha256 "${attended_permit_binding_sha256}" \
+    --attended-receipt-sha256 "${attended_receipt_sha256}" \
+    --system-writer-pin-sha256 "${system_writer_pin_sha256}" \
     --preflight-binding-json "${preflight_json}" \
     --relay-binding-json "${relay_recovery_json}" \
     --mailbox-binding-json "${mailbox_current_json}"
@@ -369,27 +525,44 @@ if [[ "${COMMAND}" == "start" ]]; then
   final_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
   if [[ "${final_active_state}" != "active" || "${final_sub_state}" != "running"
     || "${final_nrestarts}" != "${baseline_nrestarts}"
-    || -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}" ]] || manager_approval_is_set; then
+    || -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}"
+    || -e "${ATTENDED_START_RECEIPT_FILE}" || -L "${ATTENDED_START_RECEIPT_FILE}" ]] || manager_approval_is_set; then
     echo "[vh:publisher-recovery] publisher state drifted while committing start evidence" >&2
     exit 78
   fi
+  start_final_identity="$(private_file_identity "${start_control_staging}")"
+  start_final_path="${START_CONTROL_OUTPUT}"
   ln "${start_control_staging}" "${START_CONTROL_OUTPUT}"
-  rm -f -- "${start_control_staging}" >/dev/null 2>&1 || true
-  start_control_staging=""
+  [[ "$(private_file_identity "${START_CONTROL_OUTPUT}")" == "${start_final_identity}" ]]
+  trap '' HUP INT TERM
+  trap - EXIT
   mutation_started=false
-  echo "[vh:publisher-recovery] publisher reached active/running; attended permit is consumed; wrapper preflights remain to be proven by verify"
+  rm -f -- "${start_control_staging}" >/dev/null 2>&1 || true
+  rmdir -- "${start_control_staging_dir}" >/dev/null 2>&1 || true
+  start_control_staging_owned=false
+  start_control_staging=""
+  start_control_staging_dir=""
+  start_final_path=""
+  start_final_identity=""
+  echo "[vh:publisher-recovery] publisher reached active/running; attended permit receipt is consumed; wrapper preflights remain to be proven by verify"
   exit 0
 fi
 
 if [[ "${COMMAND}" == "verify" ]]; then
   verification_succeeded=false
   verification_staging=""
+  verification_staging_dir=""
+  verification_staging_owned=false
+  verification_final_path=""
+  verification_final_identity=""
   cleanup_verification() {
     local status=$?
     trap - EXIT HUP INT TERM
-    if [[ -n "${verification_staging}" ]]; then
-      rm -f -- "${verification_staging}" >/dev/null 2>&1 || status=78
-      [[ ! -e "${verification_staging}" && ! -L "${verification_staging}" ]] || status=78
+    if [[ "${status}" -ne 0 && -n "${verification_final_path}" && -n "${verification_final_identity}" ]]; then
+      remove_owned_final_link "${verification_final_path}" "${verification_final_identity}" || status=78
+    fi
+    if [[ "${verification_staging_owned}" == "true" ]]; then
+      cleanup_owned_staging "${verification_staging_dir}" "${verification_staging}" || status=78
     fi
     if [[ "${verification_succeeded}" != "true" || "${status}" -ne 0 ]]; then
       park_internal >/dev/null 2>&1 || true
@@ -412,12 +585,32 @@ if [[ "${COMMAND}" == "verify" ]]; then
     exit 78
   fi
   node "${GUARD_SCRIPT}" output-parent --file "${OUTPUT_FILE}" >/dev/null
-  verification_staging="$(dirname "${OUTPUT_FILE}")/.${OUTPUT_FILE##*/}.pending-$$-${RANDOM}"
+  if ! verification_staging_dir="$(reserve_staging_directory "${OUTPUT_FILE}")"; then
+    echo "[vh:publisher-recovery] could not reserve private verification staging" >&2
+    exit 78
+  fi
+  verification_staging_owned=true
+  verification_staging="${verification_staging_dir}/artifact.json"
   start_control_json="$(node "${GUARD_SCRIPT}" start-control \
     --file "${START_CONTROL_ARTIFACT}" \
     --expected-revision "${EXPECTED_REVISION}" \
     --max-age-ms "${START_CONTROL_MAX_AGE_MS}")"
   expected_nrestarts="$(node -e 'const value=JSON.parse(process.argv[1]).nRestarts; if (!Number.isSafeInteger(value)) process.exit(78); process.stdout.write(String(value));' "${start_control_json}")"
+  expected_system_writer_pin_sha256="$(node -e '
+    const value=JSON.parse(process.argv[1]).systemWriterPinSha256;
+    if (!/^[0-9a-f]{64}$/.test(value ?? "")) process.exit(78);
+    process.stdout.write(value);
+  ' "${start_control_json}")"
+  pre_verify_pin_json="$(publisher_pin_json)"
+  pre_verify_pin_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.systemWriterPinSha256);
+  ' "${pre_verify_pin_json}")"
+  if [[ "${pre_verify_pin_sha256}" != "${expected_system_writer_pin_sha256}" ]]; then
+    echo "[vh:publisher-recovery] system-writer pin changed before readback" >&2
+    exit 78
+  fi
   verify_args=(
     --expected-revision "${EXPECTED_REVISION}"
     --start-control-file "${START_CONTROL_ARTIFACT}"
@@ -438,16 +631,7 @@ if [[ "${COMMAND}" == "verify" ]]; then
     echo "[vh:publisher-recovery] publisher state changed before readback" >&2
     exit 78
   fi
-  node -e '
-    const { lstatSync, realpathSync } = require("node:fs");
-    const path = require("node:path");
-    const file = process.argv[1];
-    const stat = lstatSync(file);
-    if (stat.isSymbolicLink() || !stat.isFile()
-      || (typeof process.getuid === "function" && stat.uid !== process.getuid())
-      || (stat.mode & 0o777) !== 0o600
-      || realpathSync(file) !== path.resolve(file)) process.exit(78);
-  ' "${PUBLISHER_ENV_FILE}"
+  validate_publisher_env_file
   corepack pnpm@9.7.1 --filter @vh/gun-client build >/dev/null
   (
     set +x
@@ -460,6 +644,16 @@ if [[ "${COMMAND}" == "verify" ]]; then
     unset VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
     node "${VERIFY_SCRIPT}" "${verify_args[@]}"
   )
+  post_verify_pin_json="$(publisher_pin_json)"
+  post_verify_pin_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.systemWriterPinSha256);
+  ' "${post_verify_pin_json}")"
+  if [[ "${post_verify_pin_sha256}" != "${expected_system_writer_pin_sha256}" ]]; then
+    echo "[vh:publisher-recovery] system-writer pin changed during readback" >&2
+    exit 78
+  fi
   verify_active="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
   verify_sub="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
   verify_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
@@ -467,23 +661,41 @@ if [[ "${COMMAND}" == "verify" ]]; then
     echo "[vh:publisher-recovery] publisher state changed during readback" >&2
     exit 78
   fi
+  verification_final_identity="$(private_file_identity "${verification_staging}")"
+  verification_final_path="${OUTPUT_FILE}"
   ln "${verification_staging}" "${OUTPUT_FILE}"
+  [[ "$(private_file_identity "${OUTPUT_FILE}")" == "${verification_final_identity}" ]]
+  trap '' HUP INT TERM
+  trap - EXIT
   rm -f -- "${verification_staging}" >/dev/null 2>&1 || true
+  rmdir -- "${verification_staging_dir}" >/dev/null 2>&1 || true
+  verification_staging_owned=false
   verification_staging=""
+  verification_staging_dir=""
+  verification_final_path=""
+  verification_final_identity=""
   verification_succeeded=true
-  trap - EXIT HUP INT TERM
   echo "[vh:publisher-recovery] exact-run four-route recovery readback passed"
   exit 0
 fi
 
 if [[ "${COMMAND}" == "finalize" ]]; then
   finalization_temp=""
+  finalization_staging_dir=""
+  finalization_staging_owned=false
+  finalization_final_path=""
+  finalization_final_identity=""
   finalization_succeeded=false
   cleanup_finalization() {
     local status=$?
     trap - EXIT HUP INT TERM
     set +e
-    [[ -z "${finalization_temp}" ]] || rm -f "${finalization_temp}"
+    if [[ "${status}" -ne 0 && -n "${finalization_final_path}" && -n "${finalization_final_identity}" ]]; then
+      remove_owned_final_link "${finalization_final_path}" "${finalization_final_identity}" || status=78
+    fi
+    if [[ "${finalization_staging_owned}" == "true" ]]; then
+      cleanup_owned_staging "${finalization_staging_dir}" "${finalization_temp}" || status=78
+    fi
     if [[ "${finalization_succeeded}" != "true" || "${status}" -ne 0 ]]; then
       park_internal >/dev/null 2>&1 || true
       exit 78
@@ -522,7 +734,12 @@ if [[ "${COMMAND}" == "finalize" ]]; then
     exit 78
   fi
   node "${GUARD_SCRIPT}" output-parent --file "${FINALIZATION_OUTPUT}" >/dev/null
-  finalization_temp="${FINALIZATION_OUTPUT}.tmp-$$-${RANDOM}"
+  if ! finalization_staging_dir="$(reserve_staging_directory "${FINALIZATION_OUTPUT}")"; then
+    echo "[vh:publisher-recovery] could not reserve private finalization staging" >&2
+    exit 78
+  fi
+  finalization_staging_owned=true
+  finalization_temp="${finalization_staging_dir}/artifact.json"
   finalization_passed=false
   while [[ "${SECONDS}" -lt "${deadline}" ]]; do
     current_active="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
@@ -550,13 +767,24 @@ if [[ "${COMMAND}" == "finalize" ]]; then
       current_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
       [[ "${current_active}" == "active" && "${current_sub}" == "running" && "${current_nrestarts}" == "${expected_nrestarts}" ]]
       chmod 600 "${finalization_temp}"
+      finalization_final_identity="$(private_file_identity "${finalization_temp}")"
+      finalization_final_path="${FINALIZATION_OUTPUT}"
       ln "${finalization_temp}" "${FINALIZATION_OUTPUT}"
+      [[ "$(private_file_identity "${FINALIZATION_OUTPUT}")" == "${finalization_final_identity}" ]]
+      trap '' HUP INT TERM
+      trap - EXIT
+      finalization_succeeded=true
       # ln commits the already-private inode. A hidden-temp cleanup failure
       # after that point cannot make the final evidence ambiguous.
       rm -f "${finalization_temp}" >/dev/null 2>&1 || true
+      rmdir -- "${finalization_staging_dir}" >/dev/null 2>&1 || true
+      finalization_staging_owned=false
       finalization_temp=""
-      finalization_passed=true
-      break
+      finalization_staging_dir=""
+      finalization_final_path=""
+      finalization_final_identity=""
+      echo "[vh:publisher-recovery] recovery delivery, unchanged suppression, and post-suppression mailbox clean proof passed"
+      exit 0
     fi
     set +o noclobber
     rm -f "${finalization_temp}"
@@ -567,11 +795,7 @@ if [[ "${COMMAND}" == "finalize" ]]; then
     echo "[vh:publisher-recovery] alert/mailbox finalization did not pass within the bounded wait; publisher parked" >&2
     exit 78
   fi
-  finalization_temp=""
-  finalization_succeeded=true
-  trap - EXIT HUP INT TERM
-  echo "[vh:publisher-recovery] recovery delivery, unchanged suppression, and post-suppression mailbox clean proof passed"
-  exit 0
+  exit 78
 fi
 
 usage

@@ -82,7 +82,7 @@ async function requirePrivateParent(filePath, { create = false } = {}) {
   }
 }
 
-async function readPrivateJson(filePath, label) {
+async function readPrivateJsonWithBytes(filePath, label) {
   if (!path.isAbsolute(filePath)) fail(`${label}_path_not_absolute`);
   await requirePrivateParent(filePath);
   let stat;
@@ -96,13 +96,18 @@ async function readPrivateJson(filePath, label) {
   if ((stat.mode & 0o777) !== 0o600) fail(`${label}_mode_not_0600`);
   if (stat.size <= 0 || stat.size > MAX_FILE_BYTES) fail(`${label}_size_invalid`);
   try {
-    const parsed = JSON.parse(await readFile(filePath, 'utf8'));
+    const bytes = await readFile(filePath);
+    const parsed = JSON.parse(bytes.toString('utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(`${label}_shape_invalid`);
-    return parsed;
+    return { parsed, bytes };
   } catch (error) {
     if (error instanceof RestartAuthorityError) throw error;
     fail(`${label}_json_invalid`);
   }
+}
+
+async function readPrivateJson(filePath, label) {
+  return (await readPrivateJsonWithBytes(filePath, label)).parsed;
 }
 
 async function writePrivateAtomic(filePath, payload, { replace = false } = {}) {
@@ -154,13 +159,13 @@ async function writePrivateAtomic(filePath, payload, { replace = false } = {}) {
   }
 }
 
-function parseLinuxProcStat(value) {
+export function parseLinuxProcStat(value) {
   const closingParen = value.lastIndexOf(')');
   if (closingParen < 0) fail('controller_identity_invalid');
   const fields = value.slice(closingParen + 1).trim().split(/\s+/);
   const state = fields[0];
   const startTicks = fields[19];
-  if (!state || state === 'Z' || state === 'X' || !/^\d+$/.test(startTicks ?? '')) {
+  if (!state || ['Z', 'X', 'T', 't'].includes(state) || !/^\d+$/.test(startTicks ?? '')) {
     fail('controller_not_live');
   }
   return { state, startTicks };
@@ -236,9 +241,12 @@ function validateAttendedEvidenceBindings(value) {
     'relayCaptureSha256',
     'mailboxSha256',
     'mailboxCriticalCount',
+    'systemWriterPinSha256',
   ];
   if (!exactKeys(value, keys)) fail('attended_evidence_bindings_invalid');
-  for (const key of keys.slice(0, 5)) sha256(value[key], 'attended_evidence_bindings_invalid');
+  for (const key of [...keys.slice(0, 5), 'systemWriterPinSha256']) {
+    sha256(value[key], 'attended_evidence_bindings_invalid');
+  }
   if (!Number.isSafeInteger(value.mailboxCriticalCount) || value.mailboxCriticalCount < 0) {
     fail('attended_evidence_bindings_invalid');
   }
@@ -246,6 +254,10 @@ function validateAttendedEvidenceBindings(value) {
 }
 
 async function takePrivateJson(filePath, label) {
+  return (await takePrivateJsonWithBytes(filePath, label)).parsed;
+}
+
+async function takePrivateJsonWithBytes(filePath, label) {
   if (!path.isAbsolute(filePath)) fail(`${label}_path_not_absolute`);
   await requirePrivateParent(filePath);
   const consumed = `${filePath}.consuming-${process.pid}-${randomUUID()}`;
@@ -256,7 +268,7 @@ async function takePrivateJson(filePath, label) {
     fail(`${label}_consume_failed`);
   }
   try {
-    return await readPrivateJson(consumed, label);
+    return await readPrivateJsonWithBytes(consumed, label);
   } finally {
     await removeAndVerify(consumed, `consumed_${label}`);
   }
@@ -267,6 +279,11 @@ export async function issueAttendedStartPermit(options) {
   const baselineNRestarts = nonNegativeInt(options.baselineNRestarts, 'baseline_nrestarts_invalid');
   const evidenceBindings = validateAttendedEvidenceBindings(options.evidenceBindings);
   if (!path.isAbsolute(options.startControlOutput ?? '')) fail('start_control_output_invalid');
+  if (!path.isAbsolute(options.attendedPermitFile ?? '')
+    || !path.isAbsolute(options.attendedReceiptFile ?? '')
+    || path.dirname(options.attendedPermitFile) !== path.dirname(options.attendedReceiptFile)) {
+    fail('attended_paths_invalid');
+  }
   const nowMs = options.nowMs ?? Date.now();
   const maxAgeMs = Number(options.maxAgeMs ?? DEFAULT_PERMIT_MAX_AGE_MS);
   if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0 || maxAgeMs > 10 * 60 * 1000) {
@@ -287,6 +304,8 @@ export async function issueAttendedStartPermit(options) {
     evidenceBindings,
     controllerIdentity,
   };
+  await requirePrivateParent(options.attendedPermitFile, { create: true });
+  await removeAndVerify(options.attendedReceiptFile, 'attended_receipt');
   await writePrivateAtomic(options.attendedPermitFile, payload);
   return {
     status: 'attended_start_permit_issued',
@@ -297,6 +316,15 @@ export async function issueAttendedStartPermit(options) {
 export async function consumeAttendedStartPermit(options) {
   const expectedRevision = revision(options.expectedRevision);
   const currentNRestarts = nonNegativeInt(options.currentNRestarts, 'current_nrestarts_invalid');
+  const systemWriterPinSha256 = sha256(
+    options.systemWriterPinSha256,
+    'system_writer_pin_sha256_invalid',
+  );
+  if (!path.isAbsolute(options.attendedPermitFile ?? '')
+    || !path.isAbsolute(options.attendedReceiptFile ?? '')
+    || path.dirname(options.attendedPermitFile) !== path.dirname(options.attendedReceiptFile)) {
+    fail('attended_paths_invalid');
+  }
   const nowMs = options.nowMs ?? Date.now();
   const permit = await takePrivateJson(options.attendedPermitFile, 'attended_permit');
   const createdAtMs = Date.parse(permit.createdAt ?? '');
@@ -316,6 +344,9 @@ export async function consumeAttendedStartPermit(options) {
     fail('attended_permit_contract_invalid');
   }
   validateAttendedEvidenceBindings(permit.evidenceBindings);
+  if (permit.evidenceBindings.systemWriterPinSha256 !== systemWriterPinSha256) {
+    fail('attended_system_writer_pin_mismatch');
+  }
   const expectedIdentity = validateControllerIdentity(permit.controllerIdentity);
   const currentIdentity = validateControllerIdentity(
     options.controllerIdentity ?? await processIdentity(expectedIdentity.pid),
@@ -323,12 +354,128 @@ export async function consumeAttendedStartPermit(options) {
   if (JSON.stringify(currentIdentity) !== JSON.stringify(expectedIdentity)) {
     fail('attended_controller_identity_changed');
   }
+  const permitBindingSha256 = createHash('sha256').update(JSON.stringify(permit)).digest('hex');
+  const receipt = {
+    schemaVersion: 'vh-news-publisher-attended-start-consumption-receipt-v1',
+    status: 'consumed_pending_controller_validation',
+    revision: expectedRevision,
+    consumedAt: new Date(nowMs).toISOString(),
+    permitBindingSha256,
+    baselineNRestarts: permit.baselineNRestarts,
+    currentNRestarts,
+    startControlOutput: permit.startControlOutput,
+    systemWriterPinSha256,
+    evidenceBindings: structuredClone(permit.evidenceBindings),
+    controllerIdentity: structuredClone(expectedIdentity),
+  };
+  await writePrivateAtomic(options.attendedReceiptFile, receipt);
   return {
     status: 'attended_start_authorized',
     currentNRestarts,
-    permitBindingSha256: createHash('sha256').update(JSON.stringify(permit)).digest('hex'),
+    permitBindingSha256,
     evidenceBindings: structuredClone(permit.evidenceBindings),
   };
+}
+
+export async function consumeAttendedStartReceipt(options) {
+  const expectedRevision = revision(options.expectedRevision);
+  const currentNRestarts = nonNegativeInt(options.currentNRestarts, 'current_nrestarts_invalid');
+  const expectedPermitBindingSha256 = sha256(
+    options.expectedPermitBindingSha256,
+    'expected_permit_binding_sha256_invalid',
+  );
+  const expectedEvidenceBindings = validateAttendedEvidenceBindings(options.evidenceBindings);
+  if (!path.isAbsolute(options.startControlOutput ?? '')) fail('start_control_output_invalid');
+  const nowMs = options.nowMs ?? Date.now();
+  const maxAgeMs = Number(options.maxAgeMs ?? DEFAULT_PERMIT_MAX_AGE_MS);
+  if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0 || maxAgeMs > 10 * 60 * 1000) {
+    fail('receipt_max_age_invalid');
+  }
+  const { parsed: receipt, bytes } = await takePrivateJsonWithBytes(
+    options.attendedReceiptFile,
+    'attended_receipt',
+  );
+  const consumedAtMs = Date.parse(receipt.consumedAt ?? '');
+  if (!exactKeys(receipt, [
+    'schemaVersion', 'status', 'revision', 'consumedAt', 'permitBindingSha256',
+    'baselineNRestarts', 'currentNRestarts', 'startControlOutput', 'systemWriterPinSha256',
+    'evidenceBindings', 'controllerIdentity',
+  ])
+    || receipt.schemaVersion !== 'vh-news-publisher-attended-start-consumption-receipt-v1'
+    || receipt.status !== 'consumed_pending_controller_validation'
+    || receipt.revision !== expectedRevision
+    || receipt.permitBindingSha256 !== expectedPermitBindingSha256
+    || receipt.baselineNRestarts !== currentNRestarts
+    || receipt.currentNRestarts !== currentNRestarts
+    || receipt.startControlOutput !== path.resolve(options.startControlOutput)
+    || receipt.systemWriterPinSha256 !== expectedEvidenceBindings.systemWriterPinSha256
+    || JSON.stringify(receipt.evidenceBindings) !== JSON.stringify(expectedEvidenceBindings)
+    || !Number.isFinite(consumedAtMs) || consumedAtMs > nowMs + 5_000
+    || nowMs - consumedAtMs > maxAgeMs) {
+    fail('attended_receipt_contract_invalid');
+  }
+  const expectedIdentity = validateControllerIdentity(receipt.controllerIdentity);
+  const currentIdentity = validateControllerIdentity(
+    options.controllerIdentity ?? await processIdentity(options.controllerPid ?? expectedIdentity.pid),
+  );
+  if (JSON.stringify(currentIdentity) !== JSON.stringify(expectedIdentity)) {
+    fail('attended_receipt_controller_identity_changed');
+  }
+  return {
+    status: 'attended_start_receipt_consumed',
+    permitBindingSha256: receipt.permitBindingSha256,
+    receiptSha256: createHash('sha256').update(bytes).digest('hex'),
+    systemWriterPinSha256: receipt.systemWriterPinSha256,
+    currentNRestarts,
+    evidenceBindings: structuredClone(receipt.evidenceBindings),
+  };
+}
+
+export async function normalizeCanonicalRecoveryDirectory(options) {
+  if (!path.isAbsolute(options.homeDirectory ?? '') || !path.isAbsolute(options.directory ?? '')) {
+    fail('canonical_recovery_directory_invalid');
+  }
+  const expected = path.join(
+    path.resolve(options.homeDirectory),
+    '.local/state/vhc/news-aggregator/recovery',
+  );
+  if (path.resolve(options.directory) !== expected) fail('canonical_recovery_directory_invalid');
+  try {
+    await mkdir(expected, { recursive: true, mode: 0o700 });
+  } catch {
+    fail('canonical_recovery_directory_create_failed');
+  }
+  let stat;
+  let canonical;
+  try {
+    stat = await lstat(expected);
+    canonical = await realpath(expected);
+  } catch {
+    fail('canonical_recovery_directory_unavailable');
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory() || canonical !== expected) {
+    fail('canonical_recovery_directory_not_regular');
+  }
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    fail('canonical_recovery_directory_wrong_owner');
+  }
+  const mode = stat.mode & 0o777;
+  if (mode === 0o755) {
+    try {
+      await chmod(expected, 0o700);
+      stat = await lstat(expected);
+    } catch {
+      fail('canonical_recovery_directory_normalize_failed');
+    }
+  } else if (mode !== 0o700) {
+    fail('canonical_recovery_directory_mode_invalid');
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()
+    || (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    || (stat.mode & 0o777) !== 0o700) {
+    fail('canonical_recovery_directory_normalize_failed');
+  }
+  return { status: 'canonical_recovery_directory_private', directory: expected };
 }
 
 function parseArgs(argv) {
@@ -441,6 +588,7 @@ export async function consumeAutomaticRestartPermit(options) {
 }
 
 export async function disarmRestartAuthority(options) {
+  if (options.attendedReceiptFile) await removeAndVerify(options.attendedReceiptFile, 'attended_receipt');
   if (options.attendedPermitFile) await removeAndVerify(options.attendedPermitFile, 'attended_permit');
   await removeAndVerify(options.permitFile, 'permit');
   await removeAndVerify(options.authorityFile, 'authority');
@@ -451,11 +599,14 @@ async function main() {
   const authorityValue = values.get('--authority-file');
   const permitValue = values.get('--permit-file');
   const attendedPermitValue = values.get('--attended-permit-file');
+  const attendedReceiptValue = values.get('--attended-receipt-file');
   const needsAutomaticPaths = ['arm', 'record-exit', 'consume', 'disarm'].includes(command);
-  const needsAttendedPath = ['issue-attended', 'consume-attended'].includes(command);
+  const needsAttendedPaths = ['issue-attended', 'consume-attended'].includes(command);
+  const needsReceiptPath = ['issue-attended', 'consume-attended', 'consume-attended-receipt'].includes(command);
   if ((needsAutomaticPaths && (!authorityValue || !permitValue
       || !path.isAbsolute(authorityValue) || !path.isAbsolute(permitValue)))
-    || (needsAttendedPath && (!attendedPermitValue || !path.isAbsolute(attendedPermitValue)))) {
+    || (needsAttendedPaths && (!attendedPermitValue || !path.isAbsolute(attendedPermitValue)))
+    || (needsReceiptPath && (!attendedReceiptValue || !path.isAbsolute(attendedReceiptValue)))) {
     fail('restart_paths_invalid');
   }
   const common = {
@@ -463,6 +614,7 @@ async function main() {
     ...(authorityValue ? { authorityFile: path.resolve(authorityValue) } : {}),
     ...(permitValue ? { permitFile: path.resolve(permitValue) } : {}),
     ...(attendedPermitValue ? { attendedPermitFile: path.resolve(attendedPermitValue) } : {}),
+    ...(attendedReceiptValue ? { attendedReceiptFile: path.resolve(attendedReceiptValue) } : {}),
   };
   let result = { status: 'pass' };
   if (command === 'arm') {
@@ -500,6 +652,28 @@ async function main() {
     result = await consumeAttendedStartPermit({
       ...common,
       currentNRestarts: values.get('--current-nrestarts'),
+      systemWriterPinSha256: values.get('--system-writer-pin-sha256'),
+    });
+  } else if (command === 'consume-attended-receipt') {
+    let evidenceBindings;
+    try {
+      evidenceBindings = JSON.parse(values.get('--evidence-bindings-json') ?? '');
+    } catch {
+      fail('attended_evidence_bindings_invalid');
+    }
+    result = await consumeAttendedStartReceipt({
+      ...common,
+      expectedPermitBindingSha256: values.get('--expected-permit-binding-sha256'),
+      currentNRestarts: values.get('--current-nrestarts'),
+      startControlOutput: values.get('--start-control-output'),
+      evidenceBindings,
+      controllerPid: values.get('--controller-pid'),
+      maxAgeMs: values.get('--max-age-ms'),
+    });
+  } else if (command === 'normalize-recovery-dir') {
+    result = await normalizeCanonicalRecoveryDirectory({
+      directory: values.get('--directory'),
+      homeDirectory: values.get('--home-directory'),
     });
   } else if (command === 'disarm') {
     await disarmRestartAuthority(common);

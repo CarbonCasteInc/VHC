@@ -13,6 +13,7 @@ PREFLIGHT_APPROVAL_FROM_CALLER="${VH_NEWS_DAEMON_PREFLIGHT_APPROVED:-}"
 RESTART_AUTHORITY_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json}"
 RESTART_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json}"
 ATTENDED_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json}"
+ATTENDED_RECEIPT_FROM_UNIT="${VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-consumption-receipt.json}"
 SYSTEMD_UNIT_FROM_UNIT="${VH_NEWS_DAEMON_SYSTEMD_UNIT:-vh-news-aggregator.service}"
 
 if [[ ! -r "${COMMON_SH}" ]]; then
@@ -43,6 +44,7 @@ export VH_NEWS_DAEMON_PREFLIGHT_APPROVED="${PREFLIGHT_APPROVAL_FROM_CALLER}"
 export VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE="${RESTART_AUTHORITY_FROM_UNIT}"
 export VH_NEWS_DAEMON_RESTART_PERMIT_FILE="${RESTART_PERMIT_FROM_UNIT}"
 export VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE="${ATTENDED_PERMIT_FROM_UNIT}"
+export VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE="${ATTENDED_RECEIPT_FROM_UNIT}"
 export VH_NEWS_DAEMON_SYSTEMD_UNIT="${SYSTEMD_UNIT_FROM_UNIT}"
 unset VH_NEWS_DAEMON_ATTENDED_START_APPROVED VH_NEWS_DAEMON_START_APPROVED
 
@@ -175,10 +177,27 @@ else
     exit 78
   fi
   if [[ "${attended_present}" == "true" ]]; then
+    runtime_pin_json="$(
+      unset VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
+      node "${REPO_ROOT}/tools/scripts/verify-news-aggregator-publisher-recovery.mjs" pin-sha256
+    )" || {
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    }
+    runtime_pin_sha256="$(node -e '
+      const value = JSON.parse(process.argv[1]);
+      if (value.status !== "pass" || !/^[0-9a-f]{64}$/.test(value.systemWriterPinSha256 ?? "")) process.exit(78);
+      process.stdout.write(value.systemWriterPinSha256);
+    ' "${runtime_pin_json}")" || {
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    }
     if ! node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume-attended \
       --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
       --attended-permit-file "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" \
-      --current-nrestarts "${current_nrestarts}" >/dev/null 2>&1; then
+      --attended-receipt-file "${VH_NEWS_DAEMON_ATTENDED_START_RECEIPT_FILE}" \
+      --current-nrestarts "${current_nrestarts}" \
+      --system-writer-pin-sha256 "${runtime_pin_sha256}" >/dev/null 2>&1; then
       echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
       exit 78
     fi

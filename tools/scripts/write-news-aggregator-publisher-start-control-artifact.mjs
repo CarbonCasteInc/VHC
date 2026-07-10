@@ -24,6 +24,8 @@ const incidentNRestarts = Number(values.get('--incident-nrestarts'));
 const baselineNRestarts = Number(values.get('--baseline-nrestarts'));
 const postNRestarts = Number(values.get('--post-nrestarts'));
 const attendedPermitBindingSha256 = values.get('--attended-permit-binding-sha256') ?? '';
+const attendedReceiptSha256 = values.get('--attended-receipt-sha256') ?? '';
+const systemWriterPinSha256 = values.get('--system-writer-pin-sha256') ?? '';
 let preflight;
 let relay;
 let mailbox;
@@ -60,6 +62,8 @@ if (!path.isAbsolute(filePath)
   || !Number.isSafeInteger(baselineNRestarts) || baselineNRestarts < 0
   || postNRestarts !== baselineNRestarts
   || !sha256(attendedPermitBindingSha256)
+  || !sha256(attendedReceiptSha256)
+  || !sha256(systemWriterPinSha256)
   || preflight?.status !== 'pass' || preflight?.revision !== revision
   || preflight?.schemaVersion !== 'vh-news-daemon-recovery-preflight-v1'
   || !sha256(preflight?.sha256)
@@ -112,8 +116,10 @@ const payload = {
     subState: 'running',
     nRestarts: postNRestarts,
     attendedPermitConsumed: true,
+    attendedReceiptConsumed: true,
     legacyManagerApprovalCleared: true,
     attendedPermitBindingSha256,
+    attendedReceiptSha256,
   },
   evidenceBindings: {
     preflight: {
@@ -142,6 +148,9 @@ const payload = {
       sha256: mailbox.sha256,
       newCriticalCount: mailbox.newCriticalCount,
       generatedAt: mailbox.generatedAt,
+    },
+    systemWriterPin: {
+      sha256: systemWriterPinSha256,
     },
   },
 };
