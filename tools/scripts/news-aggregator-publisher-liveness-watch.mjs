@@ -196,6 +196,31 @@ function diagnosticGeneratedAtMs(diagnostic) {
   return parseTimestampMs(diagnostic?.generatedAt);
 }
 
+function diagnosticSummaryRunBoundary(diagnostic) {
+  const summaries = diagnostic?.summaries;
+  const latestTickSequence = diagnostic?.latest?.tick_sequence;
+  if (!Array.isArray(summaries)) {
+    return { status: 'fail', reason: 'summaries_not_array', tickSequences: [] };
+  }
+  if (!Number.isSafeInteger(latestTickSequence) || latestTickSequence <= 0) {
+    return { status: 'fail', reason: 'latest_tick_invalid', tickSequences: [] };
+  }
+  const tickSequences = summaries.map((summary) => summary?.tick_sequence);
+  if (tickSequences.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+    return { status: 'fail', reason: 'summary_tick_invalid', tickSequences: [] };
+  }
+  if (new Set(tickSequences).size !== tickSequences.length) {
+    return { status: 'fail', reason: 'summary_tick_duplicate', tickSequences };
+  }
+  if (tickSequences.some((value, index) => index > 0 && value <= tickSequences[index - 1])) {
+    return { status: 'fail', reason: 'summary_tick_not_strictly_ordered', tickSequences };
+  }
+  if (tickSequences.some((value) => value > latestTickSequence)) {
+    return { status: 'fail', reason: 'summary_tick_after_latest', tickSequences };
+  }
+  return { status: 'pass', reason: null, tickSequences };
+}
+
 function inspectDiagnostic({
   env,
   now,
@@ -228,6 +253,13 @@ function inspectDiagnostic({
     ageMs: null,
     runId: typeof diagnosticRead.parsed?.runId === 'string' ? diagnosticRead.parsed.runId : null,
     latestTickSequence: diagnosticRead.parsed?.latest?.tick_sequence ?? null,
+    retainedSummaryCount: Array.isArray(diagnosticRead.parsed?.summaries)
+      ? diagnosticRead.parsed.summaries.length
+      : null,
+    summaryTickSequenceMin: null,
+    summaryTickSequenceMax: null,
+    summaryRunBoundaryStatus: 'unknown',
+    summaryRunBoundaryReason: null,
     status: 'unknown',
     error: diagnosticRead.error ? String(diagnosticRead.error instanceof Error ? diagnosticRead.error.message : diagnosticRead.error) : null,
   };
@@ -251,6 +283,18 @@ function inspectDiagnostic({
     blockers.push(`diagnostic_schema_mismatch:${diagnostic.schemaVersion ?? 'missing'}`);
     diagnostic.status = 'fail';
     return diagnostic;
+  }
+  const summaryRunBoundary = diagnosticSummaryRunBoundary(diagnosticRead.parsed);
+  diagnostic.summaryRunBoundaryStatus = summaryRunBoundary.status;
+  diagnostic.summaryRunBoundaryReason = summaryRunBoundary.reason;
+  diagnostic.summaryTickSequenceMin = summaryRunBoundary.tickSequences.length
+    ? Math.min(...summaryRunBoundary.tickSequences)
+    : null;
+  diagnostic.summaryTickSequenceMax = summaryRunBoundary.tickSequences.length
+    ? Math.max(...summaryRunBoundary.tickSequences)
+    : null;
+  if (summaryRunBoundary.status !== 'pass') {
+    blockers.push(`diagnostic_summary_run_boundary_invalid:${summaryRunBoundary.reason}`);
   }
   if (!diagnostic.generatedAtMs || diagnostic.generatedAtMs > now + activeEnterToleranceMs) {
     blockers.push('diagnostic_generated_at_not_sane');

@@ -175,6 +175,7 @@ export interface NewsRuntimeTickSummary {
   readonly last_stage: NewsRuntimeTickStage;
   readonly failed_stage?: NewsRuntimeTickStage;
   readonly first_selected_story_ids: readonly string[];
+  readonly first_raw_written_story_ids?: readonly string[];
   readonly error?: string;
 }
 
@@ -594,6 +595,26 @@ function logTickSummary(summary: NewsRuntimeTickSummary): void {
   firstTickLogger('[vh:news-runtime] first tick outcome', summary);
 }
 
+function firstSuccessfulStoryIdsInPublicationOrder(
+  bundles: readonly StoryBundle[],
+  successfulStoryIds: ReadonlySet<string>,
+): string[] {
+  const orderedStoryIds: string[] = [];
+  const seenStoryIds = new Set<string>();
+  for (const bundle of bundles) {
+    const storyId = bundle.story_id;
+    if (!successfulStoryIds.has(storyId) || seenStoryIds.has(storyId)) {
+      continue;
+    }
+    seenStoryIds.add(storyId);
+    orderedStoryIds.push(storyId);
+    if (orderedStoryIds.length === 10) {
+      break;
+    }
+  }
+  return orderedStoryIds;
+}
+
 async function emitTickSummary(
   summary: NewsRuntimeTickSummary,
   onTickSummary: NewsRuntimeConfig['onTickSummary'],
@@ -724,6 +745,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       synthesis_candidate_suppressed_count: 0,
       nonfatal_prewrite_failure_count: 0,
       first_selected_story_ids: [],
+      first_raw_written_story_ids: [],
     });
 
     try {
@@ -793,6 +815,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       let rawWriteSuppressedCount = 0;
       let rawWroteCount = 0;
       let failedStoryPublishCount = 0;
+      const successfulLiveWriteStoryIds = new Set<string>();
       let synthesisCandidateEnqueuedCount = 0;
       let synthesisCandidateSuppressedCount = 0;
 
@@ -811,6 +834,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             try {
               await writeStoryBundle!(config.gunClient, bundle);
               rawWroteCount += 1;
+              successfulLiveWriteStoryIds.add(bundle.story_id);
             } catch (error) {
               failedStoryPublishCount += 1;
               runtimeTrace('bundle_write_failed', {
@@ -878,6 +902,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             try {
               await writeStoryBundle!(config.gunClient, bundle);
               rawWroteCount += 1;
+              successfulLiveWriteStoryIds.add(bundle.story_id);
             } catch (error) {
               failedStoryPublishCount += 1;
               runtimeTrace('bundle_write_failed', {
@@ -1085,6 +1110,10 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         synthesis_candidate_enqueued_count: synthesisCandidateEnqueuedCount,
         synthesis_candidate_suppressed_count: synthesisCandidateSuppressedCount,
         first_selected_story_ids: bundlesToPublish.slice(0, 10).map((bundle) => bundle.story_id),
+        first_raw_written_story_ids: firstSuccessfulStoryIdsInPublicationOrder(
+          bundlesToPublish,
+          successfulLiveWriteStoryIds,
+        ),
         last_stage: lastStage,
       }, config.onTickSummary);
       firstTickCompleted = true;
@@ -1179,6 +1208,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 export const __internal = {
   bundleConfidenceScore,
   defaultPrompt,
+  firstSuccessfulStoryIdsInPublicationOrder,
   hasTitlePairCanonicalSupport,
   isTruthyFlag,
   normalizeOptionalPositiveInt,

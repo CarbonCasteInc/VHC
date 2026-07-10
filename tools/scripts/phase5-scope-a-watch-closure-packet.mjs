@@ -500,9 +500,50 @@ function summarizeArchive(samples) {
   };
 }
 
+function runtimeDiagnosticsRunBoundary(diagnostics) {
+  const blockers = [];
+  const runId = typeof diagnostics?.runId === 'string' && diagnostics.runId.trim()
+    ? diagnostics.runId.trim()
+    : null;
+  if (!runId) blockers.push('run_id_missing');
+  if (diagnostics?.schemaVersion !== 'vh-news-runtime-diagnostics-v1') {
+    blockers.push('schema_mismatch');
+  }
+  const latestTickSequence = diagnostics?.latest?.tick_sequence;
+  if (!Number.isSafeInteger(latestTickSequence) || latestTickSequence <= 0) {
+    blockers.push('latest_tick_invalid');
+  }
+  const summaries = diagnostics?.summaries;
+  const tickSequences = Array.isArray(summaries)
+    ? summaries.map((summary) => summary?.tick_sequence)
+    : [];
+  if (!Array.isArray(summaries)) {
+    blockers.push('summaries_not_array');
+  } else if (tickSequences.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+    blockers.push('summary_tick_invalid');
+  } else {
+    if (new Set(tickSequences).size !== tickSequences.length) blockers.push('summary_tick_duplicate');
+    if (tickSequences.some((value, index) => index > 0 && value <= tickSequences[index - 1])) {
+      blockers.push('summary_tick_not_strictly_ordered');
+    }
+    if (Number.isSafeInteger(latestTickSequence) && tickSequences.some((value) => value > latestTickSequence)) {
+      blockers.push('summary_tick_after_latest');
+    }
+  }
+  const safeTickSequences = tickSequences.every((value) => Number.isSafeInteger(value) && value > 0)
+    ? tickSequences
+    : [];
+  return {
+    status: blockers.length === 0 ? 'pass' : 'fail',
+    blockers,
+    tickSequences: safeTickSequences,
+  };
+}
+
 function runtimeSummaryFromDiagnostics(diagnostics) {
   if (!diagnostics) return null;
   const summaries = Array.isArray(diagnostics.summaries) ? diagnostics.summaries : [];
+  const runBoundary = runtimeDiagnosticsRunBoundary(diagnostics);
   return {
     generatedAt: diagnostics.generatedAt ?? null,
     runId: diagnostics.runId ?? null,
@@ -514,6 +555,14 @@ function runtimeSummaryFromDiagnostics(diagnostics) {
     latestRawWroteCount: diagnostics.latest?.raw_wrote_count ?? null,
     latestRawWriteFailedCount: diagnostics.latest?.raw_write_failed_count ?? null,
     latestNonfatalPrewriteFailureCount: diagnostics.latest?.nonfatal_prewrite_failure_count ?? null,
+    summaryTickSequenceMin: runBoundary.tickSequences.length
+      ? Math.min(...runBoundary.tickSequences)
+      : null,
+    summaryTickSequenceMax: runBoundary.tickSequences.length
+      ? Math.max(...runBoundary.tickSequences)
+      : null,
+    runBoundaryStatus: runBoundary.status,
+    runBoundaryBlockers: runBoundary.blockers,
   };
 }
 
@@ -532,7 +581,13 @@ function normalizeJournalSummary(summary) {
   };
 }
 
-function coreSignalBlockers({ archive, journalSummary, storyClusterArtifacts, degeneracyWarningCount }) {
+function coreSignalBlockers({
+  archive,
+  journalSummary,
+  runtimeDiagnostics,
+  storyClusterArtifacts,
+  degeneracyWarningCount,
+}) {
   const blockers = [];
   if (archive.sampleCount <= 0) blockers.push('archive_samples_missing');
   if (archive.failCount > 0) blockers.push(`archive_sample_failures:${archive.failCount}`);
@@ -560,6 +615,13 @@ function coreSignalBlockers({ archive, journalSummary, storyClusterArtifacts, de
     if ((journalSummary.rawWriteFailedCount ?? 0) > 0) blockers.push(`runtime_raw_write_failures:${journalSummary.rawWriteFailedCount}`);
     if ((journalSummary.nonfatalPrewriteFailureCount ?? 0) > 0) {
       blockers.push(`runtime_nonfatal_prewrite_failures:${journalSummary.nonfatalPrewriteFailureCount}`);
+    }
+  }
+  if (!runtimeDiagnostics) {
+    blockers.push('runtime_diagnostics_missing');
+  } else if (runtimeDiagnostics.runBoundaryStatus !== 'pass') {
+    for (const blocker of runtimeDiagnostics.runBoundaryBlockers ?? []) {
+      blockers.push(`runtime_diagnostics_run_boundary:${blocker}`);
     }
   }
   if (storyClusterArtifacts.count === null) {
@@ -706,6 +768,7 @@ export function buildPhase5ScopeAWatchClosurePacket({
   const blockers = coreSignalBlockers({
     archive,
     journalSummary,
+    runtimeDiagnostics,
     storyClusterArtifacts,
     degeneracyWarningCount,
   });

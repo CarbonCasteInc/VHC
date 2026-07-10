@@ -175,6 +175,51 @@ test('passes the 48h threshold when archive, runtime, StoryCluster, and relay tr
   ]);
 });
 
+test('watch closure fails closed when retained summaries cross a process run boundary', () => {
+  const root = tmpDir();
+  const archiveRoot = path.join(root, 'archive');
+  makeSample(archiveRoot, '20260628T000000Z', '2026-06-28T00:00:00.000Z', [
+    relay('vhc-relay-a', 420_000_000, 320_000_000),
+  ]);
+  makeSample(archiveRoot, '20260629T000000Z', '2026-06-29T00:00:00.000Z', [
+    relay('vhc-relay-a', 421_000_000, 321_000_000),
+  ]);
+  makeSample(archiveRoot, '20260630T010000Z', '2026-06-30T01:00:00.000Z', [
+    relay('vhc-relay-a', 422_000_000, 322_000_000),
+  ]);
+  const env = baseEnv(root);
+  writeJson(env.VH_PHASE5_SCOPE_A_WATCH_RUNTIME_DIAGNOSTICS_FILE, {
+    schemaVersion: 'vh-news-runtime-diagnostics-v1',
+    generatedAt: '2026-06-30T00:00:00.000Z',
+    runId: 'run-new',
+    latest: {
+      tick_sequence: 2,
+      status: 'completed',
+      skipped: false,
+      raw_write_attempted_count: 8,
+      raw_wrote_count: 8,
+      raw_write_failed_count: 0,
+      nonfatal_prewrite_failure_count: 0,
+    },
+    summaries: [
+      { tick_sequence: 1, status: 'completed' },
+      { tick_sequence: 2, status: 'completed' },
+      { tick_sequence: 299, status: 'completed' },
+    ],
+  });
+
+  const packet = phase5ScopeAWatchClosureInternal.buildPhase5ScopeAWatchClosurePacket({
+    env,
+    now: new Date('2026-06-30T01:00:00.000Z'),
+  });
+  const verdict = phase5ScopeAWatchClosureInternal.buildWatchClosureVerdict(packet);
+
+  assert.equal(packet.runtime.diagnostics.runBoundaryStatus, 'fail');
+  assert.deepEqual(packet.runtime.diagnostics.runBoundaryBlockers, ['summary_tick_after_latest']);
+  assert.match(packet.thresholds.twentyFourHour.blockers.join('\n'), /runtime_diagnostics_run_boundary:summary_tick_after_latest/);
+  assert.equal(verdict.status, 'fail');
+});
+
 test('computes graph slopes and reports heap plateau when graph scans are complete', () => {
   const root = tmpDir();
   const archiveRoot = path.join(root, 'archive');

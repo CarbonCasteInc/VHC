@@ -191,6 +191,39 @@ test('publisher liveness allows current-run diagnostic mismatch during startup g
   }
 });
 
+test('publisher liveness rejects retained summaries from an older high-tick run even when top-level runId is current', async () => {
+  const paths = makeTempState();
+  try {
+    writeCurrentRun(paths.currentRunFile);
+    writeDiagnostic(paths.diagnosticFile, {
+      runId: RUN_ID,
+      latest: {
+        tick_sequence: 2,
+        status: 'completed',
+      },
+      summaries: [
+        { tick_sequence: 1, status: 'completed' },
+        { tick_sequence: 2, status: 'completed' },
+        { tick_sequence: 299, status: 'completed' },
+      ],
+    });
+
+    const summary = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: activeSystemctl({ activeEnterMs: NOW - 60 * 60 * 1000 }),
+      journalText: '',
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.diagnostic.summaryRunBoundaryStatus, 'fail');
+    assert.equal(summary.diagnostic.summaryRunBoundaryReason, 'summary_tick_after_latest');
+    assert.match(summary.blockers.join('\n'), /diagnostic_summary_run_boundary_invalid:summary_tick_after_latest/);
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
 test('publisher liveness classifies exit 78 fail-close and guard refusal separately', async () => {
   const paths = makeTempState();
   try {

@@ -236,6 +236,30 @@ describe('newsRuntime', () => {
     expect(__internal.resolvePruneStaleBundles(BASE_CONFIG)).toBe(true);
     expect(__internal.resolvePruneStaleBundles({ ...BASE_CONFIG, pruneStaleBundles: false })).toBe(false);
 
+    const rawWrittenBundles = [
+      storyBundle('raw-0'),
+      storyBundle('raw-1'),
+      storyBundle('raw-0'),
+      ...Array.from({ length: 10 }, (_, index) => storyBundle(`raw-${index + 2}`)),
+    ];
+    const successfulRawStoryIds = new Set(rawWrittenBundles.map((bundle) => bundle.story_id));
+    successfulRawStoryIds.delete('raw-3');
+    expect(__internal.firstSuccessfulStoryIdsInPublicationOrder(
+      rawWrittenBundles,
+      successfulRawStoryIds,
+    )).toEqual([
+      'raw-0',
+      'raw-1',
+      'raw-2',
+      'raw-4',
+      'raw-5',
+      'raw-6',
+      'raw-7',
+      'raw-8',
+      'raw-9',
+      'raw-10',
+    ]);
+
     const originalProcess = globalThis.process;
     vi.stubGlobal('process', undefined);
     expect(__internal.readEnvVar('CUSTOM_RUNTIME_ENV')).toBeUndefined();
@@ -597,8 +621,12 @@ describe('newsRuntime', () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch(bundles));
 
     const releases: Array<() => void> = [];
-    const writeStoryBundle = vi.fn(async () => new Promise<void>((resolve) => {
-      releases.push(resolve);
+    const completionOrder: string[] = [];
+    const writeStoryBundle = vi.fn(async (_client, bundle: StoryBundle) => new Promise<void>((resolve) => {
+      releases.push(() => {
+        completionOrder.push(bundle.story_id);
+        resolve();
+      });
     }));
     const onSynthesisCandidate = vi.fn();
     const onTickSummary = vi.fn();
@@ -620,7 +648,7 @@ describe('newsRuntime', () => {
       'story-middle',
     ]);
 
-    releases[0]?.();
+    releases[1]?.();
     await flushTasks();
     await vi.waitFor(() => {
       expect(writeStoryBundle).toHaveBeenCalledTimes(3);
@@ -631,16 +659,18 @@ describe('newsRuntime', () => {
       'story-slowest',
     ]);
 
-    releases[1]?.();
     releases[2]?.();
+    releases[0]?.();
     await vi.waitFor(() => {
       expect(onTickSummary).toHaveBeenCalled();
     });
+    expect(completionOrder).toEqual(['story-middle', 'story-slowest', 'story-fastest']);
     expect(onSynthesisCandidate).toHaveBeenCalledTimes(3);
     expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
       raw_write_concurrency: 2,
       raw_write_attempted_count: 3,
       raw_wrote_count: 3,
+      first_raw_written_story_ids: ['story-fastest', 'story-middle', 'story-slowest'],
     }));
 
     handle.stop();
@@ -677,6 +707,7 @@ describe('newsRuntime', () => {
       raw_write_attempted_count: 0,
       raw_write_suppressed_count: 2,
       synthesis_candidate_suppressed_count: 2,
+      first_raw_written_story_ids: [],
     }));
 
     handle.stop();
@@ -752,6 +783,7 @@ describe('newsRuntime', () => {
       raw_wrote_count: 1,
       raw_write_failed_count: 1,
       synthesis_candidate_enqueued_count: 1,
+      first_raw_written_story_ids: ['write-succeeds'],
     }));
 
     handle.stop();
@@ -1421,6 +1453,7 @@ describe('newsRuntime', () => {
       last_stage: 'failed',
       nonfatal_prewrite_failure_count: 0,
       raw_write_attempted_count: 0,
+      first_raw_written_story_ids: [],
       error: 'writeStoryBundle adapter is required',
     }));
     handle.stop();
@@ -1454,6 +1487,7 @@ describe('newsRuntime', () => {
       failed_stage: 'writing_raw_bundles',
       last_stage: 'failed',
       nonfatal_prewrite_failure_count: 0,
+      first_raw_written_story_ids: [],
       error: expect.stringContaining('failed to publish any selected bundles'),
     }));
     expect(handle.lastRun()).toBeNull();
@@ -1542,6 +1576,7 @@ describe('newsRuntime', () => {
       nonfatal_prewrite_failure_count: 1,
       raw_write_attempted_count: 0,
       raw_wrote_count: 0,
+      first_raw_written_story_ids: [],
       error: orchestratorError.message,
     }));
     expect(handle.lastRun()).toBeNull();
@@ -1559,6 +1594,7 @@ describe('newsRuntime', () => {
       nonfatal_prewrite_failure_count: 0,
       raw_write_attempted_count: 1,
       raw_wrote_count: 1,
+      first_raw_written_story_ids: ['story-1'],
     }));
     expect(handle.lastRun()).toBeInstanceOf(Date);
 
@@ -1576,11 +1612,13 @@ describe('newsRuntime', () => {
       .mockResolvedValueOnce(undefined);
     const onError = vi.fn();
     const onSynthesisCandidate = vi.fn();
+    const onTickSummary = vi.fn();
     const handle = startNewsRuntime({
       ...BASE_CONFIG,
       writeStoryBundle,
       onError,
       onSynthesisCandidate,
+      onTickSummary,
       pollIntervalMs: 10,
       runOnStart: true,
     });
@@ -1598,6 +1636,12 @@ describe('newsRuntime', () => {
     expect(onSynthesisCandidate).toHaveBeenCalledWith(
       expect.objectContaining({ story_id: 'write-succeeds' }),
     );
+    expect(onTickSummary).toHaveBeenCalledWith(expect.objectContaining({
+      raw_write_attempted_count: 2,
+      raw_wrote_count: 1,
+      raw_write_failed_count: 1,
+      first_raw_written_story_ids: ['write-succeeds'],
+    }));
 
     handle.stop();
   });
@@ -1704,6 +1748,7 @@ describe('newsRuntime', () => {
       raw_wrote_count: 1,
       storyline_write_attempted_count: 1,
       storyline_wrote_count: 1,
+      first_raw_written_story_ids: ['story-1'],
     }));
     expect(onClusterArtifacts).toHaveBeenCalledWith(expect.objectContaining({
       rawItemCount: 3,
@@ -1830,6 +1875,7 @@ describe('newsRuntime', () => {
       raw_write_attempted_count: 0,
       raw_write_suppressed_count: 1,
       raw_wrote_count: 0,
+      first_raw_written_story_ids: [],
       storyline_write_suppressed_count: 1,
       synthesis_candidate_suppressed_count: 1,
     }));
