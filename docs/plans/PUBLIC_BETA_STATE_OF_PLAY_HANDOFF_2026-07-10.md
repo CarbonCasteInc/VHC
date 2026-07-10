@@ -88,11 +88,12 @@ Open non-release follow-up issues at handoff:
 
 Preserved local-only files:
 
-- `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md`
-- `docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md`
+- DISTRIBUTION_READINESS_GOAL_2026-07-05.md
+- DISTRIBUTION_READINESS_SLICES_2026-07-05.md
 
-Those two files are intentionally untracked. Do not stage or delete them unless
-Lou explicitly asks.
+Those two files live locally under `docs/plans/` in Lou's workspace, but they
+are intentionally untracked. Do not stage or delete them unless Lou explicitly
+asks.
 
 ## What #759 Adds
 
