@@ -56,21 +56,53 @@ Monitor `status: pass` means the mailbox monitor ran and classified mail; it is 
 Monitor artifact:
 `.tmp/vhc-failure-mailbox-monitor/latest.json`.
 
-Current monitor readout:
+Current incremental monitor readout:
 
-- generated at `2026-07-10T00:40:48.348445Z`;
-- `newCriticalCount: 85`;
-- `newWarningCount: 12`;
-- `newInfoCount: 5`;
-- newest relevant message was `2026-07-10T00:07:57`;
+- generated at `2026-07-10T01:11:56.040Z`;
+- `newCriticalCount: 1`;
+- `newWarningCount: 2`;
+- `newInfoCount: 0`;
+- newest relevant message was `2026-07-10T01:07:59`;
 - critical class includes `public_feed_alert_fail` for public-feed freshness;
 - warning class includes `pager_deadman_workflow_failed`;
 - recorded next action: treat as incident; preserve email; run read-only
   repo/A6 readback before mutation; Lou retains incident/rollback authority.
 
+The first monitor baseline remains relevant incident history: it found 85 new
+critical, 12 warning, and 5 info messages through `2026-07-10T00:07:57`. The
+smaller incremental count means dedupe is working; it does not mean the
+underlying public-feed incident recovered.
+
+Read-only A6 diagnosis completed at `2026-07-10T01:17:07Z`:
+
+- `vh-news-aggregator.service` is parked at `ExecMainStatus=78`;
+- the triggering tick failed at `2026-07-09T18:11:39Z` when one raw
+  `/vh/news/story` fanout produced `0/3` validated relay acknowledgements where
+  `2/3` are required;
+- all three public HTTPS requests hit the configured 10-second client deadline;
+- the deployed fanout performs those requests sequentially, so one failed
+  attempt can consume about 30 seconds before returning;
+- timeout/abort failures are intentionally excluded from the existing
+  transport-total retry class, so this failure bypassed bounded retry and
+  entered the non-restarting exit-78 write-safety park;
+- relay loopback liveness passed immediately before and after the incident, with
+  no container restart, watchdog trip, queue backlog, OOM, or event-loop-lag
+  breach; current public relay `/readyz` checks also pass;
+- public-feed and relay-snapshot staleness are downstream consequences of the
+  parked publisher, not separate root causes;
+- repeated failure emails are amplified by a second defect: changing
+  watch-window values such as `window_short:33.49/48` enter the alert
+  fingerprint and generate false `state_changed` deliveries for one unresolved
+  incident.
+
+Current incident reason code:
+`relay_rest_story_timeout_total_0_of_3_exit_78`.
+
 `recommendedNextAction` requesting `treat as incident; preserve email; run
 read-only repo/A6 readback before mutation; Lou retains incident/rollback
-authority.` is a blocker for mutation until that readback is complete.
+authority.` triggered S1A. The readback is now complete, but it classified an
+unresolved exit-78 incident; readback completion alone does not clear mutation
+or release work.
 
 If `.tmp/vhc-failure-mailbox-monitor/latest.json` has `newCriticalCount > 0`,
 the release is blocked even when `status: pass`.
@@ -84,11 +116,12 @@ explicit incident decision after read-only repo/A6 readback.
 
 `pager_deadman_workflow_failed` warnings must be triaged and the pager dead-man workflow must be green before launch, post-launch watch, or tranche expansion.
 
-Resulting sprint rule: no StoryCluster credential repair, auth setup, origin
-redeploy, A6 update, accepted-synthesis canary, release-evidence regeneration,
-manual rehearsal, distribution-packet finalization, or tester invite may proceed
-until S1A exits green. Pager dead-man warnings remain a watch item; they do not
-authorize pager cutover.
+Resulting sprint rule: repo-only S1B remediation may proceed while the incident
+is active, but no StoryCluster credential repair, auth setup, origin redeploy,
+A6 update outside the approved incident packet, accepted-synthesis canary,
+release-evidence regeneration, manual rehearsal, distribution-packet
+finalization, or tester invite may proceed until S1A and S1B exit green. Pager
+dead-man warnings remain a watch item; they do not authorize pager cutover.
 
 Guard tokens:
 
@@ -98,6 +131,11 @@ Guard tokens:
 - `A6_READBACK_BEFORE_ANY_MUTATION`
 - `NO_STORYCLUSTER_AUTH_DEPLOY_UNTIL_INCIDENT_CLASSIFIED`
 - `LOU_RETAINS_INCIDENT_ROLLBACK_AUTHORITY`
+- `RELAY_WRITE_QUORUM_REMAINS_2_OF_3`
+- `TIMEOUT_TOTAL_IS_UNACKNOWLEDGED_NOT_PROVABLY_UNPUBLISHED`
+- `HTTP_BACKPRESSURE_REMAINS_FAIL_CLOSED`
+- `DYNAMIC_AGE_FIELDS_ARE_NOT_ALERT_FINGERPRINT_INPUTS`
+- `EXIT_78_RESTART_REQUIRES_LOU_INCIDENT_AUTHORITY`
 
 ## Non-Negotiable Boundaries
 
@@ -120,6 +158,9 @@ Guard tokens:
 9. A new critical monitor item places the sprint in
    `READ_ONLY_INCIDENT_TRIAGE_ONLY` and blocks launch-enablement work until
    read-only repo/A6 readback classifies and clears it.
+10. The durable timeout fix must not weaken relay quorum, treat an ambiguous
+    timeout as a proven non-write, retry explicit HTTP/backpressure failures, or
+    make an exit-78 publisher restart available to the exit-69-only executor.
 
 ## Access Window Needed From Lou
 
@@ -164,6 +205,7 @@ are present and the prior slice's stop rules are clear.
 S0  Repo/PR baseline and release commit candidate
 S1  Failure-mailbox monitor and incident intake loop
 S1A Monitor-critical public-feed incident readback gate
+S1B Durable relay-timeout and alert-dedupe remediation
 S2  StoryCluster headline-soak credential/endpoint repair
 S3  Auth boundary infrastructure on Cloudflare
 S4  Apple provider registration and rehearsal
@@ -258,8 +300,8 @@ newer_than:7d is:unread (critical OR alert OR failure OR stale OR watchdog)
 - [ ] `status: pass` is interpreted only as monitor-execution success.
 - [ ] Critical classification says: treat as incident, preserve email, perform
   read-only readback before mutation, Lou retains incident/rollback authority.
-- [ ] If `newCriticalCount > 0`, S1A is mandatory before S2 or later launch
-  work.
+- [ ] If `newCriticalCount > 0`, S1A and any resulting S1B remediation are
+  mandatory before S2 or later launch work.
 
 ## S1A - Monitor-Critical Public-Feed Incident Readback Gate
 
@@ -271,8 +313,10 @@ monitor before doing launch-enablement work.
 ### Trigger
 
 This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
-`newCriticalCount > 0`, including the current 2026-07-10 report with
-`newCriticalCount: 85` and public-feed freshness failures.
+`newCriticalCount > 0`, including the `2026-07-10T01:11:56.040Z` incremental
+report with `newCriticalCount: 1` and a new public-feed freshness failure. The
+first-run count of 85 remains incident history, not the current incremental
+count.
 
 ### Boundaries
 
@@ -291,11 +335,13 @@ This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
 - [ ] Record the monitor artifact path:
   `.tmp/vhc-failure-mailbox-monitor/latest.json`.
 - [ ] Record the monitor snapshot:
-  - [ ] generated at `2026-07-10T00:40:48.348445Z`;
-  - [ ] newest relevant message at `2026-07-10T00:07:57`;
-  - [ ] `critical=85`;
-  - [ ] `warning=12`;
-  - [ ] `info=5`.
+  - [ ] generated at `2026-07-10T01:11:56.040Z`;
+  - [ ] newest relevant message at `2026-07-10T01:07:59`;
+  - [ ] `critical=1`;
+  - [ ] `warning=2`;
+  - [ ] `info=0`;
+  - [ ] initial dedupe baseline preserved as `critical=85`, `warning=12`,
+    `info=5`.
 - [ ] Confirm the newest critical reason is `public_feed_alert_fail`.
 - [ ] Confirm whether the pager dead-man warnings are still only warnings and
   not a pager-cutover blocker.
@@ -319,6 +365,26 @@ This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
 - [ ] Write a short incident readback note in the launch-control packet or a
   linked secret-safe local artifact before proceeding.
 
+### Current Classified Finding
+
+The 2026-07-10 read-only pass classifies the incident as
+`relay_rest_story_timeout_total_0_of_3_exit_78`:
+
+- publisher state: `failed/failed`, `ExecMainStatus=78`;
+- failed surface: raw `/vh/news/story` publication;
+- quorum result: `0/3`, required `2/3`;
+- endpoint result: three sequential 10-second client-deadline aborts;
+- relay state: loopback liveness healthy before and after, with no persistent
+  relay-container fault proven;
+- downstream state: public latest-index and relay snapshots stale after the
+  publisher stopped;
+- alert-path state: failure delivery works, but changing watch-window numbers
+  cause duplicate state-change emails.
+
+This is enough to design S1B. It is not restart authorization and it does not
+prove which public-network or relay-request condition caused the transient
+stall.
+
 ### Exit Criteria
 
 - [ ] The incident has a named reason code and evidence path.
@@ -327,9 +393,288 @@ This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
   recovery action.
 - [ ] No live mutation occurred during readback.
 - [ ] If a recovery action is needed, stop here and get Lou approval for that
-  action; do not continue launch-enablement work under this sprint.
-- [ ] If readback proves recovery/pass, proceed to S2 and keep the monitor
-  active.
+  action; repo-only S1B implementation may proceed, but launch-enablement work
+  remains blocked.
+- [ ] If readback proves recovery/pass and S1B is complete, proceed to S2 and
+  keep the monitor active.
+
+## S1B - Durable Relay-Timeout And Alert-Dedupe Remediation
+
+### Goal
+
+Prevent a fully unacknowledged transient relay deadline from becoming an
+immediate non-restarting exit-78 outage, without weakening raw-write quorum or
+hiding real relay backpressure, and restore state-change-only alert delivery.
+
+S1B has two independently testable workstreams:
+
+1. relay write availability and exit classification;
+2. alert fingerprint stability and readable secret-safe email bodies.
+
+Repo implementation and review are allowed while the incident is active. A6
+deployment and publisher restart remain incident mutations and require Lou's
+explicit approval after the repo change is merged and independently reviewed.
+
+### Invariants
+
+- [ ] Raw story, latest-index, hot-index, and pending-lifecycle publication keep
+  the configured `2/3` relay quorum.
+- [ ] A timeout means unacknowledged, not provably unpublished.
+- [ ] Every retry reuses the exact serialized and signed id-keyed record; it
+  does not regenerate timestamps, ids, signatures, or payloads.
+- [ ] A timed-out POST is reconciled through bounded signed readback before a
+  resend; a matching readback can satisfy quorum, while missing readback keeps
+  the endpoint unacknowledged.
+- [ ] Id-keyed first-write-wins relay semantics are covered by tests before a
+  timeout is made retryable.
+- [ ] `2/3` validated acknowledgements pass even if the third endpoint times
+  out; `0/3` and `1/3` never pass.
+- [ ] Explicit HTTP responses, relay backpressure, validation failures, and
+  mixed acknowledged/unacknowledged failures are not relabeled as
+  transport-total.
+- [ ] Exit `75` remains wrapper refusal, exit `78` remains write-safety or
+  configuration park, and exit `69` remains bounded restartable total relay
+  unavailability.
+- [ ] Relay containers are not restarted as part of this slice.
+- [ ] Full numeric evidence remains in local alert artifacts even when volatile
+  numbers are removed from the dedupe fingerprint.
+
+### Workstream A - Concurrent Bounded Relay Fanout
+
+Target:
+`packages/gun-client/src/newsAdapters.ts`.
+
+- [ ] Serialize `{ record }` once before fanout and reuse the same bytes on
+  every endpoint and retry attempt.
+- [ ] Start all relay requests for one attempt concurrently rather than waiting
+  up to 10 seconds per endpoint sequentially.
+- [ ] Keep an independent abort controller and configured deadline per endpoint.
+- [ ] Wait for every endpoint in the attempt to settle so the final quorum and
+  failure classification are deterministic; do not return early at the second
+  acknowledgement while another write remains unobserved.
+- [ ] Record one secret-safe endpoint result from this closed set:
+  `acknowledged_success`, `network_unacknowledged`,
+  `deadline_unacknowledged`, `http_response`, or `validation_failure`.
+- [ ] Record whether an HTTP response was received before a body/validation
+  failure so an application response cannot be mistaken for a network failure.
+- [ ] Keep endpoint labels hashed or ordinal; do not log raw origins, tokens, or
+  response bodies.
+- [ ] Bound one three-relay attempt to approximately one endpoint deadline, not
+  three sequential deadlines.
+
+### Workstream B - Availability-Total Retry And Exit Semantics
+
+Targets:
+
+- `packages/gun-client/src/newsAdapters.ts`;
+- daemon error mapping that consumes
+  `isRelayRestTransportTotalFailureError`;
+- associated gun-client and daemon tests.
+
+- [ ] Define availability-total as zero validated acknowledgements where every
+  endpoint result is `network_unacknowledged` or
+  `deadline_unacknowledged`.
+- [ ] For `network_unacknowledged` and `deadline_unacknowledged`, issue a bounded
+  endpoint-local readback for the same stable record key using the existing
+  signed validation contract; a response-leg network failure can also occur
+  after a relay committed the write.
+- [ ] Count only a signature-valid record with the expected canonical key and
+  signed payload fields as `readback_confirmed`; a missing row remains
+  unacknowledged and a conflicting, invalid, or tampered row is a write-safety
+  failure.
+- [ ] If readback reaches `2/3`, complete the write without resending. If it
+  confirms fewer than `2/3`, retry only unresolved endpoints and combine the
+  prior confirmed set with new validated acknowledgements.
+- [ ] Generalize the existing transport-total error contract to represent
+  availability-total without breaking the current brand-based cross-package
+  guard. Prefer a new explicit availability brand with a compatibility path for
+  the existing transport-total brand.
+- [ ] Apply bounded retry count and backoff only after deadline reconciliation
+  leaves an availability-total outcome. Use a dedicated timeout retry budget if
+  needed so timeout recovery cannot multiply relay load beyond the reviewed
+  bound.
+- [ ] Treat a successful retry that reaches `2/3` as a completed idempotent
+  write and include the attempt count in secret-safe telemetry.
+- [ ] After availability-total retries are exhausted, map the generalized
+  branded failure to exit `69`, allowing the existing bounded systemd restart
+  path and start-limit parking behavior to operate.
+- [ ] Preserve exit `78` for `1/3` partial quorum, explicit 4xx/5xx,
+  `relay-backpressure`, validation failure, mixed failure classes, critical
+  lifecycle failure, and any unclassified write error.
+- [ ] Do not increase the 10-second deadline as the primary fix.
+- [ ] Do not weaken `RestartPreventExitStatus=78`, start-limit behavior, or the
+  executor rule that only permits its narrowly verified exit-69 action.
+
+### Workstream C - Secret-Safe Availability Telemetry
+
+- [ ] Add per-attempt counts for acknowledged, network-unacknowledged,
+  deadline-unacknowledged, readback-confirmed, HTTP-response, and validation
+  failures.
+- [ ] Add attempt duration, total attempt count, required quorum, and final
+  availability classification to safe logs/diagnostics.
+- [ ] Preserve only hashed/ordinal endpoint identity.
+- [ ] Never include raw relay URL, authorization header, daemon token, record
+  body, story body, provider response body, or host-private env value.
+- [ ] Ensure the publisher liveness and public-feed alert summaries can
+  distinguish `exit_69_transport_unavailable`,
+  `exit_69_start_limit_parked`, and `exit_78_fail_closed` after the change.
+
+### Workstream D - Stable Alert Fingerprint
+
+Targets:
+
+- `tools/scripts/public-feed-alert-watch.mjs`;
+- `tools/scripts/public-feed-alert-watch.test.mjs`.
+
+- [ ] Build the fingerprint from semantic state only: overall status, publisher
+  failure class/state, source status, threshold status, relay identity/status,
+  and normalized blocker reason codes.
+- [ ] Exclude or canonicalize volatile ages, decimal watch-window progress,
+  archive failure counts, restart counters, timestamps, and generated-at values.
+- [ ] Do not include the raw `watchClosure.thresholds` object in the fingerprint;
+  include only stable threshold status and blocker reason codes.
+- [ ] Keep the full values in `latest.json` and outbound payloads for diagnosis.
+- [ ] Bump the alert state schema so migration deliberately sends at most one
+  state-change notification for an unresolved incident, then suppresses
+  repeats.
+- [ ] Preserve delivery retry when the prior delivery failed, explicit
+  heartbeat delivery, real failure-class transitions, and recovery/pass
+  delivery.
+- [ ] Prove `window_short:33.49/48` to `window_short:33.99/48`, archive failures
+  8 to 9, and advancing stale ages produce the same fingerprint.
+- [ ] Prove publisher exit `78` to restartable exit `69`, threshold status
+  change, relay failure, and recovery produce different fingerprints.
+
+### Workstream E - Readable Email Contract
+
+Gmail connector readback returned the alert subject but no parsed body while the
+sender emits `Content-Type: application/json`. Keep the JSON payload, but make
+the email MIME readable to normal clients and connector text extraction.
+
+- [ ] Emit the secret-safe JSON as `text/plain; charset=utf-8`, or as a proper
+  multipart message with a text/plain part.
+- [ ] Preserve the subject status plus fingerprint; never put blocker details,
+  origins, or secrets in the subject.
+- [ ] Add a parser-level test that the email contains a non-empty text body and
+  the expected secret-safe reason codes.
+- [ ] Preserve tests that reject raw URLs, tokens, story bodies, private data,
+  and host-private values.
+
+### Required Tests
+
+- [ ] Three relay fetches begin in the same attempt before any endpoint settles.
+- [ ] First-attempt total deadlines followed by `2/3` success retry the exact
+  same body and complete.
+- [ ] Total deadlines followed by matching `2/3` signed readback complete
+  without a resend.
+- [ ] One matching readback plus one successful unresolved-endpoint retry
+  reaches `2/3` without rewriting the already-confirmed endpoint.
+- [ ] Conflicting, invalid, or tampered timeout readback remains exit `78`.
+- [ ] Exhausted total deadlines produce the generalized availability-total
+  brand and daemon exit `69`.
+- [ ] Exhausted network-total behavior remains exit `69`.
+- [ ] `1/3` success plus two deadlines remains exit `78` with no quorum waiver.
+- [ ] Three explicit 503 backpressure responses remain exit `78` and are not
+  retried as availability-total.
+- [ ] A timeout plus any HTTP/validation failure remains exit `78`.
+- [ ] `2/3` success plus one timeout passes.
+- [ ] Timeout retry preserves byte-identical signed record content.
+- [ ] Alert volatile-age/window changes are suppressed.
+- [ ] Alert failure-class and recovery changes deliver once.
+- [ ] Failed delivery retry and configured heartbeat behavior remain intact.
+- [ ] Email body is readable and secret-safe.
+
+Run at minimum:
+
+```bash
+corepack pnpm@9.7.1 --filter @vh/gun-client test -- newsAdapters.test.ts
+corepack pnpm@9.7.1 --filter @vh/gun-client typecheck
+corepack pnpm@9.7.1 --filter @vh/ai-engine test -- newsRuntime.test.ts
+corepack pnpm@9.7.1 check:public-feed:alert-watch
+corepack pnpm@9.7.1 check:vhc-incident-response
+corepack pnpm@9.7.1 check:public-beta-next-phase-sprint
+corepack pnpm@9.7.1 docs:check
+git diff --check
+```
+
+### Review And Merge Gate
+
+- [ ] Use one focused branch/PR for the runtime, alert, tests, and directly
+  affected operational docs.
+- [ ] Include the incident reason code and sanitized timing/quorum evidence in
+  the PR description.
+- [ ] Require review of idempotency, quorum, retry eligibility, exit mapping,
+  state-schema migration, and secret redaction.
+- [ ] CI and every required test above pass on the PR head.
+- [ ] Merge before preparing any A6 mutation packet.
+
+### Lou-Approved A6 Recovery Packet
+
+The packet must be generated from the merged remediation commit. It is not the
+existing exit-69-only executor action because the pre-action state is exit 78.
+Lou must explicitly authorize the exit-78 incident recovery after independent
+review.
+
+Pre-mutation readback:
+
+- [ ] Preserve `failed/failed`, `ExecMainStatus=78`, current deployed commit,
+  last clean tick, and incident journal markers.
+- [ ] Confirm all relay containers are running with no new watchdog/OOM trip.
+- [ ] Confirm all three loopback and public relay readiness probes pass.
+- [ ] Confirm alert and watch-closure timers remain enabled.
+- [ ] Confirm no unrelated A6 or env change is bundled into the packet.
+
+Mutation boundary:
+
+- [ ] Update only to the reviewed remediation commit using the existing deploy
+  packet controls.
+- [ ] Do not restart relays, alter quorum, increase timeouts, clear relay data,
+  edit alert recipients, or enable autonomy/pager cutover.
+- [ ] Reset/start the publisher only after Lou's explicit incident approval and
+  the packet's preconditions pass.
+- [ ] Stop on any commit mismatch, failed relay readiness probe, unexpected
+  exit code, secret-bearing output, or packet verification failure.
+
+Immediate readback:
+
+- [ ] Publisher reaches `active/running` and does not return to exit 75/78.
+- [ ] First two completed ticks report `raw_write_attempted_count > 0`,
+  `raw_write_failed_count=0`, and no critical lifecycle failure.
+- [ ] At least one completed tick reports the expected capped raw writes with
+  `raw_wrote_count == raw_write_attempted_count`.
+- [ ] Public latest-index advances through the nonmutating public read path and
+  returns below the six-hour freshness SLO.
+- [ ] Relay snapshots advance and relay liveness remains pass.
+- [ ] Any total timeout is visibly classified, bounded, and either recovers or
+  enters the expected exit-69 path; it must not silently weaken quorum.
+- [ ] One recovery email is delivered with a readable secret-safe body.
+
+Soak readback:
+
+- [ ] Preserve hourly archive samples until the required 24/48-hour watch
+  thresholds are honestly satisfied.
+- [ ] Require no new failed publisher tick, exit-69 start-limit park, exit 75,
+  exit 78, relay watchdog trip, stale public feed, or stale relay snapshot.
+- [ ] Confirm unchanged failure/recovery state is suppressed between samples;
+  only a configured heartbeat may repeat.
+- [ ] Do not relabel historical window blockers as current failures. Record the
+  distinction until the watch naturally ages them out.
+
+### Exit Criteria
+
+- [ ] Runtime and alert changes are merged with required tests green.
+- [ ] Relay write quorum remains `2/3` and no exit-78 class was weakened.
+- [ ] A6 recovery was either not attempted, or was Lou-approved and passed all
+  immediate readbacks.
+- [ ] Publisher, public freshness, relay liveness, and relay snapshots are
+  green after recovery.
+- [ ] Watch closure truthfully distinguishes current green operation from
+  historical-window evidence and reaches the required release threshold before
+  launch.
+- [ ] The mailbox receives one incident transition and one recovery transition,
+  not a new email for every decimal window/age change.
+- [ ] S1A closes only after these recovery facts are preserved; then S2 may
+  begin.
 
 ## S2 - StoryCluster Headline-Soak Credential/Endpoint Repair
 
@@ -344,8 +689,8 @@ credentials.
   StoryCluster/OpenAI credential.
 - [ ] Codex can inspect only redacted env names, file mode/owner/hash, health
   booleans, and stable reason codes.
-- [ ] S1A is green if the latest failure-mailbox monitor reported critical
-  items.
+- [ ] S1A and S1B are green if the latest failure-mailbox monitor reported
+  critical items.
 - [ ] S1 has no active critical incident, or Lou has classified the incident and
   explicitly authorized this slice to proceed.
 
@@ -808,7 +1153,8 @@ The public beta is not ready until every item below is true:
 - [ ] Release commit is pinned.
 - [ ] Failure-mailbox monitor is active and producing secret-safe artifacts.
 - [ ] Latest failure-mailbox monitor has no unresolved critical items, or S1A
-  has cleared them with read-only evidence.
+  and S1B have cleared them with classified evidence, merged remediation, and
+  any required Lou-approved recovery readback.
 - [ ] Latest failure-mailbox monitor has `newCriticalCount == 0` before launch,
   or Lou has made an explicit incident decision after read-only repo/A6
   readback.
@@ -821,6 +1167,13 @@ The public beta is not ready until every item below is true:
 - [ ] X is hidden and absent from `VITE_AUTH_CALLBACK_PROVIDERS`.
 - [ ] PWA origin image is rebuilt with auth env and CSP.
 - [ ] A6 is updated/read back at the release commit.
+- [ ] Relay write deadline handling uses concurrent bounded fanout, preserves
+  `2/3` quorum, and keeps partial/HTTP/backpressure failures fail-closed.
+- [ ] Availability-total retry exhaustion maps only fully unacknowledged relay
+  outcomes to the bounded exit-69 path; true exit-78 cases remain protected.
+- [ ] Alert dedupe ignores volatile age/window progress while preserving real
+  failure-class, threshold, and recovery transitions.
+- [ ] Failure and recovery email bodies are readable and secret-safe.
 - [ ] Raw feed freshness, relay liveness, relay snapshot, watch closure, and
   alert email path pass.
 - [ ] Accepted-synthesis canary passes if summaries/tables/voting are claimed.
@@ -862,18 +1215,24 @@ Stop immediately and preserve evidence if any of these occur:
 The very next operational move is:
 
 1. merge or explicitly carry #759 as the release branch;
-2. because the 2026-07-10 monitor found 85 critical public-feed freshness
-   items, perform S1A read-only repo/A6 incident readback and stop if recovery
-   action is needed;
-3. repair StoryCluster headline-soak credential/endpoint only after S1A is
+2. preserve the completed S1A finding
+   `relay_rest_story_timeout_total_0_of_3_exit_78` and keep A6 unchanged;
+3. implement, test, review, and merge S1B concurrent bounded fanout,
+   availability-total exit classification, stable alert fingerprinting, and
+   readable email MIME;
+4. prepare the focused recovery packet from the merged commit, then update and
+   restart the exit-78 publisher only if Lou explicitly approves it;
+5. preserve clean-tick, public freshness, relay snapshot/liveness, alert
+   transition, and 24/48-hour watch evidence until S1A/S1B are green;
+6. repair StoryCluster headline-soak credential/endpoint only after S1A/S1B are
    green;
-4. use a Lou-supervised Cloudflare browser session to stand up
+7. use a Lou-supervised Cloudflare browser session to stand up
    `https://auth.venn.carboncaste.io`;
-5. use Lou-supervised Apple and Google browser sessions to register provider
+8. use Lou-supervised Apple and Google browser sessions to register provider
    apps;
-6. redeploy the PWA origin with Apple/Google auth enabled;
-7. update/read back A6 at the release commit;
-8. run the accepted-synthesis canary;
-9. regenerate release evidence;
-10. run the three-browser rehearsal;
-11. invite the first 100 public beta testers only after Lou says go.
+9. redeploy the PWA origin with Apple/Google auth enabled;
+10. update/read back A6 at the release commit;
+11. run the accepted-synthesis canary;
+12. regenerate release evidence;
+13. run the three-browser rehearsal;
+14. invite the first 100 public beta testers only after Lou says go.

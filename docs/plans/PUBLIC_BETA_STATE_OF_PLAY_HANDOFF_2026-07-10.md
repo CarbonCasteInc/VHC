@@ -5,7 +5,7 @@
 > Human authority: Lou
 > Technical executor: Codex
 > Current active PR: #759 (`coord/release-readiness-beta-runsheet-guard-2026-07-09`)
-> Current PR head at handoff: `6a85cf701ee5c6a1eae30c1c966dbee616ea3717`
+> Current PR head at handoff: see PR #759 head
 > Current target app: `https://venn.carboncaste.io`
 > Current auth boundary target: `https://auth.venn.carboncaste.io`
 > Support/failure mailbox: `carboncasteit@gmail.com`
@@ -23,15 +23,16 @@ bind that account/session to a beta-local LUMA identity, and contribute to
 aggregate-only constituency/representative sentiment where privacy thresholds
 allow it.
 
-The active work now is not broad product construction. It is release
-enablement: incident readback, credential repair, auth/provider deployment, A6
-release update, accepted-synthesis canary, release evidence regeneration,
-manual three-browser rehearsal, and then a first public-beta tranche.
+The active work now is not broad product construction. It is the current
+public-feed incident remediation first, then release enablement: StoryCluster
+credential repair, auth/provider deployment, A6 release update,
+accepted-synthesis canary, release evidence regeneration, manual three-browser
+rehearsal, and then a first public-beta tranche.
 
-The immediate blocker is S1A: the failure-mailbox monitor is working, but it is
-still reporting public-feed criticals. Monitor `status: pass` means the monitor
-ran and classified mail; it does not mean the release is green. As of the
-latest local artifact at handoff,
+The immediate blocker is S1A/S1B: the failure-mailbox monitor is working, and
+S1A readback classified a real public-feed incident. Monitor `status: pass`
+means the monitor ran and classified mail; it does not mean the release is
+green. As of the latest local artifact at handoff,
 `.tmp/vhc-failure-mailbox-monitor/latest.json` reports:
 
 - generated at `2026-07-10T01:11:56.040Z`;
@@ -45,11 +46,19 @@ latest local artifact at handoff,
 - recommended next action: treat as incident, preserve email, run read-only
   repo/A6 readback before mutation, Lou retains incident/rollback authority.
 
-Until S1A exits green or Lou makes an explicit incident decision after read-only
-repo/A6/public-feed readback, do not start StoryCluster credential repair, auth
-deployment, provider registration, origin redeploy, A6 update,
+S1A readback completed at `2026-07-10T01:17:07Z` and classified the incident as
+`relay_rest_story_timeout_total_0_of_3_exit_78`: the publisher is parked at
+`ExecMainStatus=78` after one raw `/vh/news/story` relay fanout received `0/3`
+validated relay acknowledgements where `2/3` are required. Loopback/public
+relay readiness was not enough to prove a persistent relay-container failure;
+the current design still fails closed and the publisher remains parked.
+
+Repo-only S1B remediation may proceed while the incident is active. Do not
+start StoryCluster credential repair, auth deployment, provider registration,
+origin redeploy, A6 update outside the approved incident packet,
 accepted-synthesis canary, release-evidence regeneration, manual rehearsal,
-distribution, or tranche expansion.
+distribution, or tranche expansion until S1A/S1B are green or Lou makes an
+explicit incident decision from the preserved readback evidence.
 
 ## Current GitHub/Repo State
 
@@ -64,7 +73,7 @@ Current active PR:
 ```text
 #759 Add beta session runsheet guard
 https://github.com/CarbonCasteInc/VHC/pull/759
-head: 6a85cf701ee5c6a1eae30c1c966dbee616ea3717
+head: see PR #759 head
 state: non-draft
 merge state: CLEAN
 CI: 9/9 green at handoff
@@ -119,6 +128,7 @@ Most important new state in that doc:
 - S0: repo/PR baseline and release commit candidate.
 - S1: failure-mailbox monitor and incident intake.
 - S1A: monitor-critical public-feed incident readback gate.
+- S1B: durable relay-timeout and alert-dedupe remediation.
 - S2: StoryCluster headline-soak credential/endpoint repair.
 - S3: auth boundary infrastructure on Cloudflare.
 - S4: Apple provider registration and rehearsal.
@@ -243,8 +253,10 @@ Prior known live Scope A posture:
   the post-Slice-0 recovery evidence.
 
 Current live state is not proven because the mailbox monitor now reports a
-fresh public-feed critical. The next developer must run S1A read-only readback
-before treating the feed as healthy or taking launch-enablement actions.
+fresh public-feed critical. The S1A read-only readback has now classified the
+publisher as parked at `ExecMainStatus=78`; the next developer must preserve
+that evidence and work S1B before treating the feed as healthy or taking
+launch-enablement actions.
 
 ## Evidence State
 
@@ -295,60 +307,70 @@ Source-health note:
 
 These are the blockers that matter before tester distribution.
 
-1. S1A mailbox-critical incident readback is active.
+1. S1A mailbox-critical incident is classified but unresolved.
 
    Latest local monitor has `newCriticalCount: 1` with
-   `public_feed_alert_fail`. This blocks mutation and launch-enablement work
-   until read-only repo/A6/public-feed readback classifies the incident and
-   either proves recovery or Lou approves a focused recovery action.
+   `public_feed_alert_fail`. S1A readback classified the incident as
+   `relay_rest_story_timeout_total_0_of_3_exit_78`: publisher parked at
+   `ExecMainStatus=78` after `0/3` raw story relay acknowledgements against a
+   required `2/3` quorum. This blocks mutation and launch-enablement work until
+   S1B remediation plus any Lou-approved recovery readback clears it.
 
-2. StoryCluster headline-soak credential/endpoint is not release-ready.
+2. S1B durable relay-timeout and alert-dedupe remediation is not implemented.
+
+   The next repo-side work is concurrent bounded relay fanout, availability-total
+   retry/exit classification that preserves the `2/3` quorum, stable alert
+   fingerprinting that ignores volatile age/window progress, and readable
+   secret-safe email MIME. A6 mutation and publisher restart remain
+   Lou-approved incident actions after the remediation is merged and reviewed.
+
+3. StoryCluster headline-soak credential/endpoint is not release-ready.
 
    The latest production-readiness report diagnoses the headline-soak failure
    as `storycluster_openai_invalid_api_key`. Repair the credential or endpoint
    through the correct secret store; do not paste or print the credential.
 
-3. Auth boundary is not deployed.
+4. Auth boundary is not deployed.
 
    `https://auth.venn.carboncaste.io` must be stood up outside A6, with durable
    nonce storage, secret-safe health, and allowed PWA origin
    `https://venn.carboncaste.io`.
 
-4. Apple and Google providers are not rehearsed.
+5. Apple and Google providers are not rehearsed.
 
    Apple and Google app records must be configured after Lou logs in/MFA, and
    each provider must pass start-leg and full PWA rehearsal. X remains hidden.
 
-5. PWA origin image is not rebuilt with auth env/CSP.
+6. PWA origin image is not rebuilt with auth env/CSP.
 
    The origin must know:
    `VITE_AUTH_CALLBACK_BASE_URL=https://auth.venn.carboncaste.io` and
    `VITE_AUTH_CALLBACK_PROVIDERS=apple google`, and CSP must allow the auth
    boundary.
 
-6. A6 is not proven at the intended release commit.
+7. A6 is not proven at the intended release commit.
 
    Use the existing A6 SSH path only after S1A is clear or Lou has made an
    explicit incident decision. Read back before mutation. Update/restart only
    inside the approved release path.
 
-7. Accepted synthesis is not live-proven on A6.
+8. Accepted synthesis is not live-proven on A6.
 
    The canary is required before tester copy can claim accepted summaries,
    framing tables, or stable-point voting.
 
-8. Release evidence is stale/blocked.
+9. Release evidence is stale/blocked.
 
    Regenerate the full release evidence pipeline at the intended release commit
    after live blockers clear.
 
-9. Manual three-browser rehearsal has not passed.
+10. Manual three-browser rehearsal has not passed.
 
    The release still needs Apple/Google account binding, beta-local LUMA
    binding, stance persistence, cross-client aggregate convergence, reload
    persistence, and privacy spot-check against the deployed target.
 
-10. Distribution packet is still blocked.
+11. Distribution packet is still blocked.
 
    Do not invite testers until launch-control and distribution packets are
    filled with passing, secret-safe evidence and Lou says go.
@@ -371,36 +393,28 @@ gh pr view 759 --json number,title,headRefName,headRefOid,isDraft,mergeStateStat
 git status --short --branch
 ```
 
-### 2. Run S1A read-only incident readback
+### 2. Preserve S1A finding and implement S1B repo remediation
 
 Do not mutate A6. Do not restart services. Do not repair credentials yet.
 
-Read back:
+Preserve the classified S1A finding:
 
-- current repo branch/SHA and PR state;
-- latest mailbox monitor artifact;
-- A6 deployed commit;
-- `vh-news-aggregator.service` state;
-- `vh-public-feed-alert-watch.timer` state and latest service result;
-- `vh-phase5-scope-a-watch-closure.timer` state and latest verdict;
-- latest public-feed freshness summary;
-- relay liveness summary;
-- relay snapshot/watch-closure summary;
-- most recent publisher clean tick or parked/failure reason.
+```text
+relay_rest_story_timeout_total_0_of_3_exit_78
+```
 
-Classify:
+Then implement and review S1B from the sprint checklist:
 
-- active publisher/freshness incident;
-- publisher ticking but writes/readbacks failing;
-- relay/snapshot stale while publisher writes pass;
-- alert/watch false-positive or stale baseline;
-- public monitor failure from source scarcity;
-- duplicate/known/recovered alert;
-- other, with evidence path.
+- concurrent bounded relay fanout;
+- availability-total retry/exit classification that preserves `2/3` quorum;
+- stable alert fingerprinting that excludes volatile age/window progress;
+- readable secret-safe alert email bodies.
 
-If a recovery action is needed, stop and ask Lou to approve that exact action.
+After S1B merges, prepare a Lou-approved A6 recovery packet from the merged
+commit. Updating A6 and restarting the parked publisher are incident mutations,
+not routine launch-enablement actions.
 
-### 3. Only after S1A exits green, repair StoryCluster credential/endpoint
+### 3. Only after S1A/S1B exit green, repair StoryCluster credential/endpoint
 
 Packet:
 
@@ -479,7 +493,7 @@ CSP must allow `https://auth.venn.carboncaste.io`.
 
 ### 7. Update/read back A6 at release commit
 
-Only after S1A and upstream prerequisites clear.
+Only after S1A/S1B and upstream prerequisites clear.
 
 Rules:
 
@@ -650,13 +664,14 @@ The repo is in good shape for the launch-control work. #759 is green and
 mergeable. The product MVP is largely built at repo level.
 
 The live release is still blocked. The alert mailbox is doing its job and is
-still reporting a public-feed critical. The next dev's first real job is not
-Cloudflare, Google, Apple, A6 update, or canary. It is S1A: prove what is
-happening on A6/readbacks without changing live state, then let Lou decide
-whether we are returning to release work or handling an incident.
+still reporting a public-feed critical. S1A readback has already proved this is
+a real parked-publisher incident, not setup noise. The next dev's first real
+job is not Cloudflare, Google, Apple, A6 update, or canary. It is S1B: implement
+the durable relay-timeout and alert-dedupe remediation, get it reviewed and
+merged, then run only a Lou-approved recovery packet.
 
-Once S1A is green, the path is straightforward: repair StoryCluster credentials,
-stand up auth, register Apple/Google, redeploy the PWA origin, update/read back
-A6, run the accepted-synthesis canary, regenerate release evidence, rehearse in
-three browsers, finalize the packets, and invite no more than 100 testers after
-Lou says go.
+Once S1A/S1B are green, the path is straightforward: repair StoryCluster
+credentials, stand up auth, register Apple/Google, redeploy the PWA origin,
+update/read back A6, run the accepted-synthesis canary, regenerate release
+evidence, rehearse in three browsers, finalize the packets, and invite no more
+than 100 testers after Lou says go.
