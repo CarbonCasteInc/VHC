@@ -408,8 +408,10 @@ tools/scripts/emit-a6-public-beta-deploy-packet.sh \
 This mode requires exactly `vhc-relay-a,vhc-relay-b,vhc-relay-c`, excludes the
 origin from its capture/deploy scope, preserves each relay's exact captured env
 set, data bind mount, network, ports, restart policy, user, and configured memory
-limits, and checks the new image revision plus `linux/amd64`. It emits no
-`docker rm` or `docker run` commands by default.
+limits, and checks the new image revision plus `linux/amd64`. Before each relay
+removal it compares that captured topology to a fresh live inspect and rejects
+any image/env/mount/network/port/restart/user/memory drift. It emits no `docker
+rm` or `docker run` commands by default.
 
 Only after explicit boundary correction, exact-head packet review, and Lou's
 live-action approval may the same command add
@@ -420,6 +422,18 @@ synthesis-lifecycle. A failure rolls back only the current relay to its captured
 immutable image id and exits `78` before the next relay. It never emits an
 origin recreate or publisher start. The generic packet executor is not widened
 for this action.
+
+The publisher is considered parked only when the live tuple is exactly
+`failed/failed`, `Result=exit-code`, `ExecMainStatus=78`. Initial precheck and the
+final command before each A/B/C removal require that tuple; inactive, active,
+activating, deactivating, a different exit code, or a resume between stages all
+stop before mutation. Initial and per-stage relay metrics must contain the
+watchdog-trip metric at zero; the secret-safe metric evidence is retained and a
+pre-existing trip cannot be hidden by restart-reset counters. Unexpected exact
+readback bodies remain private and only a closed mismatch reason is printed.
+Rollback remove, start, readiness, topology, OOM, snapshot-integrity, and
+evidence-permission failures are individually guarded and normalized to exit
+`78`.
 
 The canonical blocked packet and authority checklist are in
 `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.

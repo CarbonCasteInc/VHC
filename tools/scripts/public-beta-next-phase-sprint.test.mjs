@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { buildExecutorPlan } from './vhc-packet-executor.mjs';
 
 const CHECKLIST_PATH = 'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md';
 const PACKAGE_PATH = 'package.json';
@@ -126,6 +127,10 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     '`vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`',
     'all-four exact missing-key probes',
     'Keep `tools/scripts/vhc-packet-executor.mjs` unchanged',
+    'Define parked as exactly `failed/failed`, `Result=exit-code`,',
+    'fresh live inspect differs from that captured prestate',
+    'missing or nonzero watchdog-trip metric',
+    'hostile/unexpected exact-readback bodies private',
   ]) {
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
   }
@@ -143,6 +148,11 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'recreate only the current relay',
     'prestate image id',
     'does not prove publisher recovery',
+    'final gate immediately before each A/B/C removal',
+    'live image id/ref, env, mounts, network mode',
+    'pre-existing nonzero watchdog trip',
+    'never printed, even when they contain hostile secret-bearing fields',
+    'normalize to exit `78`',
   ]) {
     assertIncludes(recoveryPacket, token, `G3 recovery packet token ${token}`);
   }
@@ -152,6 +162,12 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
   assertIncludes(exportScript, '--relay-only', 'export relay-only flag');
   assert.ok(!packetExecutor.includes('relay_only'), 'packet executor must not gain a relay-only action');
   assert.ok(!packetExecutor.includes('--relay-only'), 'packet executor must not pass the relay-only flag');
+  assert.throws(() => buildExecutorPlan({
+    packet: { actions: [{ id: 'relay_only_recovery' }] },
+    verification: { status: 'pass', blockers: [] },
+    execute: false,
+    env: {},
+  }), /unknown_action:relay_only_recovery/);
   assertIncludes(relayDockerfile, 'COPY server.js /app/server.js', 'relay image copies route server');
   assertIncludes(relayDockerfile, 'CMD ["node", "server.js"]', 'relay image runs copied route server');
   for (const relay of ['relay-a', 'relay-b', 'relay-c']) {

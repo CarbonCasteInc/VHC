@@ -121,6 +121,17 @@ secret-safe capture, independent review, and Lou's explicit correction of the
 relay-restart boundary before any rolling action. Relay deployment evidence
 would still not authorize publisher recovery or make S1B green.
 
+The fail-closed packet contract now treats parked as exactly `failed/failed`,
+`Result=exit-code`, `ExecMainStatus=78` and rechecks that tuple as the final gate
+before each A/B/C removal. It also compares every stage's live
+image/env/mount/network/port/restart/user/memory topology with the capture,
+preserves and rejects pre-existing watchdog-trip evidence before counters can
+reset, never prints hostile unexpected 404 bodies, and normalizes each rollback
+failure class to a closed reason and exit `78`. Deterministic adversarial tests
+cover transitional/resumed publisher state, every captured topology dimension,
+pre-existing trips, secret-bearing bodies, and rollback remove/run/readiness/
+checksum failures. These are repo safeguards, not live proof or authority.
+
 ## Current GitHub/Repo State
 
 Current branch:

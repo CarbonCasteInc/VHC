@@ -990,10 +990,19 @@ preparation is not authority and no live recovery is claimed.
   excludes origin, requires exactly relay A/B/C, and defaults to no recreate
   commands.
 - [x] Preserve captured env, mount, network, ports, restart policy, user, and
-  memory limits; verify exact revision plus `linux/amd64`.
+  memory limits; verify exact revision plus `linux/amd64`; and fail before each
+  removal if a fresh live inspect differs from that captured prestate.
 - [x] Encode A/B/C readiness, three-snapshot integrity, liveness/OOM/watchdog,
   all-four exact missing-key probes, immediate current-relay rollback, and hard
   stop conditions.
+- [x] Define parked as exactly `failed/failed`, `Result=exit-code`,
+  `ExecMainStatus=78`, then recheck it as the final gate before every A/B/C
+  removal so a transition or resume between stages cannot mutate the next relay.
+- [x] Preserve and parse initial/per-stage metrics before mutation; reject a
+  missing or nonzero watchdog-trip metric before restart can reset counters.
+- [x] Keep hostile/unexpected exact-readback bodies private and normalize every
+  rollback remove/run/readiness/topology/OOM/checksum/evidence failure to a
+  closed reason plus exit `78`.
 - [x] Keep `tools/scripts/vhc-packet-executor.mjs` unchanged; the executor is not
   authorized for this rolling action.
 - [x] Register the blocked authority packet at

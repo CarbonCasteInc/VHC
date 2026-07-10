@@ -84,8 +84,11 @@ Required inputs are:
 - local image platform `linux/amd64`;
 - secret-safe `docker inspect` JSON for exactly `vhc-relay-a`,
   `vhc-relay-b`, and `vhc-relay-c`;
-- confirmation that the publisher remains parked and no unrelated maintenance
-  is active;
+- confirmation that the publisher is exactly parked as `ActiveState=failed`,
+  `SubState=failed`, `Result=exit-code`, and `ExecMainStatus=78`; any inactive,
+  active, activating, deactivating, wrong-result, or other exit state is not
+  parked;
+- confirmation that no unrelated maintenance is active;
 - captured relay data bind mounts, ports, networks, restart policies, users,
   memory limits, and environment values held only in a private `0600` file.
 
@@ -143,18 +146,26 @@ captured input hash, then return `GO` only if all of these are true:
 
 - scope is exactly relay A, B, C in that order;
 - no origin or publisher recreate/start command exists;
-- the publisher is required to remain parked;
+- the publisher must match the exact exit-78 parked tuple above at initial
+  precheck and again as the final gate immediately before each A/B/C removal;
 - the new image is `linux/amd64` and its OCI revision equals the merged commit;
 - each relay preserves the exact prestate env set without printing values;
+- immediately before each removal, live image id/ref, env, mounts, network mode
+  and attachments, ports, restart policy, user, memory, and memory-swap must
+  equal the captured prestate; stale capture is a hard stop, not rollback input;
 - bind mount, network, ports, restart policy, user, and memory limits are
   preserved from inspect evidence;
 - snapshot checks cover latest-index, synthesis-lifecycle, and topic-synthesis;
 - readiness, health, Docker OOM state, and watchdog metrics are checked before
-  proceeding;
+  proceeding; the pre-mutation and per-stage metric artifacts are retained and
+  any pre-existing nonzero watchdog trip or missing trip metric is a hard stop;
 - all four endpoint-local exact missing-key contracts are closed 404s with the
-  expected error and story id;
+  expected error and story id; unexpected bodies are retained privately but
+  never printed, even when they contain hostile secret-bearing fields;
 - any failure rolls back only the current relay to its captured immutable image
   id, verifies basic recovery, and exits `78` before touching the next relay;
+  rollback remove, start, readiness, topology, OOM, checksum, and evidence-mode
+  failures each emit only a closed reason code and normalize to exit `78`;
 - raw secrets and heap artifacts are absent;
 - the generic packet executor remains unchanged.
 
@@ -181,15 +192,19 @@ the A6 checkout is not relay-restart approval.
 Only after the preceding gates pass may an operator regenerate the exact packet
 with `--include-recreate-commands`. Its contract is:
 
-1. Confirm the publisher is parked; all three relays are running; loopback
-   readiness and metrics respond; no relay reports OOM/watchdog trip; the three
-   required snapshot files are nonempty, schema-valid, and checksummed.
+1. Confirm the publisher matches exactly `failed/failed`, `Result=exit-code`,
+   `ExecMainStatus=78`; all three relays are running; loopback readiness and
+   metrics respond; every watchdog-trip metric is present and zero; no relay
+   reports OOM; and the three required snapshot files are nonempty,
+   schema-valid, and checksummed. Preserve the initial metrics privately.
 2. Confirm the loaded image is `linux/amd64` and its OCI revision exactly equals
    the approved merged commit.
 3. Capture each relay's env privately, without rewriting defaults or printing
    values.
-4. Replace relay A only. Preserve its env, bind mount, network, ports, restart
-   policy, configured user, and memory limits.
+4. Immediately before relay A removal, compare live image, env, bind mounts,
+   network, ports, restart policy, configured user, and memory limits with the
+   captured inspect prestate; reject any drift. Recheck the exact exit-78 parked
+   publisher tuple as the final command before removal, then replace A only.
 5. Require A readiness/health, running/non-OOM Docker state, unchanged snapshot
    checksums, zero watchdog trips, and exact env parity.
 6. Probe one unique definitely-missing story id through all four endpoint-local
@@ -202,9 +217,15 @@ with `--include-recreate-commands`. Its contract is:
    - synthesis-lifecycle with `readback=exact` returns only
      `news-synthesis-lifecycle-not-found` and HTTP 404.
 7. Proceed to B only after A passes every gate; proceed to C only after B passes.
+   Repeat the full live/captured topology comparison, zero-trip prestate, and
+   final exact publisher-state check immediately before each removal. A publisher
+   resume or transitional state between stages stops before the next mutation.
 8. On any failure, recreate only the current relay from its captured immutable
-   prestate image id, require readiness/non-OOM/snapshot proof, exit `78`, and do
-   not touch the next relay.
+   prestate image id, require readiness, live topology/env parity, non-OOM and
+   snapshot proof, exit `78`, and do not touch the next relay. Every rollback
+   command is guarded; remove/run/readiness/checksum failures produce a closed
+   reason code and exit `78` rather than leaking command output or falling
+   through.
 9. After C passes, keep the publisher parked and return evidence for independent
    review. Relay deployment success alone does not authorize publisher recovery.
 
@@ -216,7 +237,9 @@ Stop before any removal on:
 - commit, image, revision, architecture, or packet-hash mismatch;
 - unexpected container name, count, order, mount, port, network, user, memory,
   restart policy, or env drift;
-- publisher active/running;
+- publisher state differs in any field from exact exit-78 parked state,
+  including inactive, active, activating, deactivating, or resumed between
+  relay stages;
 - missing, invalid, empty, or changed snapshot;
 - failed readiness/health, pre-existing OOM/watchdog trip, or secret-bearing
   output;
@@ -224,7 +247,8 @@ Stop before any removal on:
 
 Roll back the current relay and stop on any post-recreate mismatch, non-404
 exact probe, unexpected error body, liveness failure, snapshot drift, env drift,
-OOM/watchdog signal, or evidence-capture failure.
+OOM/watchdog signal, or evidence-capture failure. Never print an unexpected
+response body; report only its closed contract-mismatch reason.
 
 Never batch relay removal, clear data, change quorum, increase deadlines, edit
 recipients, enable monitors, use the generic packet executor, recreate origin,
