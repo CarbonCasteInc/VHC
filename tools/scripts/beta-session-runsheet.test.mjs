@@ -181,7 +181,7 @@ test('flip-switch, monitoring, rollback, evidence, and tester copy are explicit'
     '>3% for 10 min **or** >5% for 5 min => pause sessions',
     '>5% for 10 min => pause voting',
     '>10s for 15 min => pause new tester intake',
-    'below active profile target (`3` in `dev-small`, `8` in `beta-scale`) for 10 min',
+    'below active profile target (`3` in `dev-small`, `8` in `beta-scale`, `8+` in `public-beta-ramp`) for 10 min',
     'disconnect >60s sustained => session degraded; >5 min => stop',
   ]) {
     assertIncludes(runsheet, threshold, `monitoring threshold ${threshold}`);

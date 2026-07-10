@@ -70,11 +70,11 @@ const forbiddenClaims = [
 ];
 
 test('distribution packet remains blocked until evidence and operator fields are filled', () => {
-  assert.match(distributionPacket, /> Status: `blocked_pending_release_evidence_rehearsal_and_operator_fields`/);
+  assert.match(distributionPacket, /> Status: `blocked_pending_release_evidence_rehearsal_and_live_fields`/);
   assert.match(distributionPacket, /Do not invite testers while this status remains blocked/);
-  assert.match(distributionPacket, /go_for_dev_small_distribution/);
+  assert.match(distributionPacket, /go_for_public_beta_distribution/);
   assert.match(distributionPacket, /TBD\(release-owner\)/);
-  assert.match(distributionPacket, /TBD\(operator\)/);
+  assert.match(distributionPacket, /TBD\(release-evidence-owner\)/);
 });
 
 test('distribution packet pins every required envelope and evidence field', () => {
@@ -110,7 +110,7 @@ test('rollback preserves A6 and alerting boundaries', () => {
   assert.match(distributionPacket, /Rollback is claim-first/);
   assert.match(distributionPacket, /requires a PWA origin image rebuild and therefore an A6 operator packet/);
   assert.match(distributionPacket, /Keep raw feed and email alerting active/);
-  assert.match(distributionPacket, /Do not restart publisher or relays/);
+  assert.match(distributionPacket, /Do not restart relays/);
 });
 
 test('standing public beta copy delegates tester-wave invites to the distribution packet', () => {

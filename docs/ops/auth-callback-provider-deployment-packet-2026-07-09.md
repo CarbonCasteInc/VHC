@@ -65,18 +65,18 @@ Fill these before running any live deployment or provider registration:
 
 | Decision | Value | Status |
 | --- | --- | --- |
-| Auth boundary host URL | `TBD(auth-boundary-owner)` | release blocker |
-| Edge host/project/account | `TBD(auth-boundary-owner)` | release blocker |
-| Durable nonce store binding | `TBD(auth-boundary-owner)` | release blocker |
-| PWA origin | `https://venn.carboncaste.io` unless changed in launch control | release blocker |
-| PWA callback route | `/auth/callback` unless changed deliberately | release blocker |
-| Providers advertised for `dev-small` | `TBD(provider-owners)` | release blocker |
-| Apple registration owner | `TBD(operator)` | required if Apple is advertised |
-| Google registration owner | `TBD(operator)` | required if Google is advertised |
-| X registration owner | `TBD(operator)` | required if X is advertised |
-| Origin image rebuild owner | `TBD(A6-operator)` | required if sign-in is advertised |
-| Evidence owner | `TBD(release-evidence-owner)` | release blocker |
-| Rollback owner | `TBD(incident-owner)` | release blocker |
+| Auth boundary host URL | `https://auth.venn.carboncaste.io` | recorded; deployment evidence still required |
+| Edge host/project/account | Cloudflare/edge account controlled by Lou; Codex may configure after Lou browser login/MFA | recorded; project id/binding names still evidence |
+| Durable nonce store binding | Durable store required, preferably Cloudflare KV bound as `VH_AUTH_KV`; exact binding name `TBD(auth-boundary-deploy)` | release blocker until deployed |
+| PWA origin | `https://venn.carboncaste.io` | recorded |
+| PWA callback route | `/auth/callback` | recorded |
+| Providers advertised for first public beta | `apple google`; `x` hidden/excluded until separately rehearsed | recorded; live rehearsal still required |
+| Apple registration owner | Lou authorizes; Codex configures records after Lou browser login/MFA | recorded |
+| Google registration owner | Lou authorizes; Codex configures records after Lou browser login/MFA | recorded |
+| X registration owner | Lou; excluded from first public beta provider set | not required until X is advertised |
+| Origin image rebuild owner | Lou authorizes; Codex redeploys via existing A6 SSH path | recorded; origin readback still required |
+| Evidence owner | Codex runs/interprets; Lou approves go/no-go | recorded |
+| Rollback owner | Lou authorizes; Codex prepares/executes approved rollback | recorded |
 
 At least one provider must be rehearsed before tester copy claims sign-in. If a
 provider is not rehearsed, remove it from tester copy and from
@@ -90,15 +90,15 @@ Use exact origins. Do not include trailing slashes in origin values.
 | --- | --- |
 | PWA origin | `https://venn.carboncaste.io` |
 | PWA callback route | `/auth/callback` |
-| Auth boundary base URL | `https://<auth-boundary>` |
+| Auth boundary base URL | `https://auth.venn.carboncaste.io` |
 | `VH_AUTH_ALLOWED_ORIGINS` | `https://venn.carboncaste.io` |
 | `VH_AUTH_PWA_CALLBACK_ROUTE` | `/auth/callback` |
-| `VITE_AUTH_CALLBACK_BASE_URL` | `https://<auth-boundary>` |
+| `VITE_AUTH_CALLBACK_BASE_URL` | `https://auth.venn.carboncaste.io` |
 | `VITE_AUTH_CALLBACK_ROUTE` | `/auth/callback` |
-| `VITE_AUTH_CALLBACK_PROVIDERS` | space/comma list of rehearsed providers, for example `google`, `apple google`, or `none` |
-| Apple provider redirect URI | `https://<auth-boundary>/auth/apple/return` |
+| `VITE_AUTH_CALLBACK_PROVIDERS` | `apple google` for the first public beta after both pass rehearsal; use `none` for rollback |
+| Apple provider redirect URI | `https://auth.venn.carboncaste.io/auth/apple/return` |
 | Google provider redirect URI | `https://venn.carboncaste.io/auth/callback` |
-| X provider redirect URI | `https://venn.carboncaste.io/auth/callback` |
+| X provider redirect URI | not registered for the first public beta; when enabled later use `https://venn.carboncaste.io/auth/callback` |
 
 Why the redirect URIs differ:
 
@@ -108,7 +108,7 @@ Why the redirect URIs differ:
 - Google and X redirect with query parameters directly to the PWA callback
   route. The PWA holds the PKCE verifier in `sessionStorage` and then POSTs
   `code`, `state`, and `codeVerifier` to
-  `https://<auth-boundary>/auth/:provider/callback`.
+  `https://auth.venn.carboncaste.io/auth/:provider/callback`.
 - Do not register Google or X directly to the worker callback endpoint. The
   worker intentionally does not accept the browser-held PKCE verifier from a
   navigation GET.
@@ -172,8 +172,10 @@ and telemetry redaction before secrets or live providers enter the loop.
 ## Provider Registration
 
 Register only the providers that will be advertised for the first tester wave.
-Start Apple first if all three are intended, because Apple usually has the
-longest external lead time.
+For the current release envelope, register Apple and Google. Keep X out of
+tester copy, provider health requirements, and `VITE_AUTH_CALLBACK_PROVIDERS`
+until a later packet explicitly adds and rehearses it. Start Apple first because
+Apple usually has the longest external lead time.
 
 ### Apple
 
@@ -185,7 +187,7 @@ Required:
 - team id;
 - `.p8` private key;
 - redirect URI:
-  `https://<auth-boundary>/auth/apple/return`;
+  `https://auth.venn.carboncaste.io/auth/apple/return`;
 - domain/redirect verification complete for the boundary host and PWA origin as
   required by the Apple console.
 
@@ -224,7 +226,7 @@ VH_AUTH_GOOGLE_SCOPES
 
 Required:
 
-- X developer app;
+- X developer app (not part of the first public beta provider set);
 - OAuth 2.0 confidential client;
 - scopes `users.read tweet.read` unless deliberately narrowed;
 - redirect URI:
@@ -286,7 +288,7 @@ After deployment, read the health endpoint without printing configuration
 values:
 
 ```bash
-AUTH_BASE="https://<auth-boundary>"
+AUTH_BASE="https://auth.venn.carboncaste.io"
 curl -fsS "${AUTH_BASE}/api/health" \
   | jq '{
       status,
@@ -316,10 +318,10 @@ CORS, state issuance, redirect URI shape, provider allowlist assumptions, and
 absence of client-secret leakage.
 
 ```bash
-AUTH_BASE="https://<auth-boundary>"
+AUTH_BASE="https://auth.venn.carboncaste.io"
 PWA_ORIGIN="https://venn.carboncaste.io"
 PWA_CALLBACK_ROUTE="/auth/callback"
-PROVIDERS="google" # space-separated advertised providers
+PROVIDERS="apple google" # space-separated advertised providers
 export AUTH_BASE PWA_ORIGIN PWA_CALLBACK_ROUTE PROVIDERS
 
 node --input-type=module <<'NODE'
@@ -404,9 +406,9 @@ In the private origin provenance env from
 `docs/ops/public-beta-image-deploy.md`, set:
 
 ```bash
-VITE_AUTH_CALLBACK_BASE_URL=https://<auth-boundary>
+VITE_AUTH_CALLBACK_BASE_URL=https://auth.venn.carboncaste.io
 VITE_AUTH_CALLBACK_ROUTE=/auth/callback
-VITE_AUTH_CALLBACK_PROVIDERS="google" # or the exact advertised provider set
+VITE_AUTH_CALLBACK_PROVIDERS="apple google"
 ```
 
 If sign-in is disabled or rolled back:
@@ -436,7 +438,7 @@ deployed PWA contains the intended auth/CSP values without exposing secrets:
 
 ```bash
 PWA_ORIGIN="https://venn.carboncaste.io"
-AUTH_ORIGIN="https://<auth-boundary>"
+AUTH_ORIGIN="https://auth.venn.carboncaste.io"
 export PWA_ORIGIN AUTH_ORIGIN
 
 node --input-type=module <<'NODE'
@@ -506,11 +508,24 @@ Write a summary with booleans and stable identifiers only:
   "schemaVersion": "auth-callback-provider-rehearsal-v1",
   "status": "pass",
   "releaseCommit": "<git-sha>",
-  "authBoundaryHost": "https://<auth-boundary>",
+  "authBoundaryHost": "https://auth.venn.carboncaste.io",
   "pwaOrigin": "https://venn.carboncaste.io",
   "pwaBuildRevision": "<origin-healthz-build-revision>",
-  "providersAdvertised": ["google"],
+  "providersAdvertised": ["apple", "google"],
   "providersRehearsed": {
+    "apple": {
+      "healthConfigured": true,
+      "startLegSmoke": "pass",
+      "providerRedirect": "pass",
+      "pkceCallback": "pass",
+      "sessionSchema": "vh-auth-session-v1",
+      "accountToLumaBinding": "pass",
+      "sameBrowserReloadContinuity": "pass",
+      "sameProviderReconnect": "pass",
+      "resetRequiresRebind": "pass",
+      "secondBrowserDistinctPrincipal": "pass",
+      "secretLeakCheck": "pass"
+    },
     "google": {
       "healthConfigured": true,
       "startLegSmoke": "pass",

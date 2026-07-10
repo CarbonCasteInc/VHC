@@ -7,22 +7,22 @@
 
 
 **Owner:** session operator (single person per session)
-**Profiles:** `dev-small` (current), `beta-scale` (after flip-switch)
+**Profiles:** `dev-small` (burn-in), `beta-scale` (burn-in), `public-beta-ramp` (Lou-approved public beta)
 **Branch:** `main`
 
 ---
 
 ## Runtime Profiles
 
-| Setting | `dev-small` | `beta-scale` |
-|---------|-------------|--------------|
-| `VITE_ANALYSIS_MODEL` | `gpt-5-nano` | `gpt-5-nano` |
-| `VITE_VH_ANALYSIS_PIPELINE` | host/stack must expose `true` | host/stack must expose `true` |
-| `ANALYSIS_RELAY_BUDGET_ANALYSES` | `120` | `600` |
-| `ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC` | `20` | `20` |
-| `VH_LIVE_MATRIX_TOPICS` | `3` | `8` |
-| `VH_LIVE_MATRIX_STABILITY_RUNS` | `3` | `3` (release: `5`) |
-| Testers | 1-3 | up to 10 |
+| Setting | `dev-small` | `beta-scale` | `public-beta-ramp` |
+|---------|-------------|--------------|--------------------|
+| `VITE_ANALYSIS_MODEL` | `gpt-5-nano` | `gpt-5-nano` | `gpt-5-nano` |
+| `VITE_VH_ANALYSIS_PIPELINE` | host/stack must expose `true` | host/stack must expose `true` | host/stack must expose `true` |
+| `ANALYSIS_RELAY_BUDGET_ANALYSES` | `120` | `600` | operator-set from the release budget; first tranche must support at least 100 testers |
+| `ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC` | `20` | `20` | `20` unless the release evidence packet records a lower tested value |
+| `VH_LIVE_MATRIX_TOPICS` | `3` | `8` | `8` minimum; raise only after release evidence stays green |
+| `VH_LIVE_MATRIX_STABILITY_RUNS` | `3` | `3` (release: `5`) | `5` minimum before tranche expansion |
+| Testers | 1-3 | up to 10 | 100 first tranche, then 500/1000/open only after green evidence and Lou approval |
 
 ---
 
@@ -206,7 +206,9 @@ registration. Run it after the daily gates and before tester invites. Use one
 clean browser profile per tester identity; do not use incognito for release
 evidence because identity persistence is part of the claim.
 
-For each advertised provider (`apple`, `google`, `x`):
+For each advertised provider (`apple`, `google`, `x`). For the first public
+beta ramp, the advertised providers are `apple` and `google`; `x` is hidden and
+does not count until a later packet registers and rehearses it:
 
 | Step | Action | Expected |
 |------|--------|----------|
@@ -244,7 +246,7 @@ required by the release envelope, blocks the release rehearsal.
 
 ---
 
-## Flip-Switch Criteria (dev-small -> beta-scale)
+## Flip-Switch Criteria (dev-small -> beta-scale -> public-beta-ramp)
 
 All of the following, in order:
 
@@ -252,6 +254,10 @@ All of the following, in order:
 2. Manual 3-browser check passes both days.
 3. No sustained 429 or ack-timeout degradation observed during either session.
 4. Change only profile values (budget, topic count). No flow or code changes.
+5. Move from `beta-scale` to `public-beta-ramp` only after the release evidence
+   packet is green on the intended release commit, Apple and Google both pass
+   provider rehearsal, the failure-mailbox automation is active, and Lou gives
+   explicit tranche approval.
 
 ---
 
@@ -264,7 +270,7 @@ Watch these during active tester sessions:
 | Analysis 429 rate | server logs / relay metrics | >3% for 10 min **or** >5% for 5 min => pause sessions |
 | Mesh write-ack timeout rate | console telemetry `[vh:aggregate:voter-write]` | >5% for 10 min => pause voting |
 | Convergence p95 | strict gate telemetry or manual spot-check | >10s for 15 min => pause new tester intake |
-| Vote-capable inventory | preflight `voteCapableFound` | below active profile target (`3` in `dev-small`, `8` in `beta-scale`) for 10 min => stop session start, run prewarm |
+| Vote-capable inventory | preflight `voteCapableFound` | below active profile target (`3` in `dev-small`, `8` in `beta-scale`, `8+` in `public-beta-ramp`) for 10 min => stop session start, run prewarm |
 | Gun peer connectivity | browser console / relay health | disconnect >60s sustained => session degraded; >5 min => stop |
 
 ---
@@ -288,7 +294,7 @@ After each session, record one entry:
 
 ```
 Date:           2026-MM-DD
-Profile:        dev-small | beta-scale
+Profile:        dev-small | beta-scale | public-beta-ramp
 Production readiness: release_ready | review_required | blocked (reason)
 Headline soak:  pass | warn | fail (reason)
 Source scout:   top promotable candidate | none | blocked (reason)
