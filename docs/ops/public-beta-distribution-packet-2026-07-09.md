@@ -80,6 +80,7 @@ or private user details.
 | Three-browser rehearsal | pass | `TBD` |
 | Privacy spot-check | no leak | `TBD` |
 | Alert delivery | confirmed reachable | `TBD` |
+| Failure-mailbox monitor | no unresolved criticals, or Lou-classified incident after read-only repo/A6 readback | `TBD`; latest known artifact `.tmp/vhc-failure-mailbox-monitor/latest.json` had `newCriticalCount: 85` and blocks distribution until S1A clears |
 
 ## Final Go Checklist
 
@@ -113,6 +114,9 @@ All checks must be true before changing the status to
 13. The rollback owner has read the rollback sequence below.
 14. External release approval is recorded, or `not_required` is recorded with
     rationale.
+15. The latest failure-mailbox monitor has `newCriticalCount == 0`, or Lou has
+    classified any critical incident after read-only repo/A6 readback and
+    explicitly authorized distribution to continue.
 
 ## Tester Invite Copy
 

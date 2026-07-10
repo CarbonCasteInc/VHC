@@ -47,6 +47,7 @@ const requiredEvidenceRows = [
   'Three-browser rehearsal',
   'Privacy spot-check',
   'Alert delivery',
+  'Failure-mailbox monitor',
 ];
 
 const forbiddenClaims = [
@@ -104,6 +105,8 @@ test('forbidden claims and stop rules are explicitly listed', () => {
   assert.match(distributionPacket, /analysis 429 rate exceeds 3 percent/);
   assert.match(distributionPacket, /mesh write-ack timeout rate exceeds 5 percent/);
   assert.match(distributionPacket, /support or telemetry exposes private details/);
+  assert.match(distributionPacket, /newCriticalCount == 0/);
+  assert.match(distributionPacket, /read-only repo\/A6 readback/);
 });
 
 test('rollback preserves A6 and alerting boundaries', () => {

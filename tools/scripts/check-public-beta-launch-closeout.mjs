@@ -202,6 +202,13 @@ requireIncludes(files.distributionPacket, distributionPacket, 'go_for_public_bet
 requireIncludes(files.distributionPacket, distributionPacket, 'Rollback is claim-first', 'distribution rollback boundary');
 requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S12 - Post-Launch Watch, Incident Loop, And Tranche Expansion', 'next-phase tranche expansion slice');
 requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'first public-beta tranche is capped at 100 testers', 'next-phase first tranche cap');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S1A - Monitor-Critical Public-Feed Incident Readback Gate', 'next-phase mailbox critical incident gate');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN', 'next-phase monitor pass boundary');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'READ_ONLY_INCIDENT_TRIAGE_ONLY', 'next-phase read-only incident triage state');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount > 0', 'next-phase mailbox critical blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'public_feed_alert_fail', 'next-phase public feed alert failure blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'pager_deadman_workflow_failed', 'next-phase pager dead-man warning blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount == 0', 'next-phase mailbox clear requirement');
 
 requireRegex(
   files.closeout,

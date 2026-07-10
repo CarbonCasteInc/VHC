@@ -62,6 +62,7 @@ const requiredEvidenceRows = [
   'A6 accepted synthesis',
   'Auth callback',
   'Manual rehearsal',
+  'Failure-mailbox monitor',
 ];
 
 const requiredGoRules = [
@@ -74,6 +75,7 @@ const requiredGoRules = [
   'release evidence is regenerated and passing on the release commit',
   'the manual three-browser rehearsal and privacy spot-check pass',
   'tester copy contains only the allowed claims',
+  'the latest failure-mailbox monitor has no unresolved critical items',
 ];
 
 const requiredStopRules = [

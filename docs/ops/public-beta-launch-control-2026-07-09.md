@@ -155,6 +155,7 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
+| Failure-mailbox monitor | Latest artifact `.tmp/vhc-failure-mailbox-monitor/latest.json` reports monitor `status: pass` but `newCriticalCount: 85`, newest relevant message `2026-07-10T00:07:57`, public-feed freshness criticals, and pager dead-man warnings | Treat as active incident gate; perform read-only repo/A6/public-feed readback before mutation or launch-enablement work |
 
 ## Rollback And Stop Rules
 
@@ -203,3 +204,6 @@ true:
    deployed target;
 9. tester copy contains only the allowed claims for the surfaces actually
    proven in the release packet.
+10. the latest failure-mailbox monitor has no unresolved critical items, or Lou
+    has classified the incident after read-only repo/A6 readback and explicitly
+    authorized the return to release work.

@@ -192,6 +192,21 @@ decisions into ordered slices for Cloudflare/auth, Apple/Google provider
 registration, A6 release update, accepted-synthesis canary, release evidence,
 manual rehearsal, first public-beta tranche, and post-launch monitoring/ramp.
 
+2026-07-10 failure-mailbox monitor update: the Codex App mailbox monitor ran
+and wrote secret-safe artifacts at
+`.tmp/vhc-failure-mailbox-monitor/latest.json`, but the result is not release
+clearance. The artifact reports `status: pass` for monitor execution while also
+reporting `newCriticalCount: 85`, newest relevant message
+`2026-07-10T00:07:57`, critical `public_feed_alert_fail` public-feed freshness
+items, and `pager_deadman_workflow_failed` warnings. The next-phase checklist
+therefore inserts S1A, a `READ_ONLY_INCIDENT_TRIAGE_ONLY` gate: preserve email,
+perform read-only repo/A6/public-feed readback, classify the incident with Lou,
+and do not start StoryCluster repair, auth deployment, provider registration,
+origin redeploy, A6 update, accepted-synthesis canary, release-evidence
+regeneration, manual rehearsal, distribution, or tranche expansion until that
+gate exits green or Lou makes an explicit incident decision from read-only
+evidence.
+
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
 Superseding public app/feed recovery update, 2026-05-31: PR #631 head

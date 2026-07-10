@@ -95,6 +95,31 @@ test('next-phase sprint preserves secret and claim boundaries', () => {
   }
 });
 
+test('next-phase sprint treats mailbox monitor criticals as mutation blockers', () => {
+  for (const token of [
+    'Monitor `status: pass` means the mailbox monitor ran and classified mail; it is not release clearance.',
+    '`newCriticalCount > 0`',
+    'the release is blocked even when `status: pass`',
+    '`newCriticalCount == 0`',
+    'read-only repo/A6 readback before mutation',
+    'MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN',
+    'READ_ONLY_INCIDENT_TRIAGE_ONLY',
+    'PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION',
+    'A6_READBACK_BEFORE_ANY_MUTATION',
+    'NO_STORYCLUSTER_AUTH_DEPLOY_UNTIL_INCIDENT_CLASSIFIED',
+    'LOU_RETAINS_INCIDENT_ROLLBACK_AUTHORITY',
+    'recommendedNextAction',
+    'public_feed_alert_fail',
+    'public_feed_freshness_workflow_failed',
+    'public_feed_freshness_workflow_cancelled',
+    'pager_deadman_workflow_failed',
+    'pager dead-man workflow must be green before launch',
+    'S1A - Monitor-Critical Public-Feed Incident Readback Gate',
+  ]) {
+    assertIncludes(checklist, token, `mailbox blocker token ${token}`);
+  }
+});
+
 test('next-phase sprint guard is wired into package, closeout, canon map, and status', () => {
   assert.equal(packageJson.scripts?.['check:public-beta-next-phase-sprint'], EXPECTED_SCRIPT);
   assertIncludes(closeout, 'pnpm check:public-beta-next-phase-sprint', 'closeout command');

@@ -48,6 +48,57 @@ The public-beta target is:
 - later tranches: 500, 1000, then open only after green evidence plus Lou
   approval.
 
+## Current Monitor Evidence Fold-In - 2026-07-10
+
+The latest failure-mailbox monitor report changes the immediate sequence.
+Monitor `status: pass` means the mailbox monitor ran and classified mail; it is not release clearance.
+
+Monitor artifact:
+`.tmp/vhc-failure-mailbox-monitor/latest.json`.
+
+Current monitor readout:
+
+- generated at `2026-07-10T00:40:48.348445Z`;
+- `newCriticalCount: 85`;
+- `newWarningCount: 12`;
+- `newInfoCount: 5`;
+- newest relevant message was `2026-07-10T00:07:57`;
+- critical class includes `public_feed_alert_fail` for public-feed freshness;
+- warning class includes `pager_deadman_workflow_failed`;
+- recorded next action: treat as incident; preserve email; run read-only
+  repo/A6 readback before mutation; Lou retains incident/rollback authority.
+
+`recommendedNextAction` requesting `treat as incident; preserve email; run
+read-only repo/A6 readback before mutation; Lou retains incident/rollback
+authority.` is a blocker for mutation until that readback is complete.
+
+If `.tmp/vhc-failure-mailbox-monitor/latest.json` has `newCriticalCount > 0`,
+the release is blocked even when `status: pass`.
+
+Before any mutation, deploy, provider registration, A6 update, canary,
+distribution, or tranche expansion, `newCriticalCount == 0` or Lou has made an
+explicit incident decision after read-only repo/A6 readback.
+
+`public_feed_alert_fail`, `public_feed_freshness_workflow_failed`, and
+`public_feed_freshness_workflow_cancelled` are public-feed freshness blockers.
+
+`pager_deadman_workflow_failed` warnings must be triaged and the pager dead-man workflow must be green before launch, post-launch watch, or tranche expansion.
+
+Resulting sprint rule: no StoryCluster credential repair, auth setup, origin
+redeploy, A6 update, accepted-synthesis canary, release-evidence regeneration,
+manual rehearsal, distribution-packet finalization, or tester invite may proceed
+until S1A exits green. Pager dead-man warnings remain a watch item; they do not
+authorize pager cutover.
+
+Guard tokens:
+
+- `MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN`
+- `READ_ONLY_INCIDENT_TRIAGE_ONLY`
+- `PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION`
+- `A6_READBACK_BEFORE_ANY_MUTATION`
+- `NO_STORYCLUSTER_AUTH_DEPLOY_UNTIL_INCIDENT_CLASSIFIED`
+- `LOU_RETAINS_INCIDENT_ROLLBACK_AUTHORITY`
+
 ## Non-Negotiable Boundaries
 
 1. No Codex live execution/autonomy is enabled.
@@ -66,6 +117,9 @@ The public-beta target is:
    proof material.
 8. The release evidence packet must pass on the intended release commit. Old
    passing packets do not count.
+9. A new critical monitor item places the sprint in
+   `READ_ONLY_INCIDENT_TRIAGE_ONLY` and blocks launch-enablement work until
+   read-only repo/A6 readback classifies and clears it.
 
 ## Access Window Needed From Lou
 
@@ -109,6 +163,7 @@ are present and the prior slice's stop rules are clear.
 ```text
 S0  Repo/PR baseline and release commit candidate
 S1  Failure-mailbox monitor and incident intake loop
+S1A Monitor-critical public-feed incident readback gate
 S2  StoryCluster headline-soak credential/endpoint repair
 S3  Auth boundary infrastructure on Cloudflare
 S4  Apple provider registration and rehearsal
@@ -200,8 +255,81 @@ newer_than:7d is:unread (critical OR alert OR failure OR stale OR watchdog)
 - [ ] Dedupe state exists.
 - [ ] A test-fire or existing alert email is classified without leaking secret
   content.
+- [ ] `status: pass` is interpreted only as monitor-execution success.
 - [ ] Critical classification says: treat as incident, preserve email, perform
   read-only readback before mutation, Lou retains incident/rollback authority.
+- [ ] If `newCriticalCount > 0`, S1A is mandatory before S2 or later launch
+  work.
+
+## S1A - Monitor-Critical Public-Feed Incident Readback Gate
+
+### Goal
+
+Resolve the live public-feed freshness incident signaled by the failure-mailbox
+monitor before doing launch-enablement work.
+
+### Trigger
+
+This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
+`newCriticalCount > 0`, including the current 2026-07-10 report with
+`newCriticalCount: 85` and public-feed freshness failures.
+
+### Boundaries
+
+- [ ] Read-only repo/A6 readback comes before mutation.
+- [ ] Preserve the email evidence.
+- [ ] Do not send, delete, archive, or label email from the monitor.
+- [ ] Do not restart publisher, relays, origin, StoryCluster, or auth services
+  from this gate.
+- [ ] Do not repair credentials, deploy auth, redeploy origin, run the
+  accepted-synthesis canary, regenerate release evidence, or invite testers
+  until this gate exits green.
+- [ ] Lou retains incident and rollback authority.
+
+### Checklist
+
+- [ ] Record the monitor artifact path:
+  `.tmp/vhc-failure-mailbox-monitor/latest.json`.
+- [ ] Record the monitor snapshot:
+  - [ ] generated at `2026-07-10T00:40:48.348445Z`;
+  - [ ] newest relevant message at `2026-07-10T00:07:57`;
+  - [ ] `critical=85`;
+  - [ ] `warning=12`;
+  - [ ] `info=5`.
+- [ ] Confirm the newest critical reason is `public_feed_alert_fail`.
+- [ ] Confirm whether the pager dead-man warnings are still only warnings and
+  not a pager-cutover blocker.
+- [ ] Run a read-only repo/A6 readback:
+  - [ ] current repo branch/SHA and PR state;
+  - [ ] A6 deployed commit;
+  - [ ] `vh-news-aggregator.service` state;
+  - [ ] `vh-public-feed-alert-watch.timer` state and latest service result;
+  - [ ] `vh-phase5-scope-a-watch-closure.timer` state and latest verdict;
+  - [ ] latest public-feed freshness summary;
+  - [ ] relay liveness summary;
+  - [ ] relay snapshot/watch-closure summary;
+  - [ ] most recent publisher clean tick or parked/failure reason.
+- [ ] Classify the incident cause without changing live state:
+  - [ ] publisher not ticking or parked;
+  - [ ] publisher ticking but writes/readbacks failing;
+  - [ ] relays/snapshots stale while publisher writes pass;
+  - [ ] alert/watch closure false-positive or stale baseline;
+  - [ ] public monitor failure caused by upstream/live source scarcity;
+  - [ ] other, with evidence path.
+- [ ] Write a short incident readback note in the launch-control packet or a
+  linked secret-safe local artifact before proceeding.
+
+### Exit Criteria
+
+- [ ] The incident has a named reason code and evidence path.
+- [ ] Public-feed freshness, relay liveness, relay snapshot, and watch-closure
+  are either passing or have a Lou-approved incident packet for the smallest
+  recovery action.
+- [ ] No live mutation occurred during readback.
+- [ ] If a recovery action is needed, stop here and get Lou approval for that
+  action; do not continue launch-enablement work under this sprint.
+- [ ] If readback proves recovery/pass, proceed to S2 and keep the monitor
+  active.
 
 ## S2 - StoryCluster Headline-Soak Credential/Endpoint Repair
 
@@ -216,6 +344,10 @@ credentials.
   StoryCluster/OpenAI credential.
 - [ ] Codex can inspect only redacted env names, file mode/owner/hash, health
   booleans, and stable reason codes.
+- [ ] S1A is green if the latest failure-mailbox monitor reported critical
+  items.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -256,6 +388,8 @@ Deploy `services/auth-callback` outside A6 at
 - [ ] DNS for `auth.venn.carboncaste.io` is controllable.
 - [ ] If Cloudflare does not control DNS, Lou logs into Namecheap to confirm or
   update nameserver delegation.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -305,6 +439,8 @@ Make Apple sign-in work end to end without leaking provider or PKCE material.
 - [ ] Lou logs into Apple Developer.
 - [ ] Apple Developer Program membership is active.
 - [ ] App display name is `venn`.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -348,6 +484,8 @@ boundaries.
 
 - [ ] Lou logs into the CarbonCaste Google account or Google Cloud account.
 - [ ] Choose existing Google Cloud project or create a new project for `venn`.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -384,6 +522,8 @@ Deploy PWA assets that know about the auth boundary and show only Apple/Google.
 - [ ] S3 auth boundary is deployed.
 - [ ] S4/S5 provider health and rehearsal pass, or provider copy is narrowed.
 - [ ] Lou authorizes A6 origin image rebuild/redeploy.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -418,7 +558,10 @@ Put A6 on the release commit and prove raw-feed health before accepted synthesis
 ### Required Input
 
 - [ ] Lou authorizes A6 update and publisher restart if required.
-- [ ] S1 monitor is active.
+- [ ] S1 monitor is active and the latest mailbox artifact has no unclassified
+  critical incident.
+- [ ] If the mailbox artifact reported a critical public-feed/pager incident,
+  read-only A6/public-feed readback has been preserved before this update.
 - [ ] S2 StoryCluster production-readiness no longer blocks on credentials.
 
 ### Checklist
@@ -459,6 +602,8 @@ tables, or vote controls.
 - [ ] S7 live readback is green.
 - [ ] Email alert loop is active.
 - [ ] StoryCluster production-readiness is no longer credential-blocked.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 - [ ] Lou accepts the attended live touch and the effect on unattended-window
   evidence.
 
@@ -505,6 +650,8 @@ Replace stale evidence with a release-commit packet.
 - [ ] Release commit is known.
 - [ ] Repo tree is clean except preserved local-only docs handled outside the
   packet.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -549,6 +696,8 @@ Prove the public beta as users experience it.
 - [ ] Accepted-current story exists.
 - [ ] Release evidence is green or the rehearsal is explicitly a pre-release
   dry run.
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
 
 ### Checklist
 
@@ -580,6 +729,14 @@ Prove the public beta as users experience it.
 ### Goal
 
 Convert evidence into a bounded launch decision.
+
+### Required Input
+
+- [ ] S1 has no active critical incident, or Lou has classified the incident and
+  explicitly authorized this slice to proceed.
+- [ ] Latest failure-mailbox monitor has `newCriticalCount == 0`.
+- [ ] Pager dead-man workflow warnings have been triaged and the pager dead-man
+  workflow is green.
 
 ### Checklist
 
@@ -614,6 +771,10 @@ Watch the first tranche tightly and scale only on evidence.
 
 - [ ] Keep `vhc-failure-mailbox-monitor` active.
 - [ ] Keep Lou reachable for incident/rollback authority.
+- [ ] Confirm latest failure-mailbox monitor has `newCriticalCount == 0` before
+  launch, post-launch watch signoff, or tranche expansion.
+- [ ] Confirm pager dead-man workflow is green before launch, post-launch watch,
+  or tranche expansion.
 - [ ] Watch:
   - [ ] alert/failure mailbox;
   - [ ] release gates/daily gate;
@@ -646,6 +807,12 @@ The public beta is not ready until every item below is true:
   as the release branch.
 - [ ] Release commit is pinned.
 - [ ] Failure-mailbox monitor is active and producing secret-safe artifacts.
+- [ ] Latest failure-mailbox monitor has no unresolved critical items, or S1A
+  has cleared them with read-only evidence.
+- [ ] Latest failure-mailbox monitor has `newCriticalCount == 0` before launch,
+  or Lou has made an explicit incident decision after read-only repo/A6
+  readback.
+- [ ] Pager dead-man workflow is green before launch.
 - [ ] StoryCluster production-readiness no longer blocks on credential/endpoint.
 - [ ] Auth boundary is deployed at `https://auth.venn.carboncaste.io`.
 - [ ] Durable nonce store is bound and health reports `durableStore: true`.
@@ -673,6 +840,8 @@ The public beta is not ready until every item below is true:
 Stop immediately and preserve evidence if any of these occur:
 
 - public-feed freshness alert;
+- failure-mailbox monitor reports `newCriticalCount > 0`;
+- `recommendedNextAction` says to treat the mailbox result as an incident;
 - relay liveness/snapshot/watch-closure alert;
 - publisher parked/failed unexpectedly;
 - StoryCluster credential/endpoint failure returns;
@@ -693,14 +862,18 @@ Stop immediately and preserve evidence if any of these occur:
 The very next operational move is:
 
 1. merge or explicitly carry #759 as the release branch;
-2. repair StoryCluster headline-soak credential/endpoint;
-3. use a Lou-supervised Cloudflare browser session to stand up
+2. because the 2026-07-10 monitor found 85 critical public-feed freshness
+   items, perform S1A read-only repo/A6 incident readback and stop if recovery
+   action is needed;
+3. repair StoryCluster headline-soak credential/endpoint only after S1A is
+   green;
+4. use a Lou-supervised Cloudflare browser session to stand up
    `https://auth.venn.carboncaste.io`;
-4. use Lou-supervised Apple and Google browser sessions to register provider
+5. use Lou-supervised Apple and Google browser sessions to register provider
    apps;
-5. redeploy the PWA origin with Apple/Google auth enabled;
-6. update/read back A6 at the release commit;
-7. run the accepted-synthesis canary;
-8. regenerate release evidence;
-9. run the three-browser rehearsal;
-10. invite the first 100 public beta testers only after Lou says go.
+6. redeploy the PWA origin with Apple/Google auth enabled;
+7. update/read back A6 at the release commit;
+8. run the accepted-synthesis canary;
+9. regenerate release evidence;
+10. run the three-browser rehearsal;
+11. invite the first 100 public beta testers only after Lou says go.
