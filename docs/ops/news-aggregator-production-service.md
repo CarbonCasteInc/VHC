@@ -463,30 +463,97 @@ not an authorization to run retention, compaction, eviction, publisher clear, or
 relay remediation. Those remain blocked until the retainer class is named and a
 separate fix is reviewed.
 
-Approved publisher start packet:
+Canonical S1 incident-recovery sequence:
 
 ```bash
 cd /home/humble/VHC
+FINAL_REV=<full-40-hex-reviewed-shared-integration-merge>
+RECOVERY_DIR="$HOME/.local/state/vhc/news-aggregator/recovery/runs/<reviewed-run-id>"
+RELAY_EVIDENCE="$RECOVERY_DIR/relay-recovery-evidence.json"
+PREFLIGHT="$RECOVERY_DIR/publisher-preflight.json"
+MAILBOX="$RECOVERY_DIR/failure-mailbox-latest.json"
+START_CONTROL="$RECOVERY_DIR/publisher-start-control.json"
+READBACK="$RECOVERY_DIR/publisher-readback.json"
+FINALIZATION="$RECOVERY_DIR/publisher-finalization.json"
+WATCH_ENV="$HOME/.config/vhc/phase5-scope-a-watch-closure.env"
+RELAY_A_ORIGIN=http://127.0.0.1:8765
+RELAY_B_ORIGIN=http://127.0.0.1:8766
+RELAY_C_ORIGIN=http://127.0.0.1:8767
+
+install -d -m 0700 "$RECOVERY_DIR"
+test -d "$RECOVERY_DIR" && test ! -L "$RECOVERY_DIR"
+test "$(stat -c '%u:%a' "$RECOVERY_DIR")" = "$(id -u):700"
+
 git fetch origin main
-git checkout main
-git pull --ff-only
-./tools/scripts/install-news-aggregator-production-service.sh
-VH_NEWS_DAEMON_START_APPROVED=1 ./tools/scripts/install-news-aggregator-production-service.sh --start-publisher
-systemctl --user status vh-news-aggregator.service --no-pager
-journalctl --user -u vh-news-aggregator.service -n 200 --no-pager
+git checkout --detach "$FINAL_REV"
+test "$(git rev-parse HEAD)" = "$FINAL_REV"
+test -z "$(git status --porcelain --untracked-files=no)"
+./tools/scripts/install-news-aggregator-production-service.sh --expected-revision "$FINAL_REV"
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
+./tools/scripts/news-aggregator-publisher-recovery-control.sh preflight --expected-revision "$FINAL_REV" --output-file "$PREFLIGHT" --approve-preflight
+
+RELAY_EVIDENCE_SHA256=$(sha256sum "$RELAY_EVIDENCE" | cut -d' ' -f1)
+MAILBOX_SHA256=$(sha256sum "$MAILBOX" | cut -d' ' -f1)
+MAILBOX_CRITICAL_COUNT=$(node -e 'const v=require(process.argv[1]);process.stdout.write(String(v.newCriticalCount))' "$MAILBOX")
+./tools/scripts/news-aggregator-publisher-recovery-control.sh start --expected-revision "$FINAL_REV" \
+  --relay-recovery-evidence "$RELAY_EVIDENCE" \
+  --relay-recovery-expected-sha256 "$RELAY_EVIDENCE_SHA256" \
+  --preflight-artifact "$PREFLIGHT" \
+  --mailbox-artifact "$MAILBOX" \
+  --mailbox-expected-sha256 "$MAILBOX_SHA256" \
+  --mailbox-expected-critical-count "$MAILBOX_CRITICAL_COUNT" \
+  --start-control-output "$START_CONTROL" \
+  --approve-attended-start
+
+./tools/scripts/news-aggregator-publisher-recovery-control.sh verify --expected-revision "$FINAL_REV" \
+  --start-control-artifact "$START_CONTROL" \
+  --current-run-file "$HOME/.local/state/vhc/news-aggregator/current-run.json" \
+  --runtime-diagnostics-file "$HOME/.local/state/vhc/news-aggregator/artifacts/news-runtime-diagnostics.json" \
+  --output-file "$READBACK" \
+  --relay-origin "$RELAY_A_ORIGIN" \
+  --relay-origin "$RELAY_B_ORIGIN" \
+  --relay-origin "$RELAY_C_ORIGIN" \
+  --approve-verification-and-abort
+
+NEW_T0=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.generatedAt)' "$READBACK")
+OLD_START=$(sed -n 's/^VH_PHASE5_SCOPE_A_WATCH_START_AT=//p' "$WATCH_ENV")
+OLD_CLEAN_START=$(sed -n 's/^VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=//p' "$WATCH_ENV")
+node ./tools/scripts/update-phase5-scope-a-watch-t0.mjs \
+  --file "$WATCH_ENV" --new-t0 "$NEW_T0" \
+  --expected-start "$OLD_START" --expected-clean-start "$OLD_CLEAN_START"
+
+# After a recovery `state_changed` sample is delivered, an unchanged sample is
+# suppressed at least 900 seconds later, and a post-suppression clean mailbox
+# artifact is bound, finalize through the same fail-closed controller.
+./tools/scripts/news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV" \
+  --start-control-artifact "$START_CONTROL" \
+  --readback-artifact "$READBACK" \
+  --watch-env-file "$WATCH_ENV" \
+  --first-alert-file "$RECOVERY_DIR/alert-first.json" \
+  --second-alert-file "$RECOVERY_DIR/alert-second.json" \
+  --mailbox-artifact "$RECOVERY_DIR/failure-mailbox-final.json" \
+  --finalization-output "$FINALIZATION" \
+  --approve-finalization-and-abort
 ```
 
-The installer imports `VH_NEWS_DAEMON_START_APPROVED=1` into the user systemd
-manager before `enable --now`; a shell-only variable is not enough for
-`ExecStart`. After an abort or deliberate stop, remove the approval from the
-manager too:
+Every output path above must be a new absolute path inside a current-user-owned
+mode-`0700` directory; evidence files are mode `0600`. The controller binds the
+publisher checkout, relay-recovery packet and capture hashes, fresh mailbox,
+preflight, system-writer pin, one-use attended permit receipt, exact-run
+four-route readback, watch T0, two alert samples, and final mailbox. A failed
+start, verification, or finalization parks the publisher. Immediate recovery is
+availability evidence only; T0+24h is intermediate and T0+48h is required to
+close S1 and unblock S2.
+
+The three loopback values above are the currently expected host-network ports,
+but they are authority only when the final artifact review binds those exact
+origins to the fresh A6 capture. If captured `GUN_PORT` values differ, regenerate
+and re-review the tuple; do not edit origins inside an already reviewed packet.
 
 Abort / kill switch:
 
 ```bash
-systemctl --user stop vh-news-aggregator.service
-systemctl --user disable vh-news-aggregator.service
-systemctl --user unset-environment VH_NEWS_DAEMON_START_APPROVED
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
 journalctl --user -u vh-news-aggregator.service -n 200 --no-pager
 ```
 
@@ -494,10 +561,9 @@ Rollback:
 
 ```bash
 cd /home/humble/VHC
-git fetch origin main
-git checkout <known-good-commit>
-./tools/scripts/install-news-aggregator-production-service.sh
-systemctl --user restart vh-news-aggregator.service
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
+# A different checkout/image is a new reviewed recovery tuple, not an inline
+# publisher rollback. Freeze, review, and explicitly authorize it first.
 ```
 
 ## Startup Gates
@@ -506,10 +572,10 @@ systemctl --user restart vh-news-aggregator.service
 `ExecStart` entrypoint for the managed publisher service. It fails closed unless:
 
 1. `VH_NEWS_DAEMON_ENV_FILE` is readable.
-2. Either live start approval or diagnostic no-write approval is present:
-   - live publisher: `VH_NEWS_DAEMON_START_APPROVED=1`;
-   - no-write diagnostic: `VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE=1` and
-     `VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1`.
+2. Either a private one-use attended permit issued by the recovery controller,
+   a verified one-use automatic-restart permit for recorded exit `69`, or the
+   separate diagnostic no-write approval is present. Persistent shell, env-file,
+   or systemd-manager flags are never publisher-start authority.
 3. No existing `@vh/news-aggregator daemon` / `dist/daemon.js` runtime process
    is already running for the current user.
 4. `pnpm check:news-sources:liveness` passes the operational restart gate.
@@ -876,7 +942,6 @@ Required or commonly used names:
 
 ```bash
 VH_GUN_PEERS
-VH_NEWS_DAEMON_START_APPROVED
 VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE
 VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED
 VH_STORYCLUSTER_REMOTE_URL

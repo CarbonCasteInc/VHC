@@ -2,13 +2,15 @@
 
 > Status: `no_go_pending_operator_decisions_and_live_evidence`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-09
+> Last Reviewed: 2026-07-10
 > Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
 > `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`,
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
-> `docs/ops/public-beta-image-deploy.md`
+> `docs/ops/public-beta-image-deploy.md`,
+> `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`,
+> `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`
 
 This packet is the Lane 0 launch note for the current release-readiness sprint.
 It records the intended release envelope, target URLs, claim boundaries,
@@ -32,6 +34,12 @@ public tester wave must not start until each live release blocker is cleared, th
 remaining evidence fields below are filled, and a release packet passes on the
 intended release commit.
 
+The S1 recovery implementation chain is merged through #767 at
+`main@297d1bb4`, but that is only the shared-integration base. The final
+revision/image/capture/packet tuple does not exist until the shared integration
+gate is reviewed and merged. Immediate recovery and T0+24h evidence cannot
+clear S1 or launch work; T0+48h is mandatory.
+
 ## Release Envelope
 
 | Field | Current value |
@@ -46,7 +54,8 @@ intended release commit.
 | Support intake | Public GitHub issue form plus tester-visible contact email `carboncasteit@gmail.com` |
 | Private escalation path | `carboncasteit@gmail.com`; required for sensitive support, legal/copyright, abuse/safety, account/access, and deletion/correction cases |
 | Intended release commit | `TBD(release-owner)`; must be the commit used by the passing release evidence packet |
-| A6 deployed commit | Latest recorded read-only readback: `347d2018` on 2026-07-08; must be refreshed before claiming current `main` on A6 |
+| S1 recovery final revision | `TBD(shared-integration-merge)`; exact full commit must bind publisher checkout, relay image, capture, and packet |
+| A6 deployed commit | Last read-only orchestration refresh: `347d20187d164699a35dbd8d76c299570011b1a1` at `2026-07-10T15:48:16Z`; must be refreshed before any mutation or current-live claim |
 | Auth-callback host | `https://auth.venn.carboncaste.io`; must be outside A6 |
 | Advertised sign-in providers | Apple and Google for first public beta; X is excluded/hidden until a later live provider packet rehearses it |
 | External release approval | Lou records `not_required_for_public_beta`; legal/commercial hardening happens during beta unless the release claim changes |
@@ -85,18 +94,25 @@ Lou has authorized Codex to perform the following after the relevant packet
 preconditions pass:
 
 1. use the existing A6 SSH path for readback;
-2. update A6 to the intended release commit;
-3. rebuild/redeploy the `vhc-public-beta-origin` PWA image;
-4. restart the publisher if required by the release/update/canary path;
-5. enable the accepted-synthesis canary only after its preconditions pass;
-6. create/configure Apple and Google OAuth app records after Lou completes
+2. execute the scoped serial relay replacement in order `A -> B -> C` only
+   after independent `GO` and Lou confirmation bind the exact final
+   revision/image/capture/packet tuple, with the publisher parked and
+   current-relay-only rollback;
+3. recover the publisher separately through the reviewed exact-revision
+   park/preflight/start/verify/T0/finalize controller after relay evidence is
+   independently accepted;
+4. update A6 to the later intended release commit only after S1 T0+48h closure;
+5. rebuild/redeploy the `vhc-public-beta-origin` PWA image only after S1 closure;
+6. enable the accepted-synthesis canary only after its preconditions pass;
+7. create/configure Apple and Google OAuth app records after Lou completes
    browser login/MFA;
-7. configure the auth boundary at `https://auth.venn.carboncaste.io`;
-8. use Codex App automation with the Gmail connector to retrieve and analyze
+8. configure the auth boundary at `https://auth.venn.carboncaste.io`;
+9. use Codex App automation with the Gmail connector to retrieve and analyze
    failure notifications delivered to `carboncasteit@gmail.com`.
 
-This does not authorize Codex live execution/autonomy, pager cutover, relay
-restart, retention/compaction/eviction, source-surface mutation without a
+This does not authorize Codex live execution/autonomy, pager cutover, any relay
+action outside the exact reviewed A/B/C tuple, origin mutation during S1
+recovery, retention/compaction/eviction, source-surface mutation without a
 content-policy decision, or release approval without Lou's final go.
 
 ## Allowed Tester Copy
@@ -155,7 +171,19 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
-| Failure-mailbox monitor | The first 2026-07-10 run reported 85 criticals; that count is historical. The moving latest artifact remains incident-blocking and S1A classified `relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation is not deployed or recovery-proven. | Treat as active incident gate; no A6 mutation or launch-enablement work before the reviewed recovery packet, Lou approval, and required readbacks |
+| Failure-mailbox monitor | The first 2026-07-10 run's 85 criticals are historical. The last orchestration snapshot at `2026-07-10T15:02:20.895Z` had 2 current criticals and 1 warning; S1A remains `relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation is not deployed or recovery-proven. | Treat as active incident gate; only the exact reviewed S1 recovery is eligible, and no launch-enablement work resumes before T0+48h closure |
+| Final S1 recovery tuple | `TBD(final-tuple-reviewer)` | Must bind final revision, publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins |
+| Serial A/B/C relay replacement | `TBD(A6-operator)` | All three stages pass with publisher parked and no rollback or untouched-relay mutation |
+| Immediate publisher recovery | `TBD(A6-operator)` | Required but never sufficient for S1 green |
+| S1 T0+24h evidence | `TBD(watch-operator)` | Intermediate evidence only; cannot unblock S2 or launch work |
+| S1 T0+48h closure | `TBD(watch-operator)` | Passing final closure is mandatory before S2 or launch enablement |
+
+The durable recovery boundaries are:
+
+- `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`
+- `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`
+- `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`
+- `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`
 
 ## Rollback And Stop Rules
 
@@ -178,11 +206,10 @@ owner if any of these occur:
 7. any release gate or closeout command is red on the intended release commit.
 
 Rollback is claim-first for this sprint: hide or narrow tester copy, stop
-invites, and keep email alerting live. Publisher restart is authorized only when
-required by the release/update/canary path above or by a focused incident
-packet. Do not restart relays while raw feed freshness, relay liveness, relay
-snapshot freshness, and watch-closure are green unless an explicit operator
-maintenance packet authorizes it.
+invites, and keep email alerting live. Publisher stop/start is controller-only.
+During the scoped S1 action, rollback may touch only the current relay. Outside
+the exact reviewed tuple, do not restart relays unless a new focused operator
+maintenance packet is independently reviewed and authorized.
 
 ## Go Rule
 
@@ -204,6 +231,5 @@ true:
    deployed target;
 9. tester copy contains only the allowed claims for the surfaces actually
    proven in the release packet.
-10. the latest failure-mailbox monitor has no unresolved critical items, or Lou
-    has classified the incident after read-only repo/A6 readback and explicitly
-    authorized the return to release work.
+10. the latest failure-mailbox monitor has no unresolved critical items;
+11. the S1 T0+48h closure packet passes for the exact final recovery tuple.

@@ -394,21 +394,35 @@ into a running container. When a reviewed S1B commit changes those routes, the
 technical deployment requires a replacement relay image and a rolling container
 recreate. This is a technical fact, not live authority.
 
-Lou approved PR #763 and the attended A/B/C restart boundary on 2026-07-10. The
-first exact packet review nevertheless returned `NO-GO` for fail-open capture,
-network, and immutable-image binding gaps. Prepare the corrected inert packet
-without destructive commands first; no removal is permitted until its exact
-capture and packet hash receive independent `GO`:
+Lou approved PR #763 and the attended A/B/C restart boundary on 2026-07-10.
+PR #764 subsequently closed the fail-open capture, semantic-network, and
+immutable-image binding findings. That merged tooling is capability only. The
+operator must first merge the shared integration gate, freeze its full commit as
+`FINAL_REV`, build the relay image from exactly that revision, capture fresh A6
+prestate, and generate a new inert packet. No removal is permitted until the
+exact tuple receives independent `GO` and Lou binds that tuple:
 
 ```bash
+FINAL_REV=<full-40-hex-shared-integration-merge>
+RELAY_IMAGE_REF=vhc-public-beta-relay:20260710-s1b-<final-rev-prefix>-amd64
+RELAY_IMAGE_ID=sha256:<full-immutable-image-id>
+RELAY_CAPTURE=./relay-containers.final.json
 tools/scripts/emit-a6-public-beta-deploy-packet.sh \
   --relay-only \
-  --inspect-json ./relay-containers.json \
-  --new-relay-image vhc-public-beta-relay:<reviewed-tag-or-digest> \
-  --expected-relay-revision <reviewed-merged-commit> \
-  --expected-relay-image-id <sha256:id-from-artifact-manifest> \
+  --inspect-json "$RELAY_CAPTURE" \
+  --new-relay-image "$RELAY_IMAGE_REF" \
+  --expected-relay-revision "$FINAL_REV" \
+  --expected-relay-image-id "$RELAY_IMAGE_ID" \
   --output .tmp/a6-s1b-relay-only-packet.review.md
 ```
+
+The final review record binds all of: the publisher checkout and relay OCI
+revision at `FINAL_REV`; full immutable relay image ID; manifest/tar hashes;
+packet SHA-256; capture SHA-256; reviewer identity; relay order `A -> B -> C`;
+and the reviewed loopback origins derived from captured `GUN_PORT` values.
+`FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`: any later repo
+commit, rebuilt image, recapture, changed origin, or regenerated packet creates
+a different tuple and invalidates the prior review/approval.
 
 This mode requires an inspect array containing exactly one each of
 `/vhc-relay-a`, `/vhc-relay-b`, and `/vhc-relay-c`; duplicate, extra,
@@ -501,19 +515,22 @@ their values.
    three snapshot files still exist in the relay `GUN_FILE` directory. Confirm
    the relay env includes the watchdog/admission defaults and Docker shows
    `RestartPolicy.Name=on-failure` with `MaximumRetryCount=5`.
-6. After all relays prove the #638 image is running, run safe latest-index
-   behavior probes:
-   - `persist=true` returns JSON 400.
-   - `persist=false` leaves snapshot hash, mtime, and content unchanged.
-7. Deploy the origin image from the same `main` revision and repoint analysis to
-   `http://127.0.0.1:3001`.
-8. Verify local and public `/api/analyze/health` and `/api/analyze/config`.
-9. Only after explicit operator approval, run the publisher installer with
-   `VH_NEWS_DAEMON_START_APPROVED=1`; the installer imports that approval into
-   the user systemd manager before starting `vh-news-aggregator.service`.
-10. Prove latest content advances and synthesis lifecycle/publication evidence
-   is fresh.
-11. Re-enable the relay liveness, publisher liveness, and public freshness
+6. After all three relays prove the exact immutable `FINAL_REV` image is
+   running, execute positive and missing-key readback for story, latest-index,
+   hot-index, and synthesis-lifecycle on all reviewed loopback origins. The
+   latest-index missing-key probe must remain nonmutating.
+7. Preserve the completed relay evidence as a private mode-`0600`
+   `vh-a6-s1b-relay-recovery-evidence-v1` artifact. Do not deploy origin or
+   bundle any unrelated service change into this incident action.
+8. Install publisher units from the same exact `FINAL_REV`, park the publisher,
+   and use `news-aggregator-publisher-recovery-control.sh` for distinct
+   preflight, attended start, four-route verification, T0 update, and
+   finalization approvals. Persistent env or manager flags and direct service
+   restart are not authority.
+9. Prove latest content advances, all four signed route contracts pass on all
+   three reviewed origins, the publisher remains active without restart drift,
+   and the first two completed ticks have no failed critical write.
+10. Re-enable the relay liveness, publisher liveness, and public freshness
    monitors in that order, then begin soak/canary. The relay liveness timer is
    an active remediation timer once enabled: it can restart one unhealthy relay
    per run with cooldown, so leave it disabled during intentional relay
@@ -539,19 +556,17 @@ Abort the deploy if any of these are true:
 
 ## Rollback
 
-The deploy packet records current image tags and emits rollback commands when
-run with `--include-recreate-commands`. Rollback must preserve the same env-file
-captures and bind mounts. Removing `VH_NEWS_DAEMON_START_APPROVED=1` prevents
-future publisher starts, but aborting an already running publisher still
-requires:
+The deploy packet records current immutable image IDs and emits rollback
+commands when run with `--include-recreate-commands`. Rollback must preserve the
+same env-file captures and bind mounts and may touch only the current relay.
+Publisher abort/rollback is a separate controller action:
 
 ```bash
-systemctl --user stop vh-news-aggregator.service
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park \
+  --expected-revision "$FINAL_REV" \
+  --approve-park
 ```
 
-Then remove the approval flag before any restart.
-Also remove the user-manager approval if it was imported:
-
-```bash
-systemctl --user unset-environment VH_NEWS_DAEMON_START_APPROVED
-```
+The controller removes any residual manager flags and private permits, disables
+the unit, and verifies the parked state. A different relay image or publisher
+revision requires a newly generated and independently reviewed tuple.

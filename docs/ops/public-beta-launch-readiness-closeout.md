@@ -2,10 +2,10 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-09
-> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md
+> Last Reviewed: 2026-07-10
+> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md, docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md, docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md
 
-Version: 0.10
+Version: 0.11
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
@@ -274,6 +274,7 @@ Run these commands on the final public-beta release commit and preserve their ou
 
 | Evidence | Command | Deterministic report or artifact | Required result |
 | --- | --- | --- | --- |
+| S1 recovery control plane | `pnpm check:public-beta-s1-recovery-control-plane` | Exact serialized publisher authority/control, liveness, relay-liveness, alert, watch-closure, and A/B/C packet suites plus `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md` | `pass`; `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`, `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`, `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`, and `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2` remain fail-closed |
 | Release-owner launch control | `pnpm check:public-beta-launch-control` | `docs/ops/public-beta-launch-control-2026-07-09.md` plus `tools/scripts/check-public-beta-launch-control.mjs` | Current no-go packet must retain explicit unresolved evidence blanks and live-evidence blockers; a future `go_for_public_beta_ramp` packet must have authority/contact fields and evidence rows filled and must not retain stale no-go/blocker language |
 | First-wave distribution packet | `pnpm check:public-beta-distribution-packet` | `docs/ops/public-beta-distribution-packet-2026-07-09.md` plus `tools/scripts/public-beta-distribution-packet.test.mjs` | Current packet must remain blocked until every release evidence, A6/origin readback, provider rehearsal, manual rehearsal, owner, alert, support, rollback, and external-approval field is filled; tester copy remains claim-safe and rollback remains claim-first |
 | Operator packet boundary guard | `pnpm check:release-readiness-operator-packets` | `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`, `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`, `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`, plus `tools/scripts/release-readiness-operator-packets.test.mjs` | Pending/draft operator packets retain secret-safe handling, exact live authority boundaries, non-goals, stop rules, and rollback constraints before any live execution |
@@ -354,7 +355,7 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 
 | Item | Classification | Closeout decision |
 | --- | --- | --- |
-| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:beta-session-runsheet`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
+| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-s1-recovery-control-plane`, `pnpm check:public-beta-launch-closeout`, `pnpm check:beta-session-runsheet`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
 | `external_release_approval_not_recorded` | ship_blocker | This repo does not create legal/commercial approval. If the organization requires legal/operator approval before public distribution, that signoff must be recorded outside the code gates before public launch claims are made. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | Do not market live public headlines as production-grade unless `pnpm check:storycluster:production-readiness` resolves to `release_ready`. The Web PWA beta may still use the constrained beta and validated-snapshot scope. |
 | `scope_a_sustained_stability_claim_without_retainer_evidence` | ship_blocker | Do not claim 48-hour Scope A stability or host-failure tolerance from outage recovery alone. The current verdict is `heap_driver_off_graph_likely`; sustained live-headline claims require early-capture retainer evidence or a later clean plateau/window that supersedes the verdict. |

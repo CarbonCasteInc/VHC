@@ -67,9 +67,9 @@ Publisher exit classification is intentionally split:
 - `exit_69_transport_unavailable` is the compatibility label for the
   warning-severity availability-total class. It means the daemon exhausted a
   bounded zero-acknowledgement network/deadline path and exited with `69`, which
-  is restartable by the managed systemd unit (`Restart=on-failure`;
-  `RestartPreventExitStatus=78`) while systemd remains inside the bounded
-  auto-restart window. The alert exists so the operator can confirm
+  is the only forced-restart exit in the managed unit (`Restart=no`;
+  `RestartForceExitStatus=69`) while systemd remains inside the bounded
+  auto-restart window and the private authority/permit checks pass. The alert exists so the operator can confirm
   self-recovery instead of discovering a stale feed later.
 - `exit_69_start_limit_parked` is critical-severity. It means the same
   availability-total class repeated until systemd exhausted `StartLimitBurst`,
@@ -77,7 +77,7 @@ Publisher exit classification is intentionally split:
   the host/relay path is healthy again.
 - `exit_75_wrapper_refusal` is critical-severity. It means the production
   wrapper refused to start before the daemon owned the process, such as a
-  sibling-service or approval/preflight refusal, and requires operator
+  sibling-service or diagnostic preflight refusal, and requires operator
   inspection.
 - `exit_78_fail_closed` is critical-severity. It remains the non-restarting
   write-safety park and requires operator inspection before publisher writes

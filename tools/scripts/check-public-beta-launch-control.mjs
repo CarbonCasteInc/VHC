@@ -18,6 +18,8 @@ const requiredDependsOn = [
   'docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md',
   'docs/ops/public-beta-launch-readiness-closeout.md',
   'docs/ops/public-beta-image-deploy.md',
+  'docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md',
+  'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md',
 ];
 
 const requiredEnvelopeFields = [
@@ -29,6 +31,7 @@ const requiredEnvelopeFields = [
   'Support intake',
   'Private escalation path',
   'Intended release commit',
+  'S1 recovery final revision',
   'A6 deployed commit',
   'Auth-callback host',
   'Advertised sign-in providers',
@@ -63,6 +66,11 @@ const requiredEvidenceRows = [
   'Auth callback',
   'Manual rehearsal',
   'Failure-mailbox monitor',
+  'Final S1 recovery tuple',
+  'Serial A/B/C relay replacement',
+  'Immediate publisher recovery',
+  'S1 T0+24h evidence',
+  'S1 T0+48h closure',
 ];
 
 const requiredGoRules = [
@@ -76,6 +84,26 @@ const requiredGoRules = [
   'the manual three-browser rehearsal and privacy spot-check pass',
   'tester copy contains only the allowed claims',
   'the latest failure-mailbox monitor has no unresolved critical items',
+  'the S1 T0+48h closure packet passes',
+];
+
+const requiredRecoveryBoundaries = [
+  'FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT',
+  'IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN',
+  'T0_PLUS_24H_IS_INTERMEDIATE_ONLY',
+  'T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2',
+];
+
+const requiredFinalTupleBindings = [
+  'publisher checkout',
+  'relay OCI revision',
+  'full immutable relay image ID',
+  'manifest/tar hashes',
+  'packet SHA-256',
+  'capture SHA-256',
+  'reviewer identity',
+  'relay order `A -> B -> C`',
+  'reviewed loopback relay origins',
 ];
 
 const requiredStopRules = [
@@ -158,6 +186,26 @@ export function validatePublicBetaLaunchControl(content, options = {}) {
 
   for (const rule of requiredGoRules) {
     requireIncludes(issues, content, rule, `${rule} go-rule`);
+  }
+
+  for (const boundary of requiredRecoveryBoundaries) {
+    requireIncludes(issues, content, boundary, `${boundary} recovery boundary`);
+  }
+
+  const finalTupleRow = content.match(/^\| Final S1 recovery tuple \|[^\n]+$/m)?.[0] ?? '';
+  for (const binding of requiredFinalTupleBindings) {
+    requireIncludes(issues, finalTupleRow, binding, `${binding} final-tuple binding`);
+  }
+
+  const goSection = content.match(/## Go Rule\s*\n([\s\S]*)$/)?.[1] ?? '';
+  for (const [pattern, description] of [
+    [/\bor Lou\b/i, 'Lou authorization alternative'],
+    [/classified[\s\S]{0,160}authorized/i, 'classified-incident authorization alternative'],
+    [/explicit incident decision/i, 'explicit-incident-decision alternative'],
+  ]) {
+    if (pattern.test(goSection)) {
+      issues.push(`${relPath}: Go Rule must not use ${description} instead of passing T0+48h evidence`);
+    }
   }
 
   for (const rule of requiredStopRules) {
