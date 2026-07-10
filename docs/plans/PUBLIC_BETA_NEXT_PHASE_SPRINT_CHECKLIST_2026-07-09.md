@@ -938,9 +938,10 @@ git diff --check
 - Live gate: latest mailbox state remains incident-blocking; S1A classification
   remains `relay_rest_story_timeout_total_0_of_3_exit_78`. Repo completion does
   not make S1A/S1B green.
-- G2 status at this record: combined exact-head cross-lane review, hosted CI,
-  and merge remain required. Every recovery, immediate-readback, soak, and
-  live-green checkbox below intentionally remains open.
+- G2 status at this record: same-reviewer final `GO` at exact integration head
+  `d6e03308`; PR #762 passed every hosted check and merged into this
+  coordination branch as `5116616a`. Every recovery, immediate-readback, soak,
+  and live-green checkbox below intentionally remains open.
 - First G2 cross review at `ddae488e` returned `NO-GO`: P1 present conflicting
   latest/hot/lifecycle rows were hidden as retry-eligible 404s at the real relay
   boundary; P2 the durable producer-fixture set was v1-only despite the
@@ -951,20 +952,28 @@ git diff --check
   was hand-shaped rather than producer-authentic. The fixture is now the exact
   deterministic producer webhook payload and a producer-side deep-equality test
   prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
-  sprint, docs, and diff gates pass. The corrected head remains `NO-GO`,
-  unpushed, and unmergeable pending subsequent review by the same G2 cross-lane
-  reviewer.
+  sprint, docs, and diff gates pass. The same G2 reviewer returned final `GO`
+  with no P0/P1/P2 at `d6e03308`; PR #762 passed hosted CI and merged at
+  `5116616a`. PR #759 exact-head CI and merge to `main` remain required.
+
+- G3 packet preparation found an authority contradiction before any live action:
+  `infra/relay/server.js` is copied into immutable relay images and is not bind
+  mounted, so the new readback routes cannot deploy without controlled rolling
+  relay recreation. The checklist currently forbids relay restarts. A separate
+  repo-only packet lane is therefore `NO-GO` / `WAITING_FOR_LOU`; its first
+  independent review also returned fail-closed corrections. No packet was
+  generated or executed and no boundary is treated as approved.
 
 ### Review And Merge Gate
 
-- [ ] Use one focused branch/PR for the runtime lane and one focused branch/PR
+- [x] Use one focused branch/PR for the runtime lane and one focused branch/PR
   for the alert lane, then require a cross-lane integration review. If isolated
   worktrees are unavailable, run those PRs sequentially.
-- [ ] Include the incident reason code and sanitized timing/quorum evidence in
+- [x] Include the incident reason code and sanitized timing/quorum evidence in
   the PR description.
-- [ ] Require review of idempotency, quorum, retry eligibility, exit mapping,
+- [x] Require review of idempotency, quorum, retry eligibility, exit mapping,
   state-schema migration, and secret redaction.
-- [ ] CI and every required test above pass on the PR head.
+- [x] CI and every required test above pass on the PR head.
 - [ ] Merge before preparing any A6 mutation packet.
 
 ### Lou-Approved A6 Recovery Packet

@@ -95,11 +95,21 @@ same reviewer returned final `GO` at `2a7b0109`, and the v1/v2 replay is green.
 A subsequent G2 review at `231962bc` found that the v2 fixture was hand-shaped
 rather than producer-authentic. It is now the exact deterministic producer
 webhook payload with a producer-side deep-equality guard. The focused alert,
-pager, incident-response, sprint, docs, and diff gates pass. The corrected head
-remains `NO-GO` pending subsequent review by the same G2 reviewer, hosted CI,
-and merge. Integration remains unpushed. No A6 update, service action, relay
-action, Gmail/provider mutation, alert-channel change, or recovery was
-performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
+pager, incident-response, sprint, docs, and diff gates pass. The same G2
+reviewer returned final `GO` with no P0/P1/P2 at `d6e03308`; PR #762 passed
+every hosted check and merged into the coordination branch at `5116616a`.
+PR #759 exact-head CI and merge to `main` remain required.
+
+Recovery-packet design also exposed a hard authority contradiction before any
+live action: `infra/relay/server.js` is copied into immutable relay images and
+is not bind mounted, so the reviewed route changes require controlled rolling
+relay recreation, while the current S1B boundary says not to restart relays. A
+separate repo-only packet lane is `NO-GO` / `WAITING_FOR_LOU`; its first
+independent review returned additional fail-closed corrections. No packet was
+generated or executed, and this handoff does not treat the boundary as
+corrected or approved. No A6 update, service action, relay action,
+Gmail/provider mutation, alert-channel change, or recovery was performed.
+S1A/S1B remain red and every S2+ launch slice remains blocked.
 
 ## Current GitHub/Repo State
 
@@ -114,10 +124,10 @@ Current active PR:
 ```text
 #759 Add beta session runsheet guard
 https://github.com/CarbonCasteInc/VHC/pull/759
-head: see PR #759 head
+head: 5116616aa46b2043e0e22893682e30f0a93c1d92 plus this execution-record commit
 state: non-draft
-merge state: CLEAN
-CI: 9/9 green at handoff
+merge state: revalidate after this execution-record push
+CI: revalidate on the resulting exact head before merge
 ```
 
 Current `main` at handoff:
