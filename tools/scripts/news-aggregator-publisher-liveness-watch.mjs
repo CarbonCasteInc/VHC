@@ -15,6 +15,10 @@ const DEFAULT_MAX_DIAGNOSTIC_AGE_MS = 20 * 60 * 1000;
 const DEFAULT_STARTUP_GRACE_MS = 15 * 60 * 1000;
 const DEFAULT_ACTIVE_ENTER_TOLERANCE_MS = 5_000;
 const DEFAULT_JOURNAL_LINES = 120;
+// Keep this producer-owned journal message exact and case-sensitive. The
+// companion test pins every producer refusal site to the same literal.
+const LIVE_START_AUTHORITY_REFUSAL =
+  '[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority';
 
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -142,7 +146,10 @@ function classifyJournal(journalText, properties) {
   if (/fail-closed runtime error|runtime error triggered fail-closed stop/i.test(text)) {
     return 'fail_closed_runtime_error';
   }
-  if (/refusing to start without VH_NEWS_DAEMON_START_APPROVED=1|--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1|refusing no-write diagnostic without VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1/i.test(text)) {
+  if (
+    /refusing to start without VH_NEWS_DAEMON_START_APPROVED=1|--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1|refusing no-write diagnostic without VH_NEWS_DAEMON_DIAGNOSTIC_APPROVED=1/i.test(text)
+    || text.includes(LIVE_START_AUTHORITY_REFUSAL)
+  ) {
     return 'guard_refusal';
   }
   if (String(properties.ExecMainStatus ?? '').trim() === '78') {
@@ -489,6 +496,7 @@ async function main() {
 export const newsAggregatorPublisherLivenessWatchInternal = {
   CURRENT_RUN_SCHEMA_VERSION,
   DIAGNOSTICS_SCHEMA_VERSION,
+  LIVE_START_AUTHORITY_REFUSAL,
   REPORT_SCHEMA_VERSION,
   classifyJournal,
   parseSystemctlShow,
