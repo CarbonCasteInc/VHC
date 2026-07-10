@@ -1,3 +1,5 @@
+import { normalizeAlertClassFamily } from './alert-family.mjs';
+
 const encoder = new TextEncoder();
 const DEFAULT_HEARTBEAT_FLOOR_MS = 35 * 60 * 1000;
 
@@ -49,18 +51,6 @@ function bearerToken(headers) {
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function normalizeAlertClassFamily(alertClass) {
-  const text = String(alertClass ?? '').trim();
-  if (!text) return 'unknown';
-  if (text.startsWith('exit_69')) return 'exit_69';
-  if (text.startsWith('exit_75')) return 'exit_75';
-  if (text.startsWith('exit_78')) return 'exit_78';
-  if (text.includes('freshness')) return 'freshness';
-  if (text.includes('relay_liveness')) return 'relay_liveness';
-  if (text.includes('watch_closure')) return 'watch_closure';
-  return text.replace(/[^a-zA-Z0-9_-]+/g, '_').toLowerCase();
 }
 
 function allowedPushEndpointHosts(value) {

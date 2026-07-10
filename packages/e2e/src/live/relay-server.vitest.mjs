@@ -1346,6 +1346,17 @@ describe('infra relay server', () => {
         status: record.status,
       }),
     });
+    await expect(requestJson(
+      `http://127.0.0.1:${writer.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 409,
+      body: {
+        ok: false,
+        error_class: 'relay-write-safety',
+        error: 'news-exact-readback-present-unsafe',
+        story_id: record.story_id,
+      },
+    });
 
     await new Promise((resolve) => {
       if (writer.child.exitCode !== null) {
@@ -1359,7 +1370,10 @@ describe('infra relay server', () => {
       }, 1_000);
     });
     children.delete(writer.child);
-    const reader = await startRelay(children, tempDirs, env);
+    const reader = await startRelay(children, tempDirs, {
+      ...env,
+      GUN_FILE: path.join(snapshotDir, 'empty-reader-data'),
+    });
 
     await expect(requestJson(
       `http://127.0.0.1:${reader.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}`,
@@ -1373,6 +1387,16 @@ describe('infra relay server', () => {
         record: expect.objectContaining({
           synthesis_id: record.synthesis_id,
         }),
+      }),
+    });
+    await expect(requestJson(
+      `http://127.0.0.1:${reader.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 404,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-synthesis-lifecycle-not-found',
+        story_id: record.story_id,
       }),
     });
   });
@@ -1493,6 +1517,1218 @@ describe('infra relay server', () => {
         }),
       });
   });
+
+  it('serves all four exact signed readbacks without mutating snapshots and keeps duplicate POSTs idempotent', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-exact-news-readback-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'news-latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS: '500',
+    });
+    const source = {
+      source_id: 'source-exact-signed-readback',
+      publisher: 'Exact Signed Readback',
+      url: 'https://example.com/exact-signed-readback',
+      url_hash: 'exact-signed-readback',
+      published_at: 1778991500000,
+      title: 'Exact signed readback story',
+      imageUrl: 'https://example.com/exact-signed-readback.jpg',
+    };
+    const baseStory = makeRelayNewsStory('story-exact-signed-readback', 1778991500000, [source]);
+    const story = {
+      ...baseStory,
+      storyline_id: 'storyline-exact-signed-readback',
+      summary_hint: '',
+      primary_sources: [
+        {
+          ...source,
+          source_id: 'source-exact-primary',
+          url: 'https://example.com/exact-primary',
+          url_hash: 'exact-primary',
+        },
+      ],
+      secondary_assets: [
+        {
+          ...source,
+          source_id: 'source-exact-secondary',
+          url: 'https://example.com/exact-secondary',
+          url_hash: 'exact-secondary',
+        },
+      ],
+      related_links: [
+        {
+          ...source,
+          source_id: 'source-exact-related',
+          url: 'https://example.com/exact-related',
+          url_hash: 'exact-related',
+        },
+      ],
+      cluster_features: {
+        ...baseStory.cluster_features,
+        coverage_score: 0,
+        velocity_score: 1,
+        confidence_score: 0.5,
+        primary_language: 'en-CA',
+        translation_applied: false,
+      },
+    };
+    const signedFields = {
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-exact-test',
+      _systemIssuedAt: 1778991500100,
+      _systemSignature: 'exact-test-signature',
+    };
+    const storyRecord = {
+      __story_bundle_json: JSON.stringify(story),
+      story_id: story.story_id,
+      created_at: story.created_at,
+      schemaVersion: story.schemaVersion,
+      ...signedFields,
+    };
+    const latestRecord = {
+      ...makeRelayLatestIndexRecord(story),
+      ...signedFields,
+    };
+    const hotRecord = {
+      story_id: story.story_id,
+      hotness: 0.73,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: story.sources.length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+      ...signedFields,
+    };
+    const lifecycleRecord = {
+      ...makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778991500200 }),
+      ...signedFields,
+    };
+    const writes = [
+      { route: '/vh/news/story', record: storyRecord },
+      { route: '/vh/news/latest-index', record: latestRecord },
+      { route: '/vh/news/hot-index', record: hotRecord },
+      { route: '/vh/news/synthesis-lifecycle', record: lifecycleRecord },
+    ];
+
+    for (const write of writes) {
+      for (let duplicate = 0; duplicate < 2; duplicate += 1) {
+        await expect(requestJson(`http://127.0.0.1:${port}${write.route}`, {
+          method: 'POST',
+          body: { record: write.record },
+        })).resolves.toMatchObject({
+          statusCode: 200,
+          body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+        });
+      }
+    }
+    const relationGun = createRelayGunClient(port);
+    const storySoul = `vh/news/stories/${story.story_id}`;
+    try {
+      await putGunObjectAndWaitForField(
+        relationGun.get(storySoul).get('analysis').get('analysis-fixture'),
+        { fixture: 'analysis-record' },
+        'fixture',
+        'analysis-record',
+      );
+      await putGunObjectAndWaitForField(
+        relationGun.get(storySoul).get('analysis_latest'),
+        { fixture: 'analysis-latest-record' },
+        'fixture',
+        'analysis-latest-record',
+      );
+      const expectedRelations = {
+        synthesis_lifecycle: `${storySoul}/synthesis_lifecycle`,
+        analysis: `${storySoul}/analysis`,
+        analysis_latest: `${storySoul}/analysis_latest`,
+      };
+      const relationDeadline = Date.now() + 5_000;
+      let observedRelations = null;
+      while (Date.now() < relationDeadline) {
+        observedRelations = await readGunOnce(relationGun.get(storySoul), 500);
+        if (Object.entries(expectedRelations).every(([key, soul]) =>
+          observedRelations?.[key]?.['#'] === soul)) {
+          break;
+        }
+      }
+      expect(observedRelations).toEqual(expect.objectContaining({
+        synthesis_lifecycle: { '#': expectedRelations.synthesis_lifecycle },
+        analysis: { '#': expectedRelations.analysis },
+        analysis_latest: { '#': expectedRelations.analysis_latest },
+      }));
+    } finally {
+      relationGun.off();
+    }
+    expect(existsSync(snapshotFile)).toBe(true);
+    const snapshotBeforeReadbacks = readFileSync(snapshotFile, 'utf8');
+
+    const readbacks = [
+      { route: '/vh/news/story', record: storyRecord, extraQuery: '&readback=exact' },
+      { route: '/vh/news/latest-index', record: latestRecord, extraQuery: '&readback=exact&persist=false' },
+      { route: '/vh/news/hot-index', record: hotRecord, extraQuery: '&readback=exact' },
+      { route: '/vh/news/synthesis-lifecycle', record: lifecycleRecord, extraQuery: '&readback=exact' },
+    ];
+    for (const readback of readbacks) {
+      const result = await requestJson(
+        `http://127.0.0.1:${port}${readback.route}?story_id=${encodeURIComponent(story.story_id)}${readback.extraQuery ?? ''}`,
+      );
+      expect(result, readback.route).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: story.story_id,
+          record: expect.objectContaining({
+            story_id: story.story_id,
+            _protocolVersion: readback.record._protocolVersion,
+            _writerKind: readback.record._writerKind,
+            _systemWriterId: readback.record._systemWriterId,
+            _systemIssuedAt: readback.record._systemIssuedAt,
+            _systemSignature: readback.record._systemSignature,
+          }),
+        }),
+      });
+      for (const [key, value] of Object.entries(readback.record)) {
+        if (value !== null) {
+          expect(result.body.record[key]).toEqual(value);
+        }
+      }
+      if (readback.route === '/vh/news/story') {
+        expect(result.body.record).not.toHaveProperty('synthesis_lifecycle');
+        expect(result.body.record).not.toHaveProperty('analysis');
+        expect(result.body.record).not.toHaveProperty('analysis_latest');
+        expect(result.body.record.__story_bundle_json).toBe(storyRecord.__story_bundle_json);
+      }
+    }
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBeforeReadbacks);
+
+    const missingReadbacks = [
+      { route: '/vh/news/story', error: 'news-story-not-found', extraQuery: '&readback=exact' },
+      { route: '/vh/news/latest-index', error: 'news-latest-index-not-found', extraQuery: '&readback=exact&persist=false' },
+      { route: '/vh/news/hot-index', error: 'news-hot-index-not-found', extraQuery: '&readback=exact' },
+      { route: '/vh/news/synthesis-lifecycle', error: 'news-synthesis-lifecycle-not-found', extraQuery: '&readback=exact' },
+    ];
+    const missingResults = await Promise.all(missingReadbacks.map((readback) => requestJson(
+      `http://127.0.0.1:${port}${readback.route}?story_id=story-missing${readback.extraQuery}`,
+    )));
+    for (let index = 0; index < missingReadbacks.length; index += 1) {
+      expect(missingResults[index], missingReadbacks[index].route).toMatchObject({
+        statusCode: 404,
+        body: {
+          ok: false,
+          error: missingReadbacks[index].error,
+          story_id: 'story-missing',
+        },
+      });
+    }
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBeforeReadbacks);
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=3&persist=false`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          records: expect.objectContaining({ [story.story_id]: expect.any(Object) }),
+        }),
+      });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          records: expect.objectContaining({ [story.story_id]: expect.any(Object) }),
+        }),
+      });
+  }, 30_000);
+
+  it('rejects persisted wrong story relation souls and never exposes Gun-normalized extra fields', async () => {
+    const persistentDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-relation-test-'));
+    tempDirs.add(persistentDir);
+    const relayEnv = {
+      GUN_FILE: path.join(persistentDir, 'data'),
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '600',
+    };
+    const firstRelay = await startRelay(children, tempDirs, relayEnv);
+    const port = firstRelay.port;
+    const signedFields = {
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-relation-test',
+      _systemIssuedAt: 1778991900100,
+      _systemSignature: 'relation-test-signature',
+    };
+    const relationKeys = ['synthesis_lifecycle', 'analysis', 'analysis_latest'];
+    const gun = createRelayGunClient(port);
+    const observerGun = createRelayGunClient(port);
+    const waitForParentRelation = async (storySoul, key, expectedSoul) => {
+      const deadline = Date.now() + 5_000;
+      let observed = null;
+      while (Date.now() < deadline) {
+        observed = await readGunOnce(observerGun.get(storySoul), 500);
+        const rawRelation = observerGun._.root.graph?.[storySoul]?.[key];
+        if (rawRelation?.['#'] === expectedSoul) return rawRelation;
+      }
+      throw new Error(`gun-parent-relation-readback-timeout:${key}:${JSON.stringify(observed?.[key])}`);
+    };
+    const makeSignedStoryRecord = (story) => ({
+      __story_bundle_json: JSON.stringify(story),
+      story_id: story.story_id,
+      created_at: story.created_at,
+      schemaVersion: story.schemaVersion,
+      ...signedFields,
+    });
+    const wrongSoulMarkers = [];
+    const normalizedExtraMarkers = [];
+    const wrongRelationCases = [];
+    const normalizedExtraCases = [];
+    try {
+      for (let index = 0; index < relationKeys.length; index += 1) {
+        const key = relationKeys[index];
+        const story = makeRelayNewsStory(`story-exact-wrong-${key}`, 1778991900200 + index, [{
+          source_id: `source-exact-wrong-${key}`,
+          publisher: `Wrong relation ${key}`,
+          url: `https://example.com/wrong-relation-${key}`,
+          url_hash: `wrong-relation-${key}`,
+          title: `Wrong relation ${key}`,
+        }]);
+        const record = makeSignedStoryRecord(story);
+        await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+          method: 'POST',
+          body: { record },
+        })).resolves.toMatchObject({ statusCode: 200, body: expect.objectContaining({ ok: true }) });
+        const storySoul = `vh/news/stories/${story.story_id}`;
+        const wrongSoul = `${storySoul}/${key}-wrong-soul-secret`;
+        wrongSoulMarkers.push(wrongSoul);
+        gun.get(wrongSoul).put({ fixture: `wrong-${key}` });
+        const targetDeadline = Date.now() + 5_000;
+        let observedTarget = null;
+        while (Date.now() < targetDeadline) {
+          observedTarget = await readGunOnce(observerGun.get(wrongSoul), 500);
+          if (observedTarget?.fixture === `wrong-${key}`) break;
+        }
+        expect(observedTarget?.fixture, key).toBe(`wrong-${key}`);
+        gun.get(storySoul).put({ [key]: gun.get(wrongSoul) });
+        await waitForParentRelation(storySoul, key, wrongSoul);
+        wrongRelationCases.push({ key, story, record, wrongSoul });
+      }
+
+      for (let index = 0; index < relationKeys.length; index += 1) {
+        const key = relationKeys[index];
+        const story = makeRelayNewsStory(`story-exact-extra-${key}`, 1778991900300 + index, [{
+          source_id: `source-exact-extra-${key}`,
+          publisher: `Extra relation ${key}`,
+          url: `https://example.com/extra-relation-${key}`,
+          url_hash: `extra-relation-${key}`,
+          title: `Extra relation ${key}`,
+        }]);
+        const record = makeSignedStoryRecord(story);
+        await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+          method: 'POST',
+          body: { record },
+        })).resolves.toMatchObject({ statusCode: 200, body: expect.objectContaining({ ok: true }) });
+        const storySoul = `vh/news/stories/${story.story_id}`;
+        const expectedSoul = `${storySoul}/${key}`;
+        const extraMarker = `extra-relation-field-secret-${key}`;
+        normalizedExtraMarkers.push(extraMarker);
+        const invalidLinkShape = { '#': expectedSoul, note: extraMarker };
+        expect(Gun.valid(invalidLinkShape), key).toBe(false);
+        gun.get(storySoul).put({ [key]: invalidLinkShape });
+        await expect(readGunOnce(observerGun.get(expectedSoul).get('note'))).resolves.toBe(extraMarker);
+        const parentRelation = await waitForParentRelation(storySoul, key, expectedSoul);
+        expect(parentRelation, key).toEqual({ '#': expectedSoul });
+        normalizedExtraCases.push({ key, story, record, extraMarker });
+      }
+    } finally {
+      gun.off();
+      observerGun.off();
+    }
+    await delay(500);
+    await new Promise((resolve) => {
+      firstRelay.child.once('exit', resolve);
+      if (!firstRelay.child.kill('SIGKILL')) resolve();
+    });
+    children.delete(firstRelay.child);
+    const restartedRelay = await startRelay(children, tempDirs, relayEnv);
+    const restartedObserverGun = createRelayGunClient(restartedRelay.port);
+
+    for (const { key, story, record, wrongSoul } of wrongRelationCases) {
+      const storySoul = `vh/news/stories/${story.story_id}`;
+      await readGunOnce(restartedObserverGun.get(storySoul), 1_000);
+      const restartedRelation = restartedObserverGun._.root.graph?.[storySoul]?.[key] ?? null;
+      if (restartedRelation !== null) {
+        expect(restartedRelation, key).toEqual({ '#': wrongSoul });
+      }
+      const exact = await requestJson(
+        `http://127.0.0.1:${restartedRelay.port}/vh/news/story?story_id=${story.story_id}&readback=exact`,
+      );
+      if (exact.statusCode === 200) {
+        expect(restartedRelation, key).toBeNull();
+        expect(exact.statusCode, key).toBe(200);
+        expect(exact.body.record, key).toEqual(expect.objectContaining({
+          story_id: record.story_id,
+          schemaVersion: record.schemaVersion,
+          created_at: record.created_at,
+        }));
+        expect(exact.body.record, key).not.toHaveProperty(key);
+      } else {
+        expect(exact.statusCode, key).toBe(409);
+        expect(exact.body, key).toEqual({
+          ok: false,
+          error_class: 'relay-write-safety',
+          error: 'news-exact-readback-present-unsafe',
+          story_id: story.story_id,
+        });
+      }
+      expect(exact.raw, key).not.toContain(wrongSoul);
+    }
+    for (const { key, story, record, extraMarker } of normalizedExtraCases) {
+      const exact = await requestJson(
+        `http://127.0.0.1:${restartedRelay.port}/vh/news/story?story_id=${story.story_id}&readback=exact`,
+      );
+      expect(exact.statusCode, key).toBe(200);
+      expect(exact.body.record, key).toEqual(expect.objectContaining({
+        story_id: record.story_id,
+        schemaVersion: record.schemaVersion,
+        created_at: record.created_at,
+        _protocolVersion: record._protocolVersion,
+        _writerKind: record._writerKind,
+        _systemWriterId: record._systemWriterId,
+        _systemIssuedAt: record._systemIssuedAt,
+        _systemSignature: record._systemSignature,
+      }));
+      expect(exact.body.record, key).not.toHaveProperty(key);
+      expect(exact.raw, key).not.toContain(extraMarker);
+    }
+    restartedObserverGun.off();
+    const relayOutput = [
+      firstRelay.child.stdoutText,
+      firstRelay.child.stderrText,
+      restartedRelay.child.stdoutText,
+      restartedRelay.child.stderrText,
+    ].join('\n');
+    for (const detail of [...wrongSoulMarkers, ...normalizedExtraMarkers]) {
+      expect(relayOutput).not.toContain(detail);
+    }
+  }, 45_000);
+
+  it('returns unavailable when the exact self-peer cannot connect and cleans up every loopback session', async () => {
+    const activeConnections = async (port) => {
+      const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+      expect(metrics.statusCode).toBe(200);
+      const match = metrics.body.match(/^vh_relay_active_connections\s+([0-9]+)$/m);
+      expect(match).not.toBeNull();
+      return Number(match[1]);
+    };
+    const waitForConnectionBaseline = async (port, baseline) => {
+      const deadline = Date.now() + 5_000;
+      let observed = null;
+      while (Date.now() < deadline) {
+        observed = await activeConnections(port);
+        if (observed === baseline) return;
+        await delay(50);
+      }
+      expect(observed).toBe(baseline);
+    };
+    const signedFields = {
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-self-peer-test',
+      _systemIssuedAt: 1778991950100,
+      _systemSignature: 'self-peer-test-signature',
+    };
+    const writeStory = async (port, story) => {
+      const record = {
+        __story_bundle_json: JSON.stringify(story),
+        story_id: story.story_id,
+        created_at: story.created_at,
+        schemaVersion: story.schemaVersion,
+        ...signedFields,
+      };
+      await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+        method: 'POST',
+        body: { record },
+      })).resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+      });
+      return record;
+    };
+    const unavailableRelay = await startRelay(children, tempDirs, {
+      VH_RELAY_MAX_ACTIVE_CONNECTIONS: '1',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '25',
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_READ_TIMEOUT_MS: '1',
+    });
+    const unavailableStory = makeRelayNewsStory('story-exact-self-peer-unavailable', 1778991950200, [{
+      source_id: 'source-exact-self-peer-unavailable',
+      publisher: 'Exact self-peer unavailable',
+      url: 'https://example.com/exact-self-peer-unavailable',
+      url_hash: 'exact-self-peer-unavailable',
+      title: 'Exact self-peer unavailable',
+    }]);
+    await writeStory(unavailableRelay.port, unavailableStory);
+    const unavailableBaseline = await activeConnections(unavailableRelay.port);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await requestJson(
+        `http://127.0.0.1:${unavailableRelay.port}/vh/news/story?story_id=${unavailableStory.story_id}&readback=exact`,
+      );
+      expect(result).toMatchObject({
+        statusCode: 503,
+        body: {
+          ok: false,
+          error: 'news-exact-readback-unavailable',
+          story_id: unavailableStory.story_id,
+        },
+      });
+    }
+    await waitForConnectionBaseline(unavailableRelay.port, unavailableBaseline);
+
+    const availableRelay = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_READ_TIMEOUT_MS: '200',
+    });
+    const availableStory = makeRelayNewsStory('story-exact-self-peer-available', 1778991950300, [{
+      source_id: 'source-exact-self-peer-available',
+      publisher: 'Exact self-peer available',
+      url: 'https://example.com/exact-self-peer-available',
+      url_hash: 'exact-self-peer-available',
+      title: 'Exact self-peer available',
+    }]);
+    const availableRecord = await writeStory(availableRelay.port, availableStory);
+    const availableBaseline = await activeConnections(availableRelay.port);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await requestJson(
+        `http://127.0.0.1:${availableRelay.port}/vh/news/story?story_id=${availableStory.story_id}&readback=exact`,
+      );
+      expect(result.statusCode).toBe(200);
+      expect(result.body.record).toEqual(expect.objectContaining({
+        story_id: availableRecord.story_id,
+        schemaVersion: availableRecord.schemaVersion,
+        created_at: availableRecord.created_at,
+        _systemSignature: availableRecord._systemSignature,
+      }));
+    }
+    await waitForConnectionBaseline(availableRelay.port, availableBaseline);
+  }, 30_000);
+
+  it('waits for a stable fresh story vertex before accepting exact readback', async () => {
+    const routeTimeoutMs = 1_000;
+    const settleMs = 250;
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: String(routeTimeoutMs),
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_READ_TIMEOUT_MS: '200',
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_SETTLE_MS: String(settleMs),
+    });
+    const signedFields = {
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-settlement-test',
+      _systemIssuedAt: 1778991970100,
+      _systemSignature: 'settlement-test-signature',
+    };
+    const writeStory = async (story) => {
+      const record = {
+        __story_bundle_json: JSON.stringify(story),
+        story_id: story.story_id,
+        created_at: story.created_at,
+        schemaVersion: story.schemaVersion,
+        ...signedFields,
+      };
+      await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+        method: 'POST',
+        body: { record },
+      })).resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+      });
+      return record;
+    };
+    const activeConnections = async () => {
+      const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+      expect(metrics.statusCode).toBe(200);
+      const match = metrics.body.match(/^vh_relay_active_connections\s+([0-9]+)$/m);
+      expect(match).not.toBeNull();
+      return Number(match[1]);
+    };
+
+    const validStory = makeRelayNewsStory('story-exact-stable-valid', 1778991970200, [{
+      source_id: 'source-exact-stable-valid',
+      publisher: 'Exact stable valid',
+      url: 'https://example.com/exact-stable-valid',
+      url_hash: 'exact-stable-valid',
+      title: 'Exact stable valid',
+    }]);
+    const validRecord = await writeStory(validStory);
+    const validStartedAt = Date.now();
+    const validExact = await requestJson(
+      `http://127.0.0.1:${port}/vh/news/story?story_id=${validStory.story_id}&readback=exact`,
+    );
+    expect(validExact.statusCode).toBe(200);
+    expect(validExact.body.record).toEqual(expect.objectContaining({
+      story_id: validRecord.story_id,
+      _systemSignature: validRecord._systemSignature,
+    }));
+    const validElapsedMs = Date.now() - validStartedAt;
+    expect(validElapsedMs).toBeGreaterThanOrEqual(settleMs * 2);
+    expect(validElapsedMs).toBeLessThan(routeTimeoutMs);
+
+    const delayedStory = makeRelayNewsStory('story-exact-delayed-relation', 1778991970300, [{
+      source_id: 'source-exact-delayed-relation',
+      publisher: 'Exact delayed relation',
+      url: 'https://example.com/exact-delayed-relation',
+      url_hash: 'exact-delayed-relation',
+      title: 'Exact delayed relation',
+    }]);
+    await writeStory(delayedStory);
+    const storySoul = `vh/news/stories/${delayedStory.story_id}`;
+    const writerGun = createRelayGunClient(port);
+    try {
+      await expect(readGunOnce(writerGun.get(storySoul), 1_000)).resolves.toEqual(
+        expect.objectContaining({ story_id: delayedStory.story_id }),
+      );
+      const baselineConnections = await activeConnections();
+      let exactSettled = false;
+      const exactPromise = requestJson(
+        `http://127.0.0.1:${port}/vh/news/story?story_id=${delayedStory.story_id}&readback=exact`,
+      ).finally(() => {
+        exactSettled = true;
+      });
+      const connectionDeadline = Date.now() + 2_000;
+      let observedConnections = baselineConnections;
+      while (Date.now() < connectionDeadline && observedConnections <= baselineConnections) {
+        observedConnections = await activeConnections();
+        if (observedConnections <= baselineConnections) await delay(10);
+      }
+      expect(observedConnections).toBeGreaterThan(baselineConnections);
+      await delay(settleMs + 75);
+      expect(exactSettled).toBe(false);
+
+      const delayedRelationValue = 'delayed-invalid-analysis-relation';
+      await putGunValueAndWaitForReadback(
+        writerGun.get(storySoul).get('analysis'),
+        delayedRelationValue,
+      );
+      const delayedExact = await exactPromise;
+      expect(delayedExact).toMatchObject({
+        statusCode: 409,
+        body: {
+          ok: false,
+          error_class: 'relay-write-safety',
+          error: 'news-exact-readback-present-unsafe',
+          story_id: delayedStory.story_id,
+        },
+      });
+      expect(delayedExact.raw).not.toContain(delayedRelationValue);
+    } finally {
+      writerGun.off();
+    }
+  }, 30_000);
+
+  it('restarts both settlement windows when a valid relation changes the fresh generation', async () => {
+    const routeTimeoutMs = 1_500;
+    const settleMs = 250;
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: String(routeTimeoutMs),
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_READ_TIMEOUT_MS: '200',
+      VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_SETTLE_MS: String(settleMs),
+    });
+    const story = makeRelayNewsStory('story-exact-valid-relation-generation', 1778991980200, [{
+      source_id: 'source-exact-valid-relation-generation',
+      publisher: 'Exact valid relation generation',
+      url: 'https://example.com/exact-valid-relation-generation',
+      url_hash: 'exact-valid-relation-generation',
+      title: 'Exact valid relation generation',
+    }]);
+    const record = {
+      __story_bundle_json: JSON.stringify(story),
+      story_id: story.story_id,
+      created_at: story.created_at,
+      schemaVersion: story.schemaVersion,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-generation-test',
+      _systemIssuedAt: 1778991980100,
+      _systemSignature: 'generation-test-signature',
+    };
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/story`, {
+      method: 'POST',
+      body: { record },
+    })).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    const activeConnections = async () => {
+      const metrics = await fetchText(`http://127.0.0.1:${port}/metrics`);
+      expect(metrics.statusCode).toBe(200);
+      const match = metrics.body.match(/^vh_relay_active_connections\s+([0-9]+)$/m);
+      expect(match).not.toBeNull();
+      return Number(match[1]);
+    };
+    const storySoul = `vh/news/stories/${story.story_id}`;
+    const analysisSoul = `${storySoul}/analysis`;
+    const writerGun = createRelayGunClient(port);
+    try {
+      await expect(readGunOnce(writerGun.get(storySoul), 1_000)).resolves.toEqual(
+        expect.objectContaining({ story_id: story.story_id }),
+      );
+      const baselineConnections = await activeConnections();
+      const exactState = { settled: false };
+      const exactStartedAt = Date.now();
+      const exactPromise = requestJson(
+        `http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}&readback=exact`,
+      ).finally(() => {
+        exactState.settled = true;
+      });
+      const connectionDeadline = Date.now() + 2_000;
+      let observedConnections = baselineConnections;
+      while (Date.now() < connectionDeadline && observedConnections <= baselineConnections) {
+        observedConnections = await activeConnections();
+        if (observedConnections <= baselineConnections) await delay(10);
+      }
+      expect(observedConnections).toBeGreaterThan(baselineConnections);
+      await delay(settleMs + 75);
+      expect(exactState.settled).toBe(false);
+
+      await putGunObjectAndWaitForField(
+        writerGun.get(analysisSoul),
+        { fixture: 'valid-analysis-relation' },
+        'fixture',
+        'valid-analysis-relation',
+      );
+      writerGun.get(storySoul).put({ analysis: writerGun.get(analysisSoul) });
+      const relationDeadline = Date.now() + 2_000;
+      let observedRelation = null;
+      while (Date.now() < relationDeadline) {
+        await readGunOnce(writerGun.get(storySoul), 250);
+        observedRelation = writerGun._.root.graph?.[storySoul]?.analysis ?? null;
+        if (observedRelation?.['#'] === analysisSoul) break;
+      }
+      expect(observedRelation).toEqual({ '#': analysisSoul });
+      expect(exactState.settled).toBe(false);
+      await delay(settleMs + 75);
+      expect(exactState.settled).toBe(false);
+
+      const exact = await exactPromise;
+      expect(exact.statusCode).toBe(200);
+      expect(exact.body.record).toEqual(expect.objectContaining({
+        story_id: record.story_id,
+        _systemSignature: record._systemSignature,
+      }));
+      expect(exact.body.record).not.toHaveProperty('analysis');
+      expect(Date.now() - exactStartedAt).toBeLessThan(routeTimeoutMs);
+    } finally {
+      writerGun.off();
+    }
+  }, 30_000);
+
+  it('settles partial exact records and rejects persistent unsafe records without disclosing fields', async () => {
+    const { port, child } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '800',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '800',
+      VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS: '800',
+      VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS: '800',
+    });
+    const signedFields = {
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-adversarial-test',
+      _systemIssuedAt: 1778992000100,
+      _systemSignature: 'adversarial-test-signature',
+    };
+    const makeRecords = (story) => ({
+      story: {
+        __story_bundle_json: JSON.stringify(story),
+        story_id: story.story_id,
+        created_at: story.created_at,
+        schemaVersion: story.schemaVersion,
+        ...signedFields,
+      },
+      latest: {
+        ...makeRelayLatestIndexRecord(story),
+        ...signedFields,
+      },
+      hot: {
+        story_id: story.story_id,
+        hotness: 0.81,
+        product_state_schema_version: 'vh-news-product-feed-index-v1',
+        topic_id: story.topic_id,
+        source_set_revision: story.provenance_hash,
+        source_count: story.sources.length,
+        canonical_source_count: story.sources.length,
+        story_created_at: story.created_at,
+        cluster_window_start: story.cluster_window_start,
+        ...signedFields,
+      },
+      lifecycle: {
+        ...makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778992000200 }),
+        ...signedFields,
+      },
+    });
+    const withoutSigning = (record) => Object.fromEntries(
+      Object.entries(record).filter(([key]) => ![
+        '_protocolVersion',
+        '_writerKind',
+        '_systemWriterId',
+        '_systemIssuedAt',
+        '_systemSignature',
+      ].includes(key)),
+    );
+    const makeRouteCases = (storyId, records) => [
+      {
+        name: 'story',
+        route: '/vh/news/story',
+        query: '&readback=exact',
+        record: records.story,
+      },
+      {
+        name: 'latest',
+        route: '/vh/news/latest-index',
+        query: '&readback=exact&persist=false',
+        record: records.latest,
+      },
+      {
+        name: 'hot',
+        route: '/vh/news/hot-index',
+        query: '&readback=exact',
+        record: records.hot,
+      },
+      {
+        name: 'lifecycle',
+        route: '/vh/news/synthesis-lifecycle',
+        query: '&readback=exact',
+        record: records.lifecycle,
+      },
+    ];
+    const postRecord = (testCase, record = testCase.record) => requestJson(
+      `http://127.0.0.1:${port}${testCase.route}`,
+      { method: 'POST', body: { record } },
+    );
+    const getExact = (testCase, storyId) => requestJson(
+      `http://127.0.0.1:${port}${testCase.route}?story_id=${encodeURIComponent(storyId)}${testCase.query}`,
+    );
+    const settlingStory = makeRelayNewsStory('story-exact-settling', 1778992000000, [
+      {
+        source_id: 'source-exact-settling',
+        publisher: 'Exact Settling',
+        url: 'https://example.com/exact-settling',
+        url_hash: 'exact-settling',
+        published_at: 1778992000000,
+        title: 'Exact settling story',
+      },
+    ]);
+    const settlingCases = makeRouteCases(settlingStory.story_id, makeRecords(settlingStory));
+
+    for (const testCase of settlingCases) {
+      await expect(postRecord(testCase, withoutSigning(testCase.record)), testCase.name)
+        .resolves.toMatchObject({
+          statusCode: 200,
+          body: expect.objectContaining({ ok: true, story_id: settlingStory.story_id }),
+        });
+    }
+    const persistentPartialResults = await Promise.all(
+      settlingCases.map((testCase) => getExact(testCase, settlingStory.story_id)),
+    );
+    for (let index = 0; index < settlingCases.length; index += 1) {
+      expect(persistentPartialResults[index].statusCode, settlingCases[index].name).toBe(409);
+      expect(persistentPartialResults[index].body, settlingCases[index].name).toEqual({
+        ok: false,
+        error_class: 'relay-write-safety',
+        error: 'news-exact-readback-present-unsafe',
+        story_id: settlingStory.story_id,
+      });
+    }
+    const settlingRequests = settlingCases.map((testCase) => getExact(testCase, settlingStory.story_id));
+    await delay(100);
+    const fullWriteResults = await Promise.all(settlingCases.map((testCase) => postRecord(testCase)));
+    for (let index = 0; index < settlingCases.length; index += 1) {
+      expect(fullWriteResults[index], settlingCases[index].name).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({ ok: true, story_id: settlingStory.story_id }),
+      });
+    }
+    const settledResults = await Promise.all(settlingRequests);
+    for (let index = 0; index < settlingCases.length; index += 1) {
+      expect(settledResults[index], settlingCases[index].name).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: settlingStory.story_id,
+          record: expect.objectContaining(settlingCases[index].record),
+        }),
+      });
+    }
+
+    const secretKey = 'private_secret';
+    const secretValue = 'must-never-cross-exact-readback-boundary';
+    const unsafeCases = ['story', 'latest', 'hot', 'lifecycle'].map((name, index) => {
+      const story = makeRelayNewsStory(`story-exact-persistent-unsafe-${name}`, 1778992100000 + index, [
+        {
+          source_id: `source-exact-persistent-unsafe-${name}`,
+          publisher: `Exact Persistent Unsafe ${name}`,
+          url: `https://example.com/exact-persistent-unsafe-${name}`,
+          url_hash: `exact-persistent-unsafe-${name}`,
+          published_at: 1778992100000 + index,
+          title: `Exact persistent unsafe ${name} story`,
+        },
+      ]);
+      const testCase = makeRouteCases(story.story_id, makeRecords(story))
+        .find((candidate) => candidate.name === name);
+      return {
+        ...testCase,
+        storyId: story.story_id,
+        record: { ...testCase.record, [secretKey]: secretValue },
+      };
+    });
+    const makeAdversarialStory = (suffix, timestamp = 1778992150000) => makeRelayNewsStory(
+      `story-exact-${suffix}`,
+      timestamp,
+      [{
+        source_id: `source-exact-${suffix}`,
+        publisher: `Exact ${suffix}`,
+        url: `https://example.com/exact-${suffix}`,
+        url_hash: `exact-${suffix}`,
+        published_at: timestamp,
+        title: `Exact ${suffix} story`,
+      }],
+    );
+    const rootSecret = 'root-private-metadata-secret';
+    const sourceSecret = 'source-private-metadata-secret';
+    const clusterSecret = 'cluster-private-metadata-secret';
+    const primarySourcesSecret = 'primary-sources-container-secret';
+    const relationSecrets = {
+      synthesis_lifecycle: 'invalid-synthesis-lifecycle-relation-secret',
+      analysis: 'invalid-analysis-relation-secret',
+      analysis_latest: 'invalid-analysis-latest-relation-secret',
+    };
+    const invalidPublishedAtSecret = 'invalid-published-at-secret';
+    const outerCreatedAtSecret = 'outer-created-at-secret';
+    const outerSchemaSecret = 'outer-schema-secret';
+    const legacyFieldSecrets = {
+      _system: 'legacy-system-secret',
+      _Signature: 'legacy-signature-secret',
+      _WriterId: 'legacy-writer-id-secret',
+      _IssuedAt: 'legacy-issued-at-secret',
+    };
+    const modernFieldSecrets = {
+      _protocolVersion: 'modern-protocol-secret',
+      _writerKind: 'modern-writer-kind-secret',
+      _systemWriterId: ' modern-writer-id-secret',
+      _systemIssuedAt: 'modern-issued-at-secret',
+      _systemSignature: ' modern-signature-secret',
+    };
+    const latestMetadataSecret = 'latest-source-count-secret';
+    const hotMetadataSecret = 'hot-cluster-window-secret';
+    const hotMetadataObjectSecret = 'hot-source-count-object-secret';
+    const lifecycleFieldSecret = 'lifecycle-retryable-secret';
+    const rootUnknownStory = makeAdversarialStory('unknown-root');
+    const sourceUnknownStory = makeAdversarialStory('unknown-source', 1778992150001);
+    const clusterUnknownStory = makeAdversarialStory('unknown-cluster', 1778992150002);
+    const malformedPrimarySourcesStory = makeAdversarialStory('malformed-primary-sources', 1778992150003);
+    const outOfRangeScoreStory = makeAdversarialStory('out-of-range-score', 1778992150004);
+    const invalidPublishedAtStory = makeAdversarialStory('invalid-published-at', 1778992150005);
+    const adversarialStoryCases = [
+      {
+        name: 'story-unknown-root-key',
+        story: { ...rootUnknownStory, private_metadata: { note: rootSecret } },
+      },
+      {
+        name: 'story-unknown-source-key',
+        story: {
+          ...sourceUnknownStory,
+          sources: [{ ...sourceUnknownStory.sources[0], private_metadata: { note: sourceSecret } }],
+        },
+      },
+      {
+        name: 'story-unknown-cluster-key',
+        story: {
+          ...clusterUnknownStory,
+          cluster_features: {
+            ...clusterUnknownStory.cluster_features,
+            private_metadata: { note: clusterSecret },
+          },
+        },
+      },
+      {
+        name: 'story-malformed-allowed-container',
+        story: {
+          ...malformedPrimarySourcesStory,
+          primary_sources: { note: primarySourcesSecret },
+        },
+      },
+      {
+        name: 'story-malformed-allowed-score',
+        story: {
+          ...outOfRangeScoreStory,
+          cluster_features: { ...outOfRangeScoreStory.cluster_features, coverage_score: 2 },
+        },
+      },
+      {
+        name: 'story-malformed-allowed-source-value',
+        story: {
+          ...invalidPublishedAtStory,
+          sources: [{ ...invalidPublishedAtStory.sources[0], published_at: invalidPublishedAtSecret }],
+        },
+      },
+    ].map(({ name, story }) => ({
+      name,
+      storyId: story.story_id,
+      testCase: makeRouteCases(story.story_id, makeRecords(story))[0],
+    }));
+    const invalidRelationCases = Object.entries(relationSecrets).map(([relationKey, secret], index) => {
+      const story = makeAdversarialStory(`invalid-${relationKey}-relation`, 1778992150006 + index);
+      const storyCase = makeRouteCases(story.story_id, makeRecords(story))[0];
+      return {
+        name: `story-invalid-${relationKey}-relation`,
+        storyId: story.story_id,
+        testCase: {
+          ...storyCase,
+          record: { ...storyCase.record, [relationKey]: secret },
+        },
+      };
+    });
+    const outerFieldCases = [
+      { name: 'outer-created-at', field: 'created_at', value: outerCreatedAtSecret },
+      { name: 'outer-schema', field: 'schemaVersion', value: outerSchemaSecret },
+      ...Object.entries(legacyFieldSecrets).map(([field, value]) => ({
+        name: `outer-${field}`,
+        field,
+        value,
+      })),
+      ...Object.entries(modernFieldSecrets).map(([field, value]) => ({
+        name: `outer-${field}`,
+        field,
+        value,
+      })),
+    ].map(({ name, field, value }, index) => {
+      const story = makeAdversarialStory(name, 1778992150100 + index);
+      const storyCase = makeRouteCases(story.story_id, makeRecords(story))[0];
+      return {
+        name: `story-${name}`,
+        storyId: story.story_id,
+        testCase: { ...storyCase, record: { ...storyCase.record, [field]: value } },
+      };
+    });
+    const latestSmugglingStory = makeAdversarialStory('latest-allowed-field-smuggling', 1778992150200);
+    const hotSmugglingStory = makeAdversarialStory('hot-allowed-field-smuggling', 1778992150201);
+    const lifecycleSmugglingStory = makeAdversarialStory('lifecycle-allowed-field-smuggling', 1778992150202);
+    const hotObjectSmugglingStory = makeAdversarialStory('hot-object-field-smuggling', 1778992150203);
+    const latestSmugglingCase = makeRouteCases(
+      latestSmugglingStory.story_id,
+      makeRecords(latestSmugglingStory),
+    )[1];
+    const hotSmugglingCase = makeRouteCases(
+      hotSmugglingStory.story_id,
+      makeRecords(hotSmugglingStory),
+    )[2];
+    const lifecycleSmugglingCase = makeRouteCases(
+      lifecycleSmugglingStory.story_id,
+      makeRecords(lifecycleSmugglingStory),
+    )[3];
+    const hotObjectSmugglingCase = makeRouteCases(
+      hotObjectSmugglingStory.story_id,
+      makeRecords(hotObjectSmugglingStory),
+    )[2];
+    const { source_count: _hotObjectSourceCount, ...hotObjectSmugglingRecord } =
+      hotObjectSmugglingCase.record;
+    const allowedFieldSmugglingCases = [
+      {
+        name: 'latest-allowed-field-smuggling',
+        storyId: latestSmugglingStory.story_id,
+        testCase: {
+          ...latestSmugglingCase,
+          record: { ...latestSmugglingCase.record, source_count: latestMetadataSecret },
+        },
+      },
+      {
+        name: 'hot-allowed-field-smuggling',
+        storyId: hotSmugglingStory.story_id,
+        testCase: {
+          ...hotSmugglingCase,
+          record: { ...hotSmugglingCase.record, cluster_window_start: hotMetadataSecret },
+        },
+      },
+      {
+        name: 'lifecycle-allowed-field-smuggling',
+        storyId: lifecycleSmugglingStory.story_id,
+        testCase: {
+          ...lifecycleSmugglingCase,
+          record: { ...lifecycleSmugglingCase.record, retryable: lifecycleFieldSecret },
+        },
+      },
+      {
+        name: 'hot-object-field-smuggling',
+        storyId: hotObjectSmugglingStory.story_id,
+        testCase: { ...hotObjectSmugglingCase, record: hotObjectSmugglingRecord },
+      },
+    ];
+    const detailValues = [
+      secretKey,
+      secretValue,
+      rootSecret,
+      sourceSecret,
+      clusterSecret,
+      primarySourcesSecret,
+      ...Object.values(relationSecrets),
+      invalidPublishedAtSecret,
+      outerCreatedAtSecret,
+      outerSchemaSecret,
+      ...Object.values(legacyFieldSecrets),
+      ...Object.values(modernFieldSecrets),
+      latestMetadataSecret,
+      hotMetadataSecret,
+      hotMetadataObjectSecret,
+      lifecycleFieldSecret,
+    ];
+    const adversarialCases = [
+      ...adversarialStoryCases,
+      ...invalidRelationCases,
+      ...outerFieldCases,
+      ...allowedFieldSmugglingCases,
+    ];
+
+    for (const testCase of [
+      ...unsafeCases,
+      ...adversarialCases.map(({ testCase }) => testCase),
+    ]) {
+      const response = await postRecord(testCase);
+      expect(response.statusCode, testCase.name).toBe(200);
+      expect(response.body, testCase.name).toMatchObject({ ok: true });
+      for (const detail of detailValues) {
+        expect(response.raw).not.toContain(detail);
+      }
+    }
+    const smugglingGun = createRelayGunClient(port);
+    const smugglingObserverGun = createRelayGunClient(port);
+    try {
+      smugglingGun
+          .get('vh')
+          .get('news')
+          .get('index')
+          .get('hot')
+          .get(hotObjectSmugglingStory.story_id)
+          .put({ source_count: { note: hotMetadataObjectSecret } });
+      const hotSoul = `vh/news/index/hot/${hotObjectSmugglingStory.story_id}`;
+      const sourceCountSoul = `${hotSoul}/source_count`;
+      const observerDeadline = Date.now() + 5_000;
+      let observedHotRecord = null;
+      while (Date.now() < observerDeadline) {
+        observedHotRecord = await readGunOnce(smugglingObserverGun.get(hotSoul), 500);
+        const rawSourceCount = smugglingObserverGun._.root.graph?.[hotSoul]?.source_count;
+        if (rawSourceCount?.['#'] === sourceCountSoul) break;
+      }
+      expect(smugglingObserverGun._.root.graph?.[hotSoul]?.source_count)
+        .toEqual({ '#': sourceCountSoul });
+      await expect(readGunOnce(smugglingObserverGun.get(sourceCountSoul).get('note')))
+        .resolves.toBe(hotMetadataObjectSecret);
+    } finally {
+      smugglingGun.off();
+      smugglingObserverGun.off();
+    }
+    const unsafeRequestCases = [
+      ...unsafeCases.map((testCase) => ({
+        name: testCase.name,
+        storyId: testCase.storyId,
+        testCase,
+      })),
+      ...adversarialCases,
+    ];
+    const unsafeResponses = [];
+    for (let offset = 0; offset < unsafeRequestCases.length; offset += 6) {
+      unsafeResponses.push(...await Promise.all(
+        unsafeRequestCases.slice(offset, offset + 6).map(({ testCase, storyId }) =>
+          getExact(testCase, storyId)),
+      ));
+    }
+    for (let index = 0; index < unsafeResponses.length; index += 1) {
+      const response = unsafeResponses[index];
+      const testCase = unsafeRequestCases[index];
+      expect(response.statusCode, testCase.name).toBe(409);
+      expect(response.body, testCase.name).toEqual({
+        ok: false,
+        error_class: 'relay-write-safety',
+        error: 'news-exact-readback-present-unsafe',
+        story_id: testCase.storyId,
+      });
+      for (const detail of detailValues) {
+        expect(response.raw).not.toContain(detail);
+      }
+    }
+    for (const detail of detailValues) {
+      expect(`${child.stdoutText}\n${child.stderrText}`).not.toContain(detail);
+    }
+  }, 30_000);
+
+  it('never uses snapshot-only evidence for any exact news readback route', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-exact-snapshot-refusal-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'news-latest-index-snapshot.json');
+    const story = makeRelayNewsStory('story-exact-snapshot-only', 1778992200000, [
+      {
+        source_id: 'source-exact-snapshot-only',
+        publisher: 'Exact Snapshot Only',
+        url: 'https://example.com/exact-snapshot-only',
+        url_hash: 'exact-snapshot-only',
+        published_at: 1778992200000,
+        title: 'Exact snapshot-only story',
+      },
+    ]);
+    writeLatestIndexSnapshotFile(snapshotFile, story);
+    const snapshotBefore = readFileSync(snapshotFile, 'utf8');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_REST_PREFER_SNAPSHOT: 'true',
+      VH_RELAY_NEWS_INDEX_SERVE_STALE_SNAPSHOT_ON_EMPTY: 'true',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS: '100',
+      VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS: '100',
+    });
+
+    await expect(requestJson(
+      `http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}`,
+    )).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+    });
+    const exactRoutes = [
+      { route: '/vh/news/story', error: 'news-story-not-found', query: '&readback=exact' },
+      { route: '/vh/news/latest-index', error: 'news-latest-index-not-found', query: '&readback=exact&persist=false' },
+      { route: '/vh/news/hot-index', error: 'news-hot-index-not-found', query: '&readback=exact' },
+      { route: '/vh/news/synthesis-lifecycle', error: 'news-synthesis-lifecycle-not-found', query: '&readback=exact' },
+    ];
+    const results = await Promise.all(exactRoutes.map((testCase) => requestJson(
+      `http://127.0.0.1:${port}${testCase.route}?story_id=${encodeURIComponent(story.story_id)}${testCase.query}`,
+    )));
+    for (let index = 0; index < exactRoutes.length; index += 1) {
+      expect(results[index], exactRoutes[index].route).toMatchObject({
+        statusCode: 404,
+        body: {
+          ok: false,
+          error: exactRoutes[index].error,
+          story_id: story.story_id,
+        },
+      });
+    }
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBefore);
+  }, 15_000);
 
   it('pauses snapshot maintenance while critical public-news write readbacks are active', async () => {
     const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-critical-readback-test-'));
@@ -4019,6 +5255,17 @@ describe('infra relay server', () => {
         }),
       });
     expect(Date.now() - startedAt).toBeLessThan(800);
+    await expect(requestJson(
+      `http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 409,
+      body: {
+        ok: false,
+        error_class: 'relay-write-safety',
+        error: 'news-exact-readback-present-unsafe',
+        story_id: story.story_id,
+      },
+    });
     gun.off();
   }, 15_000);
 

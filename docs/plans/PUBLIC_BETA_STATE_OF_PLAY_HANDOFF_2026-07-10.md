@@ -60,6 +60,47 @@ accepted-synthesis canary, release-evidence regeneration, manual rehearsal,
 distribution, or tranche expansion until S1A/S1B are green or Lou makes an
 explicit incident decision from the preserved readback evidence.
 
+## S1B Repo Execution Addendum - 2026-07-10
+
+S1B has moved from design to reviewed repo implementation. Both isolated lanes
+were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
+
+- Runtime PR #761 is frozen at
+  `2a7b010929368180399b4575f69d6285f01382ef`, independently reviewed `GO`
+  after mandatory correction/re-review, and 9/9 hosted CI checks pass. It
+  implements concurrent bounded fanout, closed exact signed-record readback for
+  story/latest/hot/lifecycle, generation-aware fresh-vertex settlement,
+  unresolved-only retry, preserved `2/3` quorum, and exit `69` only for
+  exhausted zero-confirmed availability-total.
+- Alert PR #760 is frozen at
+  `c3cff10927cf4bc8e6f00e5cd6829920dd857e6f`, independently reviewed `GO`,
+  and 9/9 hosted CI checks pass. It implements the closed v2 public projection,
+  v3 dedupe state, stable semantic fingerprints, readable secret-safe MIME,
+  and canonical anonymous identities.
+- The integration lane adds one shared pager-family normalizer used by both
+  ingest and incident-contract code. Historical v1 underscore blockers and
+  current v2 colon blockers for `public_feed`, `relay_liveness`,
+  `relay_snapshot`, and `watch_closure` now resolve to the same incident keys.
+- Combined local validation passes 187 gun-client tests, 23 focused daemon
+  write/coverage tests, 24 daemon/exit tests, 54 AI-runtime tests, 60 relay
+  integration tests, 56 alert tests, 6 publisher-liveness tests, 29 pager tests,
+  61 incident-response tests plus its 28-file contract, both focused
+  typechecks, pager build, docs governance, and `git diff --check`.
+
+This is repo evidence only. The first distinct G2 cross-lane review at
+`ddae488e` correctly returned `NO-GO`: a present conflicting exact relay row
+could collapse to retry-eligible 404, and durable producer fixtures were
+v1-only. Both corrections are now integrated at `cb03c44c`; the Runtime lane's
+same reviewer returned final `GO` at `2a7b0109`, and the v1/v2 replay is green.
+A subsequent G2 review at `231962bc` found that the v2 fixture was hand-shaped
+rather than producer-authentic. It is now the exact deterministic producer
+webhook payload with a producer-side deep-equality guard. The focused alert,
+pager, incident-response, sprint, docs, and diff gates pass. The corrected head
+remains `NO-GO` pending subsequent review by the same G2 reviewer, hosted CI,
+and merge. Integration remains unpushed. No A6 update, service action, relay
+action, Gmail/provider mutation, alert-channel change, or recovery was
+performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
+
 ## Current GitHub/Repo State
 
 Current branch:
@@ -316,13 +357,13 @@ These are the blockers that matter before tester distribution.
    required `2/3` quorum. This blocks mutation and launch-enablement work until
    S1B remediation plus any Lou-approved recovery readback clears it.
 
-2. S1B durable relay-timeout and alert-dedupe remediation is not implemented.
+2. S1B repo remediation is implemented but not live recovery-proven.
 
-   The next repo-side work is concurrent bounded relay fanout, availability-total
-   retry/exit classification that preserves the `2/3` quorum, stable alert
-   fingerprinting that ignores volatile age/window progress, and readable
-   secret-safe email MIME. A6 mutation and publisher restart remain
-   Lou-approved incident actions after the remediation is merged and reviewed.
+   Frozen Runtime and Alert lane heads are independently reviewed and green;
+   the combined integration head still needs its distinct cross-lane review,
+   hosted CI, and merge. A6 mutation and publisher restart remain Lou-approved
+   incident actions only after the merged-commit recovery packet is
+   independently reviewed.
 
 3. StoryCluster headline-soak credential/endpoint is not release-ready.
 
@@ -393,7 +434,7 @@ gh pr view 759 --json number,title,headRefName,headRefOid,isDraft,mergeStateStat
 git status --short --branch
 ```
 
-### 2. Preserve S1A finding and implement S1B repo remediation
+### 2. Preserve S1A finding and finish S1B integration
 
 Do not mutate A6. Do not restart services. Do not repair credentials yet.
 
@@ -403,12 +444,14 @@ Preserve the classified S1A finding:
 relay_rest_story_timeout_total_0_of_3_exit_78
 ```
 
-Then implement and review S1B from the sprint checklist:
+The Runtime and Alert implementation lanes are frozen and independently
+reviewed. Finish the sprint checklist's integration gate by proving:
 
-- concurrent bounded relay fanout;
-- availability-total retry/exit classification that preserves `2/3` quorum;
-- stable alert fingerprinting that excludes volatile age/window progress;
-- readable secret-safe alert email bodies.
+- combined timeout classification, exact four-route readback, brand propagation,
+  quorum, and exit mapping;
+- v2/v3 fingerprint migration, readable MIME, redaction, and v1/v2 pager-family
+  continuity;
+- full combined tests, distinct cross-lane review, hosted CI, and merge.
 
 After S1B merges, prepare a Lou-approved A6 recovery packet from the merged
 commit. Updating A6 and restarting the parked publisher are incident mutations,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   createKvPagerStore,
@@ -55,6 +56,75 @@ test('incident key correlates exit-69 warning and critical in one issue', () => 
     severity: 'warning',
     publisher: { ...baseAlert.publisher, failureClass: 'exit_69_transport_unavailable' },
   }), 'a6:public-feed:exit_69');
+});
+
+test('v1 and v2 producer blockers preserve pager incident-family continuity', () => {
+  const cases = [
+    {
+      expected: 'a6:public-feed:public_feed',
+      v1: 'public_feed_status:fail',
+      v2: 'public_feed:latest_index_not_fresh',
+    },
+    {
+      expected: 'a6:public-feed:relay_liveness',
+      v1: 'relay_liveness_report_missing',
+      v2: 'relay_liveness:relay:1:readyz_failed',
+    },
+    {
+      expected: 'a6:public-feed:relay_snapshot',
+      v1: 'relay_snapshot_report_missing',
+      v2: 'relay_snapshot:newest_entry_stale',
+    },
+    {
+      expected: 'a6:public-feed:watch_closure',
+      v1: 'watch_closure_verdict_missing',
+      v2: 'watch_closure:archive_sample_failures',
+    },
+  ];
+
+  for (const { expected, v1, v2 } of cases) {
+    const legacyKey = incidentKeyForAlert({
+      ...baseAlert,
+      schemaVersion: 'vh-public-feed-alert-watch-v1',
+      publisher: { failureClass: 'none' },
+      blockers: [v1],
+    });
+    const currentKey = incidentKeyForAlert({
+      ...baseAlert,
+      schemaVersion: 'vh-public-feed-alert-watch-v2',
+      publisher: { failureClass: 'none' },
+      blockers: [v2],
+    });
+
+    assert.equal(legacyKey, expected);
+    assert.equal(currentKey, expected);
+  }
+});
+
+test('historical v1 and current v2 producer fixtures ingest into one incident family', async () => {
+  const fixtureNames = ['exit69-start-limit.json', 'exit69-start-limit-v2.json'];
+  const results = [];
+
+  for (const fixtureName of fixtureNames) {
+    const bodyText = readFileSync(
+      new URL(`../../../tools/fixtures/incidents/${fixtureName}`, import.meta.url),
+      'utf8',
+    );
+    const store = createMemoryPagerStore();
+    const result = await handleA6Alert({
+      bodyText,
+      headers: { 'x-vhc-bootstrap-secret': 'bootstrap' },
+      env: { VH_PAGER_UNSIGNED_BOOTSTRAP_SECRET: 'bootstrap' },
+      store,
+      nowMs: Date.parse('2026-07-10T00:00:01.000Z'),
+    });
+
+    assert.equal(result.status, 202);
+    assert.equal(store.state.alerts.length, 1);
+    results.push(result.body.incidentKey);
+  }
+
+  assert.deepEqual(results, ['a6:public-feed:exit_69', 'a6:public-feed:exit_69']);
 });
 
 test('signed ingest persists before returning success and latches unsigned mode off', async () => {

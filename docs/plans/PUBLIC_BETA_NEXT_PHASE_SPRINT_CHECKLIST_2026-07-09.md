@@ -720,26 +720,26 @@ explicit approval after the repo change is merged and independently reviewed.
 
 ### Invariants
 
-- [ ] Raw story, latest-index, hot-index, and pending-lifecycle publication keep
+- [x] Raw story, latest-index, hot-index, and pending-lifecycle publication keep
   the configured `2/3` relay quorum.
-- [ ] A timeout means unacknowledged, not provably unpublished.
-- [ ] Every retry reuses the exact serialized and signed id-keyed record; it
+- [x] A timeout means unacknowledged, not provably unpublished.
+- [x] Every retry reuses the exact serialized and signed id-keyed record; it
   does not regenerate timestamps, ids, signatures, or payloads.
-- [ ] A timed-out POST is reconciled through bounded signed readback before a
+- [x] A timed-out POST is reconciled through bounded signed readback before a
   resend; a matching readback can satisfy quorum, while missing readback keeps
   the endpoint unacknowledged.
-- [ ] Id-keyed first-write-wins relay semantics are covered by tests before a
+- [x] Id-keyed first-write-wins relay semantics are covered by tests before a
   timeout is made retryable.
-- [ ] `2/3` validated acknowledgements pass even if the third endpoint times
+- [x] `2/3` validated acknowledgements pass even if the third endpoint times
   out; `0/3` and `1/3` never pass.
-- [ ] Explicit HTTP responses, relay backpressure, validation failures, and
+- [x] Explicit HTTP responses, relay backpressure, validation failures, and
   mixed acknowledged/unacknowledged failures are not relabeled as
-  transport-total.
-- [ ] Exit `75` remains wrapper refusal, exit `78` remains write-safety or
+  availability-total.
+- [x] Exit `75` remains wrapper refusal, exit `78` remains write-safety or
   configuration park, and exit `69` remains bounded restartable total relay
   unavailability.
-- [ ] Relay containers are not restarted as part of this slice.
-- [ ] Full numeric evidence remains in local alert artifacts even when volatile
+- [x] Relay containers are not restarted as part of this slice.
+- [x] Full numeric evidence remains in local alert artifacts even when volatile
   numbers are removed from the dedupe fingerprint.
 
 ### Workstream A - Concurrent Bounded Relay Fanout
@@ -747,22 +747,22 @@ explicit approval after the repo change is merged and independently reviewed.
 Target:
 `packages/gun-client/src/newsAdapters.ts`.
 
-- [ ] Serialize `{ record }` once before fanout and reuse the same bytes on
+- [x] Serialize `{ record }` once before fanout and reuse the same bytes on
   every endpoint and retry attempt.
-- [ ] Start all relay requests for one attempt concurrently rather than waiting
+- [x] Start all relay requests for one attempt concurrently rather than waiting
   up to 10 seconds per endpoint sequentially.
-- [ ] Keep an independent abort controller and configured deadline per endpoint.
-- [ ] Wait for every endpoint in the attempt to settle so the final quorum and
+- [x] Keep an independent abort controller and configured deadline per endpoint.
+- [x] Wait for every endpoint in the attempt to settle so the final quorum and
   failure classification are deterministic; do not return early at the second
   acknowledgement while another write remains unobserved.
-- [ ] Record one secret-safe endpoint result from this closed set:
+- [x] Record one secret-safe endpoint result from this closed set:
   `acknowledged_success`, `network_unacknowledged`,
   `deadline_unacknowledged`, `http_response`, or `validation_failure`.
-- [ ] Record whether an HTTP response was received before a body/validation
+- [x] Record whether an HTTP response was received before a body/validation
   failure so an application response cannot be mistaken for a network failure.
-- [ ] Keep endpoint labels hashed or ordinal; do not log raw origins, tokens, or
+- [x] Keep endpoint labels hashed or ordinal; do not log raw origins, tokens, or
   response bodies.
-- [ ] Bound one three-relay attempt to approximately one endpoint deadline, not
+- [x] Bound one three-relay attempt to approximately one endpoint deadline, not
   three sequential deadlines.
 
 ### Workstream B - Availability-Total Retry And Exit Semantics
@@ -777,62 +777,62 @@ Targets:
 - associated gun-client, news-aggregator, and
   `packages/e2e/src/live/relay-server.vitest.mjs` tests.
 
-- [ ] Define availability-total as zero validated acknowledgements where every
+- [x] Define availability-total as zero validated acknowledgements where every
   endpoint result is `network_unacknowledged` or
   `deadline_unacknowledged`.
-- [ ] Inventory and test the deployed nonmutating per-relay readback contract
+- [x] Inventory and test the deployed nonmutating per-relay readback contract
   for `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and
   `/vh/news/synthesis-lifecycle` before enabling timeout reconciliation for that
   class. A generic fallback or aggregate read is not sufficient proof.
-- [ ] For latest-index and hot-index, add bounded `story_id` GET branches that
+- [x] For latest-index and hot-index, add bounded `story_id` GET branches that
   return the complete stored signed record without scanning an aggregate root,
   mutating a latest-index snapshot, or changing the existing aggregate response
   when `story_id` is absent.
-- [ ] If any critical class lacks bounded endpoint-local signed readback, keep
+- [x] If any critical class lacks bounded endpoint-local signed readback, keep
   that class on exit `78` and stop/report the missing contract instead of
   silently using blind retry.
-- [ ] For `network_unacknowledged` and `deadline_unacknowledged`, issue a bounded
+- [x] For `network_unacknowledged` and `deadline_unacknowledged`, issue a bounded
   endpoint-local readback for the same stable record key using the existing
   signed validation contract; a response-leg network failure can also occur
   after a relay committed the write.
-- [ ] Count only a signature-valid record with the expected canonical key and
+- [x] Count only a signature-valid record with the expected canonical key and
   signed payload fields as `readback_confirmed`; a missing row remains
   unacknowledged and a conflicting, invalid, or tampered row is a write-safety
   failure.
-- [ ] If readback reaches `2/3`, complete the write without resending. If it
+- [x] If readback reaches `2/3`, complete the write without resending. If it
   confirms fewer than `2/3`, retry only unresolved endpoints and combine the
   prior confirmed set with new validated acknowledgements.
-- [ ] Generalize the existing transport-total error contract to represent
+- [x] Generalize the existing transport-total error contract to represent
   availability-total without breaking the current brand-based cross-package
   guard. Prefer a new explicit availability brand with a compatibility path for
   the existing transport-total brand.
-- [ ] Apply bounded retry count and backoff only after deadline reconciliation
+- [x] Apply bounded retry count and backoff only after deadline reconciliation
   leaves an availability-total outcome. Use a dedicated timeout retry budget if
   needed so timeout recovery cannot multiply relay load beyond the reviewed
   bound.
-- [ ] Treat a successful retry that reaches `2/3` as a completed idempotent
+- [x] Treat a successful retry that reaches `2/3` as a completed idempotent
   write and include the attempt count in secret-safe telemetry.
-- [ ] After availability-total retries are exhausted, map the generalized
+- [x] After availability-total retries are exhausted, map the generalized
   branded failure to exit `69`, allowing the existing bounded systemd restart
   path and start-limit parking behavior to operate.
-- [ ] Preserve exit `78` for `1/3` partial quorum, explicit 4xx/5xx,
+- [x] Preserve exit `78` for `1/3` partial quorum, explicit 4xx/5xx,
   `relay-backpressure`, validation failure, mixed failure classes, critical
   lifecycle failure, and any unclassified write error.
-- [ ] Do not increase the 10-second deadline as the primary fix.
-- [ ] Do not weaken `RestartPreventExitStatus=78`, start-limit behavior, or the
+- [x] Do not increase the 10-second deadline as the primary fix.
+- [x] Do not weaken `RestartPreventExitStatus=78`, start-limit behavior, or the
   executor rule that only permits its narrowly verified exit-69 action.
 
 ### Workstream C - Secret-Safe Availability Telemetry
 
-- [ ] Add per-attempt counts for acknowledged, network-unacknowledged,
+- [x] Add per-attempt counts for acknowledged, network-unacknowledged,
   deadline-unacknowledged, readback-confirmed, HTTP-response, and validation
   failures.
-- [ ] Add attempt duration, total attempt count, required quorum, and final
+- [x] Add attempt duration, total attempt count, required quorum, and final
   availability classification to safe logs/diagnostics.
-- [ ] Preserve only hashed/ordinal endpoint identity.
-- [ ] Never include raw relay URL, authorization header, daemon token, record
+- [x] Preserve only hashed/ordinal endpoint identity.
+- [x] Never include raw relay URL, authorization header, daemon token, record
   body, story body, provider response body, or host-private env value.
-- [ ] Ensure the publisher liveness and public-feed alert summaries can
+- [x] Ensure the publisher liveness and public-feed alert summaries can
   distinguish `exit_69_transport_unavailable`,
   `exit_69_start_limit_parked`, and `exit_78_fail_closed` after the change.
 
@@ -843,23 +843,23 @@ Targets:
 - `tools/scripts/public-feed-alert-watch.mjs`;
 - `tools/scripts/public-feed-alert-watch.test.mjs`.
 
-- [ ] Build the fingerprint from semantic state only: overall status, publisher
+- [x] Build the fingerprint from semantic state only: overall status, publisher
   failure class/state, source status, threshold status, relay identity/status,
   and normalized blocker reason codes.
-- [ ] Exclude or canonicalize volatile ages, decimal watch-window progress,
+- [x] Exclude or canonicalize volatile ages, decimal watch-window progress,
   archive failure counts, restart counters, timestamps, and generated-at values.
-- [ ] Do not include the raw `watchClosure.thresholds` object in the fingerprint;
+- [x] Do not include the raw `watchClosure.thresholds` object in the fingerprint;
   include only stable threshold status and blocker reason codes.
-- [ ] Keep the full values in `latest.json` and outbound payloads for diagnosis.
-- [ ] Bump the alert state schema so migration deliberately sends at most one
+- [x] Keep the full values in `latest.json` and outbound payloads for diagnosis.
+- [x] Bump the alert state schema so migration deliberately sends at most one
   state-change notification for an unresolved incident, then suppresses
   repeats.
-- [ ] Preserve delivery retry when the prior delivery failed, explicit
+- [x] Preserve delivery retry when the prior delivery failed, explicit
   heartbeat delivery, real failure-class transitions, and recovery/pass
   delivery.
-- [ ] Prove `window_short:33.49/48` to `window_short:33.99/48`, archive failures
+- [x] Prove `window_short:33.49/48` to `window_short:33.99/48`, archive failures
   8 to 9, and advancing stale ages produce the same fingerprint.
-- [ ] Prove publisher exit `78` to restartable exit `69`, threshold status
+- [x] Prove publisher exit `78` to restartable exit `69`, threshold status
   change, relay failure, and recovery produce different fingerprints.
 
 ### Workstream E - Readable Email Contract
@@ -868,38 +868,38 @@ Gmail connector readback returned the alert subject but no parsed body while the
 sender emits `Content-Type: application/json`. Keep the JSON payload, but make
 the email MIME readable to normal clients and connector text extraction.
 
-- [ ] Emit the secret-safe JSON as `text/plain; charset=utf-8`, or as a proper
+- [x] Emit the secret-safe JSON as `text/plain; charset=utf-8`, or as a proper
   multipart message with a text/plain part.
-- [ ] Preserve the subject status plus fingerprint; never put blocker details,
+- [x] Preserve the subject status plus fingerprint; never put blocker details,
   origins, or secrets in the subject.
-- [ ] Add a parser-level test that the email contains a non-empty text body and
+- [x] Add a parser-level test that the email contains a non-empty text body and
   the expected secret-safe reason codes.
-- [ ] Preserve tests that reject raw URLs, tokens, story bodies, private data,
+- [x] Preserve tests that reject raw URLs, tokens, story bodies, private data,
   and host-private values.
 
 ### Required Tests
 
-- [ ] Three relay fetches begin in the same attempt before any endpoint settles.
-- [ ] First-attempt total deadlines followed by `2/3` success retry the exact
+- [x] Three relay fetches begin in the same attempt before any endpoint settles.
+- [x] First-attempt total deadlines followed by `2/3` success retry the exact
   same body and complete.
-- [ ] Total deadlines followed by matching `2/3` signed readback complete
+- [x] Total deadlines followed by matching `2/3` signed readback complete
   without a resend.
-- [ ] One matching readback plus one successful unresolved-endpoint retry
+- [x] One matching readback plus one successful unresolved-endpoint retry
   reaches `2/3` without rewriting the already-confirmed endpoint.
-- [ ] Conflicting, invalid, or tampered timeout readback remains exit `78`.
-- [ ] Exhausted total deadlines produce the generalized availability-total
+- [x] Conflicting, invalid, or tampered timeout readback remains exit `78`.
+- [x] Exhausted total deadlines produce the generalized availability-total
   brand and daemon exit `69`.
-- [ ] Exhausted network-total behavior remains exit `69`.
-- [ ] `1/3` success plus two deadlines remains exit `78` with no quorum waiver.
-- [ ] Three explicit 503 backpressure responses remain exit `78` and are not
+- [x] Exhausted network-total behavior remains exit `69`.
+- [x] `1/3` success plus two deadlines remains exit `78` with no quorum waiver.
+- [x] Three explicit 503 backpressure responses remain exit `78` and are not
   retried as availability-total.
-- [ ] A timeout plus any HTTP/validation failure remains exit `78`.
-- [ ] `2/3` success plus one timeout passes.
-- [ ] Timeout retry preserves byte-identical signed record content.
-- [ ] Alert volatile-age/window changes are suppressed.
-- [ ] Alert failure-class and recovery changes deliver once.
-- [ ] Failed delivery retry and configured heartbeat behavior remain intact.
-- [ ] Email body is readable and secret-safe.
+- [x] A timeout plus any HTTP/validation failure remains exit `78`.
+- [x] `2/3` success plus one timeout passes.
+- [x] Timeout retry preserves byte-identical signed record content.
+- [x] Alert volatile-age/window changes are suppressed.
+- [x] Alert failure-class and recovery changes deliver once.
+- [x] Failed delivery retry and configured heartbeat behavior remain intact.
+- [x] Email body is readable and secret-safe.
 
 Run at minimum:
 
@@ -917,6 +917,43 @@ corepack pnpm@9.7.1 check:public-beta-next-phase-sprint
 corepack pnpm@9.7.1 docs:check
 git diff --check
 ```
+
+### Repo Execution Record - 2026-07-10
+
+- G1 Runtime: PR #761, base `a2899ad2`, frozen head `2a7b0109`, independent
+  same-reviewer final `GO`, hosted CI 9/9. The corrected lane closes all four
+  exact-readback contracts, including closed StoryBundle projection, bounded
+  fresh-vertex reconciliation, and generation-plus-fingerprint settlement.
+- G1 Alert: PR #760, base `a2899ad2`, frozen head `c3cff109`, independent
+  review `GO` after six correction/re-review cycles, hosted CI 9/9.
+- Combined shared seam: one dependency-free pager family normalizer is consumed
+  by both alert ingest and the incident contract; historical v1 underscore and
+  current v2 colon forms preserve the four public-feed incident families.
+- Combined local evidence: gun client 187, daemon write/coverage 23, daemon/exit
+  24, AI runtime 54, relay integration 60, alert 56, publisher liveness 6,
+  pager 29, incident response 61 plus 28 required files; focused typechecks,
+  pager build, docs governance, and `git diff --check` pass.
+- Authority used: repo-only plus read-only incident evidence. No A6/service,
+  relay, Gmail/provider, pager, alert-channel, or production mutation occurred.
+- Live gate: latest mailbox state remains incident-blocking; S1A classification
+  remains `relay_rest_story_timeout_total_0_of_3_exit_78`. Repo completion does
+  not make S1A/S1B green.
+- G2 status at this record: combined exact-head cross-lane review, hosted CI,
+  and merge remain required. Every recovery, immediate-readback, soak, and
+  live-green checkbox below intentionally remains open.
+- First G2 cross review at `ddae488e` returned `NO-GO`: P1 present conflicting
+  latest/hot/lifecycle rows were hidden as retry-eligible 404s at the real relay
+  boundary; P2 the durable producer-fixture set was v1-only despite the
+  dual-version claim. Both corrections are now integrated at `cb03c44c`: the v2
+  fixture/replay is green, and Runtime head `2a7b0109` passed all-four-route
+  adversarial coverage plus mandatory same-reviewer follow-up with no remaining
+  finding. A subsequent G2 review at `231962bc` found the remaining v2 fixture
+  was hand-shaped rather than producer-authentic. The fixture is now the exact
+  deterministic producer webhook payload and a producer-side deep-equality test
+  prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
+  sprint, docs, and diff gates pass. The corrected head remains `NO-GO`,
+  unpushed, and unmergeable pending subsequent review by the same G2 cross-lane
+  reviewer.
 
 ### Review And Merge Gate
 

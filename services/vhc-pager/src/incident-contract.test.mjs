@@ -18,6 +18,20 @@ test('incident key groups severity and fingerprint changes into one case file', 
   assert.equal(incidentKey({ source: 'public-feed', alertClass: 'exit_69_start_limit_parked' }), 'a6:public-feed:exit_69');
 });
 
+test('incident contract preserves v1 and v2 producer family keys', () => {
+  const cases = [
+    ['public_feed_status:fail', 'public_feed:latest_index_not_fresh', 'public_feed'],
+    ['relay_liveness_report_missing', 'relay_liveness:relay:1:readyz_failed', 'relay_liveness'],
+    ['relay_snapshot_report_missing', 'relay_snapshot:newest_entry_stale', 'relay_snapshot'],
+    ['watch_closure_verdict_missing', 'watch_closure:archive_sample_failures', 'watch_closure'],
+  ];
+
+  for (const [v1, v2, family] of cases) {
+    assert.equal(incidentKey({ alertClass: v1 }), `a6:public-feed:${family}`);
+    assert.equal(incidentKey({ alertClass: v2 }), `a6:public-feed:${family}`);
+  }
+});
+
 test('redacts URLs, token-shaped strings, and raw heap artifacts', () => {
   const input = 'see https://example.invalid/hook/secret ghp_secretvalue9999 /tmp/a.heapsnapshot';
   const output = redactSecretText(input);

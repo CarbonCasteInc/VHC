@@ -1,15 +1,16 @@
 import { pathToFileURL } from 'node:url';
-import { isRelayRestTransportTotalFailureError } from '@vh/gun-client';
+import { isRelayRestAvailabilityTotalFailureError } from '@vh/gun-client';
 
 export type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
 export type CliLogger = Pick<Console, 'info' | 'error'>;
 export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
 
 /**
- * EX_UNAVAILABLE: the fail-close cause was a relay transport-total failure —
- * zero relays ACKNOWLEDGED the write (network-level fetch failure on every
- * endpoint, no HTTP response received), so no write-safety invariant is in
- * doubt and the writes are id-keyed idempotent upserts. systemd restarts this
+ * EX_UNAVAILABLE: the fail-close cause was a relay availability-total failure —
+ * zero relays produced a validated acknowledgement after bounded endpoint-local
+ * reconciliation and every POST remained network/deadline-unacknowledged. No
+ * write-safety invariant is in doubt and the writes are id-keyed idempotent
+ * upserts. systemd restarts this
  * exit code (`Restart=on-failure`; only 78 is in `RestartPreventExitStatus`),
  * bounded by `StartLimitBurst`/`StartLimitIntervalSec`, giving transient
  * network blips a bounded self-recovery path while genuine write-safety halts
@@ -24,12 +25,12 @@ export const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = 78;
 export const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = 69;
 
 /**
- * Fail-close always halts the process; only the exit code differs. Transport-
+ * Fail-close always halts the process; only the exit code differs. Availability-
  * total relay failures exit EX_UNAVAILABLE(69) for bounded systemd restart;
  * every other fail-close cause keeps the non-restarting write-safety code 78.
  */
 export function resolveFailClosedExitCode(error: unknown): number {
-  return isRelayRestTransportTotalFailureError(error)
+  return isRelayRestAvailabilityTotalFailureError(error)
     ? NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE
     : NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE;
 }

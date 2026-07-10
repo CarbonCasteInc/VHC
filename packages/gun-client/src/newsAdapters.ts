@@ -13,6 +13,7 @@ import {
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
   buildSignedSystemWriterRecord,
+  canonicalizeSystemWriterRecordForSigning,
   rejectUnmarkedSystemRecords,
   unmarkedRecordRejectedFailure,
   validateSystemWriterRecord,
@@ -159,8 +160,12 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
+const RELAY_REST_READ_TIMEOUT_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS',
+  'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS',
+] as const;
 const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
-  ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
+  RELAY_REST_READ_TIMEOUT_ENV,
   10_000,
 );
 const RELAY_REST_WRITE_TIMEOUT_MS = readGunTimeoutMs(
@@ -347,12 +352,8 @@ function resolveNewsRelayRestWriteQuorum(endpointCount: number): RelayRestWriteQ
   };
 }
 
-function relayRestEndpointLabel(endpoint: string): string {
-  try {
-    return new URL(endpoint).origin;
-  } catch {
-    return 'invalid-relay-endpoint';
-  }
+function relayRestEndpointLabel(_endpoint: string, index = 0): string {
+  return `relay-${Math.max(0, Math.floor(index)) + 1}`;
 }
 
 function normalizeLatestIndexReadLimit(limit: unknown, fallback = RELAY_REST_INDEX_LIMIT): number {
@@ -433,21 +434,16 @@ function relayRestNetworkClassification(error: unknown): string {
 }
 
 /**
- * Thrown when a relay REST news write fan-out gets ZERO relay successes and
- * every per-relay failure is transport-class (the fetch itself threw — DNS
- * resolution, connection refusal, connection reset — with no HTTP response
- * received from any relay). No relay ACKNOWLEDGED the write. A response-leg
- * reset can, in principle, occur after a relay applied the write, and the
- * network-level cause may be relay-side (fleet down, TLS failure) rather
- * than host-side — so this classification means "unacknowledged everywhere",
- * not "provably unpublished" or "host network at fault". Retrying is safe
- * regardless: the record is encoded once and re-sent byte-identical, and all
- * relay news writes are id-keyed idempotent upserts (created_at is
- * first-write-wins server-side), so a re-send cannot double-publish or
- * diverge state.
+ * Thrown when a relay REST news write fan-out remains totally unavailable
+ * after bounded endpoint-local reconciliation: zero relays produced a
+ * validated acknowledgement and every endpoint was network- or
+ * deadline-unacknowledged. A response-leg failure can occur after a relay
+ * applied the write, so this means "unacknowledged everywhere", not
+ * "provably unpublished". Any bounded retry reuses the byte-identical signed,
+ * id-keyed record and targets only endpoints that readback did not confirm.
  */
-export class RelayRestTransportTotalFailureError extends Error {
-  readonly relayRestTransportTotalFailure = true;
+export class RelayRestAvailabilityTotalFailureError extends Error {
+  readonly relayRestAvailabilityTotalFailure = true;
 
   readonly path: string;
 
@@ -455,10 +451,30 @@ export class RelayRestTransportTotalFailureError extends Error {
 
   constructor(message: string, options: { readonly path: string; readonly attemptCount: number }) {
     super(message);
-    this.name = 'RelayRestTransportTotalFailureError';
+    this.name = 'RelayRestAvailabilityTotalFailureError';
     this.path = options.path;
     this.attemptCount = options.attemptCount;
   }
+}
+
+export class RelayRestTransportTotalFailureError extends RelayRestAvailabilityTotalFailureError {
+  readonly relayRestTransportTotalFailure = true;
+
+  constructor(message: string, options: { readonly path: string; readonly attemptCount: number }) {
+    super(message, options);
+    this.name = 'RelayRestTransportTotalFailureError';
+  }
+}
+
+/** Brand-based compatibility guard for both new and legacy availability errors. */
+export function isRelayRestAvailabilityTotalFailureError(
+  error: unknown,
+): error is RelayRestAvailabilityTotalFailureError {
+  return error instanceof Error
+    && (
+      (error as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure === true
+      || (error as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure === true
+    );
 }
 
 /** Brand-based guard so duplicated package instances cannot break detection. */
@@ -471,10 +487,10 @@ export function isRelayRestTransportTotalFailureError(
 
 /**
  * Transport-class means the fetch threw with a network-level cause and no
- * HTTP response was ever received. Aborts/timeouts are deliberately NOT
- * transport-class: a hung relay may have received the request, and masking
- * relay-side slowness with retries would hide capacity problems that the
- * backpressure path (#675) exists to surface.
+ * HTTP response was ever received. Aborts and response deadlines remain a
+ * distinct unacknowledged class because the relay may have committed before
+ * its response leg failed; they become retry-eligible only after the bounded
+ * signed-readback reconciliation in writeNewsRecordViaRelayRest.
  */
 function isTransportClassRelayWriteFailure(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -486,12 +502,15 @@ function isTransportClassRelayWriteFailure(error: unknown): boolean {
       ? ''
       : String(cause);
   // undici wraps dispatcher timeouts as TypeError('fetch failed') with the
-  // real cause underneath. A headers/body timeout means the request WAS
-  // delivered and the relay is hanging — that is relay-side slowness, not
-  // transport-total, so it must keep single-pass semantics like aborts.
-  // (UND_ERR_CONNECT_TIMEOUT stays transport-class: TCP never opened.)
+  // real cause underneath. A headers/body timeout means the request was
+  // delivered and must remain deadline-unacknowledged rather than the legacy
+  // transport subtype. (UND_ERR_CONNECT_TIMEOUT stays transport-class: TCP
+  // never opened.)
   if (/UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT|HeadersTimeoutError|BodyTimeoutError|headers timeout|body timeout/i.test(causeText)) {
     return false;
+  }
+  if (/UND_ERR_SOCKET|SocketError|other side closed/i.test(causeText)) {
+    return true;
   }
   const combined = `${error.message} ${causeText}`;
   return /fetch failed|getaddrinfo|econnrefused|enotfound|eai_again|econnreset|ehostunreach|enetunreach|socket hang up|network/i.test(combined);
@@ -2420,17 +2439,237 @@ function resolveRelayRestWriteEndpoints(client: VennClient, path: NewsRelayRestW
   );
 }
 
-function requireNewsRelayDaemonAuthHeaders(endpoint: string): Record<string, string> {
+function requireNewsRelayDaemonAuthHeaders(endpoint: string, endpointLabel: string): Record<string, string> {
   const headers = createRelayDaemonAuthHeadersForEndpoint(endpoint, {
     tokenMapEnvNames: RELAY_REST_NEWS_WRITE_TOKEN_MAP_ENV,
   });
   if (!headers.Authorization) {
-    const origin = new URL(endpoint).origin;
-    throw new Error(
-      `VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[${origin}] is required for relay REST news writes`,
-    );
+    throw new Error(`Relay daemon token is required for relay REST news write target ${endpointLabel}`);
   }
   return headers;
+}
+
+type RelayRestWriteEndpointResultKind =
+  | 'acknowledged_success'
+  | 'network_unacknowledged'
+  | 'deadline_unacknowledged'
+  | 'http_response'
+  | 'validation_failure';
+
+interface RelayRestWriteTarget {
+  readonly endpoint: string;
+  readonly endpointLabel: string;
+  readonly index: number;
+  readonly headers: Record<string, string>;
+}
+
+interface RelayRestWriteEndpointOutcome {
+  readonly target: RelayRestWriteTarget;
+  readonly kind: RelayRestWriteEndpointResultKind;
+  readonly httpResponseReceived: boolean;
+  readonly detail: string;
+}
+
+interface RelayRestWriteAttemptSummary {
+  readonly attempt: number;
+  readonly duration_ms: number;
+  readonly target_count: number;
+  readonly acknowledged_count: number;
+  readonly network_unacknowledged_count: number;
+  readonly deadline_unacknowledged_count: number;
+  readonly readback_confirmed_count: number;
+  readonly http_response_received_count: number;
+  readonly http_response_count: number;
+  readonly validation_failure_count: number;
+}
+
+function isDeadlineRelayWriteFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'AbortError' || /abort|timeout/i.test(error.message)) return true;
+  const cause = (error as { cause?: unknown }).cause;
+  const causeText = cause instanceof Error
+    ? `${(cause as NodeJS.ErrnoException).code ?? ''} ${cause.name} ${cause.message}`
+    : cause === undefined || cause === null
+      ? ''
+      : String(cause);
+  return /UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT|HeadersTimeoutError|BodyTimeoutError|headers timeout|body timeout/i
+    .test(causeText);
+}
+
+function summarizeRelayRestWriteAttempt(
+  attempt: number,
+  durationMs: number,
+  outcomes: readonly RelayRestWriteEndpointOutcome[],
+  readbackConfirmedCount = 0,
+  readbackValidationFailureCount = 0,
+): RelayRestWriteAttemptSummary {
+  const count = (kind: RelayRestWriteEndpointResultKind): number =>
+    outcomes.filter((outcome) => outcome.kind === kind).length;
+  return {
+    attempt,
+    duration_ms: Math.max(0, durationMs),
+    target_count: outcomes.length,
+    acknowledged_count: count('acknowledged_success'),
+    network_unacknowledged_count: count('network_unacknowledged'),
+    deadline_unacknowledged_count: count('deadline_unacknowledged'),
+    readback_confirmed_count: readbackConfirmedCount,
+    http_response_received_count: outcomes.filter((outcome) => outcome.httpResponseReceived).length,
+    http_response_count: count('http_response'),
+    validation_failure_count: count('validation_failure') + readbackValidationFailureCount,
+  };
+}
+
+function relayRestRecordBindingPath(path: NewsRelayRestWritePath, recordKey: string): string {
+  switch (path) {
+    case '/vh/news/story':
+      return storyPath(recordKey);
+    case '/vh/news/latest-index':
+      return latestIndexEntryPath(recordKey);
+    case '/vh/news/hot-index':
+      return hotIndexEntryPath(recordKey);
+    case '/vh/news/synthesis-lifecycle':
+      return synthesisLifecycleLatestPath(recordKey);
+  }
+}
+
+function relayRestReadbackEndpoint(endpoint: string, recordKey: string): string {
+  const url = new URL(endpoint);
+  url.search = '';
+  url.searchParams.set('story_id', recordKey);
+  url.searchParams.set('readback', 'exact');
+  if (url.pathname === '/vh/news/latest-index') {
+    url.searchParams.set('persist', 'false');
+  }
+  return url.toString();
+}
+
+function resolveRelayRestReadbackDeadlineMs(): number {
+  const raw = readFirstRuntimeString(RELAY_REST_READ_TIMEOUT_ENV);
+  if (raw === undefined) return RELAY_REST_READ_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(RELAY_REST_READ_TIMEOUT_MS, Math.max(25, Math.floor(parsed)))
+    : RELAY_REST_READ_TIMEOUT_MS;
+}
+
+type RelayRestReadbackResultKind = 'confirmed' | 'missing' | 'unavailable' | 'write_safety_failure';
+
+interface RelayRestReadbackResult {
+  readonly target: RelayRestWriteTarget;
+  readonly kind: RelayRestReadbackResultKind;
+}
+
+async function readBackRelayRestWrite(input: {
+  readonly client: VennClient;
+  readonly path: NewsRelayRestWritePath;
+  readonly recordKey: string;
+  readonly expectedRecord: Record<string, unknown>;
+  readonly expectedCanonicalRecord: string;
+  readonly target: RelayRestWriteTarget;
+}): Promise<RelayRestReadbackResult> {
+  const deadlineMs = resolveRelayRestReadbackDeadlineMs();
+  const deadline = Date.now() + deadlineMs;
+  const controller = new AbortController();
+  let sawPresent = false;
+  const execute = async (): Promise<RelayRestReadbackResult> => {
+    try {
+      while (Date.now() < deadline) {
+        const response = await fetch(relayRestReadbackEndpoint(input.target.endpoint, input.recordKey), {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (response.status === 404) {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'missing',
+          };
+        }
+        if (!response.ok && response.status !== 409) {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+          };
+        }
+        if (response.ok) {
+          sawPresent = true;
+        }
+        let body: string;
+        try {
+          body = await response.text();
+        } catch {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+          };
+        }
+        const payload = (() => {
+          try {
+            return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.status === 409) {
+          return {
+            target: input.target,
+            kind: payload?.error_class === 'relay-write-safety'
+              && payload.error === 'news-exact-readback-present-unsafe'
+              ? 'write_safety_failure'
+              : sawPresent
+                ? 'write_safety_failure'
+                : 'unavailable',
+          };
+        }
+        if (!isRecord(payload?.record)) {
+          return { target: input.target, kind: 'write_safety_failure' };
+        }
+        const validation = await validateSystemWriterRecord({
+          path: relayRestRecordBindingPath(input.path, input.recordKey),
+          record: payload.record,
+          pin: input.client.config.systemWriterPin,
+          verify: input.client.config.systemWriterVerify,
+        });
+        const expectedSignature = input.expectedRecord._systemSignature;
+        if (
+          validation.valid
+          && validation.canonicalRecord === input.expectedCanonicalRecord
+          && typeof expectedSignature === 'string'
+          && validation.record._systemSignature === expectedSignature
+        ) {
+          return { target: input.target, kind: 'confirmed' };
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) break;
+        await sleepMs(Math.min(25, remainingMs));
+      }
+      return {
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      };
+    } catch {
+      return {
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      };
+    }
+  };
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadlineResult = new Promise<RelayRestReadbackResult>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve({
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      });
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([execute(), deadlineResult]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    controller.abort();
+  }
 }
 
 async function writeNewsRecordViaRelayRest(input: {
@@ -2448,123 +2687,264 @@ async function writeNewsRecordViaRelayRest(input: {
     throw new Error(`No relay REST endpoints configured for ${input.path}`);
   }
   const quorum = resolveNewsRelayRestWriteQuorum(endpoints.length);
-  const relayTargets = endpoints.map((endpoint) => ({
-    endpoint,
-    headers: requireNewsRelayDaemonAuthHeaders(endpoint),
-  }));
-
-  interface RelayRestWriteFanoutOutcome {
-    readonly successCount: number;
-    readonly failures: readonly string[];
-    readonly failedEndpointLabels: readonly string[];
-    readonly transportClassFailureCount: number;
+  const serializedBody = JSON.stringify({ record: input.record });
+  const recordKey = typeof input.record.story_id === 'string' ? input.record.story_id.trim() : '';
+  if (!recordKey) {
+    throw new Error(`Relay REST news write record key is required for ${input.path}`);
   }
+  const expectedCanonicalRecord = canonicalizeSystemWriterRecordForSigning(input.record);
+  const relayTargets = endpoints.map((endpoint, index) => {
+    const endpointLabel = relayRestEndpointLabel(endpoint, index);
+    return {
+      endpoint,
+      endpointLabel,
+      index,
+      headers: requireNewsRelayDaemonAuthHeaders(endpoint, endpointLabel),
+    };
+  });
 
-  const attemptFanout = async (): Promise<RelayRestWriteFanoutOutcome> => {
-    const failures: string[] = [];
-    const failedEndpointLabels: string[] = [];
-    let successCount = 0;
-    let transportClassFailureCount = 0;
-
-    for (const { endpoint, headers } of relayTargets) {
-      const endpointLabel = relayRestEndpointLabel(endpoint);
+  const attemptFanout = async (
+    targets: readonly RelayRestWriteTarget[],
+  ): Promise<{ readonly outcomes: readonly RelayRestWriteEndpointOutcome[] }> => {
+    const outcomes = await Promise.all(targets.map(async (target): Promise<RelayRestWriteEndpointOutcome> => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...headers,
-          },
-          body: JSON.stringify({ record: input.record }),
-          signal: controller.signal,
-        });
-        const body = await response.text().catch(() => '');
-        const payload = (() => {
-          try {
-            return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
-          } catch {
-            return null;
+      const execute = async (): Promise<RelayRestWriteEndpointOutcome> => {
+        try {
+          const response = await fetch(target.endpoint, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              ...target.headers,
+            },
+            body: serializedBody,
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            return {
+              target,
+              kind: 'http_response',
+              httpResponseReceived: true,
+              detail: classifyRelayRestHttpFailure(response.status, body),
+            };
           }
-        })();
-        if (response.ok && payload && input.validate(payload)) {
-          successCount += 1;
-          continue;
+          let body: string;
+          try {
+            body = await response.text();
+          } catch (error) {
+            const kind: RelayRestWriteEndpointResultKind = isDeadlineRelayWriteFailure(error)
+              ? 'deadline_unacknowledged'
+              : isTransportClassRelayWriteFailure(error)
+                ? 'network_unacknowledged'
+                : 'validation_failure';
+            return {
+              target,
+              kind,
+              httpResponseReceived: true,
+              detail: kind,
+            };
+          }
+          const payload = (() => {
+            try {
+              return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+            } catch {
+              return null;
+            }
+          })();
+          if (payload && input.validate(payload)) {
+            return {
+              target,
+              kind: 'acknowledged_success',
+              httpResponseReceived: true,
+              detail: 'acknowledged',
+            };
+          }
+          return {
+            target,
+            kind: 'validation_failure',
+            httpResponseReceived: true,
+            detail: 'response-validation-failed',
+          };
+        } catch (error) {
+          const kind: RelayRestWriteEndpointResultKind = isDeadlineRelayWriteFailure(error)
+            ? 'deadline_unacknowledged'
+            : isTransportClassRelayWriteFailure(error)
+              ? 'network_unacknowledged'
+              : 'validation_failure';
+          return {
+            target,
+            kind,
+            httpResponseReceived: false,
+            detail: kind,
+          };
         }
-        const classification = classifyRelayRestHttpFailure(response.status, body);
-        failedEndpointLabels.push(endpointLabel);
-        failures.push(`${endpointLabel}:${classification}`);
-      } catch (error) {
-        if (isTransportClassRelayWriteFailure(error)) {
-          transportClassFailureCount += 1;
-        }
-        failedEndpointLabels.push(endpointLabel);
-        failures.push(`${endpointLabel}:${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-
-    return { successCount, failures, failedEndpointLabels, transportClassFailureCount };
+      };
+      const outcome = await execute();
+      clearTimeout(timeout);
+      return outcome;
+    }));
+    return { outcomes };
   };
 
-  const isTransportTotalOutcome = (outcome: RelayRestWriteFanoutOutcome): boolean =>
-    outcome.successCount === 0 && outcome.transportClassFailureCount >= endpoints.length;
+  const isAvailabilityOnlyOutcome = (outcomes: readonly RelayRestWriteEndpointOutcome[]): boolean =>
+    outcomes.length > 0 && outcomes.every((outcome) =>
+      outcome.kind === 'network_unacknowledged' || outcome.kind === 'deadline_unacknowledged');
 
   const retryPlan = resolveRelayRestTransportRetryPlan();
   const maxAttempts = 1 + retryPlan.retries;
-  let outcome: RelayRestWriteFanoutOutcome | undefined;
-  let attemptsUsed = 0;
+  const confirmedTargetIndexes = new Set<number>();
+  const attemptSummaries: RelayRestWriteAttemptSummary[] = [];
+  let targetsForAttempt: readonly RelayRestWriteTarget[] = relayTargets;
+  let lastOutcomes: readonly RelayRestWriteEndpointOutcome[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    attemptsUsed = attempt;
-    outcome = await attemptFanout();
+    const attemptStartedAt = Date.now();
+    const fanout = await attemptFanout(targetsForAttempt);
+    lastOutcomes = fanout.outcomes;
+    for (const outcome of fanout.outcomes) {
+      if (outcome.kind === 'acknowledged_success') {
+        confirmedTargetIndexes.add(outcome.target.index);
+      }
+    }
 
-    if (outcome.successCount >= quorum.requiredSuccessCount) {
+    let readbackConfirmedCount = 0;
+    let readbackValidationFailureCount = 0;
+    const readbackEligibleOutcomes = fanout.outcomes.filter((outcome) =>
+      outcome.kind === 'network_unacknowledged' || outcome.kind === 'deadline_unacknowledged');
+    if (
+      confirmedTargetIndexes.size < quorum.requiredSuccessCount
+      && readbackEligibleOutcomes.length > 0
+    ) {
+      const readbacks = await Promise.all(readbackEligibleOutcomes.map((outcome) =>
+        readBackRelayRestWrite({
+          client: input.client,
+          path: input.path,
+          recordKey,
+          expectedRecord: input.record,
+          expectedCanonicalRecord,
+          target: outcome.target,
+        })));
+      for (const readback of readbacks) {
+        if (readback.kind === 'confirmed') {
+          confirmedTargetIndexes.add(readback.target.index);
+          readbackConfirmedCount += 1;
+        } else if (readback.kind === 'write_safety_failure') {
+          readbackValidationFailureCount += 1;
+        }
+      }
+      if (readbackValidationFailureCount > 0) {
+        attemptSummaries.push(summarizeRelayRestWriteAttempt(
+          attempt,
+          Date.now() - attemptStartedAt,
+          fanout.outcomes,
+          readbackConfirmedCount,
+          readbackValidationFailureCount,
+        ));
+        lumaLog('warn', '[vh:news] relay REST write failed closed', {
+          write_class: input.writeClass,
+          path: input.path,
+          relay_target_count: endpoints.length,
+          relay_required_success_count: quorum.requiredSuccessCount,
+          relay_confirmed_count: confirmedTargetIndexes.size,
+          relay_write_attempt_count: attemptSummaries.length,
+          relay_final_availability_classification: 'write_safety_failure',
+          relay_attempt_summaries: attemptSummaries,
+        });
+        throw new Error(
+          `Relay REST news write safety readback failed for ${input.path}: validation_failure_count=${readbackValidationFailureCount}`,
+        );
+      }
+    }
+
+    const attemptSummary = summarizeRelayRestWriteAttempt(
+      attempt,
+      Date.now() - attemptStartedAt,
+      fanout.outcomes,
+      readbackConfirmedCount,
+      readbackValidationFailureCount,
+    );
+    attemptSummaries.push(attemptSummary);
+
+    if (confirmedTargetIndexes.size >= quorum.requiredSuccessCount) {
       lumaLog('info', '[vh:news] relay REST write completed', {
         write_class: input.writeClass,
         path: input.path,
-        relay_success_count: outcome.successCount,
+        relay_success_count: confirmedTargetIndexes.size,
         relay_target_count: endpoints.length,
         relay_required_success_count: quorum.requiredSuccessCount,
-        relay_failed_endpoint_labels: outcome.failedEndpointLabels,
+        relay_failed_endpoint_labels: relayTargets
+          .filter((target) => !confirmedTargetIndexes.has(target.index))
+          .map((target) => target.endpointLabel),
         require_all: quorum.requireAll,
         min_success_configured: quorum.minSuccessConfigured,
         relay_write_attempt: attempt,
+        relay_write_attempt_count: attemptSummaries.length,
+        relay_final_availability_classification: 'quorum_satisfied',
+        relay_attempt_summaries: attemptSummaries,
       });
       return;
     }
 
-    // Retry ONLY the transport-total case: zero relays acked and every
-    // failure was network-level, so nothing was published anywhere and the
-    // id-keyed upsert is safe to re-send. Any relay-returned response (500,
-    // 503 backpressure, 4xx) or abort/timeout keeps single-pass semantics.
-    if (!isTransportTotalOutcome(outcome) || attempt >= maxAttempts) {
+    if (!isAvailabilityOnlyOutcome(fanout.outcomes) || attempt >= maxAttempts) {
       break;
     }
+    // Quorum validation guarantees requiredSuccessCount <= relayTargets.length;
+    // because this branch is below quorum, at least one target is unresolved.
+    targetsForAttempt = relayTargets.filter((target) => !confirmedTargetIndexes.has(target.index));
     const backoffIndex = Math.min(attempt - 1, retryPlan.backoffMs.length - 1);
     const delayMs = retryPlan.backoffMs[backoffIndex]!;
-    lumaLog('warn', '[vh:news] relay REST write transport-unavailable; retrying', {
+    lumaLog('warn', '[vh:news] relay REST write availability-total; retrying unresolved targets', {
       write_class: input.writeClass,
       path: input.path,
       relay_target_count: endpoints.length,
-      relay_failed_endpoint_labels: outcome.failedEndpointLabels,
+      relay_unresolved_endpoint_labels: targetsForAttempt.map((target) => target.endpointLabel),
+      relay_confirmed_count: confirmedTargetIndexes.size,
       attempt,
       max_attempts: maxAttempts,
       retry_delay_ms: delayMs,
+      relay_attempt_summary: attemptSummary,
     });
     if (delayMs > 0) {
       await sleepMs(delayMs);
     }
   }
 
-  const finalOutcome = outcome as RelayRestWriteFanoutOutcome;
-  const failureMessage = `Relay REST news write failed for ${input.path}: ${finalOutcome.successCount}/${endpoints.length} succeeded; required=${quorum.requiredSuccessCount}; failed=${finalOutcome.failures.join('; ')}`;
-  if (isTransportTotalOutcome(finalOutcome)) {
-    throw new RelayRestTransportTotalFailureError(
-      `${failureMessage}; transport_unavailable_attempts=${attemptsUsed}`,
-      { path: input.path, attemptCount: attemptsUsed },
+  const safeOutcomes = lastOutcomes
+    .map((outcome) => `${outcome.target.endpointLabel}:${outcome.kind}:${outcome.detail}`)
+    .join('; ');
+  const failureMessage = `Relay REST news write failed for ${input.path}: ${confirmedTargetIndexes.size}/${endpoints.length} confirmed; required=${quorum.requiredSuccessCount}; outcomes=${safeOutcomes}`;
+  const availabilityTotal = confirmedTargetIndexes.size === 0 && isAvailabilityOnlyOutcome(lastOutcomes);
+  const finalClassification = availabilityTotal
+    ? 'availability_total'
+    : confirmedTargetIndexes.size > 0
+      ? 'partial_quorum'
+      : lastOutcomes.some((outcome) => outcome.kind === 'http_response')
+        ? 'http_response_failure'
+        : 'validation_failure';
+  lumaLog('warn', '[vh:news] relay REST write failed closed', {
+    write_class: input.writeClass,
+    path: input.path,
+    relay_target_count: endpoints.length,
+    relay_required_success_count: quorum.requiredSuccessCount,
+    relay_confirmed_count: confirmedTargetIndexes.size,
+    relay_write_attempt_count: attemptSummaries.length,
+    relay_final_availability_classification: finalClassification,
+    relay_attempt_summaries: attemptSummaries,
+  });
+  if (availabilityTotal) {
+    const options = { path: input.path, attemptCount: attemptSummaries.length };
+    const pureTransportTotal = lastOutcomes.every((outcome) =>
+      outcome.kind === 'network_unacknowledged' && !outcome.httpResponseReceived);
+    if (pureTransportTotal) {
+      throw new RelayRestTransportTotalFailureError(
+        `${failureMessage}; availability_total_attempts=${attemptSummaries.length}`,
+        options,
+      );
+    }
+    throw new RelayRestAvailabilityTotalFailureError(
+      `${failureMessage}; availability_total_attempts=${attemptSummaries.length}`,
+      options,
     );
   }
   throw new Error(failureMessage);
@@ -3563,6 +3943,7 @@ export const newsAdapterInternal = {
   resolveRelayRestWriteEndpoints,
   resolveNewsRelayRestWriteQuorum,
   resolveRelayRestTransportRetryPlan,
+  isDeadlineRelayWriteFailure,
   isTransportClassRelayWriteFailure,
   shouldRequireAllNewsRelayRestWrites,
   shouldWriteNewsViaRelayRestFirst,

@@ -2,7 +2,7 @@
 
 > Status: Reviewed implementation plan (v2 — supersedes the v1 draft in this PR)
 > Owner: coordinating agent + VHC Launch Ops
-> Last Reviewed: 2026-07-06 (six-lens adversarial review: security trust-chain,
+> Last Reviewed: 2026-07-10 (v1/v2 producer compatibility plus availability-total terminology; original six-lens adversarial review: security trust-chain,
 > iOS/push platform, external API grounding, repo grounding, operational
 > failure modes, scope/sequencing — all findings incorporated below)
 > Depends On: docs/ops/public-feed-freshness-monitor.md, docs/ops/news-aggregator-production-service.md, docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md, docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md
@@ -87,6 +87,11 @@ slices they belong to.
 - The repo is PUBLIC. Every security decision below assumes hostile readers
   and hostile commenters on every issue.
 
+The bullets above are retained as the pre-merge snapshot. The current producer
+contract is `vh-public-feed-alert-watch-v2` with v3 dedupe state; the pager
+continues to ingest historical v1 and current v2 payloads and preserves the
+same incident-family key across that transition.
+
 ## Post-Merge Current State (2026-07-06)
 
 - PR #722 is merged on `main`. The pager service, GitHub incident bridge,
@@ -165,15 +170,15 @@ slices they belong to.
    pager PWA notifications with sound and to consider scheduled Focus
    breakthrough for it. Anything stronger (phone call, native app critical
    alerts) is explicitly out of scope and listed as a future upgrade.
-9. **Secret discipline (unchanged from v1).** Issues are public-safe: hashes,
-   counts, classes, timestamps, links only. No tokens, webhook URLs, env
-   values, payload bodies, or heap paths in issues or model context. The A6
-   read-only collector emits secret-safe summaries only.
+9. **Secret discipline (unchanged from the first plan revision).** Issues are
+   public-safe: hashes, counts, classes, timestamps, links only. No tokens,
+   webhook URLs, env values, payload bodies, or heap paths in issues or model
+   context. The A6 read-only collector emits secret-safe summaries only.
 10. **Standing A6 invariants (unchanged).** No live mutation without an
     approved packet; 2-of-3 quorum never weakened; exit 78 stays a
     non-restarting write-safety park — see the exit-class guard in Slice 8;
-    exit 69 stays the transport-total restartable class; no memory
-    remediation until heap evidence names the retainer.
+    exit 69 stays the compatibility-labelled availability-total restartable
+    class; no memory remediation until heap evidence names the retainer.
 
 ## Slice 0 - Interim Alert Channel (do this FIRST, independent of the build)
 
@@ -290,8 +295,10 @@ As v1, plus the review deltas:
 Tests: HMAC + replay-window, unsigned-bootstrap latch, durable-persist-
 before-200 (fault-injected crash between persist and fan-out), ack auth,
 enrollment auth, dedupe/repeat/ack/recovery/missing-heartbeat via DO-alarm
-simulation, producer-fixture replay (real `vh-public-feed-alert-watch-v1`
-shapes incl. `alertReason` demux).
+simulation, producer-fixture replay for historical
+`vh-public-feed-alert-watch-v1` and current
+`vh-public-feed-alert-watch-v2` shapes including `alertReason` demux and stable
+incident-family keys across the schema transition.
 
 Done when: the pager ingests today's producer JSON durably, repeats unacked
 criticals, alarms on A6 silence, and is itself covered by an external

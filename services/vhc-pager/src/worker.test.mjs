@@ -25,7 +25,7 @@ test('worker accepts signed A6 alert and rejects unauthenticated ack', async () 
     VH_PAGER_DEVICE_TOKEN: 'device-token',
   };
   const alert = {
-    schemaVersion: 'vh-public-feed-alert-watch-v1',
+    schemaVersion: 'vh-public-feed-alert-watch-v2',
     generatedAt: '2026-07-06T10:00:00.000Z',
     status: 'fail',
     severity: 'critical',

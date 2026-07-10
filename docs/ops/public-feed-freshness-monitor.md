@@ -2,7 +2,7 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-10
 > Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
@@ -53,7 +53,7 @@ alert when either:
 - the public latest-index freshness monitor fails the 6-hour SLO or public
   health checks;
 - `vh-news-aggregator.service` is not `active/running`;
-- the publisher unit is in the #706 transport-total restart path with
+- the publisher unit is in the availability-total restart path with
   `ExecMainStatus=69`;
 - the publisher unit is parked with `ExecMainStatus=78`.
 - required relay-liveness, relay-snapshot, or watch-closure latest files are
@@ -64,16 +64,17 @@ alert when either:
 
 Publisher exit classification is intentionally split:
 
-- `exit_69_transport_unavailable` is warning-severity. It means the daemon saw a
-  branded all-relay transport-total REST failure and exited with `69`, which is
-  restartable by the managed systemd unit (`Restart=on-failure`;
-  `RestartPreventExitStatus=78`) and systemd is still in the bounded
+- `exit_69_transport_unavailable` is the compatibility label for the
+  warning-severity availability-total class. It means the daemon exhausted a
+  bounded zero-acknowledgement network/deadline path and exited with `69`, which
+  is restartable by the managed systemd unit (`Restart=on-failure`;
+  `RestartPreventExitStatus=78`) while systemd remains inside the bounded
   auto-restart window. The alert exists so the operator can confirm
   self-recovery instead of discovering a stale feed later.
 - `exit_69_start_limit_parked` is critical-severity. It means the same
-  transport-total class repeated until systemd exhausted `StartLimitBurst`, so
-  the publisher is no longer self-recovering and needs operator action after the
-  host/network path is healthy again.
+  availability-total class repeated until systemd exhausted `StartLimitBurst`,
+  so the publisher is no longer self-recovering and needs operator action after
+  the host/relay path is healthy again.
 - `exit_75_wrapper_refusal` is critical-severity. It means the production
   wrapper refused to start before the daemon owned the process, such as a
   sibling-service or approval/preflight refusal, and requires operator
@@ -82,9 +83,14 @@ Publisher exit classification is intentionally split:
   write-safety park and requires operator inspection before publisher writes
   resume.
 
-The alert output is secret-safe. It records statuses, blockers, counts, ages,
-and origin hashes only; it does not include tokens, raw feed payloads, story
-bodies, URLs, pins, keys, or heap snapshot contents.
+The repo-side alert producer emits `vh-public-feed-alert-watch-v2` reports and
+stores `vh-public-feed-alert-state-v3` dedupe state. Every outbound, persisted,
+MIME, and console surface is built from a closed public projection: stable
+reason classes, bounded safe numeric fields, and normalized non-secret relay
+identities. It does not include tokens, raw feed payloads, story bodies, raw
+URLs, pins, keys, private paths, provider diagnostics, or heap snapshot
+contents. Email is `text/plain; charset=utf-8` so normal clients and connector
+text extraction receive a readable secret-safe JSON body.
 
 The script supports two delivery channels configured by environment only:
 
@@ -111,12 +117,14 @@ The script supports two delivery channels configured by environment only:
 State-change-only delivery means a repeated stale feed, repeated exit-69
 restart state, or repeated exit-78 publisher state does not spam every timer
 tick. A transition into failure sends, a transition out of failure sends, and a
-heartbeat sends only when explicitly configured. The state fingerprint is based
-on failure class, publisher state, origin hashes, counts, and stale/fresh age
-state rather than the exact `newestAgeMs`, so an already-stale feed aging by
-another timer interval does not create a new alert by itself. A failed delivery
-is not treated as delivered; the next timer run retries the same observed
-failure until at least one configured channel succeeds.
+heartbeat sends only when explicitly configured. The v2 fingerprint uses the
+closed semantic projection, not raw diagnostics or continuously changing ages,
+window decimals, archive counts, endpoint paths, or secret-derived hashes. The
+v3 state migration deliberately permits at most one state-change delivery for
+an unresolved pre-v3 incident, then resumes suppression. Stable blocker-family
+prefixes preserve pager incident keys across v1 and v2 producer shapes. A
+failed delivery is not treated as delivered; the next timer run retries the
+same observed failure until at least one configured channel succeeds.
 
 The repo ships user-systemd units but does not enable them:
 
@@ -127,20 +135,25 @@ The service unit includes `TimeoutStartSec=180`, which bounds a hung
 freshness/publisher probe without making normal 15-second HTTP timeouts race the
 systemd start deadline.
 
-Current A6 state as of 2026-07-06:
+Current read-only A6 state as of the 2026-07-10 S1A refresh:
 
 - `~/.config/vhc/public-feed-alert.env` is configured with a host-private email
   channel;
 - `vh-public-feed-alert-watch.timer` is enabled and active;
 - `vh-phase5-scope-a-watch-closure.timer` is enabled and active;
-- the first real stale-feed alert after enablement was delivered;
-- the recovery/pass transition after #723 was also delivered;
+- `vh-news-aggregator.service` is parked `failed/failed` at
+  `ExecMainStatus=78` after `relay_rest_story_timeout_total_0_of_3_exit_78`;
+- relay liveness is `3/3` pass, but relay snapshots are `0/3` current and public
+  freshness/watch closure fail;
+- the failure transition was already delivered and the unchanged incident is
+  suppressed rather than re-sent;
 - the active live alert path is still interim email, not the custom
   pager/PWA.
 
-While freshness, relay liveness, relay snapshot freshness, and watch closure
-remain green, do not rerun test-fire, restart services, or change the alert
-channel. Treat the next delivered failure email as an incident.
+The v2/v3 producer and availability-total runtime changes described above are
+repo remediation, not proof of deployment on A6. Do not rerun test-fire,
+restart services, deploy these changes, or change the alert channel without the
+reviewed recovery packet and Lou's explicit incident approval.
 
 Operator enablement or channel reconfiguration, after explicit approval.
 
