@@ -145,6 +145,9 @@ Runtime implementation lane:
 - owns `services/news-aggregator/src/daemonWriteLane.ts`, `daemonCli.ts`, the
   minimum required `daemon.ts` logging change, and focused tests for those
   files;
+- owns the minimum required `infra/relay/server.js` change and focused
+  `packages/e2e/src/live/relay-server.vitest.mjs` coverage solely to expose
+  nonmutating by-key signed-record readback for latest-index and hot-index;
 - may propose, but must not directly edit, shared operational docs;
 - must prove all four critical POST/readback contracts before making deadline
   retry eligible: story, latest-index, hot-index, and synthesis-lifecycle.
@@ -279,6 +282,14 @@ Subsequent review found and resolved:
   excludes `packages/e2e`;
 - the first news-runtime command targeted a package with no `test` script and
   could exit zero while running no tests.
+
+Execution-time G0 contract audit found and resolved:
+
+- latest-index and hot-index exposed only bounded aggregate GETs, so the Runtime
+  lane could not prove exact endpoint-local timeout reconciliation;
+- Runtime ownership omitted the two relay files required for the smallest
+  permanent repair. The lane now owns by-key nonmutating signed-record GETs and
+  focused relay integration coverage for those routes.
 
 Current review verdict: no unresolved checklist-level P0/P1/P2 finding. This is
 a verdict on the orchestration artifact, not on the unimplemented S1B code or
@@ -762,7 +773,9 @@ Targets:
 - `services/news-aggregator/src/daemonWriteLane.ts`;
 - `services/news-aggregator/src/daemonCli.ts`;
 - the minimum required `services/news-aggregator/src/daemon.ts` logging change;
-- associated gun-client and news-aggregator tests.
+- the minimum required `infra/relay/server.js` route change;
+- associated gun-client, news-aggregator, and
+  `packages/e2e/src/live/relay-server.vitest.mjs` tests.
 
 - [ ] Define availability-total as zero validated acknowledgements where every
   endpoint result is `network_unacknowledged` or
@@ -771,6 +784,10 @@ Targets:
   for `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and
   `/vh/news/synthesis-lifecycle` before enabling timeout reconciliation for that
   class. A generic fallback or aggregate read is not sufficient proof.
+- [ ] For latest-index and hot-index, add bounded `story_id` GET branches that
+  return the complete stored signed record without scanning an aggregate root,
+  mutating a latest-index snapshot, or changing the existing aggregate response
+  when `story_id` is absent.
 - [ ] If any critical class lacks bounded endpoint-local signed readback, keep
   that class on exit `78` and stop/report the missing contract instead of
   silently using blind retry.
