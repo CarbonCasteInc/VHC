@@ -505,6 +505,9 @@ function isTransportClassRelayWriteFailure(error: unknown): boolean {
   if (/UND_ERR_HEADERS_TIMEOUT|UND_ERR_BODY_TIMEOUT|HeadersTimeoutError|BodyTimeoutError|headers timeout|body timeout/i.test(causeText)) {
     return false;
   }
+  if (/UND_ERR_SOCKET|SocketError|other side closed/i.test(causeText)) {
+    return true;
+  }
   const combined = `${error.message} ${causeText}`;
   return /fetch failed|getaddrinfo|econnrefused|enotfound|eai_again|econnreset|ehostunreach|enetunreach|socket hang up|network/i.test(combined);
 }
@@ -2556,45 +2559,60 @@ async function readBackRelayRestWrite(input: {
 }): Promise<RelayRestReadbackResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
-  try {
-    const response = await fetch(relayRestReadbackEndpoint(input.target.endpoint, input.recordKey), {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (response.status === 404) {
-      return { target: input.target, kind: 'missing' };
-    }
-    if (!response.ok) {
+  const execute = async (): Promise<RelayRestReadbackResult> => {
+    try {
+      const response = await fetch(relayRestReadbackEndpoint(input.target.endpoint, input.recordKey), {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (response.status === 404) {
+        return { target: input.target, kind: 'missing' };
+      }
+      if (!response.ok) {
+        return { target: input.target, kind: 'unavailable' };
+      }
+      let body: string;
+      try {
+        body = await response.text();
+      } catch {
+        return { target: input.target, kind: 'unavailable' };
+      }
+      const payload = (() => {
+        try {
+          return body.trim() ? JSON.parse(body) as { record?: unknown } : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (!isRecord(payload?.record)) {
+        return { target: input.target, kind: 'write_safety_failure' };
+      }
+      const validation = await validateSystemWriterRecord({
+        path: relayRestRecordBindingPath(input.path, input.recordKey),
+        record: payload.record,
+        pin: input.client.config.systemWriterPin,
+        verify: input.client.config.systemWriterVerify,
+      });
+      if (!validation.valid) {
+        return { target: input.target, kind: 'write_safety_failure' };
+      }
+      const expectedSignature = input.expectedRecord._systemSignature;
+      if (
+        validation.canonicalRecord !== input.expectedCanonicalRecord
+        || typeof expectedSignature !== 'string'
+        || validation.record._systemSignature !== expectedSignature
+      ) {
+        return { target: input.target, kind: 'write_safety_failure' };
+      }
+      return { target: input.target, kind: 'confirmed' };
+    } catch {
       return { target: input.target, kind: 'unavailable' };
     }
-    const payload = await response.json().catch(() => null) as { record?: unknown } | null;
-    if (!isRecord(payload?.record)) {
-      return { target: input.target, kind: 'write_safety_failure' };
-    }
-    const validation = await validateSystemWriterRecord({
-      path: relayRestRecordBindingPath(input.path, input.recordKey),
-      record: payload.record,
-      pin: input.client.config.systemWriterPin,
-      verify: input.client.config.systemWriterVerify,
-    });
-    if (!validation.valid) {
-      return { target: input.target, kind: 'write_safety_failure' };
-    }
-    const expectedSignature = input.expectedRecord._systemSignature;
-    if (
-      validation.canonicalRecord !== input.expectedCanonicalRecord
-      || typeof expectedSignature !== 'string'
-      || validation.record._systemSignature !== expectedSignature
-    ) {
-      return { target: input.target, kind: 'write_safety_failure' };
-    }
-    return { target: input.target, kind: 'confirmed' };
-  } catch {
-    return { target: input.target, kind: 'unavailable' };
-  } finally {
-    clearTimeout(timeout);
-  }
+  };
+  const result = await execute();
+  clearTimeout(timeout);
+  return result;
 }
 
 async function writeNewsRecordViaRelayRest(input: {
@@ -2634,28 +2652,63 @@ async function writeNewsRecordViaRelayRest(input: {
     const outcomes = await Promise.all(targets.map(async (target): Promise<RelayRestWriteEndpointOutcome> => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), RELAY_REST_WRITE_TIMEOUT_MS);
-      try {
-        const response = await fetch(target.endpoint, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...target.headers,
-          },
-          body: serializedBody,
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          const body = await response.text().catch(() => '');
+      const execute = async (): Promise<RelayRestWriteEndpointOutcome> => {
+        try {
+          const response = await fetch(target.endpoint, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              ...target.headers,
+            },
+            body: serializedBody,
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            return {
+              target,
+              kind: 'http_response',
+              httpResponseReceived: true,
+              detail: classifyRelayRestHttpFailure(response.status, body),
+            };
+          }
+          let body: string;
+          try {
+            body = await response.text();
+          } catch (error) {
+            const kind: RelayRestWriteEndpointResultKind = isDeadlineRelayWriteFailure(error)
+              ? 'deadline_unacknowledged'
+              : isTransportClassRelayWriteFailure(error)
+                ? 'network_unacknowledged'
+                : 'validation_failure';
+            return {
+              target,
+              kind,
+              httpResponseReceived: true,
+              detail: kind,
+            };
+          }
+          const payload = (() => {
+            try {
+              return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+            } catch {
+              return null;
+            }
+          })();
+          if (payload && input.validate(payload)) {
+            return {
+              target,
+              kind: 'acknowledged_success',
+              httpResponseReceived: true,
+              detail: 'acknowledged',
+            };
+          }
           return {
             target,
-            kind: 'http_response',
+            kind: 'validation_failure',
             httpResponseReceived: true,
-            detail: classifyRelayRestHttpFailure(response.status, body),
+            detail: 'response-validation-failed',
           };
-        }
-        let body: string;
-        try {
-          body = await response.text();
         } catch (error) {
           const kind: RelayRestWriteEndpointResultKind = isDeadlineRelayWriteFailure(error)
             ? 'deadline_unacknowledged'
@@ -2665,46 +2718,14 @@ async function writeNewsRecordViaRelayRest(input: {
           return {
             target,
             kind,
-            httpResponseReceived: true,
+            httpResponseReceived: false,
             detail: kind,
           };
         }
-        const payload = (() => {
-          try {
-            return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
-          } catch {
-            return null;
-          }
-        })();
-        if (payload && input.validate(payload)) {
-          return {
-            target,
-            kind: 'acknowledged_success',
-            httpResponseReceived: true,
-            detail: 'acknowledged',
-          };
-        }
-        return {
-          target,
-          kind: 'validation_failure',
-          httpResponseReceived: true,
-          detail: 'response-validation-failed',
-        };
-      } catch (error) {
-        const kind: RelayRestWriteEndpointResultKind = isDeadlineRelayWriteFailure(error)
-          ? 'deadline_unacknowledged'
-          : isTransportClassRelayWriteFailure(error)
-            ? 'network_unacknowledged'
-            : 'validation_failure';
-        return {
-          target,
-          kind,
-          httpResponseReceived: false,
-          detail: kind,
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
+      };
+      const outcome = await execute();
+      clearTimeout(timeout);
+      return outcome;
     }));
     return { outcomes };
   };
@@ -2811,10 +2832,9 @@ async function writeNewsRecordViaRelayRest(input: {
     if (!isAvailabilityOnlyOutcome(fanout.outcomes) || attempt >= maxAttempts) {
       break;
     }
+    // Quorum validation guarantees requiredSuccessCount <= relayTargets.length;
+    // because this branch is below quorum, at least one target is unresolved.
     targetsForAttempt = relayTargets.filter((target) => !confirmedTargetIndexes.has(target.index));
-    if (targetsForAttempt.length === 0) {
-      break;
-    }
     const backoffIndex = Math.min(attempt - 1, retryPlan.backoffMs.length - 1);
     const delayMs = retryPlan.backoffMs[backoffIndex]!;
     lumaLog('warn', '[vh:news] relay REST write availability-total; retrying unresolved targets', {
@@ -3866,6 +3886,7 @@ export const newsAdapterInternal = {
   resolveRelayRestWriteEndpoints,
   resolveNewsRelayRestWriteQuorum,
   resolveRelayRestTransportRetryPlan,
+  isDeadlineRelayWriteFailure,
   isTransportClassRelayWriteFailure,
   shouldRequireAllNewsRelayRestWrites,
   shouldWriteNewsViaRelayRestFirst,

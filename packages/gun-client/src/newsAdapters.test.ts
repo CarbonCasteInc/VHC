@@ -993,6 +993,20 @@ describe('newsAdapters', () => {
   });
 
   it('classifies only network-level thrown relay write failures as transport-class', () => {
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure('timeout')).toBe(false);
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure(new Error('request timeout'))).toBe(true);
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure(
+      new TypeError('fetch failed', { cause: 'UND_ERR_BODY_TIMEOUT' }),
+    )).toBe(true);
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure(
+      new TypeError('fetch failed', { cause: new Error('Body Timeout Error') }),
+    )).toBe(true);
+    const deadlineCauseWithCode = new Error('deadline elapsed');
+    (deadlineCauseWithCode as NodeJS.ErrnoException).code = 'UND_ERR_BODY_TIMEOUT';
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure(
+      new TypeError('fetch failed', { cause: deadlineCauseWithCode }),
+    )).toBe(true);
+    expect(newsAdapterInternal.isDeadlineRelayWriteFailure(new TypeError('fetch failed'))).toBe(false);
     expect(newsAdapterInternal.isTransportClassRelayWriteFailure('fetch failed')).toBe(false);
     expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new TypeError('fetch failed'))).toBe(true);
     expect(newsAdapterInternal.isTransportClassRelayWriteFailure(new Error('ordinary application error'))).toBe(false);
@@ -1021,6 +1035,13 @@ describe('newsAdapters', () => {
     expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
       new TypeError('fetch failed', { cause: bodyTimeoutCause }),
     )).toBe(false);
+
+    const socketResetCause = new Error('other side closed');
+    socketResetCause.name = 'SocketError';
+    (socketResetCause as NodeJS.ErrnoException).code = 'UND_ERR_SOCKET';
+    expect(newsAdapterInternal.isTransportClassRelayWriteFailure(
+      new TypeError('terminated', { cause: socketResetCause }),
+    )).toBe(true);
   });
 
   it('resolves relay REST transport retry plan with defaults, clamps, and fallback parsing', () => {
@@ -1332,7 +1353,12 @@ describe('newsAdapters', () => {
         },
         {
           summaryKey: 'network_unacknowledged_count',
-          failure: () => new TypeError('fetch failed', { cause: new Error('socket hang up') }),
+          failure: () => {
+            const cause = new Error('other side closed');
+            cause.name = 'SocketError';
+            (cause as NodeJS.ErrnoException).code = 'UND_ERR_SOCKET';
+            return new TypeError('terminated', { cause });
+          },
         },
       ] as const;
       for (const testCase of cases) {
@@ -1374,6 +1400,53 @@ describe('newsAdapters', () => {
       }
     } finally {
       warn.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps ordinary 2xx body failures and malformed acknowledgements fail-closed', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const cases = [
+        { body: async () => { throw new Error('ordinary body decoder failure'); } },
+        { body: async () => '{' },
+        { body: async () => '' },
+      ] as const;
+
+      for (const testCase of cases) {
+        const fetchMock = vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          text: testCase.body,
+        }) as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const failure = await writeNewsLatestIndexEntry(
+          client,
+          STORY.story_id,
+          STORY.cluster_window_end,
+          STORY,
+        ).then(() => null, (error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(Error);
+        expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(false);
+        expect((failure as Error).message).toContain('validation_failure');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        vi.unstubAllGlobals();
+      }
+    } finally {
       vi.unstubAllGlobals();
       restoreEnv();
       restoreRuntimeConfig();
@@ -1597,6 +1670,79 @@ describe('newsAdapters', () => {
 
         expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
         expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('distinguishes unavailable readbacks from malformed write-safety evidence', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const cases = [
+        {
+          readback: () => new Response(JSON.stringify({ ok: false }), { status: 502 }),
+          availabilityTotal: true,
+        },
+        {
+          readback: () => ({
+            ok: true,
+            status: 200,
+            text: async () => {
+              const cause = new Error('other side closed');
+              cause.name = 'SocketError';
+              (cause as NodeJS.ErrnoException).code = 'UND_ERR_SOCKET';
+              throw new TypeError('terminated', { cause });
+            },
+          }) as Response,
+          availabilityTotal: true,
+        },
+        {
+          readback: () => new Response('{', { status: 200 }),
+          availabilityTotal: false,
+        },
+        {
+          readback: () => new Response('', { status: 200 }),
+          availabilityTotal: false,
+        },
+        {
+          readback: () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+          availabilityTotal: false,
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'GET') return testCase.readback();
+          const error = new Error('This operation was aborted');
+          error.name = 'AbortError';
+          throw error;
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/latest-index',
+          record: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+          writeClass: 'news-latest-index',
+          validate: () => true,
+        }).then(() => null, (error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(Error);
+        expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(testCase.availabilityTotal);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+        vi.unstubAllGlobals();
       }
     } finally {
       vi.unstubAllGlobals();
@@ -1963,6 +2109,35 @@ describe('newsAdapters', () => {
         const outcome = await run(['ok', 'ok', 'deadline']);
         if (outcome) throw outcome;
       })()).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('writeNewsRecordViaRelayRest rejects missing or blank stable record keys before posting', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test"]',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      for (const record of [{}, { story_id: '   ' }]) {
+        await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/story',
+          record,
+          writeClass: 'news-story',
+          validate: () => true,
+        })).rejects.toThrow('record key is required');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
