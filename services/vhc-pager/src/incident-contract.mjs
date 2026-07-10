@@ -1,4 +1,7 @@
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
+import { normalizeAlertClassFamily } from './alert-family.mjs';
+
+export { normalizeAlertClassFamily } from './alert-family.mjs';
 
 export const INCIDENT_SCHEMA_VERSION = 'vhc-incident-v1';
 export const OPERATOR_PACKET_SCHEMA_VERSION = 'vhc-operator-packet-v1';
@@ -68,18 +71,6 @@ export function redactSecretText(value) {
     .replace(URL_PATTERN, (url) => `url_hash:${sha256Hex(url).slice(0, 16)}`)
     .replace(TOKENISH_PATTERN, (token) => `token_hash:${sha256Hex(token).slice(0, 16)}`)
     .replace(RAW_HEAP_PATTERN, (heapPath) => `heap_artifact_hash:${sha256Hex(heapPath).slice(0, 16)}`);
-}
-
-export function normalizeAlertClassFamily(alertClass) {
-  const text = String(alertClass ?? '').trim();
-  if (!text) return 'unknown';
-  if (text.startsWith('exit_69')) return 'exit_69';
-  if (text.startsWith('exit_75')) return 'exit_75';
-  if (text.startsWith('exit_78')) return 'exit_78';
-  if (text.includes('freshness')) return 'freshness';
-  if (text.includes('relay_liveness')) return 'relay_liveness';
-  if (text.includes('watch_closure')) return 'watch_closure';
-  return text.replace(/[^a-zA-Z0-9_-]+/g, '_').toLowerCase();
 }
 
 export function incidentKey({ source = 'public-feed', alertClass, alertClassFamily } = {}) {

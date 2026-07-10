@@ -155,7 +155,7 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
-| Failure-mailbox monitor | Latest artifact `.tmp/vhc-failure-mailbox-monitor/latest.json` reports monitor `status: pass` but `newCriticalCount: 85`, newest relevant message `2026-07-10T00:07:57`, public-feed freshness criticals, and pager dead-man warnings | Treat as active incident gate; perform read-only repo/A6/public-feed readback before mutation or launch-enablement work |
+| Failure-mailbox monitor | The first 2026-07-10 run reported 85 criticals; that count is historical. The moving latest artifact remains incident-blocking and S1A classified `relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation is not deployed or recovery-proven. | Treat as active incident gate; no A6 mutation or launch-enablement work before the reviewed recovery packet, Lou approval, and required readbacks |
 
 ## Rollback And Stop Rules
 

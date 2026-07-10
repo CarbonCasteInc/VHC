@@ -2,7 +2,7 @@
 
 > Status: Operational Design / Repo Capability
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-10
 > Depends On: docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
 
 ## Plain-Language Model
@@ -42,9 +42,21 @@ corepack pnpm@9.7.1 check:vhc-incident-response
 
 ## Current Operating Posture
 
-As of 2026-07-06, PR #722 is merged on `main` and the repo contains the full
-incident-response/pager implementation. The live A6 alert path is still the
-Slice 0 interim email channel, not the custom pager/PWA.
+PR #722 is merged on `main` and the repo contains the incident-response/pager
+implementation. The repo-side producer now emits
+`vh-public-feed-alert-watch-v2` reports and uses
+`vh-public-feed-alert-state-v3` dedupe state. The pager intentionally accepts
+both historical v1 and current v2 producer payloads. Its shared incident-family
+normalizer keeps `public_feed`, `relay_liveness`, `relay_snapshot`, and
+`watch_closure` on the same incident key across the legacy underscore and
+current colon blocker forms. The pager's own `vhc-incident-v1` record schema is
+a separate contract and is unchanged.
+
+The live A6 alert path is still the Slice 0 interim email channel, not the
+custom pager/PWA. The 2026-07-10 S1A readback classifies an active
+`relay_rest_story_timeout_total_0_of_3_exit_78` incident: the publisher is
+parked exit `78`, relay snapshots/public freshness/watch closure fail, and the
+repo-side S1B remediation is not deployed.
 
 Current boundaries:
 
@@ -52,8 +64,8 @@ Current boundaries:
 - `vh-phase5-scope-a-watch-closure.timer` is enabled on A6.
 - Email delivery is configured in host-private env and has sent failure and
   recovery state changes.
-- The custom pager should be deployed only after the current alert loop keeps
-  proving itself; email fallback stays on permanently.
+- The custom pager should be deployed only through its separate reviewed
+  packet; email fallback stays on permanently.
 - Codex may investigate, write tests, open PRs, and draft operator packets from
   public-safe incident evidence.
 - Codex live execution/autonomy remains off. The executor is dry-run unless a
@@ -68,9 +80,10 @@ alert proved that the channel was paging a real condition, and the recovery
 transition after #723 was also delivered.
 
 For a new host or channel reconfiguration, repeat the Block-A/Block-B procedure
-from `docs/ops/public-feed-freshness-monitor.md`. Do not edit host alert env,
-disable timers, or rerun test-fire while A6 is green unless the operator has
-explicitly opened a maintenance session.
+from `docs/ops/public-feed-freshness-monitor.md`. During the active exit-78
+incident, do not edit host alert env, disable timers, rerun test-fire, update
+A6, or restart the publisher without the dedicated independently reviewed
+recovery packet and Lou's explicit approval.
 
 ## Pager Deployment Inputs
 
@@ -149,6 +162,11 @@ automation still needs alerts.
 `VH_PACKET_EXECUTOR_ENABLE_LIVE=1` is present. Even with live execution enabled,
 it refuses packets that fail verification and refuses publisher restarts for
 exit 75 or exit 78.
+
+The current exit-78 S1B recovery is therefore not a
+`restart_publisher_exit69_only` executor action. It requires a dedicated
+attended packet generated from the merged remediation commit and explicit Lou
+authorization; this runbook does not grant that authority.
 
 `VH_INCIDENT_TRUST_PHASE` is trusted local executor configuration. Packet JSON
 may document its intended phase, but the verifier does not use packet-controlled

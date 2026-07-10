@@ -57,6 +57,49 @@ test('incident key correlates exit-69 warning and critical in one issue', () => 
   }), 'a6:public-feed:exit_69');
 });
 
+test('v1 and v2 producer blockers preserve pager incident-family continuity', () => {
+  const cases = [
+    {
+      expected: 'a6:public-feed:public_feed',
+      v1: 'public_feed_status:fail',
+      v2: 'public_feed:latest_index_not_fresh',
+    },
+    {
+      expected: 'a6:public-feed:relay_liveness',
+      v1: 'relay_liveness_report_missing',
+      v2: 'relay_liveness:relay:1:readyz_failed',
+    },
+    {
+      expected: 'a6:public-feed:relay_snapshot',
+      v1: 'relay_snapshot_report_missing',
+      v2: 'relay_snapshot:newest_entry_stale',
+    },
+    {
+      expected: 'a6:public-feed:watch_closure',
+      v1: 'watch_closure_verdict_missing',
+      v2: 'watch_closure:archive_sample_failures',
+    },
+  ];
+
+  for (const { expected, v1, v2 } of cases) {
+    const legacyKey = incidentKeyForAlert({
+      ...baseAlert,
+      schemaVersion: 'vh-public-feed-alert-watch-v1',
+      publisher: { failureClass: 'none' },
+      blockers: [v1],
+    });
+    const currentKey = incidentKeyForAlert({
+      ...baseAlert,
+      schemaVersion: 'vh-public-feed-alert-watch-v2',
+      publisher: { failureClass: 'none' },
+      blockers: [v2],
+    });
+
+    assert.equal(legacyKey, expected);
+    assert.equal(currentKey, expected);
+  }
+});
+
 test('signed ingest persists before returning success and latches unsigned mode off', async () => {
   const store = createMemoryPagerStore();
   const bodyText = JSON.stringify(baseAlert);

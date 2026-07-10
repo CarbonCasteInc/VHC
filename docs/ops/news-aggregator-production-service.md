@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-10
 > Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
@@ -23,9 +23,10 @@ Phase 5 Scope A launched on A6 on 2026-06-24. The launch closeout is
 extended post-#687 StoryCluster stability bake is
 `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`.
 
-Current state as of 2026-07-06 is fresh after Slice 0 alert enablement and the
-post-Slice-0 stale-feed recovery, not unattended-distribution-ready and not
-stability-proven. Outage #2 and its recovery evidence are recorded in
+The last passing state on 2026-07-06 was fresh after Slice 0 alert enablement
+and the post-Slice-0 stale-feed recovery, but it was not
+unattended-distribution-ready or stability-proven. Outage #2 and its recovery
+evidence are recorded in
 `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`. Outage #3
 parked the publisher on 2026-07-04 under pre-#706 behavior after a total
 transport/DNS failure to all three relay REST write endpoints. The Slice 0
@@ -33,15 +34,26 @@ alert session then proved the interim email channel and enabled the alert/watch
 closure timers. The first real alert after enablement reported a real stale-feed
 condition: the publisher was active/running but StoryCluster timed out before
 raw relay writes. PR #723 bounded that production path, A6 was updated to
-`main@47ba218d`, and the normal post-fix tick restored freshness.
+`main@47ba218d`, and the normal post-fix tick restored freshness. That is now a
+historical passing snapshot, not current-live evidence.
 
-Current intended-live posture:
+The 2026-07-10 read-only S1A refresh supersedes that snapshot. A6 is at deployed
+commit `347d2018`; `vh-news-aggregator.service` is parked `failed/failed` with
+`ExecMainStatus=78` after
+`relay_rest_story_timeout_total_0_of_3_exit_78`. Relay readiness is `3/3`, but
+relay snapshots are `0/3` current and public freshness/watch closure fail. The
+S1B availability-total and alert-contract changes in this runbook are repo-only
+until a merged remediation commit is deployed through an independently
+reviewed packet with Lou's explicit incident approval.
+
+Intended-live configuration contract (not a statement that current health is
+green):
 
 - `vh-news-aggregator.service` is expected to be active/running, enabled, and
   not restart-churning.
 - `vh-storycluster-engine.service` is expected to be active/running.
-- Current A6 checkout is `main@47ba218d` (merge of #723,
-  `coord/storycluster-production-timeout-2026-07-06`).
+- The last passing A6 checkout was `main@47ba218d`; the current read-only
+  checkout is `347d2018`. Neither proves the newer S1B code is deployed.
 - Current relays run `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64` with
   Docker `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs,
   bounded latest-index/story-body caches, #691 graph diagnostics, and #692/#703
@@ -86,11 +98,12 @@ Current intended-live posture:
   relay-a `850000000`, relay-b `1000000000`, relay-c `1150000000`. Do not remove
   the stagger while all three public-news relay votes remain co-located on A6.
 
-This launch state proves raw-fresh, v4-signed, product-visible cards with
+The historical 2026-07-06 launch state proved raw-fresh, v4-signed,
+product-visible cards with
 pending lifecycle rows, bounded first-tick recovery from a parked publisher, and
-working interim email alert delivery. Exit-69 restartability for the total relay
-transport class is configured and regression-tested, but it is not yet
-live-proven by an observed 69-to-restart cycle on A6. The post-#687 bake still
+working interim email alert delivery. Exit-69 restartability for the
+availability-total class is configured and regression-tested, but it is not
+yet live-proven by an observed 69-to-restart cycle on A6. The post-#687 bake still
 proves the known StoryCluster rerank truncation failure no longer interrupts the
 launched raw path. PR #723 proves the observed StoryCluster production-timeout
 regression has a bounded hot path under the normal first-tick budget. This state
@@ -102,12 +115,15 @@ legal/commercial approval.
 
 Current proof window:
 
-- clean window start: `2026-07-06T22:44:08.567Z`;
-- 48-hour target: `2026-07-08T22:44:08Z`;
-- 14-day unattended target, assuming no operator touch or anomaly:
-  `2026-07-20T22:44:08Z`;
-- next engineering trigger: a new alert email or the first post-recovery
-  500 MB -> 700 MB early heap-capture summary pair.
+- the window beginning `2026-07-06T22:44:08.567Z` was interrupted and cannot
+  support a current release claim;
+- the active engineering trigger is the classified exit-78 incident, not a
+  future heap-capture pair;
+- a new 24/48-hour recovery window may begin only after S1B is merged, its
+  recovery packet is independently reviewed, Lou authorizes the incident
+  action, and immediate publisher/public/relay readbacks pass;
+- no A6 update, service action, alert-channel change, or downstream launch work
+  is authorized by this runbook revision.
 
 ## A6 Host Setup Closures
 
@@ -569,28 +585,38 @@ for operator inspection. The unit also sets `StartLimitIntervalSec=10min` and
 `StartLimitBurst=3` as a backstop for genuine process crashes or unexpected
 non-78 failures.
 
-One fail-close cause is deliberately restartable: a **relay transport-total
-failure**, where a critical relay REST write got zero relay successes and every
-per-relay failure was network-level (the fetch itself threw — DNS resolution,
-connection refused, connection reset — with no HTTP response received from any
-relay). No relay **acknowledged** the write. That is not proof nothing was
-published (a response-leg reset can land after a relay applied the write), and
-the network-level cause can be relay-side (whole fleet down, TLS failure)
-rather than host-side — but retrying is safe regardless: the record is re-sent
-byte-identical and all relay news writes are id-keyed idempotent upserts, so a
-re-send cannot double-publish or diverge state. The write path first retries
-the fan-out in-process
-(`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT`, default `2`, with
-`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS`, default `5000,15000`; only the
-zero-success all-transport case retries — any relay-returned response,
-including `503` backpressure, and any abort/timeout, including undici
-dispatcher header/body timeouts, keeps single-pass semantics). If retries
-exhaust, the daemon still fail-closes (writes blocked, teardown, halt) but
-exits `69` (`EX_UNAVAILABLE`) instead of `78`, so systemd restarts it after
-`RestartSec=30`, bounded by the same
+One fail-close cause is deliberately restartable: a **relay
+availability-total failure**. A critical relay REST write qualifies only when
+it has zero validated acknowledgements and every unresolved endpoint is
+unavailable because of a network failure or bounded deadline. HTTP failures,
+backpressure, malformed responses, signed-record conflicts or tampering, and
+mixed `1/3` outcomes are write-safety failures and remain non-restarting exit
+`78`.
+
+Each attempt starts all relay requests concurrently with one byte-identical
+serialized signed record. A network failure or deadline is ambiguous: the relay
+may have applied the write before the response path failed. Before any resend,
+the client therefore performs an endpoint-local, nonmutating, exact signed
+record readback. This contract is implemented for all four critical routes:
+story by key, latest-index by key, hot-index by key, and synthesis-lifecycle by
+key. A matching canonical signed record confirms that endpoint without another
+write. Missing or unavailable readback remains eligible for the bounded
+availability retry; malformed, conflicting, or tampered readback fails closed
+as exit `78`.
+
+Only still-unresolved endpoints are retried, using the exact original record;
+confirmed endpoints are never rewritten. The quorum remains `2/3` unique relay
+acknowledgements. The compatibility-named settings
+`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT` (default `2`) and
+`VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS` (default `5000,15000`) bound
+the in-process retry budget. If an availability-total result still has zero
+validated acknowledgements after exhaustion, the daemon blocks writes, tears
+down, and exits `69` (`EX_UNAVAILABLE`) instead of `78`; systemd may restart it
+after `RestartSec=30`, bounded by the same
 `StartLimitBurst=3`/`StartLimitIntervalSec=10min`. Exit `69` is emitted by no
 other publisher tooling — the wrapper's own refusal paths use `75` — so
-`ExecMainStatus=69` identifies this class unambiguously at the unit layer.
+`ExecMainStatus=69` identifies this compatibility-labelled availability class
+unambiguously at the unit layer.
 
 Recovery timing: a blip short enough for the in-process retries clears in
 seconds and the tick completes normally. If the daemon exits `69`, recovery
@@ -599,20 +625,21 @@ seconds. A persistent outage that fails again immediately at startup parks the
 unit after three attempts inside the 10-minute burst window; failures spaced
 at tick cadence (beyond the burst window) re-attempt indefinitely — each
 attempt is a clean unacknowledged-everywhere fail-close, so the publisher
-self-heals without operator action whenever the network returns before the
+self-heals without operator action whenever relay availability returns before the
 start-limit window is exhausted. The publisher liveness watch classifies the
 bounded auto-restart state as `exit_69_transport_unavailable` (from
-`ExecMainStatus` only, never journal text, so a stale transport line cannot
+`ExecMainStatus` only, never journal text, so a stale availability line cannot
 relabel a later genuine `78` park). The public alert watch escalates a parked
 69 after start-limit exhaustion as `exit_69_start_limit_parked`, because that
 state is no longer self-recovering and requires operator restart after the
-network is healthy. An `nrestarts_increased` blocker after a transport blip is
+relay path is healthy. An `nrestarts_increased` blocker after a transient
+availability event is
 the expected self-recovery signal. Investigate the network event — check the
 **relay fleet as well as host DNS/network**, since all-relays-unreachable
 classifies identically — but the publisher does not need a manual restart while
-systemd remains in the bounded restart window. Mixed outcomes (any relay acked,
-or any relay returned an HTTP error) never take this path: they keep the
-non-restarting exit `78` write-safety contract.
+systemd remains in the bounded restart window. Mixed outcomes below quorum and
+any HTTP, backpressure, validation, conflict, or tamper outcome never take this
+path: they keep the non-restarting exit `78` write-safety contract.
 
 Verify the installed unit before an attended start:
 

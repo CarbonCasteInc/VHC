@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-09
+> Last Reviewed: 2026-07-10
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-07-09
-**Version:** 0.9.14 (release-readiness control surface update after #758 state alignment plus #759 beta-session runsheet guard and Lou authority decisions)
-**Assessment:** Controlled public-beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. The repository basis for this status update is #758 at merge commit `1f860ae7`; this #759 revision adds the beta-session runsheet guard, records Lou's launch-control decisions, and adds the next-phase execution checklist at `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` on top of that basis. The release-readiness control surfaces now include the launch-control packet, public-beta distribution packet, auth-callback deployment packet, accepted-synthesis canary packet, StoryCluster credential-repair packet, next-phase sprint checklist, runsheet sign-in rehearsal, source-health recovery, distribution-state alignment, operator-packet guard, and beta-session runsheet guard. Lou is the sole human release/incident/rollback authority; Codex is the technical executor for repo work, release evidence, authorized A6 readback/update/origin redeploy, authorized publisher restart if required, auth setup, and Gmail failure-loop analysis. The intended public-beta target is `https://venn.carboncaste.io` in the US/Canada with support/failure mail at `carboncasteit@gmail.com`, auth boundary `https://auth.venn.carboncaste.io`, Apple and Google as the first advertised providers, and X hidden until a later rehearsal packet. Repo-side MVP capabilities now include accepted-current synthesis detail gating, point-stance persistence and aggregate engagement, Apple/Google/X account shell foundations, beta-local LUMA account binding, district/office aggregate mapping, system-writer hardening, VaultV2 forward-compatible writes, and all migrated system-writer read classes covered by default-off reject-unmarked mode. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces: public accepted-synthesis/feed gates still depend on A6/operator enablement, and the packet must be regenerated at the intended release commit. A 2026-07-09 source-health rerun after #748 is `ready` with 24 enabled keep sources, no watch/remove sources, and `releaseEvidence.status: pass` after the configured five-run window; the broader StoryCluster production-readiness report still blocks on headline-soak release evidence because the local real StoryCluster/OpenAI path rejected its credential (`invalid_api_key`, redacted in artifacts). The beta session runsheet now contains the manual account sign-in and account-to-LUMA binding rehearsal required before any tester-facing sign-in claim, `pnpm check:beta-session-runsheet` pins that manual-rehearsal contract, and the public-beta distribution packet is explicitly blocked until release evidence, live readbacks, provider rehearsal, manual rehearsal, alert loop, rollback path, support contact, and external approval disposition are proven. The 2026-07-10 failure-mailbox monitor artifact `.tmp/vhc-failure-mailbox-monitor/latest.json` proves monitor execution (`status: pass`) but also reports `newCriticalCount: 85` with public-feed freshness failures and pager dead-man warnings; the next-phase checklist now requires S1A `READ_ONLY_INCIDENT_TRIAGE_ONLY` readback before any StoryCluster repair, auth deployment, provider registration, origin redeploy, A6 update, canary, evidence regeneration, rehearsal, distribution, or tranche expansion. The stale packet's LUMA MVP gate passes, but the full release packet must be regenerated on the intended release commit after live/operator blockers clear. Live A6 state is separately proven only through `main@47ba218d` after Slice 0 alert enablement and the post-Slice-0 stale-feed recovery plus the later read-only A6 readback at `347d2018`; do not infer that newer repo commits are deployed on A6 unless an operator readback says so. Until S1A classifies the mailbox criticals, the posture is read-only incident triage: no relay restart, pager cutover, Codex live execution/autonomy, retention/compaction/memory remediation, accepted-synthesis enablement, or launch-enablement mutation without its own operator packet and Lou's incident decision.
+**Last Updated:** 2026-07-10
+**Version:** 0.9.15 (S1B relay-availability and alert-contract repo remediation; live recovery still Lou-gated)
+**Assessment:** Controlled public-beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. The repository basis for this status update is #758 at merge commit `1f860ae7`; #759 adds the beta-session runsheet guard, records Lou's launch-control decisions, and carries the next-phase execution checklist at `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`. The release-readiness control surfaces include the launch-control packet, public-beta distribution packet, auth-callback deployment packet, accepted-synthesis canary packet, StoryCluster credential-repair packet, next-phase sprint checklist, runsheet sign-in rehearsal, source-health recovery, distribution-state alignment, operator-packet guard, and beta-session runsheet guard. Lou is the sole human release/incident/rollback authority; Codex is the technical executor for repo work, release evidence, and separately authorized live sessions. The intended public-beta target is `https://venn.carboncaste.io` in the US/Canada with support/failure mail at `carboncasteit@gmail.com`, auth boundary `https://auth.venn.carboncaste.io`, Apple and Google as the first advertised providers, and X hidden until a later rehearsal packet. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces; it must be regenerated at the intended release commit. The 2026-07-09 source-health rerun after #748 is `ready` with 24 enabled keep sources, while StoryCluster production readiness still blocks on valid headline-soak credential/endpoint evidence. S1A has now classified the active public-feed incident as `relay_rest_story_timeout_total_0_of_3_exit_78`: the publisher is parked `failed/failed` at exit `78`, relay liveness is `3/3`, relay snapshots are `0/3`, and public freshness/watch closure fail. S1B repo remediation now implements concurrent bounded fanout, exact signed readback for all four critical routes, availability-total retry/exit mapping without weakening `2/3` quorum, a closed v2 alert projection with v3 dedupe state, readable secret-safe MIME, and pager v1/v2 incident-family continuity. This is repo implementation evidence, not an A6 deployment or recovery claim. Live A6 remains separately proven only through read-only host state at deployed commit `347d2018`; no S1B update, service action, alert-channel change, or recovery was performed. S1A/S1B remain **NO-GO** until the merged remediation commit produces an independently reviewed recovery packet, Lou explicitly authorizes the exit-78 recovery, immediate readback passes, and the required 24/48-hour evidence closes. S2 and all launch-enablement work remain blocked.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,7 +27,7 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🟢/🟡 Phase 5 Scope A fresh after Slice 0 and the post-Slice-0 stale-feed recovery on A6: capped raw-only publisher proven at `main@47ba218d`, StoryCluster-backed raw bundle publication, 2-of-3 relay REST quorum, pending lifecycle rows, host-local liveness/freshness monitors, enabled interim email alerting, watch-closure timer, #706 total-transport restartability, #707 exit-69 alert classification, #708 first-tick ingest cap, #722 incident-response/pager primitives, #723 StoryCluster production-timeout fix, #744 watch-closure restart-baseline fix, #691 graph diagnostics, #692/#703 early heap capture wiring, #704/#705 relay deploy verification, #694 staggered relay watchdog ceilings, and #701 off-graph driver verdict. #687 remains closed for the launched raw StoryCluster rerank path. Accepted synthesis/storylines are repo-capable but not yet proven/enabled on live A6. | ⚠️ Scope A fresh and paging by email; off-graph heap retainer not yet named; no post-recovery 500 MB -> 700 MB heap pair yet; post-#748 source-health release evidence passes after pruning `ap-topnews`; StoryCluster production-readiness still needs a valid live headline-soak credential/endpoint; Scope B/live accepted synthesis enablement pending operator packet |
+| **News Aggregator** | 🔴 Live A6 publisher is parked exit `78` after `relay_rest_story_timeout_total_0_of_3_exit_78`; relay liveness passes but snapshots/public freshness/watch closure do not. Repo-side S1B implements concurrent bounded fanout, exact four-route signed readback, unresolved-only availability retry, preserved `2/3` quorum, exit `69` only for exhausted zero-confirmed availability-total, and v2/v3 secret-safe alert dedupe with readable MIME and pager compatibility. | ❌ Repo remediation is not deployed or recovery-proven; Lou-approved exit-78 packet, immediate readback, and 24/48-hour evidence are required before S1A/S1B or downstream launch work can be green |
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -56,16 +56,20 @@ Current policy state:
   treats the zero-success all-transport class as retryable in-process and
   restartable through exit `69`; #707 makes that exit class visible to the alert
   watch; #708 bounds the first post-reset StoryCluster ingest workload.
-- Current deployed Scope A posture is fresh after Slice 0 and the post-Slice-0
-  stale-feed recovery, not stability-proven. This is a live A6 statement, not a
-  current-repo deployment statement:
+- The last passing deployed Scope A evidence after Slice 0 and the
+  post-Slice-0 stale-feed recovery is historical, not current-live truth:
   `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
   records A6 at `main@47ba218d`, the normal post-fix publisher tick completed
   at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
   `selected_bundle_count=8`, `raw_wrote_count=8`, and
   `raw_write_failed_count=0`, and publisher/freshness/relay/snapshot/alert
-  readbacks passing. Newer repo commits after that A6 proof, including #748,
-  are not automatically live on A6.
+  readbacks passing. Newer repo commits after that proof are not automatically
+  live on A6.
+- The 2026-07-10 read-only S1A refresh supersedes that passing snapshot for
+  current incident posture: A6 is deployed at `347d2018`, the publisher is
+  parked exit `78`, snapshots/public freshness/watch closure fail, and the
+  incident is `relay_rest_story_timeout_total_0_of_3_exit_78`. The S1B repo
+  implementation is not deployed; no service or relay mutation was performed.
 - Current repo-side Functioning MVP state is materially newer than the live A6
   raw-feed state:
   - #728 accepted-current synthesis detail and votability gating;
@@ -178,20 +182,21 @@ Current policy state:
     restarts `0/0/0`;
   - public feed state: `record_count=20`, all `pending_synthesis`, no accepted
     synthesis available.
-- Phase 5 Scope A current recovery evidence:
-  - recovery/current-state report:
+- Phase 5 Scope A historical post-Slice-0 recovery evidence (superseded for
+  current incident posture by the 2026-07-10 S1A readback):
+  - recovery state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`;
-  - current driver verdict:
+  - then-current driver verdict:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
-  - current MVP readiness state report:
+  - then-current MVP readiness state report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
-  - current post-Slice-0 report:
+  - post-Slice-0 report:
     `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`;
   - A6-deployed repo commit for this live readback:
     `47ba218d` (`Merge pull request #723 from CarbonCasteInc/coord/storycluster-production-timeout-2026-07-06`);
-  - current relay image: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
-  - current origin image: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
-  - current live raw profile: synthesis disabled, replay disabled, storylines
+  - relay image at that readback: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
+  - origin image at that readback: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
+  - live raw profile at that readback: synthesis disabled, replay disabled, storylines
     disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
     interval `86400000`, prune disabled, relay min-success `2`;
   - deployed relay diagnostics at the recovery image: graph scan enabled on A6,
@@ -206,15 +211,14 @@ Current policy state:
   - alert status: interim email channel configured in host-private env,
     test-fire/recovery delivery `sent`, alert timer enabled, watch-closure
     timer enabled;
-  - clean window starts `2026-07-06T22:44:08.567Z`; 48-hour target is
-    `2026-07-08T22:44:08Z`; 14-day unattended target is
-    `2026-07-20T22:44:08Z`;
-  - current gate: wait for the first post-recovery 500 MB -> 700 MB secret-safe
-    heap-summary pair, then run `tools/scripts/analyze-early-heap-captures.mjs`;
+  - the clean window beginning `2026-07-06T22:44:08.567Z` was interrupted by
+    the current exit-78 incident and cannot serve as present release evidence;
+  - current gate: merge and independently review S1B, generate its recovery
+    packet from the merged remediation commit, and stop for Lou's explicit
+    incident approval before any A6 update or publisher action;
   - explicit non-gate: do not start retention, publisher-clear, eviction,
-    relay-compaction, publisher restart, relay restart, pager cutover, or Codex
-    live execution while the feed remains fresh and no post-recovery heap pair
-    exists.
+    relay compaction, pager cutover, or any downstream launch-enablement work
+    while S1A/S1B remain red.
 - Phase 5 Scope A post-#687 StoryCluster stability evidence:
   - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
   - #685 captured bounded OpenAI rerank artifacts and proved recurring
@@ -482,15 +486,16 @@ Current truth for the news bundler and feed hardening lane:
      incidents, not launch-soak curiosities;
    - treat the current post-#701 driver verdict as off-graph-likely until a
      secret-safe early-capture retainer summary supersedes it;
-   - wait for the first post-recovery early-capture summary pair
+   - after S1A/S1B recovery and its new clean window, resume waiting for the
+     first post-recovery early-capture summary pair
      (`a=500000000,700000000`; `b=520000000,720000000`;
      `c=540000000,740000000`) before selecting a retainer fix; the threshold
      retune is already on `main`;
    - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
      investigation item before trusting future threshold math;
    - keep A6 public-feed alerting enabled through the interim email channel;
-     treat a new alert as an incident and do not change live services while the
-     feed remains fresh;
+     the active exit-78 alert is an incident, and no live service change is
+     authorized without the reviewed S1B packet and Lou's approval;
    - do not re-enable accepted synthesis, topic synthesis, storyline writes,
      verify/refresh, higher raw caps, or pruning without a separate attended
      soak and an updated runbook entry.

@@ -2,7 +2,7 @@
 
 > Status: Draft
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-10
 > Depends On: docs/ops/vhc-incident-response.md, docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md
 
 ## Purpose
@@ -16,11 +16,12 @@ It does not give Codex or any model standing permission to mutate A6. The
 operator boundary stays intact unless a later approved packet passes the local
 A6 pull-executor checks.
 
-Current rollout boundary as of 2026-07-06: Slice 0 interim email alerting is
+Current rollout boundary as of 2026-07-10: Slice 0 interim email alerting is
 live, the custom pager and executor primitives are merged in repo, and live
-Codex execution/autonomy remains disabled. The phase table below is a contract
-for future approved rollout, not permission to enable live execution during the
-current Scope A evidence-accrual window.
+Codex execution/autonomy remains disabled. The active public-feed incident is
+parked exit `78`; repo-only remediation does not authorize A6 recovery. The
+phase table below is a contract for future approved rollout, not permission to
+enable live execution.
 
 ## Incident Shape
 
@@ -38,7 +39,20 @@ An incident record has:
 Incident keys group recoveries/escalations for the same failure family. For
 example, `exit_69_transport_unavailable` and `exit_69_start_limit_parked` share
 `a6:public-feed:exit_69` so the issue remains one case file instead of splitting
-the incident in two.
+the incident in two. Producer report schemas are separately versioned: the
+pager accepts historical `vh-public-feed-alert-watch-v1` and current
+`vh-public-feed-alert-watch-v2`. The shared family normalizer must map legacy
+underscore and current colon blocker forms to the same keys:
+
+| Legacy v1 prefix | Current v2 prefix | Incident family |
+| --- | --- | --- |
+| `public_feed_status` | `public_feed:` | `public_feed` |
+| `relay_liveness_` | `relay_liveness:` | `relay_liveness` |
+| `relay_snapshot_` | `relay_snapshot:` | `relay_snapshot` |
+| `watch_closure_` | `watch_closure:` | `watch_closure` |
+
+The `vhc-incident-v1` record schema remains unchanged by that producer
+transition.
 
 ## Alert Authentication
 

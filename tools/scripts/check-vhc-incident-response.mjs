@@ -10,6 +10,7 @@ const REQUIRED_FILES = [
   'docs/ops/vhc-codex-responder.md',
   'services/vhc-pager/package.json',
   'services/vhc-pager/src/worker.mjs',
+  'services/vhc-pager/src/alert-family.mjs',
   'services/vhc-pager/src/incident-contract.mjs',
   'services/vhc-pager/src/pager-core.mjs',
   'services/vhc-pager/src/github-bridge.mjs',
