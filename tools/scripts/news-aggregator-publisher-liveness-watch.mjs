@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const REPORT_SCHEMA_VERSION = 'vh-news-publisher-liveness-watch-v1';
 const DIAGNOSTICS_SCHEMA_VERSION = 'vh-news-runtime-diagnostics-v1';
@@ -205,6 +206,9 @@ function diagnosticSummaryRunBoundary(diagnostic) {
   if (!Number.isSafeInteger(latestTickSequence) || latestTickSequence <= 0) {
     return { status: 'fail', reason: 'latest_tick_invalid', tickSequences: [] };
   }
+  if (summaries.length === 0) {
+    return { status: 'fail', reason: 'summaries_empty', tickSequences: [] };
+  }
   const tickSequences = summaries.map((summary) => summary?.tick_sequence);
   if (tickSequences.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
     return { status: 'fail', reason: 'summary_tick_invalid', tickSequences: [] };
@@ -217,6 +221,12 @@ function diagnosticSummaryRunBoundary(diagnostic) {
   }
   if (tickSequences.some((value) => value > latestTickSequence)) {
     return { status: 'fail', reason: 'summary_tick_after_latest', tickSequences };
+  }
+  if (tickSequences.at(-1) !== latestTickSequence) {
+    return { status: 'fail', reason: 'latest_tick_not_retained', tickSequences };
+  }
+  if (!isDeepStrictEqual(summaries.at(-1), diagnostic.latest)) {
+    return { status: 'fail', reason: 'latest_summary_mismatch', tickSequences };
   }
   return { status: 'pass', reason: null, tickSequences };
 }

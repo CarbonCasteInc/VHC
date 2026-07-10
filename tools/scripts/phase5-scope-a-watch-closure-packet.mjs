@@ -5,6 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { resolveRelayWatchdogLimits } from './relay-watchdog-thresholds.mjs';
 
 const SCHEMA_VERSION = 'vh-phase5-scope-a-watch-closure-v1';
@@ -519,15 +520,28 @@ function runtimeDiagnosticsRunBoundary(diagnostics) {
     : [];
   if (!Array.isArray(summaries)) {
     blockers.push('summaries_not_array');
+  } else if (summaries.length === 0) {
+    blockers.push('summaries_empty');
   } else if (tickSequences.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
     blockers.push('summary_tick_invalid');
   } else {
-    if (new Set(tickSequences).size !== tickSequences.length) blockers.push('summary_tick_duplicate');
-    if (tickSequences.some((value, index) => index > 0 && value <= tickSequences[index - 1])) {
+    const hasDuplicateTick = new Set(tickSequences).size !== tickSequences.length;
+    const hasUnorderedTick = tickSequences.some(
+      (value, index) => index > 0 && value <= tickSequences[index - 1],
+    );
+    if (hasDuplicateTick) blockers.push('summary_tick_duplicate');
+    if (hasUnorderedTick) {
       blockers.push('summary_tick_not_strictly_ordered');
     }
-    if (Number.isSafeInteger(latestTickSequence) && tickSequences.some((value) => value > latestTickSequence)) {
-      blockers.push('summary_tick_after_latest');
+    if (!hasDuplicateTick && !hasUnorderedTick && Number.isSafeInteger(latestTickSequence)) {
+      const hasTickAfterLatest = tickSequences.some((value) => value > latestTickSequence);
+      if (hasTickAfterLatest) {
+        blockers.push('summary_tick_after_latest');
+      } else if (tickSequences.at(-1) !== latestTickSequence) {
+        blockers.push('latest_tick_not_retained');
+      } else if (!isDeepStrictEqual(summaries.at(-1), diagnostics.latest)) {
+        blockers.push('latest_summary_mismatch');
+      }
     }
   }
   const safeTickSequences = tickSequences.every((value) => Number.isSafeInteger(value) && value > 0)
