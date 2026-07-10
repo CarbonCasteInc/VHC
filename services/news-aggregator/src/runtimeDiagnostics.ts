@@ -15,7 +15,7 @@ export interface DaemonRuntimeDiagnosticSnapshot {
 export interface RuntimeDiagnosticRecorderOptions {
   readonly artifactRoot?: string;
   readonly explicitFile?: string;
-  readonly runId?: string;
+  readonly runId?: string | null;
   readonly noWrite?: boolean;
   readonly maxSummaries?: number;
   readonly readTextFile?: typeof readFile;
@@ -66,6 +66,45 @@ async function readExistingSnapshot(
   }
 }
 
+function normalizedSnapshotRunId(snapshot: DaemonRuntimeDiagnosticSnapshot | null): string | null {
+  const value = snapshot?.runId;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function validRetainedSummaries(value: unknown): NewsRuntimeTickSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  if (value.some((item) => (
+    !item
+    || typeof item !== 'object'
+    || !Number.isSafeInteger((item as { tick_sequence?: unknown }).tick_sequence)
+    || Number((item as { tick_sequence?: unknown }).tick_sequence) <= 0
+  ))) {
+    return [];
+  }
+  return value as NewsRuntimeTickSummary[];
+}
+
+function existingSummariesForRun(
+  snapshot: DaemonRuntimeDiagnosticSnapshot | null,
+  runId: string | null,
+  noWrite: boolean,
+): NewsRuntimeTickSummary[] {
+  // A missing run id cannot establish a process boundary, and a write-mode
+  // transition must not promote no-write evidence into a live run. Fail closed
+  // on the first write from this recorder instead of relabeling disk history as
+  // current-run evidence. Later writes use the recorder's in-memory summaries.
+  if (
+    !runId
+    || normalizedSnapshotRunId(snapshot) !== runId
+    || snapshot?.noWrite !== noWrite
+  ) {
+    return [];
+  }
+  return validRetainedSummaries(snapshot?.summaries);
+}
+
 async function writeAtomicJson(
   filePath: string,
   value: unknown,
@@ -86,14 +125,19 @@ export function createRuntimeDiagnosticRecorder(
   const renameFile = options.renameFile ?? rename;
   const mkdirFn = options.mkdirFn ?? mkdir;
   const maxSummaries = normalizePositiveInt(options.maxSummaries, 50);
-  const runId = options.runId?.trim() || process.env.VH_DAEMON_FEED_RUN_ID?.trim() || null;
+  const explicitRunId = options.runId === undefined ? undefined : options.runId?.trim() || null;
+  const runId = explicitRunId === undefined
+    ? process.env.VH_DAEMON_FEED_RUN_ID?.trim() || null
+    : explicitRunId;
   const noWrite = options.noWrite === true;
+  let inProcessSummaries: readonly NewsRuntimeTickSummary[] | null = null;
 
   return async (summary: NewsRuntimeTickSummary): Promise<DaemonRuntimeDiagnosticSnapshot> => {
     await mkdirFn(path.dirname(filePath), { recursive: true });
     const existing = await readExistingSnapshot(filePath, readTextFile);
     const summaries = [
-      ...(existing?.summaries ?? []).filter((item) => item.tick_sequence !== summary.tick_sequence),
+      ...(inProcessSummaries ?? existingSummariesForRun(existing, runId, noWrite))
+        .filter((item) => item.tick_sequence !== summary.tick_sequence),
       summary,
     ]
       .sort((left, right) => left.tick_sequence - right.tick_sequence)
@@ -110,6 +154,7 @@ export function createRuntimeDiagnosticRecorder(
     };
 
     await writeAtomicJson(filePath, snapshot, writeTextFile, renameFile);
+    inProcessSummaries = summaries;
     return snapshot;
   };
 }

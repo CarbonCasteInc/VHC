@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type {
@@ -96,6 +96,7 @@ function makeTickSummary(overrides: Partial<NewsRuntimeTickSummary> = {}): NewsR
     synthesis_candidate_suppressed_count: 1,
     nonfatal_prewrite_failure_count: 0,
     first_selected_story_ids: ['story-1'],
+    first_raw_written_story_ids: [],
     last_stage: 'completed',
     ...overrides,
   };
@@ -444,6 +445,8 @@ describe('news daemon production wiring', () => {
 
   it('honors an explicit no-write diagnostic tick limit before self-stopping', async () => {
     const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-news-daemon-bounded-diagnostic-'));
+    const artifactRoot = path.join(tmpDir, 'artifacts');
+    const diagnosticFile = path.join(artifactRoot, 'news-runtime-diagnostics.json');
     const runtimeHandle = {
       stop: vi.fn(),
       isRunning: vi.fn(() => true),
@@ -459,10 +462,24 @@ describe('news daemon production wiring', () => {
     vi.stubEnv('VH_NEWS_DAEMON_DIAGNOSTIC_NO_WRITE', '1');
     vi.stubEnv('VH_NEWS_DAEMON_DIAGNOSTIC_MAX_TICKS', '2');
     vi.stubEnv('VH_NEWS_DAEMON_STATE_DIR', tmpDir);
-    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', path.join(tmpDir, 'artifacts'));
+    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', artifactRoot);
+    vi.stubEnv('VH_DAEMON_FEED_RUN_ID', 'production-run-new');
     vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })));
 
     try {
+      mkdirSync(artifactRoot, { recursive: true });
+      writeFileSync(diagnosticFile, `${JSON.stringify({
+        schemaVersion: 'vh-news-runtime-diagnostics-v1',
+        generatedAt: new Date(1_700_000_000_000).toISOString(),
+        runId: 'production-run-old',
+        noWrite: true,
+        maxSummaries: 50,
+        latest: makeTickSummary({ tick_sequence: 299 }),
+        summaries: [
+          makeTickSummary({ tick_sequence: 298 }),
+          makeTickSummary({ tick_sequence: 299 }),
+        ],
+      }, null, 2)}\n`, 'utf8');
       const handle = await startNewsAggregatorDaemonFromEnv();
       const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
         onTickSummary?: (summary: NewsRuntimeTickSummary) => Promise<void>;
@@ -473,6 +490,14 @@ describe('news daemon production wiring', () => {
       expect(runtimeHandle.stop).not.toHaveBeenCalled();
 
       await runtimeConfig.onTickSummary?.(makeTickSummary({ tick_sequence: 2 }));
+      const diagnostic = JSON.parse(readFileSync(diagnosticFile, 'utf8')) as {
+        runId: string | null;
+        latest: NewsRuntimeTickSummary;
+        summaries: NewsRuntimeTickSummary[];
+      };
+      expect(diagnostic.runId).toBe('production-run-new');
+      expect(diagnostic.latest.tick_sequence).toBe(2);
+      expect(diagnostic.summaries.map((item) => item.tick_sequence)).toEqual([1, 2]);
       await vi.waitFor(() => expect(runtimeHandle.stop).toHaveBeenCalledTimes(1));
       await vi.waitFor(() => expect(shutdown).toHaveBeenCalledTimes(1));
       await handle.closed;

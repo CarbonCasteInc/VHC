@@ -37,18 +37,20 @@ function writeCurrentRun(filePath, overrides = {}) {
 }
 
 function writeDiagnostic(filePath, overrides = {}) {
+  const latest = overrides.latest ?? {
+    tick_sequence: 3,
+    status: 'completed',
+  };
+  const summaries = overrides.summaries ?? [latest];
   writeJson(filePath, {
     schemaVersion: newsAggregatorPublisherLivenessWatchInternal.DIAGNOSTICS_SCHEMA_VERSION,
     generatedAt: new Date(NOW - 60_000).toISOString(),
     runId: RUN_ID,
     noWrite: false,
     maxSummaries: 50,
-    latest: {
-      tick_sequence: 3,
-      status: 'completed',
-    },
-    summaries: [],
     ...overrides,
+    latest,
+    summaries,
   });
 }
 
@@ -190,6 +192,88 @@ test('publisher liveness allows current-run diagnostic mismatch during startup g
     rmSync(paths.root, { recursive: true, force: true });
   }
 });
+
+test('publisher liveness rejects retained summaries from an older high-tick run even when top-level runId is current', async () => {
+  const paths = makeTempState();
+  try {
+    writeCurrentRun(paths.currentRunFile);
+    writeDiagnostic(paths.diagnosticFile, {
+      runId: RUN_ID,
+      latest: {
+        tick_sequence: 2,
+        status: 'completed',
+      },
+      summaries: [
+        { tick_sequence: 1, status: 'completed' },
+        { tick_sequence: 2, status: 'completed' },
+        { tick_sequence: 299, status: 'completed' },
+      ],
+    });
+
+    const summary = await runNewsAggregatorPublisherLivenessWatch({
+      now: NOW,
+      env: baseEnv(paths),
+      systemctlShowText: activeSystemctl({ activeEnterMs: NOW - 60 * 60 * 1000 }),
+      journalText: '',
+    });
+
+    assert.equal(summary.status, 'fail');
+    assert.equal(summary.diagnostic.summaryRunBoundaryStatus, 'fail');
+    assert.equal(summary.diagnostic.summaryRunBoundaryReason, 'summary_tick_after_latest');
+    assert.match(summary.blockers.join('\n'), /diagnostic_summary_run_boundary_invalid:summary_tick_after_latest/);
+  } finally {
+    rmSync(paths.root, { recursive: true, force: true });
+  }
+});
+
+for (const { label, latest, summaries, reason } of [
+  {
+    label: 'empty retained summaries',
+    latest: { tick_sequence: 3, status: 'completed' },
+    summaries: [],
+    reason: 'summaries_empty',
+  },
+  {
+    label: 'a latest tick newer than the retained maximum',
+    latest: { tick_sequence: 3, status: 'completed' },
+    summaries: [
+      { tick_sequence: 1, status: 'completed' },
+      { tick_sequence: 2, status: 'completed' },
+    ],
+    reason: 'latest_tick_not_retained',
+  },
+  {
+    label: 'a contradictory retained row at the latest tick',
+    latest: { tick_sequence: 3, status: 'completed' },
+    summaries: [{ tick_sequence: 3, status: 'failed' }],
+    reason: 'latest_summary_mismatch',
+  },
+]) {
+  test(`publisher liveness rejects ${label}`, async () => {
+    const paths = makeTempState();
+    try {
+      writeCurrentRun(paths.currentRunFile);
+      writeDiagnostic(paths.diagnosticFile, { latest, summaries });
+
+      const summary = await runNewsAggregatorPublisherLivenessWatch({
+        now: NOW,
+        env: baseEnv(paths),
+        systemctlShowText: activeSystemctl({ activeEnterMs: NOW - 60 * 60 * 1000 }),
+        journalText: '',
+      });
+
+      assert.equal(summary.status, 'fail');
+      assert.equal(summary.diagnostic.summaryRunBoundaryStatus, 'fail');
+      assert.equal(summary.diagnostic.summaryRunBoundaryReason, reason);
+      assert.match(
+        summary.blockers.join('\n'),
+        new RegExp(`diagnostic_summary_run_boundary_invalid:${reason}`),
+      );
+    } finally {
+      rmSync(paths.root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('publisher liveness classifies exit 78 fail-close and guard refusal separately', async () => {
   const paths = makeTempState();
