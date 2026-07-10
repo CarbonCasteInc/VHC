@@ -41,10 +41,10 @@ Before assigning implementation work:
 2. Run `git fetch origin --prune`, inspect the current branch/worktree, and
    resolve the live PR head/base/check state. Remote PR truth overrides stale
    status prose.
-3. Preserve unrelated user changes. In Lou's current workspace,
-   `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
-   `docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md` are untracked and
-   must not be staged, deleted, or copied into a lane.
+3. Preserve unrelated user changes. In Lou's current workspace, the local-only
+   files `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
+   `DISTRIBUTION_READINESS_SLICES_2026-07-05.md` are untracked and must not be
+   staged, deleted, or copied into a lane.
 4. Read the latest `.tmp/vhc-failure-mailbox-monitor/latest.json` and dedupe
    state. Monitor `status: pass` is execution health, not incident clearance.
 5. Re-run read-only A6/public-feed readback if the latest critical or live state
