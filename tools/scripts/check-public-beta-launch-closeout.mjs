@@ -23,6 +23,7 @@ const files = {
 };
 
 const requiredScripts = {
+  'check:public-beta-s1-recovery-control-plane': 'corepack pnpm@9.7.1 --filter @vh/gun-client... build && node --test --test-concurrency=1 ./tools/scripts/news-aggregator-publisher-automatic-restart-authority.test.mjs ./tools/scripts/news-aggregator-publisher-recovery-control.test.mjs ./tools/scripts/news-aggregator-publisher-recovery-guard.test.mjs ./tools/scripts/start-news-aggregator-daemon-production.test.mjs ./tools/scripts/systemd-service-installers.test.mjs ./tools/scripts/verify-news-aggregator-publisher-recovery.test.mjs ./tools/scripts/news-aggregator-publisher-liveness-watch.test.mjs ./tools/scripts/news-relay-liveness-watch.test.mjs ./tools/scripts/public-feed-alert-watch.test.mjs ./tools/scripts/phase5-scope-a-watch-closure-packet.test.mjs ./tools/scripts/public-beta-image-deploy.test.mjs',
   'check:mvp-release-gates': 'node ./packages/e2e/src/mvp-release-gates.mjs',
   'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
@@ -73,6 +74,7 @@ const requiredLaunchSnapshotCoverage = [
 ];
 
 const requiredEvidenceNeedles = [
+  'pnpm check:public-beta-s1-recovery-control-plane',
   'pnpm check:public-beta-launch-closeout',
   'pnpm check:public-beta-launch-control',
   'pnpm check:public-beta-distribution-packet',
@@ -84,6 +86,11 @@ const requiredEvidenceNeedles = [
   'pnpm check:public-beta-compliance',
   'pnpm check:public-beta-next-phase-sprint',
   'pnpm docs:check',
+  'FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT',
+  'IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN',
+  'T0_PLUS_24H_IS_INTERMEDIATE_ONLY',
+  'T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2',
+  'docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md',
   '.tmp/mvp-release-gates/latest/mvp-release-gates-report.json',
   '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
   '.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json',

@@ -14,6 +14,13 @@ const EXPORT_SCRIPT_PATH = 'tools/scripts/export-public-beta-image-artifacts.sh'
 const PACKET_EXECUTOR_PATH = 'tools/scripts/vhc-packet-executor.mjs';
 const RELAY_DOCKERFILE_PATH = 'infra/relay/Dockerfile';
 const PUBLIC_BETA_COMPOSE_PATH = 'infra/docker/docker-compose.public-beta.yml';
+const WORKFLOW_PATH = '.github/workflows/main.yml';
+const RUNBOOK_PATH = 'docs/ops/news-aggregator-production-service.md';
+const HANDOFF_PATH = 'docs/plans/PUBLIC_BETA_STATE_OF_PLAY_HANDOFF_2026-07-10.md';
+const LAUNCH_CONTROL_PATH = 'docs/ops/public-beta-launch-control-2026-07-09.md';
+const IMAGE_DEPLOY_PATH = 'docs/ops/public-beta-image-deploy.md';
+const ENV_EXAMPLE_PATH = 'docs/ops/news-aggregator.env.example';
+const DISTRIBUTION_PATH = 'docs/ops/public-beta-distribution-packet-2026-07-09.md';
 
 const checklist = readFileSync(CHECKLIST_PATH, 'utf8');
 const packageJson = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8'));
@@ -26,8 +33,29 @@ const exportScript = readFileSync(EXPORT_SCRIPT_PATH, 'utf8');
 const packetExecutor = readFileSync(PACKET_EXECUTOR_PATH, 'utf8');
 const relayDockerfile = readFileSync(RELAY_DOCKERFILE_PATH, 'utf8');
 const publicBetaCompose = readFileSync(PUBLIC_BETA_COMPOSE_PATH, 'utf8');
+const workflow = readFileSync(WORKFLOW_PATH, 'utf8');
+const runbook = readFileSync(RUNBOOK_PATH, 'utf8');
+const handoff = readFileSync(HANDOFF_PATH, 'utf8');
+const launchControl = readFileSync(LAUNCH_CONTROL_PATH, 'utf8');
+const imageDeploy = readFileSync(IMAGE_DEPLOY_PATH, 'utf8');
+const envExample = readFileSync(ENV_EXAMPLE_PATH, 'utf8');
+const distribution = readFileSync(DISTRIBUTION_PATH, 'utf8');
 
 const EXPECTED_SCRIPT = 'node --test ./tools/scripts/public-beta-next-phase-sprint.test.mjs';
+const EXPECTED_RECOVERY_TESTS = [
+  './tools/scripts/news-aggregator-publisher-automatic-restart-authority.test.mjs',
+  './tools/scripts/news-aggregator-publisher-recovery-control.test.mjs',
+  './tools/scripts/news-aggregator-publisher-recovery-guard.test.mjs',
+  './tools/scripts/start-news-aggregator-daemon-production.test.mjs',
+  './tools/scripts/systemd-service-installers.test.mjs',
+  './tools/scripts/verify-news-aggregator-publisher-recovery.test.mjs',
+  './tools/scripts/news-aggregator-publisher-liveness-watch.test.mjs',
+  './tools/scripts/news-relay-liveness-watch.test.mjs',
+  './tools/scripts/public-feed-alert-watch.test.mjs',
+  './tools/scripts/phase5-scope-a-watch-closure-packet.test.mjs',
+  './tools/scripts/public-beta-image-deploy.test.mjs',
+];
+const EXPECTED_RECOVERY_SCRIPT = `corepack pnpm@9.7.1 --filter @vh/gun-client... build && node --test --test-concurrency=1 ${EXPECTED_RECOVERY_TESTS.join(' ')}`;
 
 function assertIncludes(text, needle, label) {
   assert.ok(text.includes(needle), `${label}: missing ${JSON.stringify(needle)}`);
@@ -118,7 +146,7 @@ test('S1B pins the real daemon exit consumer and readback inventory', () => {
 
 test('G3 fails closed on the immutable relay image and restart-authority contradiction', () => {
   for (const token of [
-    '`boundary_approved_exact_packet_correction_in_review`',
+    '`NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`',
     '`NO-GO`',
     '`infra/relay/server.js`',
     'immutable image',
@@ -146,8 +174,8 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
   }
   for (const token of [
-    'Status: `boundary_approved_exact_packet_correction_in_review`',
-    'Decision: `NO-GO_PENDING_EXACT_PACKET_REVIEW`',
+    'Status: `final_revision_image_packet_and_review_pending`',
+    'Decision: `NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`',
     'COPY server.js /app/server.js',
     'bind-mounts only `/data`',
     '--relay-only',
@@ -216,7 +244,7 @@ test('next-phase sprint includes concrete auth, A6, evidence, and rehearsal chec
     'providersConfigured.google == true',
     'X is hidden',
     'existing A6 SSH path',
-    'restart publisher only if required',
+    'newly reviewed exact-revision recovery-controller sequence',
     'catchup:public-synthesis',
     'release_commit_verified: true',
     '3-browser convergence is proven on non-voting browsers',
@@ -229,7 +257,7 @@ test('next-phase sprint preserves secret and claim boundaries', () => {
   for (const token of [
     'No Codex live execution/autonomy is enabled',
     'No pager cutover is part of this sprint',
-    'No relay restart unless a focused incident packet authorizes it',
+    'No relay action outside Lou\'s exact independently reviewed serial A/B/C',
     'Social sign-in is account continuity and profile recovery only',
     'It is not LUMA Silver',
     'verified-human',
@@ -273,4 +301,131 @@ test('next-phase sprint guard is wired into package, closeout, canon map, and st
   assertIncludes(closeout, CHECKLIST_PATH, 'closeout checklist path');
   assertIncludes(canon, CHECKLIST_PATH, 'canon checklist path');
   assertIncludes(status, CHECKLIST_PATH, 'status checklist path');
+});
+
+test('shared S1 recovery control plane is an unconditional hosted-CI gate', () => {
+  const recoveryScript = packageJson.scripts?.['check:public-beta-s1-recovery-control-plane'];
+  assert.equal(recoveryScript, EXPECTED_RECOVERY_SCRIPT);
+
+  const job = workflow.match(/^  test-and-build:\n([\s\S]*?)(?=^  [a-z][a-z0-9-]*:\n)/m)?.[0] ?? '';
+  const step = job.match(/- name: Public Beta S1 Recovery Control Plane\n([\s\S]*?)(?=\n\s+- name:|$)/)?.[0] ?? '';
+  assert.ok(job.indexOf('- name: Build') < job.indexOf('- name: Public Beta S1 Recovery Control Plane'), 'hosted recovery gate must follow build');
+  assert.equal(step.trim(), [
+    '- name: Public Beta S1 Recovery Control Plane',
+    '        run: |',
+    '          pnpm check:public-beta-s1-recovery-control-plane',
+    '          pnpm check:public-beta-next-phase-sprint',
+    '          pnpm check:public-beta-launch-control',
+    '          pnpm check:public-beta-distribution-packet',
+    '          pnpm check:public-beta-launch-closeout',
+  ].join('\n'));
+  assertIncludes(step, 'pnpm check:public-beta-s1-recovery-control-plane', 'hosted recovery gate');
+  assertIncludes(step, 'pnpm check:public-beta-next-phase-sprint', 'hosted sprint guard');
+  assertIncludes(step, 'pnpm check:public-beta-launch-control', 'hosted launch-control guard');
+  assertIncludes(step, 'pnpm check:public-beta-distribution-packet', 'hosted distribution guard');
+  assertIncludes(step, 'pnpm check:public-beta-launch-closeout', 'hosted launch-closeout guard');
+  assert.doesNotMatch(step, /^\s*if:/m, 'S1 recovery hosted gate must be unconditional');
+  assert.doesNotMatch(step, /\|\|\s*true/, 'S1 recovery hosted gate must fail closed');
+});
+
+test('active S1 operator docs require the exact reviewed recovery controller sequence', () => {
+  for (const [label, text] of [
+    ['runbook', runbook],
+    ['handoff', handoff],
+    ['checklist', checklist],
+  ]) {
+    let previousIndex = -1;
+    for (const token of [
+      'install-news-aggregator-production-service.sh --expected-revision "$FINAL_REV"',
+      'news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV"',
+      'news-aggregator-publisher-recovery-control.sh preflight --expected-revision "$FINAL_REV"',
+      'news-aggregator-publisher-recovery-control.sh start --expected-revision "$FINAL_REV"',
+      'news-aggregator-publisher-recovery-control.sh verify --expected-revision "$FINAL_REV"',
+      'update-phase5-scope-a-watch-t0.mjs',
+      'news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV"',
+    ]) {
+      assertIncludes(text, token, `${label} canonical recovery token ${token}`);
+      const tokenIndex = text.indexOf(token);
+      assert.ok(tokenIndex > previousIndex, `${label}: recovery sequence is out of order at ${token}`);
+      previousIndex = tokenIndex;
+    }
+  }
+
+  for (const [label, text] of [
+    ['runbook', runbook],
+    ['handoff', handoff],
+    ['checklist', checklist],
+    ['image deploy', imageDeploy],
+    ['environment example', envExample],
+  ]) {
+    assert.ok(!text.includes('VH_NEWS_DAEMON_START_APPROVED=1'), `${label}: retired persistent approval remains`);
+    assert.ok(!text.includes('--start-publisher'), `${label}: retired installer start path remains`);
+    assert.ok(!text.includes('systemctl --user restart vh-news-aggregator.service'), `${label}: direct publisher restart remains`);
+  }
+});
+
+test('final tuple and honest soak boundary are durable across launch-control surfaces', () => {
+  for (const token of [
+    'FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT',
+    'IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN',
+    'T0_PLUS_24H_IS_INTERMEDIATE_ONLY',
+    'T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2',
+  ]) {
+    assertIncludes(checklist, token, `checklist recovery boundary ${token}`);
+    assertIncludes(handoff, token, `handoff recovery boundary ${token}`);
+    assertIncludes(launchControl, token, `launch-control recovery boundary ${token}`);
+    assertIncludes(recoveryPacket, token, `recovery-packet boundary ${token}`);
+  }
+
+  for (const token of [
+    'publisher checkout',
+    'relay OCI revision',
+    'full immutable relay image ID',
+    'packet SHA-256',
+    'capture SHA-256',
+    'reviewer identity',
+    'relay order `A -> B -> C`',
+    'reviewed loopback relay origins',
+  ]) {
+    assertIncludes(checklist, token, `final tuple binding ${token}`);
+  }
+
+  for (const [label, text] of [
+    ['handoff', handoff],
+    ['launch control', launchControl],
+    ['distribution', distribution],
+  ]) {
+    assert.doesNotMatch(text, /\bor Lou\b/i, `${label}: downstream Lou-authorization waiver remains`);
+    assert.doesNotMatch(text, /classified[\s\S]{0,160}authorized/i, `${label}: classified-incident authorization waiver remains`);
+  }
+  assert.ok(!/S1 has no active critical incident, or Lou has classified the incident and\s+explicitly authorized this slice to proceed\./.test(checklist), 'S2 must not retain incident-authorization shortcut');
+
+  for (const token of [
+    'Shared-integration parent base: `main@297d1bb4bd7654e713953930d61f55ca930df50e`',
+    'The merge commit containing this integration becomes',
+    'publisher recovery before C, independent relay-evidence acceptance, and a',
+    'separate later Lou confirmation for the exact revision',
+    'human authority or immediate readback cannot',
+  ]) {
+    assertIncludes(handoff, token, `handoff exact authority transition ${token}`);
+  }
+  for (const forbidden of [
+    'Current merged repo base: `main@297d1bb4',
+    'latest local artifact at handoff',
+    'Current incremental monitor readout:',
+    'publisher restart only if required by the approved release/update/canary path',
+    'publisher restart remain Lou-approved incident actions',
+    'any Lou-approved recovery readback clears it',
+  ]) {
+    assert.ok(!handoff.includes(forbidden), `handoff stale authority shortcut remains: ${forbidden}`);
+  }
+  for (const [label, text] of [
+    ['handoff', handoff],
+    ['checklist', checklist],
+  ]) {
+    assertIncludes(text, 'moving', `${label}: moving mailbox alias boundary`);
+    assertIncludes(text, 'before every gate', `${label}: mailbox refresh boundary`);
+    assertIncludes(text, 'incident history', `${label}: dated mailbox evidence boundary`);
+  }
+  assert.ok(!checklist.includes('Current incremental monitor readout:'), 'checklist must not present a dated mailbox count as current');
 });

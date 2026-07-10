@@ -10,6 +10,7 @@ const publicCopy = readFileSync(publicCopyPath, 'utf8');
 
 const requiredDistributionFields = [
   'Release commit',
+  'S1 recovery closure',
   'Web PWA target URL',
   'Auth-callback target URL',
   'A6 deployed commit',
@@ -48,6 +49,11 @@ const requiredEvidenceRows = [
   'Privacy spot-check',
   'Alert delivery',
   'Failure-mailbox monitor',
+  'Final S1 recovery tuple',
+  'Serial A/B/C relay replacement',
+  'Immediate publisher recovery',
+  'S1 T0+24h evidence',
+  'S1 T0+48h closure',
 ];
 
 const forbiddenClaims = [
@@ -107,6 +113,22 @@ test('forbidden claims and stop rules are explicitly listed', () => {
   assert.match(distributionPacket, /support or telemetry exposes private details/);
   assert.match(distributionPacket, /newCriticalCount == 0/);
   assert.match(distributionPacket, /read-only repo\/A6 readback/);
+});
+
+test('distribution cannot waive the final S1 tuple and T0+48h closure', () => {
+  for (const token of [
+    'FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT',
+    'IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN',
+    'T0_PLUS_24H_IS_INTERMEDIATE_ONLY',
+    'T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2',
+    'check:public-beta-s1-recovery-control-plane',
+  ]) {
+    assert.match(distributionPacket, new RegExp(token.replace(/[+]/g, '\\+')));
+  }
+  const goSection = distributionPacket.match(/## Final Go Checklist\n([\s\S]*?)(?=\n## )/)?.[1] ?? '';
+  assert.match(goSection, /S1 T0\+48h closure artifact passes/);
+  assert.doesNotMatch(goSection, /\bor Lou\b/i);
+  assert.doesNotMatch(goSection, /classified[\s\S]{0,160}authorized/i);
 });
 
 test('rollback preserves A6 and alerting boundaries', () => {

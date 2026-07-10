@@ -1,13 +1,13 @@
 # A6 S1B Relay-Timeout Recovery Packet - 2026-07-10
 
-> Status: `boundary_approved_exact_packet_correction_in_review`
+> Status: `final_revision_image_packet_and_review_pending`
 > Owner: VHC Ops + VHC Core Engineering
 > Last Reviewed: 2026-07-10
 > Depends On: `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/news-aggregator-production-service.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/plans/PUBLIC_BETA_STATE_OF_PLAY_HANDOFF_2026-07-10.md`
-> Decision: `NO-GO_PENDING_EXACT_PACKET_REVIEW`
+> Decision: `NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`
 > Human incident, restart, and rollback authority: Lou
 > Repo preparation owner: VHC Core Engineering
 > Live actions performed by this document/branch: none
@@ -34,12 +34,29 @@ the relay image and recreating the relay containers. Lou approved PR #763 and
 the attended A/B/C restart boundary on 2026-07-10. That resolves the authority
 contradiction, but it does not waive exact-packet review. Review of the first
 candidate packet returned `NO-GO` for inspect-scope, network-prestate, and
-immutable-image binding gaps; the corrected packet must be regenerated and
-reviewed before any removal.
+immutable-image binding gaps. PR #764 corrected those tooling defects and
+merged; #765-#767 then closed the publisher diagnostic, control-plane, and
+liveness seams. Merged tooling is not a final packet. The shared integration
+gate starts from `main@297d1bb4`; only its eventual reviewed merge may be frozen
+as `FINAL_REV` and used to build the image, capture fresh A6 prestate, and
+generate the inert packet.
 
 No relay, origin, publisher, service, timer, Gmail/provider, pager, alert
 channel, or production state was changed. No live packet was generated or run.
 S1A/S1B are not recovered or green.
+
+The final review record must bind the publisher checkout, relay OCI revision,
+full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture
+SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback
+relay origins. Any later commit, rebuild, recapture, origin change, or packet
+regeneration invalidates the prior review and Lou tuple confirmation.
+
+Durable boundaries:
+
+- `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`
+- `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`
+- `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`
+- `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`
 
 ## Recorded Boundary Approval And Remaining Gate
 
@@ -74,8 +91,15 @@ instructions.
 
 ## Preparation Inputs
 
-Do not collect live inputs until the repo remediation is merged, independent
-packet review is `GO`, and Lou authorizes the read-only capture session.
+Do not collect live inputs until the shared integration is reviewed and merged
+and its full merge SHA is frozen as `FINAL_REV`. After that freeze, the artifact
+author may build the exact local image and use the already authorized A6
+read-only path to capture fresh secret-safe inputs and generate the inert packet.
+Those inputs are what the independent exact-tuple reviewer must review, so their
+collection necessarily precedes packet `GO`. Read-only capture and inert packet
+generation authorize no container, service, timer, env, or other live mutation.
+No relay removal may begin until the resulting exact tuple receives independent
+`GO` and Lou confirms that exact tuple for relay A.
 
 Required inputs are:
 
@@ -307,8 +331,9 @@ the four missing-key exact-readback contracts are available without observed
 snapshot/env/OOM regressions. It does not prove publisher recovery, feed
 freshness, alert recovery, watch closure, or S1B green.
 
-The publisher remains parked until a separate, independently reviewed,
-Lou-approved exit-78 recovery packet preserves the incident prestate, starts or
-resets only the publisher, validates the first completed ticks, proves public
-freshness/snapshots/liveness, and begins honest 24/48-hour evidence. Until that
-happens, the release decision remains `NO-GO` and S2+ remains blocked.
+The publisher remains parked until the separately reviewed exact-revision
+recovery controller preserves the incident prestate and relay evidence, runs
+park/preflight/attended-start/four-route verify/T0/finalize, validates the first
+completed ticks, and proves public freshness/snapshots/liveness. Immediate
+recovery is not S1 green. T0+24h is intermediate only. S1A/S1B remain `NO-GO`
+and S2+ remains blocked until a passing T0+48h closure packet exists.

@@ -4,7 +4,7 @@
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Human authority: Lou
 > Technical executor: Codex orchestrator through isolated implementation and review subagents
-> Branch basis: #759 release-readiness control branch
+> Current integration basis: `main@297d1bb4bd7654e713953930d61f55ca930df50e`
 > Target public app: `https://venn.carboncaste.io`
 > Target auth boundary: `https://auth.venn.carboncaste.io`
 > Support/failure mailbox: `carboncasteit@gmail.com`
@@ -53,17 +53,53 @@ Before assigning implementation work:
    verified base SHA, PR state, active incident, lane assignments, gates, test
    evidence, review verdicts, and authority decisions. Store no secrets.
 
-Review-time snapshot at `2026-07-10T01:38:58Z`, not execution authority:
+Current repo snapshot at `2026-07-10`, not live execution authority:
 
-- PR #759 is open and non-draft at head `7a32f9fc95ae6d1208ce32fa49027353bb3f7863`;
-- base is `main@1f860ae71b51b588e69cb892bcc479675f6c0a9c`;
-- all 9 reported CI checks passed, including Lighthouse and E2E;
-- GitHub reported merge state `CLEAN`, but the PR remained open;
-- S1A is classified but unresolved, and S1B is the first implementable repo
-  slice.
+- #759, #763, #764, #765, #766, and #767 are merged;
+- `main@297d1bb4bd7654e713953930d61f55ca930df50e` contains the reviewed exact
+  relay-packet correction, runtime diagnostic boundary, publisher recovery
+  control plane, and exact liveness classification;
+- #766 and #767 each passed independent review and 9/9 hosted CI before merge;
+- `297d1bb4` is only the shared-integration base. It is not `FINAL_REV`, is not
+  an approved relay image, and is not a live recovery packet;
+- S1A remains classified as
+  `relay_rest_story_timeout_total_0_of_3_exit_78`; the last read-only A6 state
+  still had the publisher parked at exit `78`, so S1A/S1B remain red.
 
-Revalidate all five facts before acting. Do not call S0 green from this
-snapshot.
+Revalidate repository, PR, mailbox, and read-only A6 truth before each gate.
+Do not freeze `FINAL_REV` until the shared CI/docs integration PR is reviewed,
+green in hosted CI, and merged.
+
+### Current S1 Recovery Binding Gate - 2026-07-10
+
+The shared integration merge creates the only eligible final revision. Bind
+that same full 40-hex `FINAL_REV` to all of: publisher checkout; relay OCI revision;
+full immutable relay image ID; manifest and tar hashes; packet SHA-256; capture SHA-256;
+reviewer identity; relay order `A -> B -> C`; and the
+reviewed loopback relay origins. The artifact reviewer must inspect the exact
+tuple, and Lou must confirm that exact tuple before relay A.
+
+`FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`
+
+The canonical publisher sequence, after independently reviewed A/B/C evidence
+and separate attended publisher authority, is:
+
+```bash
+FINAL_REV=<full-40-hex-reviewed-shared-integration-merge>
+./tools/scripts/install-news-aggregator-production-service.sh --expected-revision "$FINAL_REV"
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
+./tools/scripts/news-aggregator-publisher-recovery-control.sh preflight --expected-revision "$FINAL_REV" --output-file "$PREFLIGHT" --approve-preflight
+./tools/scripts/news-aggregator-publisher-recovery-control.sh start --expected-revision "$FINAL_REV" --relay-recovery-evidence "$RELAY_EVIDENCE" --relay-recovery-expected-sha256 "$RELAY_EVIDENCE_SHA256" --preflight-artifact "$PREFLIGHT" --mailbox-artifact "$MAILBOX" --mailbox-expected-sha256 "$MAILBOX_SHA256" --mailbox-expected-critical-count "$MAILBOX_CRITICAL_COUNT" --start-control-output "$START_CONTROL" --approve-attended-start
+./tools/scripts/news-aggregator-publisher-recovery-control.sh verify --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --current-run-file "$CURRENT_RUN" --runtime-diagnostics-file "$RUNTIME_DIAGNOSTICS" --output-file "$READBACK" --relay-origin "$RELAY_A_ORIGIN" --relay-origin "$RELAY_B_ORIGIN" --relay-origin "$RELAY_C_ORIGIN" --approve-verification-and-abort
+node ./tools/scripts/update-phase5-scope-a-watch-t0.mjs --file "$WATCH_ENV" --new-t0 "$READBACK_GENERATED_AT" --expected-start "$OLD_WATCH_START" --expected-clean-start "$OLD_CLEAN_START"
+./tools/scripts/news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --readback-artifact "$READBACK" --watch-env-file "$WATCH_ENV" --first-alert-file "$FIRST_ALERT" --second-alert-file "$SECOND_ALERT" --mailbox-artifact "$FINAL_MAILBOX" --finalization-output "$FINALIZATION" --approve-finalization-and-abort
+```
+
+The runbook supplies the mode-`0700`/`0600` path and freshness requirements.
+Commands are serial and fail closed. `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`.
+`T0_PLUS_24H_IS_INTERMEDIATE_ONLY`.
+`T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`. No incident-classification or human
+authorization shortcut may waive the final 48-hour evidence gate.
 
 ### Authority Model
 
@@ -88,8 +124,8 @@ approval. A merged repo PR never implies live mutation approval.
 - One implementation lane equals one subagent, one branch, one isolated
   worktree or clone, and one focused PR.
 - Never run parallel implementation agents in the same worktree.
-- Branch every lane from the exact recorded base SHA. If PR #759 is not merged,
-  either wait for G0 or use an explicitly stacked base and preserve merge order.
+- Branch every new lane from the exact current merged base SHA recorded in the
+  orchestration ledger; the shared integration lane starts at `297d1bb4`.
 - If isolated worktrees/clones are unavailable, run lanes sequentially. Finish,
   test, review, push, and open the first lane PR before starting the next.
 - Review agents inspect the real branch diff and test artifacts read-only. They
@@ -117,11 +153,11 @@ Orchestrator-owned shared surfaces include:
 
 | Wave | Delegated work | Parallelism | GO gate |
 | --- | --- | --- | --- |
-| G0 | Repo/PR/CI truth audit for S0 plus latest mailbox/A6 read-only state | One read-only auditor may assist the orchestrator | Exact base selected; PR #759 green/merged or stacked-base decision recorded |
+| G0 | Repo/PR/CI truth audit for S0 plus latest mailbox/A6 read-only state | One read-only auditor may assist the orchestrator | Exact current base selected; merged recovery-lane ancestry and latest read-only incident state recorded |
 | G1 | S1B Runtime lane and S1B Alert lane | Parallel only in isolated worktrees | Both implementation PRs independently reviewed, corrected, re-reviewed, and green |
 | G2 | Cross-lane integration review, shared docs, full S1B gate | Sequential after G1 | Combined behavior preserves quorum/exit semantics, alert contract, and CI |
-| G3 | Recovery-packet author and independent packet reviewer | Sequential after merged S1B commit | Secret-safe packet verified; Lou gives explicit live-action approval |
-| G4 | A6 recovery/readback and required 24/48-hour soak | Single live operator session; subagents read-only only | S1A/S1B green with preserved evidence |
+| G3 | Final shared-integration merge, recovery-artifact author, and independent packet reviewer | Sequential after merged S1B control/liveness lanes | Exact final revision/image/capture/packet tuple verified; Lou binds the exact tuple and scoped live action |
+| G4 | Serial A/B/C recovery, separate publisher recovery/readback, and required 24/48-hour soak | Single live operator session; subagents read-only only | Immediate and T0+24h are interim; only T0+48h can make S1A/S1B green |
 | G5 | S2 StoryCluster repair, then S3 auth-boundary deployment | Sequential; subagents may prepare/review, but the orchestrator owns live action under Lou's authority | Production-readiness and auth health pass without secret leakage |
 | G6 | S4 Apple and S5 Google registration/rehearsal | Repo preparation/review may parallelize after S3; secret-bearing provider actions serialize through Lou-supervised sessions | Both advertised providers pass; X remains hidden |
 | G7 | S6 origin build/deploy, S7 A6 release update, S8 synthesis canary | Strictly sequential | Each slice's live readback is green before the next starts |
@@ -291,11 +327,7 @@ Execution-time G0 contract audit found and resolved:
   permanent repair. The lane now owns by-key nonmutating signed-record GETs and
   focused relay integration coverage for those routes.
 
-Current review verdict: no unresolved checklist-level P0/P1/P2 finding. This is
-a verdict on the orchestration artifact, not on the unimplemented S1B code or
-the unresolved live incident.
-
-Validated locally after refinement:
+Historical checklist-refinement validation before S1 implementation:
 
 - gun-client `newsAdapters.test.ts`: 168 passed;
 - ai-engine `newsRuntime.test.ts`: 54 passed;
@@ -310,15 +342,20 @@ Validated locally after refinement:
 - docs governance: pass;
 - `git diff --check`: pass.
 
-GitHub validation at `2026-07-10T01:38:58Z`: PR #759 head
+Historical GitHub validation at `2026-07-10T01:38:58Z`: PR #759 head
 `7a32f9fc95ae6d1208ce32fa49027353bb3f7863` was open, merge-clean, and 9/9 CI
 checks were green. The orchestration refinements in the current worktree are
 newer local changes and require their own reviewed commit/CI before they can be
 treated as remote PR truth.
 
-Local Node is `v23.10.0`, outside the repo-declared `>=20 <23` engine range.
-Commands passed with that warning, but CI on the supported runtime remains the
-merge authority.
+Current shared-integration validation uses supported Node `20.20.2`. The first
+fresh-run recovery gate exposed a missing built dependency and correctly failed;
+after changing the package filter to build the complete Gun dependency closure,
+the exact rerun passed 225/225 tests. The sprint guard passes 12/12,
+launch-control 11/11, distribution 7/7, launch closeout passes, docs governance
+passes 159 files, workflow YAML parses, and `git diff --check` passes. The
+shared integration still requires an exact-head independent subsequent review,
+hosted CI, and merge before it can create `FINAL_REV`.
 
 ## Executive Frame
 
@@ -349,15 +386,15 @@ The public-beta target is:
 - later tranches: 500, 1000, then open only after green evidence plus Lou
   approval.
 
-## Current Monitor Evidence Fold-In - 2026-07-10
+## Dated Monitor Evidence Fold-In - 2026-07-10
 
-The latest failure-mailbox monitor report changes the immediate sequence.
+The failure-mailbox snapshot that activated S1A changed the immediate sequence.
+It is preserved incident history, not a current alias: re-read the moving
+`.tmp/vhc-failure-mailbox-monitor/latest.json` before every gate and record its
+new timestamp and classifications in the private orchestration ledger.
 Monitor `status: pass` means the mailbox monitor ran and classified mail; it is not release clearance.
 
-Monitor artifact:
-`.tmp/vhc-failure-mailbox-monitor/latest.json`.
-
-Current incremental monitor readout:
+Preserved incremental readout:
 
 - generated at `2026-07-10T01:11:56.040Z`;
 - `newCriticalCount: 1`;
@@ -408,9 +445,11 @@ or release work.
 If `.tmp/vhc-failure-mailbox-monitor/latest.json` has `newCriticalCount > 0`,
 the release is blocked even when `status: pass`.
 
-Before any mutation, deploy, provider registration, A6 update, canary,
-distribution, or tranche expansion, `newCriticalCount == 0` or Lou has made an
-explicit incident decision after read-only repo/A6 readback.
+Lou's explicit incident decision may authorize only the exact reviewed S1
+recovery tuple while the public-feed critical remains active. Before any S2+
+credential repair, general deploy, provider registration, release A6 update,
+canary, distribution, or tranche expansion, `newCriticalCount == 0`, no
+unresolved public-feed critical remains, and the S1 T0+48h closure passes.
 
 `public_feed_alert_fail`, `public_feed_freshness_workflow_failed`, and
 `public_feed_freshness_workflow_cancelled` are public-feed freshness blockers.
@@ -442,9 +481,10 @@ Guard tokens:
 
 1. No Codex live execution/autonomy is enabled.
 2. No pager cutover is part of this sprint.
-3. No relay restart unless a focused incident packet authorizes it.
-4. Publisher restart is allowed only when required by the approved release,
-   update, canary, or incident path.
+3. No relay action outside Lou's exact independently reviewed serial A/B/C
+   incident tuple; any different tuple requires new review and authority.
+4. Publisher recovery is allowed only through the exact-revision controller's
+   separate park/preflight/start/verify/T0/finalize authority path.
 5. Accepted synthesis is enabled only through the bounded canary packet after
    preconditions pass.
 6. Social sign-in is account continuity and profile recovery only. It is not
@@ -529,11 +569,11 @@ systems.
 
 ### Checklist
 
-- [ ] Confirm #759 is current with its base.
-- [ ] Confirm CI is green on #759.
-- [ ] Merge #759 or explicitly carry it as the release-candidate branch.
-- [ ] Pull `main` after merge, or record the exact branch SHA if launching from a
-  pre-merge release branch.
+- [x] Confirm #759 and recovery PRs #763-#767 are merged with reviewed hosted CI.
+- [x] Select `main@297d1bb4` as the exact shared-integration base.
+- [ ] Independently review, host-CI validate, and merge the shared integration
+  PR; do not launch from its unmerged head.
+- [ ] Pull `main` after that merge and freeze the full merge SHA as `FINAL_REV`.
 - [ ] Preserve the two untracked distribution-readiness docs out of release
   evidence unless Lou explicitly chooses to commit them.
 - [ ] Record the release commit candidate in:
@@ -546,7 +586,9 @@ systems.
 ```bash
 git fetch origin --prune
 git status --short --branch
-gh pr view 759 --json number,title,headRefName,headRefOid,baseRefOid,isDraft,mergeStateStatus,statusCheckRollup,url
+gh pr list --state open --json number,title,headRefName,headRefOid,isDraft,mergeStateStatus,statusCheckRollup,url
+git rev-parse origin/main
+corepack pnpm@9.7.1 check:public-beta-s1-recovery-control-plane
 corepack pnpm@9.7.1 check:public-beta-launch-control
 corepack pnpm@9.7.1 check:public-beta-distribution-packet
 corepack pnpm@9.7.1 check:public-beta-launch-closeout
@@ -615,9 +657,9 @@ monitor before doing launch-enablement work.
 
 This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
 `newCriticalCount > 0`, including the `2026-07-10T01:11:56.040Z` incremental
-report with `newCriticalCount: 1` and a new public-feed freshness failure. The
-first-run count of 85 remains incident history, not the current incremental
-count.
+historical report with `newCriticalCount: 1` and a new public-feed freshness
+failure. The first-run count of 85 and every dated count in this document remain
+incident history, not a substitute for the moving latest readout.
 
 ### Boundaries
 
@@ -959,14 +1001,16 @@ git diff --check
   coordination head `0e5bac8f` passed same-reviewer audit and 9/9 hosted CI;
   PR #759 merged to `main` as `98277475`.
 
-- G3 packet preparation found an authority contradiction before any live action:
-  `infra/relay/server.js` is copied into immutable relay images and is not bind
-  mounted, so the new readback routes cannot deploy without controlled rolling
-  relay recreation. Lou approved PR #763 and the attended A/B/C boundary on
-  2026-07-10. The first exact packet review then returned `NO-GO` on capture
-  cardinality, semantic network preservation, and immutable image-id binding.
-  Those corrections must receive subsequent review before the approved live
-  action begins; no relay action is claimed by this repo lane.
+- G3 packet preparation found an authority contradiction before any live
+  action: `infra/relay/server.js` is copied into immutable relay images and is
+  not bind mounted, so the new readback routes require controlled rolling relay
+  recreation. Lou approved #763 and the attended A/B/C boundary. #764 then
+  closed the exact capture-cardinality, semantic-network, and immutable-image
+  findings and merged. #765, #766, and #767 subsequently closed the runtime
+  diagnostic, publisher authority/control, and exact liveness-classification
+  seams. No relay or publisher action is claimed by any repo lane. A new image,
+  fresh A6 capture, and inert packet must be generated only from the eventual
+  reviewed shared-integration merge and independently reviewed as one tuple.
 
 ### Review And Merge Gate
 
@@ -982,10 +1026,11 @@ git diff --check
 
 ### Lou-Approved A6 Recovery Packet
 
-The packet must be generated from the merged remediation commit. It is not the
-existing exit-69-only executor action because the pre-action state is exit 78.
-Lou must explicitly authorize the exit-78 incident recovery after independent
-review.
+The packet must be generated from the eventual shared-integration merge, not
+from the preliminary `297d1bb4` base. It is not the generic executor action
+because the pre-action state is exit 78. Lou's scoped A/B/C authorization still
+requires the independent reviewer and Lou to bind the exact final tuple before
+relay A; publisher recovery is a separate attended authority gate.
 
 #### G3 repo preparation and relay-restart boundary - 2026-07-10
 
@@ -995,12 +1040,12 @@ only `/data`; an A6 checkout update cannot install the new exact-readback routes
 into running relays. A rolling relay image replacement is therefore technically
 required before publisher recovery can exercise the merged contract.
 
-That fact conflicted with the standing no-relay-restart line below. Lou approved
-PR #763 and the attended A/B/C restart boundary on 2026-07-10. The first exact
-packet review then returned `NO-GO` for inspect-scope, network-prestate, and
-immutable-image binding gaps. The current state is
-`boundary_approved_exact_packet_correction_in_review`; repo preparation is not
-execution proof and no live recovery is claimed.
+That fact conflicted with the former no-relay-restart line below. Lou approved
+PR #763 and the attended A/B/C restart boundary on 2026-07-10. PR #764 closed
+the inspect-scope, network-prestate, and immutable-image binding findings. The
+current decision is `NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`:
+merged tooling is not a final artifact, repo preparation is not execution
+proof, and no live recovery is claimed.
 
 - [x] Add inert `--relay-only` image-export and deploy-packet generation that
   excludes origin, requires exactly relay A/B/C, and defaults to no recreate
@@ -1051,8 +1096,12 @@ execution proof and no live recovery is claimed.
   `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.
 - [x] Merge S1B remediation to `main` at `98277475`.
 - [x] Merge the approved recovery-boundary packet as PR #763 at `bb934010`.
-- [ ] Generate the exact packet from the merged commit and fresh secret-safe
-  inspect evidence.
+- [x] Merge exact packet correction #764, runtime boundary #765, publisher
+  control #766, and liveness classification #767.
+- [ ] Merge the shared CI/docs integration and freeze its merge commit as
+  `FINAL_REV`; any later commit invalidates the tuple.
+- [ ] Generate the exact immutable relay image, fresh secret-safe A6 capture,
+  and inert packet from `FINAL_REV`.
 - [ ] Independent packet reviewer returns `GO` on the exact packet hash; any
   correction receives subsequent review by the same reviewer.
 - [x] Lou explicitly replaced the no-relay-restart boundary by approving #763
@@ -1125,8 +1174,9 @@ Soak readback:
   launch.
 - [ ] The mailbox receives one incident transition and one recovery transition,
   not a new email for every decimal window/age change.
-- [ ] S1A closes only after these recovery facts are preserved; then S2 may
-  begin.
+- [ ] S1A/S1B close only after immediate evidence, T0+24h intermediate
+  evidence, and a passing T0+48h finalization/closure packet are preserved;
+  only then may S2 begin.
 
 ## S2 - StoryCluster Headline-Soak Credential/Endpoint Repair
 
@@ -1141,10 +1191,11 @@ credentials.
   StoryCluster/OpenAI credential.
 - [ ] Codex can inspect only redacted env names, file mode/owner/hash, health
   booleans, and stable reason codes.
-- [ ] S1A and S1B are green if the latest failure-mailbox monitor reported
-  critical items.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A and S1B are green through a passing T0+48h closure packet and the
+  latest failure-mailbox monitor has no unresolved public-feed critical.
+- [ ] The orchestration ledger records
+  `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2: pass`; classification or human authority
+  alone cannot substitute for the elapsed evidence.
 
 ### Checklist
 
@@ -1185,8 +1236,8 @@ Deploy `services/auth-callback` outside A6 at
 - [ ] DNS for `auth.venn.carboncaste.io` is controllable.
 - [ ] If Cloudflare does not control DNS, Lou logs into Namecheap to confirm or
   update nameserver delegation.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1236,8 +1287,8 @@ Make Apple sign-in work end to end without leaking provider or PKCE material.
 - [ ] Lou logs into Apple Developer.
 - [ ] Apple Developer Program membership is active.
 - [ ] App display name is `venn`.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1281,8 +1332,8 @@ boundaries.
 
 - [ ] Lou logs into the CarbonCaste Google account or Google Cloud account.
 - [ ] Choose existing Google Cloud project or create a new project for `venn`.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1319,8 +1370,8 @@ Deploy PWA assets that know about the auth boundary and show only Apple/Google.
 - [ ] S3 auth boundary is deployed.
 - [ ] S4/S5 provider health and rehearsal pass, or provider copy is narrowed.
 - [ ] Lou authorizes A6 origin image rebuild/redeploy.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1365,9 +1416,11 @@ Put A6 on the release commit and prove raw-feed health before accepted synthesis
 
 - [ ] Read back current A6 commit and services before mutation.
 - [ ] Update A6 checkout to the release commit.
-- [ ] Do not restart relays.
-- [ ] Restart publisher only if required by the update or release path; in guard
-  language, restart publisher only if required.
+- [ ] Do not restart relays; the prior A/B/C incident authority is tuple-bound
+  and cannot be reused for a later release update.
+- [ ] If publisher activation is required by the update or release path, use a
+  newly reviewed exact-revision recovery-controller sequence; never issue a
+  direct service restart.
 - [ ] Capture post-update service state:
   - [ ] `vh-news-aggregator.service`;
   - [ ] `vh-storycluster-engine.service`;
@@ -1399,8 +1452,8 @@ tables, or vote controls.
 - [ ] S7 live readback is green.
 - [ ] Email alert loop is active.
 - [ ] StoryCluster production-readiness is no longer credential-blocked.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 - [ ] Lou accepts the attended live touch and the effect on unattended-window
   evidence.
 
@@ -1447,8 +1500,8 @@ Replace stale evidence with a release-commit packet.
 - [ ] Release commit is known.
 - [ ] Repo tree is clean except preserved local-only docs handled outside the
   packet.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1493,8 +1546,8 @@ Prove the public beta as users experience it.
 - [ ] Accepted-current story exists.
 - [ ] Release evidence is green or the rehearsal is explicitly a pre-release
   dry run.
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 
 ### Checklist
 
@@ -1529,8 +1582,8 @@ Convert evidence into a bounded launch decision.
 
 ### Required Input
 
-- [ ] S1 has no active critical incident, or Lou has classified the incident and
-  explicitly authorized this slice to proceed.
+- [ ] S1A/S1B have a passing T0+48h closure packet and no unresolved
+  public-feed critical; authority alone cannot waive this prerequisite.
 - [ ] Latest failure-mailbox monitor has `newCriticalCount == 0`.
 - [ ] Pager dead-man workflow warnings have been triaged and the pager dead-man
   workflow is green.
@@ -1600,16 +1653,16 @@ Watch the first tranche tightly and scale only on evidence.
 
 The public beta is not ready until every item below is true:
 
-- [ ] #759 or successor launch-control branch is merged, or explicitly selected
-  as the release branch.
+- [ ] The shared S1 recovery integration is merged and its full commit is bound
+  as the final publisher/image/packet revision.
 - [ ] Release commit is pinned.
 - [ ] Failure-mailbox monitor is active and producing secret-safe artifacts.
 - [ ] Latest failure-mailbox monitor has no unresolved critical items, or S1A
   and S1B have cleared them with classified evidence, merged remediation, and
   any required Lou-approved recovery readback.
 - [ ] Latest failure-mailbox monitor has `newCriticalCount == 0` before launch,
-  or Lou has made an explicit incident decision after read-only repo/A6
-  readback.
+  S1A/S1B have a passing T0+48h closure packet, and no unresolved public-feed
+  critical remains.
 - [ ] Pager dead-man workflow is green before launch.
 - [ ] StoryCluster production-readiness no longer blocks on credential/endpoint.
 - [ ] Auth boundary is deployed at `https://auth.venn.carboncaste.io`.
@@ -1666,18 +1719,20 @@ Stop immediately and preserve evidence if any of these occur:
 
 The very next operational move is:
 
-1. merge or explicitly carry #759 as the release branch;
-2. preserve the completed S1A finding
-   `relay_rest_story_timeout_total_0_of_3_exit_78` and keep A6 unchanged;
-3. implement, test, review, and merge S1B concurrent bounded fanout,
-   availability-total exit classification, stable alert fingerprinting, and
-   readable email MIME;
-4. prepare the focused recovery packet from the merged commit, then update and
-   restart the exit-78 publisher only if Lou explicitly approves it;
-5. preserve clean-tick, public freshness, relay snapshot/liveness, alert
-   transition, and 24/48-hour watch evidence until S1A/S1B are green;
-6. repair StoryCluster headline-soak credential/endpoint only after S1A/S1B are
-   green;
+1. merge the reviewed shared CI/docs integration and freeze its full merge
+   commit as `FINAL_REV`;
+2. build the exact linux/amd64 relay image, capture fresh A6 prestate, generate
+   the inert packet, and independently review the bound tuple;
+3. after Lou confirms that exact tuple, replace only relay A, review its
+   evidence, then B, then C, with the publisher parked and current-relay-only
+   rollback;
+4. after independent relay-evidence review and separate attended publisher
+   authority, install, park, preflight, start, verify, set T0, and finalize
+   through the recovery controller;
+5. preserve immediate, T0+24h intermediate, and T0+48h final clean-tick,
+   public freshness, relay snapshot/liveness, alert, and mailbox evidence;
+6. declare S1A/S1B green and repair StoryCluster only after the honest T0+48h
+   gate passes;
 7. use a Lou-supervised Cloudflare browser session to stand up
    `https://auth.venn.carboncaste.io`;
 8. use Lou-supervised Apple and Google browser sessions to register provider

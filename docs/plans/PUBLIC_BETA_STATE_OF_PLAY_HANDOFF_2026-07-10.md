@@ -4,9 +4,9 @@
 > Owner: VHC Launch Ops + VHC Core Engineering
 > Human authority: Lou
 > Technical executor: Codex
-> Current merged repo base: `main@bb9340101b98f33e0bbf4e719d0cc6f14226ade4`
-> Merged coordination PR: #759 at reviewed head `0e5bac8f7a25a62d0d5c36c6f171b7a915d99848`
-> Current repo lane: exact-packet binding correction; review/publish pending
+> Shared-integration parent base: `main@297d1bb4bd7654e713953930d61f55ca930df50e`
+> Merged recovery chain: #759, #763, #764, #765, #766, and #767
+> Integration transition: this reviewed PR's merge commit becomes `FINAL_REV`
 > Current target app: `https://venn.carboncaste.io`
 > Current auth boundary target: `https://auth.venn.carboncaste.io`
 > Support/failure mailbox: `carboncasteit@gmail.com`
@@ -33,19 +33,27 @@ rehearsal, and then a first public-beta tranche.
 The immediate blocker is S1A/S1B: the failure-mailbox monitor is working, and
 S1A readback classified a real public-feed incident. Monitor `status: pass`
 means the monitor ran and classified mail; it does not mean the release is
-green. As of the latest local artifact at handoff,
-`.tmp/vhc-failure-mailbox-monitor/latest.json` reports:
+green. At shared-integration preparation, the dated orchestration snapshot then
+copied from `.tmp/vhc-failure-mailbox-monitor/latest.json` reported:
 
-- generated at `2026-07-10T01:11:56.040Z`;
+- generated at `2026-07-10T15:02:20.895Z`;
 - `status: pass`;
-- `newCriticalCount: 1`;
-- `newWarningCount: 2`;
-- newest relevant message at `2026-07-10T01:07:59`;
-- critical reason `public_feed_alert_fail`;
-- warning reasons include pager dead-man workflow failure and a Google account
-  access notice;
+- `newCriticalCount: 2`;
+- `newWarningCount: 1`;
+- both criticals remain in the `public_feed_alert_fail` incident family;
 - recommended next action: treat as incident, preserve email, run read-only
   repo/A6 readback before mutation, Lou retains incident/rollback authority.
+
+That path is a moving alias. Re-read it before every gate and record the new
+timestamp and classifications in the private orchestration ledger. The dated
+counts above are incident history, not current clearance; any newer critical
+keeps the gate closed.
+
+The last read-only A6 refresh at `2026-07-10T15:48:16Z` observed checkout
+`347d20187d164699a35dbd8d76c299570011b1a1`, all three old-image relays
+running with `/readyz` 200 and no new restart/OOM/watchdog trip, and the
+publisher still `failed/failed` at exit `78`. This is a dated snapshot, not
+authority to infer unchanged live state later.
 
 S1A readback completed at `2026-07-10T01:17:07Z` and classified the incident as
 `relay_rest_story_timeout_total_0_of_3_exit_78`: the publisher is parked at
@@ -58,8 +66,62 @@ Repo-only S1B remediation may proceed while the incident is active. Do not
 start StoryCluster credential repair, auth deployment, provider registration,
 origin redeploy, A6 update outside the approved incident packet,
 accepted-synthesis canary, release-evidence regeneration, manual rehearsal,
-distribution, or tranche expansion until S1A/S1B are green or Lou makes an
-explicit incident decision from the preserved readback evidence.
+distribution, or tranche expansion until S1A/S1B are green through the required
+T0+48h closure evidence. Lou's incident decision authorizes only the scoped
+recovery action; it cannot make S1 green or unblock S2.
+
+## Current Recovery Integration And Final-Tuple Gate
+
+The reviewed repo capability chain inherited by this integration is merged
+through parent `main@297d1bb4bd7654e713953930d61f55ca930df50e`:
+
+- #764 closed the exact packet's relay cardinality, semantic network, and full
+  immutable image-ID binding findings;
+- #765 closed runtime diagnostic classification at the actual publisher exit
+  consumer;
+- #766 added the exact-revision publisher installer, private one-use attended
+  and exit-69 automatic-restart authority, park/preflight/start/verify/finalize
+  controller, four-route signed readback, and fail-closed evidence binding;
+- #767 made the live-start refusal classifier exact and case-sensitive at all
+  producer sites.
+
+`297d1bb4` is the shared-integration base, not the live recovery revision. The
+integration PR must first make the complete recovery suite plus sprint,
+launch-control, and launch-closeout guards unconditional hosted-CI gates. Its
+reviewed merge commit becomes `FINAL_REV`; any later commit invalidates the
+artifact tuple.
+
+The tuple binds the publisher checkout, relay OCI revision, full immutable
+relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer
+identity, relay order `A -> B -> C`, and reviewed loopback relay origins.
+`FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`.
+
+After the exact image/capture/packet tuple is independently reviewed and Lou
+confirms it, execute relay A, review its evidence, then B, then C. Keep the
+publisher parked throughout and roll back only the current relay on failure.
+Publisher recovery is a separate attended gate using this order:
+
+```bash
+FINAL_REV=<full-40-hex-reviewed-shared-integration-merge>
+./tools/scripts/install-news-aggregator-production-service.sh --expected-revision "$FINAL_REV"
+./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
+./tools/scripts/news-aggregator-publisher-recovery-control.sh preflight --expected-revision "$FINAL_REV" --output-file "$PREFLIGHT" --approve-preflight
+./tools/scripts/news-aggregator-publisher-recovery-control.sh start --expected-revision "$FINAL_REV" --relay-recovery-evidence "$RELAY_EVIDENCE" --relay-recovery-expected-sha256 "$RELAY_EVIDENCE_SHA256" --preflight-artifact "$PREFLIGHT" --mailbox-artifact "$MAILBOX" --mailbox-expected-sha256 "$MAILBOX_SHA256" --mailbox-expected-critical-count "$MAILBOX_CRITICAL_COUNT" --start-control-output "$START_CONTROL" --approve-attended-start
+./tools/scripts/news-aggregator-publisher-recovery-control.sh verify --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --current-run-file "$CURRENT_RUN" --runtime-diagnostics-file "$RUNTIME_DIAGNOSTICS" --output-file "$READBACK" --relay-origin "$RELAY_A_ORIGIN" --relay-origin "$RELAY_B_ORIGIN" --relay-origin "$RELAY_C_ORIGIN" --approve-verification-and-abort
+node ./tools/scripts/update-phase5-scope-a-watch-t0.mjs --file "$WATCH_ENV" --new-t0 "$READBACK_GENERATED_AT" --expected-start "$OLD_WATCH_START" --expected-clean-start "$OLD_CLEAN_START"
+./tools/scripts/news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --readback-artifact "$READBACK" --watch-env-file "$WATCH_ENV" --first-alert-file "$FIRST_ALERT" --second-alert-file "$SECOND_ALERT" --mailbox-artifact "$FINAL_MAILBOX" --finalization-output "$FINALIZATION" --approve-finalization-and-abort
+```
+
+`IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`.
+`T0_PLUS_24H_IS_INTERMEDIATE_ONLY`.
+`T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`.
+
+Current shared-integration local evidence on supported Node `20.20.2`: the
+serialized recovery control-plane gate passes 225/225 after a deliberate
+fresh-build failure exposed and corrected incomplete dependency closure; sprint
+12/12, launch-control 11/11, distribution 7/7, launch closeout, docs governance
+159/159, workflow YAML, and whitespace all pass. This is not independent review,
+hosted CI, a merged final revision, or live recovery evidence.
 
 ## S1B Repo Execution Addendum - 2026-07-10
 
@@ -106,14 +168,15 @@ into the coordination branch at `5116616a`. Final coordination head
 Recovery-packet design exposed the immutable-image restart boundary before any
 live action. PR #763 supplied the repo-side boundary packet and merged to
 `main@bb934010`; Lou explicitly approved #763 and instructed an attended A/B/C
-restart on 2026-07-10. The first exact packet review then correctly returned
+restart on 2026-07-10. The first exact packet review correctly returned
 `NO-GO`: its capture admitted duplicate/extra relay entries, its topology
 comparison reduced network attachment state to names, and a mutable tag with a
-matching revision could resolve to the wrong image. The correction lane remains
-repo-only pending subsequent exact-packet review. No A6 update, service action,
-relay action, Gmail/provider mutation, alert-channel change, or recovery was
-performed by this lane. S1A/S1B remain red and every S2+ launch slice remains
-blocked.
+matching revision could resolve to the wrong image. PR #764 corrected all three
+findings and passed subsequent review before merge. PRs #765-#767 then closed
+the publisher diagnostic, control-plane, and liveness seams. No A6 update,
+service action, relay action, Gmail/provider mutation, alert-channel change, or
+recovery was performed by these lanes. S1A/S1B remain red and every S2+ launch
+slice remains blocked.
 
 The exact-readback routes live in `infra/relay/server.js`, which the relay
 Dockerfile copies into an immutable image; public-beta compose mounts only
@@ -168,22 +231,22 @@ publisher resume during/post-verification.
 Current branch:
 
 ```text
-coord/s1b-exact-packet-binding-2026-07-10
+coord/s1-recovery-shared-integration-2026-07-10
 ```
 
 Current review state:
 
 ```text
-G3 exact-packet correction branch
-base: main@bb934010 (merged PR #763)
-decision: NO-GO_PENDING_EXACT_PACKET_REVIEW
+G3 shared CI/docs integration branch
+base: main@297d1bb4 (merged PR #767)
+decision: NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW
 live action: not started
 ```
 
-Current `main` at handoff:
+Parent `main` at the shared-integration branch point:
 
 ```text
-bb9340101b98f33e0bbf4e719d0cc6f14226ade4 Merge PR #763: approved S1B relay recovery packet
+297d1bb4bd7654e713953930d61f55ca930df50e Merge PR #767: exact publisher liveness classification
 ```
 
 Merged S1B PRs:
@@ -193,6 +256,10 @@ Merged S1B PRs:
 - #762 Cross-lane integration.
 - #759 Coordination and `main` merge.
 - #763 Approved relay-restart boundary and recovery-packet preparation.
+- #764 Exact packet/capture/image binding correction.
+- #765 Runtime diagnostic boundary.
+- #766 Publisher recovery authority/control plane.
+- #767 Exact publisher liveness classification.
 
 Open non-release follow-up issues at handoff:
 
@@ -284,19 +351,22 @@ Codex is the technical executor for:
 - repo work;
 - release evidence;
 - authorized read-only A6 readback;
-- authorized A6 release update;
-- authorized PWA origin image redeploy;
-- publisher restart only if required by the approved release/update/canary path;
-- auth setup;
-- Apple/Google provider configuration after Lou completes login/MFA;
-- Gmail failure-loop analysis.
+- the serial A/B/C relay boundary only after independent `GO` and Lou bind the
+  exact final tuple; and
+- any later live action only after its own recorded preconditions and Lou's
+  exact attended authorization are present.
 
 Not authorized:
 
-- Codex live execution/autonomy;
+- unspecified or autonomous live execution;
+- relay A before the final revision/image/capture/packet tuple receives
+  independent `GO` and Lou confirms that exact tuple;
+- publisher recovery before C, independent relay-evidence acceptance, and a
+  separate later Lou confirmation for the exact revision;
+- A6 release update, PWA origin redeploy, auth/provider configuration, canary,
+  Gmail mutation, or other launch-enablement action before S1 T0+48h closure
+  and its own explicit gate;
 - pager cutover;
-- relay restart, unless Lou explicitly replaces this boundary for one exact,
-  independently reviewed focused incident packet;
 - retention/compaction/eviction;
 - source-surface mutation without content-policy decision;
 - release approval without Lou's final go;
@@ -415,20 +485,29 @@ These are the blockers that matter before tester distribution.
 
 1. S1A mailbox-critical incident is classified but unresolved.
 
-   Latest local monitor has `newCriticalCount: 1` with
-   `public_feed_alert_fail`. S1A readback classified the incident as
+   The preserved orchestration snapshot at `2026-07-10T15:02:20.895Z` had
+   `newCriticalCount: 2` and `newWarningCount: 1`; both criticals remain in the
+   `public_feed_alert_fail` family. Re-read the moving `latest.json` before
+   every gate; no change in its incremental count clears S1 without the
+   required evidence. S1A readback classified the incident as
    `relay_rest_story_timeout_total_0_of_3_exit_78`: publisher parked at
    `ExecMainStatus=78` after `0/3` raw story relay acknowledgements against a
-   required `2/3` quorum. This blocks mutation and launch-enablement work until
-   S1B remediation plus any Lou-approved recovery readback clears it.
+   required `2/3` quorum. Only read-only evidence and the exact gated S1
+   recovery path may proceed. Launch-enablement remains blocked until S1 has a
+   passing T0+48h closure packet; human authority or immediate readback cannot
+   waive that evidence gate.
 
 2. S1B repo remediation is implemented but not live recovery-proven.
 
-   Frozen Runtime and Alert lane heads are independently reviewed and green;
-   the combined integration head still needs its distinct cross-lane review,
-   hosted CI, and merge. A6 mutation and publisher restart remain Lou-approved
-   incident actions only after the merged-commit recovery packet is
-   independently reviewed.
+   Runtime, Alert, cross-lane integration, and recovery capability PRs #759 and
+   #763-#767 are independently reviewed, hosted-CI green, and merged. This
+   shared CI/docs integration branch must receive same-reviewer `GO` and hosted
+   CI before merge. The merge commit containing this integration becomes
+   `FINAL_REV`; do not create a separate post-merge docs commit. The exact immutable
+   image, fresh capture, and inert packet must then be generated and reviewed
+   as one tuple. Relay A remains blocked until Lou confirms that exact tuple;
+   publisher recovery remains blocked behind C, independent relay-evidence
+   acceptance, and a separate later Lou confirmation for the same revision.
 
 3. StoryCluster headline-soak credential/endpoint is not release-ready.
 
@@ -456,9 +535,9 @@ These are the blockers that matter before tester distribution.
 
 7. A6 is not proven at the intended release commit.
 
-   Use the existing A6 SSH path only after S1A is clear or Lou has made an
-   explicit incident decision. Read back before mutation. Update/restart only
-   inside the approved release path.
+   Use the existing A6 SSH path for the scoped reviewed S1 recovery only under
+   its exact tuple authority. Any later release update waits for passing
+   T0+48h S1 closure. Read back before every mutation.
 
 8. Accepted synthesis is not live-proven on A6.
 
@@ -485,22 +564,23 @@ These are the blockers that matter before tester distribution.
 
 Do this in order.
 
-### 1. Preserve the merged S1B and approved boundary base
+### 1. Finish shared integration and freeze the final revision
 
-PRs #759 and #763 are already merged. Do not replay their repo work. Treat
-`main@bb9340101b98f33e0bbf4e719d0cc6f14226ade4` as the approved recovery-boundary
-base and verify it before preparing any corrected exact recovery packet.
+PRs #759 and #763-#767 are already merged. Do not replay their repo work. Treat
+`main@297d1bb4bd7654e713953930d61f55ca930df50e` only as the shared-integration
+base. Merge the reviewed integration/CI/docs gate first; its full merge commit
+becomes `FINAL_REV`.
 
 Before acting:
 
 ```bash
 git fetch origin --prune
-gh pr view 763 --json number,title,headRefName,headRefOid,state,mergedAt,mergeCommit,statusCheckRollup,url
+gh pr list --state open --json number,title,headRefName,headRefOid,statusCheckRollup,url
 git rev-parse origin/main
 git status --short --branch
 ```
 
-### 2. Preserve S1A finding and finish the exact-packet correction/review
+### 2. Build and review the exact final artifact tuple
 
 Do not mutate A6 from an unreviewed packet. Do not repair credentials yet.
 
@@ -510,11 +590,13 @@ Preserve the classified S1A finding:
 relay_rest_story_timeout_total_0_of_3_exit_78
 ```
 
-Runtime, Alert, integration, hosted CI, #759, and #763 are complete. Do not
-replay them. Finish the exact capture/image/network binding correction and
-subsequent review on the exact branch and packet hash. Lou's recorded approval
-then permits only the attended A/B/C rolling relay action; publisher restart
-remains a separate reviewed incident mutation.
+Runtime, Alert, exact-packet correction, publisher control, liveness, and their
+hosted CI are complete. Build the linux/amd64 relay image from `FINAL_REV`, take
+a fresh private A6 capture, emit the inert packet, and obtain independent `GO`
+on the exact revision/image/capture/packet tuple. Lou's recorded approval then
+permits only the attended A/B/C rolling relay action; publisher recovery remains
+a separate reviewed incident mutation. Do not proceed to S2 until the resulting
+publisher recovery has a passing T0+48h closure artifact.
 
 ### 3. Only after S1A/S1B exit green, repair StoryCluster credential/endpoint
 
@@ -601,7 +683,8 @@ Rules:
 
 - read back before mutation;
 - do not restart relays;
-- restart publisher only if required by the approved release/update/canary path;
+- if publisher activation is required, use a newly reviewed exact-revision
+  controller sequence; never issue a direct service restart;
 - record exact service state and freshness/liveness/snapshot/watch-closure
   outputs.
 
@@ -675,8 +758,8 @@ Only invite testers after:
 - launch-control status is `go_for_public_beta_ramp`;
 - distribution status is `go_for_public_beta_distribution`;
 - all evidence rows are filled;
-- latest mailbox monitor has no unresolved criticals or Lou has explicitly
-  cleared the incident from read-only evidence;
+- latest mailbox monitor has no unresolved criticals and the S1 T0+48h closure
+  artifact passes;
 - Lou says go.
 
 First tranche is capped at 100 testers.
@@ -753,7 +836,7 @@ Do not:
   A/B/C packet;
 - restart publisher unless the approved path requires it;
 - deploy auth or configure providers before the active mailbox critical is
-  classified/cleared or Lou explicitly authorizes return to release work;
+  closed by passing S1 T0+48h evidence;
 - enable accepted synthesis outside the bounded canary packet;
 - enable Codex live execution/autonomy;
 - cut over the custom pager;
@@ -763,17 +846,20 @@ Do not:
 
 ## Plain-English Current Status
 
-The repo-side S1B remediation and approved restart-boundary packet are merged
-through #763 at `main@bb934010`. The product MVP is largely built at repo level.
+The repo-side S1B remediation, exact packet correction, runtime diagnostic,
+publisher control, and liveness classification inherited by this integration
+are merged through #767 at parent `main@297d1bb4`. The product MVP is largely
+built at repo level.
 
 The live release is still blocked. The alert mailbox is doing its job and is
 still reporting a public-feed critical. S1A readback has already proved this is
 a real parked-publisher incident, not setup noise. The next dev's first real
-job is not Cloudflare, Google, Apple, broad A6 update, or canary. It is to finish
-the exact-packet correction and subsequent review, then execute only Lou's
-approved attended A/B/C relay action. Publisher recovery remains separate.
+job is not Cloudflare, Google, Apple, broad A6 update, or canary. It is to merge
+and review the shared integration gate, freeze `FINAL_REV`, build and review the
+exact artifact tuple, then execute only Lou's attended A/B/C relay action.
+Publisher recovery remains separate.
 
-Once S1A/S1B are green, the path is straightforward: repair StoryCluster
+Once S1A/S1B are green after T0+48h, the path is straightforward: repair StoryCluster
 credentials, stand up auth, register Apple/Google, redeploy the PWA origin,
 update/read back A6, run the accepted-synthesis canary, regenerate release
 evidence, rehearse in three browsers, finalize the packets, and invite no more

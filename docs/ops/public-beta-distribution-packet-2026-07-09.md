@@ -2,7 +2,7 @@
 
 > Status: `blocked_pending_release_evidence_rehearsal_and_live_fields`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-09
+> Last Reviewed: 2026-07-10
 > Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`,
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
@@ -11,6 +11,8 @@
 > `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`,
 > `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`,
 > `docs/ops/public-beta-image-deploy.md`,
+> `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`,
+> `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/launch/public-beta-copy.md`
 
 This is the Lane 8 distribution packet for the first Venn News Web PWA public
@@ -37,6 +39,7 @@ with secret-safe evidence and the final go checklist passes.
 | --- | --- | --- |
 | Release profile | `public-beta-ramp` | First invite tranche capped at 100 testers; expand to 500/1000/open only after green evidence plus Lou approval. |
 | Release commit | `TBD(release-owner)` | Exact commit with passing release evidence packet. |
+| S1 recovery closure | `TBD(watch-operator)` | Exact final tuple plus serial A/B/C, immediate recovery, T0+24h intermediate, and passing T0+48h closure evidence. |
 | Web PWA target URL | `https://venn.carboncaste.io` | Must serve release-commit assets. |
 | Auth-callback target URL | `https://auth.venn.carboncaste.io` | Must be outside A6 and health-checked. |
 | A6 deployed commit | `TBD(A6-operator)` | Read back immediately before distribution, or record why the release envelope avoids A6-newer claims. |
@@ -80,7 +83,16 @@ or private user details.
 | Three-browser rehearsal | pass | `TBD` |
 | Privacy spot-check | no leak | `TBD` |
 | Alert delivery | confirmed reachable | `TBD` |
-| Failure-mailbox monitor | no unresolved criticals, or Lou-classified incident fully closed by approved recovery/readback | `TBD`; the first 2026-07-10 snapshot's 85 criticals are historical, while the moving latest artifact remains incident-blocking and S1A is classified exit `78`; distribution stays blocked until S1A/S1B clear |
+| Final S1 recovery tuple | independent `GO` | `TBD`; bind final revision, publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins |
+| Serial A/B/C relay replacement | `pass` | `TBD` |
+| Immediate publisher recovery | `pass` but interim | `TBD` |
+| S1 T0+24h evidence | intermediate only | `TBD` |
+| S1 T0+48h closure | `pass` | `TBD`; mandatory before distribution |
+| Failure-mailbox monitor | no unresolved criticals | `TBD`; the first 2026-07-10 snapshot's 85 criticals are historical, while the moving latest artifact remains incident-blocking and S1A is classified exit `78`; distribution stays blocked until S1A/S1B pass T0+48h closure |
+
+Recovery boundaries: `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`;
+`IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`; `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`;
+`T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`.
 
 ## Final Go Checklist
 
@@ -91,7 +103,7 @@ All checks must be true before changing the status to
    release commit and target URLs.
 2. The release evidence packet is stamped at the release commit and has
    `status: pass`, `release_commit_verified: true`, and zero blockers.
-3. `check:mvp-release-gates`, `check:mvp-closeout`,
+3. `check:public-beta-s1-recovery-control-plane`, `check:mvp-release-gates`, `check:mvp-closeout`,
    `check:public-beta-launch-closeout`, `check:public-beta-compliance`,
    `check:launch-content-snapshot`, `docs:check`, lint, typecheck, build, and
    `git diff --check` are green on the release commit.
@@ -114,9 +126,11 @@ All checks must be true before changing the status to
 13. The rollback owner has read the rollback sequence below.
 14. External release approval is recorded, or `not_required` is recorded with
     rationale.
-15. The latest failure-mailbox monitor has `newCriticalCount == 0`, or Lou has
-    classified any critical incident after read-only repo/A6 readback and
-    explicitly authorized distribution to continue.
+15. The latest failure-mailbox monitor has `newCriticalCount == 0` and no
+    unresolved public-feed critical; preserve the final read-only repo/A6 readback.
+16. The S1 T0+48h closure artifact passes for the exact final recovery tuple;
+    incident classification or human authority cannot substitute for elapsed
+    evidence.
 
 ## Tester Invite Copy
 

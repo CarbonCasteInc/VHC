@@ -160,6 +160,14 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Public Beta S1 Recovery Control Plane
+        run: |
+          pnpm check:public-beta-s1-recovery-control-plane
+          pnpm check:public-beta-next-phase-sprint
+          pnpm check:public-beta-launch-control
+          pnpm check:public-beta-distribution-packet
+          pnpm check:public-beta-launch-closeout
+
   source-health:
     name: Source Health
     runs-on: ubuntu-latest
