@@ -1144,8 +1144,11 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
         closeExitCode = resolveFailClosedExitCode(error);
         if (closeExitCode === NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE) {
           console.error(
-            '[vh:news-daemon] fail-close cause is relay transport-total (no relay acknowledged the write); exiting EX_UNAVAILABLE for bounded systemd restart',
-            { exit_code: NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE },
+            '[vh:news-daemon] fail-close cause is relay availability-total after bounded signed readback; exiting EX_UNAVAILABLE for bounded systemd restart',
+            {
+              exit_code: NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE,
+              availability_classification: 'availability_total',
+            },
           );
         }
         setTimeout(() => {

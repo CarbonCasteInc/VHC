@@ -1346,6 +1346,16 @@ describe('infra relay server', () => {
         status: record.status,
       }),
     });
+    await expect(requestJson(
+      `http://127.0.0.1:${writer.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 404,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-synthesis-lifecycle-not-found',
+        story_id: record.story_id,
+      }),
+    });
 
     await new Promise((resolve) => {
       if (writer.child.exitCode !== null) {
@@ -1359,7 +1369,10 @@ describe('infra relay server', () => {
       }, 1_000);
     });
     children.delete(writer.child);
-    const reader = await startRelay(children, tempDirs, env);
+    const reader = await startRelay(children, tempDirs, {
+      ...env,
+      GUN_FILE: path.join(snapshotDir, 'empty-reader-data'),
+    });
 
     await expect(requestJson(
       `http://127.0.0.1:${reader.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}`,
@@ -1373,6 +1386,16 @@ describe('infra relay server', () => {
         record: expect.objectContaining({
           synthesis_id: record.synthesis_id,
         }),
+      }),
+    });
+    await expect(requestJson(
+      `http://127.0.0.1:${reader.port}/vh/news/synthesis-lifecycle?story_id=${record.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 404,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-synthesis-lifecycle-not-found',
+        story_id: record.story_id,
       }),
     });
   });
@@ -1493,6 +1516,159 @@ describe('infra relay server', () => {
         }),
       });
   });
+
+  it('serves all four exact signed readbacks without mutating snapshots and keeps duplicate POSTs idempotent', async () => {
+    const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-exact-news-readback-test-'));
+    tempDirs.add(snapshotDir);
+    const snapshotFile = path.join(snapshotDir, 'news-latest-index-snapshot.json');
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_NEWS_INDEX_SNAPSHOT_FILE: snapshotFile,
+      VH_RELAY_NEWS_INDEX_REST_MAX_RECORDS: '3',
+      VH_RELAY_NEWS_INDEX_REST_SCAN_RECORDS: '3',
+      VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS: '500',
+      VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS: '500',
+    });
+    const story = makeRelayNewsStory('story-exact-signed-readback', 1778991500000, [
+      {
+        source_id: 'source-exact-signed-readback',
+        publisher: 'Exact Signed Readback',
+        url: 'https://example.com/exact-signed-readback',
+        url_hash: 'exact-signed-readback',
+        published_at: 1778991500000,
+        title: 'Exact signed readback story',
+      },
+    ]);
+    const signedFields = {
+      _system: null,
+      _Signature: null,
+      _WriterId: null,
+      _IssuedAt: null,
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemWriterId: 'vh-public-beta-news-system-writer-exact-test',
+      _systemIssuedAt: 1778991500100,
+      _systemSignature: 'exact-test-signature',
+    };
+    const storyRecord = {
+      __story_bundle_json: JSON.stringify(story),
+      story_id: story.story_id,
+      created_at: story.created_at,
+      schemaVersion: story.schemaVersion,
+      ...signedFields,
+    };
+    const latestRecord = {
+      ...makeRelayLatestIndexRecord(story),
+      ...signedFields,
+    };
+    const hotRecord = {
+      story_id: story.story_id,
+      hotness: 0.73,
+      product_state_schema_version: 'vh-news-product-feed-index-v1',
+      topic_id: story.topic_id,
+      source_set_revision: story.provenance_hash,
+      source_count: story.sources.length,
+      canonical_source_count: story.sources.length,
+      story_created_at: story.created_at,
+      cluster_window_start: story.cluster_window_start,
+      ...signedFields,
+    };
+    const lifecycleRecord = {
+      ...makeRelaySynthesisLifecycleRecord(story, { updatedAt: 1778991500200 }),
+      ...signedFields,
+    };
+    const writes = [
+      { route: '/vh/news/story', record: storyRecord },
+      { route: '/vh/news/latest-index', record: latestRecord },
+      { route: '/vh/news/hot-index', record: hotRecord },
+      { route: '/vh/news/synthesis-lifecycle', record: lifecycleRecord },
+    ];
+
+    for (const write of writes) {
+      for (let duplicate = 0; duplicate < 2; duplicate += 1) {
+        await expect(requestJson(`http://127.0.0.1:${port}${write.route}`, {
+          method: 'POST',
+          body: { record: write.record },
+        })).resolves.toMatchObject({
+          statusCode: 200,
+          body: expect.objectContaining({ ok: true, story_id: story.story_id }),
+        });
+      }
+    }
+    expect(existsSync(snapshotFile)).toBe(true);
+    const snapshotBeforeReadbacks = readFileSync(snapshotFile, 'utf8');
+
+    const readbacks = [
+      { route: '/vh/news/story', record: storyRecord, extraQuery: '&readback=exact' },
+      { route: '/vh/news/latest-index', record: latestRecord, extraQuery: '&persist=false' },
+      { route: '/vh/news/hot-index', record: hotRecord },
+      { route: '/vh/news/synthesis-lifecycle', record: lifecycleRecord, extraQuery: '&readback=exact' },
+    ];
+    for (const readback of readbacks) {
+      const result = await requestJson(
+        `http://127.0.0.1:${port}${readback.route}?story_id=${encodeURIComponent(story.story_id)}${readback.extraQuery ?? ''}`,
+      );
+      expect(result).toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          story_id: story.story_id,
+          record: expect.objectContaining({
+            story_id: story.story_id,
+            _protocolVersion: readback.record._protocolVersion,
+            _writerKind: readback.record._writerKind,
+            _systemWriterId: readback.record._systemWriterId,
+            _systemIssuedAt: readback.record._systemIssuedAt,
+            _systemSignature: readback.record._systemSignature,
+          }),
+        }),
+      });
+      for (const [key, value] of Object.entries(readback.record)) {
+        if (value !== null) {
+          expect(result.body.record[key]).toEqual(value);
+        }
+      }
+    }
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBeforeReadbacks);
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?story_id=story-missing&persist=false`))
+      .resolves.toMatchObject({
+        statusCode: 404,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'news-latest-index-not-found',
+          story_id: 'story-missing',
+        }),
+      });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?story_id=story-missing`))
+      .resolves.toMatchObject({
+        statusCode: 404,
+        body: expect.objectContaining({
+          ok: false,
+          error: 'news-hot-index-not-found',
+          story_id: 'story-missing',
+        }),
+      });
+    expect(readFileSync(snapshotFile, 'utf8')).toBe(snapshotBeforeReadbacks);
+
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/latest-index?limit=3&persist=false`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          records: expect.objectContaining({ [story.story_id]: expect.any(Object) }),
+        }),
+      });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/news/hot-index?limit=3`))
+      .resolves.toMatchObject({
+        statusCode: 200,
+        body: expect.objectContaining({
+          ok: true,
+          records: expect.objectContaining({ [story.story_id]: expect.any(Object) }),
+        }),
+      });
+  }, 30_000);
 
   it('pauses snapshot maintenance while critical public-news write readbacks are active', async () => {
     const snapshotDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-critical-readback-test-'));
@@ -4019,6 +4195,16 @@ describe('infra relay server', () => {
         }),
       });
     expect(Date.now() - startedAt).toBeLessThan(800);
+    await expect(requestJson(
+      `http://127.0.0.1:${port}/vh/news/story?story_id=${story.story_id}&readback=exact`,
+    )).resolves.toMatchObject({
+      statusCode: 404,
+      body: expect.objectContaining({
+        ok: false,
+        error: 'news-story-not-found',
+        story_id: story.story_id,
+      }),
+    });
     gun.off();
   }, 15_000);
 
