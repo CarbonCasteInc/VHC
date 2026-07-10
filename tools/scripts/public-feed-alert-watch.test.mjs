@@ -268,8 +268,26 @@ function semanticFingerprintInput() {
       blockers: ['latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30000000/21600000'],
       originHashes: ['source-b', 'source-a'],
       latestIndexReadbacks: [
-        { originHash: 'source-b', status: 'fail', newestAgeMs: 30_000_000, maxAgeMs: 21_600_000, recordCount: 80, failureCount: 8 },
-        { originHash: 'source-a', status: 'pass', newestAgeMs: 120_000, maxAgeMs: 21_600_000, recordCount: 79, failureCount: 0 },
+        {
+          originHash: 'source-b',
+          status: 'fail',
+          newestAgeMs: 30_000_000,
+          maxAgeMs: 21_600_000,
+          recordCount: 80,
+          failureCount: 8,
+          failureReasonCodes: ['latest_index_stale'],
+          failureDiagnostics: ['latest_index_stale:30000000/21600000'],
+        },
+        {
+          originHash: 'source-a',
+          status: 'pass',
+          newestAgeMs: 120_000,
+          maxAgeMs: 21_600_000,
+          recordCount: 79,
+          failureCount: 0,
+          failureReasonCodes: [],
+          failureDiagnostics: [],
+        },
       ],
     },
     relayLiveness: {
@@ -326,6 +344,13 @@ test('semantic fingerprint ignores volatile values and ordering but preserves re
   volatileDrift.freshness.latestIndexReadbacks[1].newestAgeMs = 30_300_000;
   volatileDrift.freshness.latestIndexReadbacks[1].recordCount = 99;
   volatileDrift.freshness.latestIndexReadbacks[1].failureCount = 9;
+  volatileDrift.freshness.latestIndexReadbacks[1].failureReasonCodes = [
+    'latest_index_stale',
+    'latest_index_stale',
+  ];
+  volatileDrift.freshness.latestIndexReadbacks[1].failureDiagnostics = [
+    'latest_index_stale:30300000/21600000',
+  ];
   volatileDrift.relayLiveness.relays.reverse();
   volatileDrift.relayLiveness.relays.push(structuredClone(volatileDrift.relayLiveness.relays[0]));
   volatileDrift.relayLiveness.relays[1].blockerCount = 9;
@@ -363,22 +388,31 @@ test('semantic fingerprint ignores volatile values and ordering but preserves re
 
   const compositeReasonChanged = structuredClone(baseline);
   compositeReasonChanged.blockers = [
-    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_empty|latest_index_timestamp_missing',
+    'public_feed:latest_index_not_fresh:url_hash:1111111111111111',
     'watch_closure:archive_sample_failures:8',
   ];
   compositeReasonChanged.freshness.blockers = [
-    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_empty|latest_index_timestamp_missing',
+    'latest_index_not_fresh:url_hash:1111111111111111',
+  ];
+  compositeReasonChanged.freshness.latestIndexReadbacks[0].failureReasonCodes = [
+    'latest_index_empty',
+    'latest_index_timestamp_missing',
   ];
   const compositeFingerprint = publicFeedAlertWatchInternal.fingerprintFor(compositeReasonChanged);
   assert.notEqual(compositeFingerprint, fingerprint);
 
   const compositeReasonReordered = structuredClone(compositeReasonChanged);
   compositeReasonReordered.blockers = [
-    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_timestamp_missing|latest_index_empty|latest_index_empty',
+    'public_feed:latest_index_not_fresh:url_hash:2222222222222222',
     'watch_closure:archive_sample_failures:8',
   ];
   compositeReasonReordered.freshness.blockers = [
-    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_timestamp_missing|latest_index_empty|latest_index_empty',
+    'latest_index_not_fresh:url_hash:2222222222222222',
+  ];
+  compositeReasonReordered.freshness.latestIndexReadbacks[0].failureReasonCodes = [
+    'latest_index_timestamp_missing',
+    'latest_index_empty',
+    'latest_index_empty',
   ];
   assert.equal(publicFeedAlertWatchInternal.fingerprintFor(compositeReasonReordered), compositeFingerprint);
 
@@ -1291,10 +1325,9 @@ test('adversarial configured origin stays fully redacted across webhook and emai
     ];
     for (const [index, payload] of webhookPayloads.entries()) {
       const freshnessBlocker = payload.freshness.blockers[0];
-      const blockerHash = freshnessBlocker.match(/url_hash:([0-9a-f]{16}):/)?.[1];
-      assert.equal(blockerHash, payload.freshness.originHashes[0]);
-      assert.equal(blockerHash, payload.freshness.latestIndexReadbacks[0].originHash);
+      assert.match(freshnessBlocker, /^latest_index_not_fresh:url_hash:[0-9a-f]{16}$/);
       assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureReasonCodes, expectedReasonSets[index]);
+      assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedReasonSets[index]);
       assert.deepEqual(emailPayloads[index], payload);
     }
 
@@ -1309,6 +1342,105 @@ test('adversarial configured origin stays fully redacted across webhook and emai
       'private.example.invalid',
       'prefix:api_key',
       'sk-proj-SYNTHETIC-NOT-A-REAL-KEY',
+    ];
+    for (const output of serializedOutputs) {
+      for (const fragment of forbiddenFragments) {
+        assert.equal(output.includes(fragment), false, `alert output leaked synthetic fragment: ${fragment}`);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('configured base origin cannot prefix-redact a longer failure URL across alert outputs', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const mail = [];
+  const origin = 'https://private.example.invalid/';
+  const failureUrl = [
+    origin,
+    'private/feed?token=prefix:api_key|sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
+  ].join('');
+  const failure = `latest_index_fetch_failed:http_status=429 attempt=3 ${failureUrl}`;
+  const privateStoryBody = 'synthetic-overlap-private-story-body';
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+        VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
+      }),
+      repoRoot: root,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${failure}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs: null,
+          maxAgeMs: 21_600_000,
+          failures: [failure],
+          storyIds: [privateStoryBody],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+      spawnSyncImpl: (command, args, spawnOptions) => {
+        mail.push({ command, args, input: spawnOptions.input });
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    });
+
+    assert.equal(summary.delivery.status, 'sent');
+    assert.equal(calls.length, 1);
+    assert.equal(mail.length, 1);
+    assert.deepEqual(summary.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_fetch_failed',
+    ]);
+    assert.match(
+      summary.freshness.latestIndexReadbacks[0].failureDiagnostics[0],
+      /^latest_index_fetch_failed:http_status=429 attempt=3 url_hash:[0-9a-f]{16}$/,
+    );
+    assert.equal(summary.freshness.latestIndexReadbacks[0].recordCount, 0);
+    assert.equal(summary.freshness.latestIndexReadbacks[0].newestAgeMs, null);
+    assert.equal(summary.freshness.latestIndexReadbacks[0].maxAgeMs, 21_600_000);
+
+    const webhookPayload = JSON.parse(calls[0].init.body);
+    const parsedEmail = parseTextEmail(mail[0].input);
+    assert.equal(parsedEmail.headers['mime-version'], '1.0');
+    assert.equal(parsedEmail.headers['content-type'], 'text/plain; charset=utf-8');
+    assert.deepEqual(JSON.parse(parsedEmail.body), webhookPayload);
+    const consoleOutput = JSON.stringify({
+      status: summary.status,
+      observedStatus: summary.observedStatus,
+      severity: summary.severity,
+      blockers: summary.blockers,
+      fingerprint: summary.fingerprint,
+      delivery: summary.delivery,
+      outputFile: summary.outputFile,
+    });
+    const serializedOutputs = [
+      JSON.stringify(summary),
+      calls[0].init.body,
+      mail[0].input,
+      readFileSync(path.join(root, 'latest.json'), 'utf8'),
+      consoleOutput,
+    ];
+    const forbiddenFragments = [
+      origin,
+      failureUrl,
+      'private.example.invalid',
+      'private/feed?token=',
+      'prefix:api_key',
+      'sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
+      privateStoryBody,
     ];
     for (const output of serializedOutputs) {
       for (const fragment of forbiddenFragments) {

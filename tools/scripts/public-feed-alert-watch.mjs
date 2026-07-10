@@ -75,16 +75,8 @@ function hashValue(value, length = 16) {
   return createHash('sha256').update(String(value ?? '')).digest('hex').slice(0, length);
 }
 
-function sanitizeAlertText(value, rawUrls = []) {
-  let text = String(value ?? '');
-  const exactUrls = [...new Set(rawUrls
-    .map((url) => String(url ?? ''))
-    .filter(Boolean))]
-    .sort((left, right) => right.length - left.length || left.localeCompare(right));
-  for (const url of exactUrls) {
-    text = text.split(url).join(`url_hash:${hashValue(url)}`);
-  }
-  return text.replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
+function sanitizeAlertText(value) {
+  return String(value ?? '').replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
 }
 
 function sanitizeAlertError(error, redactions = []) {
@@ -106,6 +98,17 @@ function structuredFailureReasonCodes(values) {
   return sortedUniqueStrings((Array.isArray(values) ? values : []).map((value) => {
     const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
     return match?.[1] ?? 'unclassified_failure';
+  }));
+}
+
+function structuredFailureDiagnostics(values) {
+  return sortedUniqueStrings((Array.isArray(values) ? values : []).map(sanitizeAlertText));
+}
+
+function blockerClasses(values) {
+  return sortedUniqueStrings((values ?? []).map((value) => {
+    const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+    return match?.[1] ?? 'unclassified_blocker';
   }));
 }
 
@@ -210,26 +213,16 @@ function summarizeFreshnessReadback(readback) {
     maxAgeMs: Number.isFinite(readback?.maxAgeMs) ? readback.maxAgeMs : null,
     failureCount: Array.isArray(readback?.failures) ? readback.failures.length : 0,
     failureReasonCodes: structuredFailureReasonCodes(readback?.failures),
+    failureDiagnostics: structuredFailureDiagnostics(readback?.failures),
   };
 }
 
 function summarizeFreshness(summary) {
-  const rawOrigins = [
-    ...(Array.isArray(summary?.config?.origins) ? summary.config.origins : []),
-    ...(Array.isArray(summary?.healthReadbacks)
-      ? summary.healthReadbacks.map((readback) => readback?.origin)
-      : []),
-    ...(Array.isArray(summary?.latestIndexReadbacks)
-      ? summary.latestIndexReadbacks.map((readback) => readback?.origin)
-      : []),
-  ];
   return {
     schemaVersion: summary?.schemaVersion ?? null,
     generatedAt: summary?.generatedAt ?? null,
     status: summary?.status ?? null,
-    blockers: Array.isArray(summary?.blockers)
-      ? summary.blockers.map((blocker) => sanitizeAlertText(blocker, rawOrigins))
-      : [],
+    blockers: Array.isArray(summary?.blockers) ? summary.blockers.map(sanitizeAlertText) : [],
     maxAgeMs: Number.isFinite(summary?.config?.maxAgeMs) ? summary.config.maxAgeMs : null,
     originHashes: Array.isArray(summary?.config?.origins)
       ? summary.config.origins.map((origin) => hashValue(origin))
@@ -736,9 +729,14 @@ function fingerprintFor({
 }) {
   // Diagnostics retain their full secret-safe values; only this projection is
   // reduced to stable semantic state before hashing for delivery dedupe.
+  // Freshness flat blockers are disclosure-only: their fail-closed URL hashes
+  // are intentionally ignored here, while structured readback reasons drive
+  // genuine reason-set transitions.
   return hashValue(JSON.stringify({
     status,
-    blockerReasonCodes: blockerReasonCodes(blockers),
+    blockerReasonCodes: blockerReasonCodes(
+      blockers.filter((blocker) => !String(blocker).startsWith('public_feed:')),
+    ),
     publisher: {
       status: publisher.status,
       activeState: publisher.activeState,
@@ -748,7 +746,7 @@ function fingerprintFor({
     },
     freshness: {
       status: freshness.status,
-      blockerReasonCodes: blockerReasonCodes(freshness.blockers),
+      blockerClasses: blockerClasses(freshness.blockers),
       originIdentities: sortedUniqueStrings(freshness.originHashes ?? []),
       latestIndexReadbacks: canonicalObjectSet(freshness.latestIndexReadbacks.map((entry) => ({
         identityHash: entry.originHash ?? null,
