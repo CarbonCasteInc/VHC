@@ -160,8 +160,12 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
+const RELAY_REST_READ_TIMEOUT_ENV = [
+  'VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS',
+  'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS',
+] as const;
 const RELAY_REST_READ_TIMEOUT_MS = readGunTimeoutMs(
-  ['VITE_VH_NEWS_RELAY_REST_READ_TIMEOUT_MS', 'VH_NEWS_RELAY_REST_READ_TIMEOUT_MS'],
+  RELAY_REST_READ_TIMEOUT_ENV,
   10_000,
 );
 const RELAY_REST_WRITE_TIMEOUT_MS = readGunTimeoutMs(
@@ -2532,14 +2536,20 @@ function relayRestReadbackEndpoint(endpoint: string, recordKey: string): string 
   const url = new URL(endpoint);
   url.search = '';
   url.searchParams.set('story_id', recordKey);
-  if (url.pathname === '/vh/news/story') {
-    url.searchParams.set('readback', 'exact');
-  } else if (url.pathname === '/vh/news/latest-index') {
+  url.searchParams.set('readback', 'exact');
+  if (url.pathname === '/vh/news/latest-index') {
     url.searchParams.set('persist', 'false');
-  } else if (url.pathname === '/vh/news/synthesis-lifecycle') {
-    url.searchParams.set('readback', 'exact');
   }
   return url.toString();
+}
+
+function resolveRelayRestReadbackDeadlineMs(): number {
+  const raw = readFirstRuntimeString(RELAY_REST_READ_TIMEOUT_ENV);
+  if (raw === undefined) return RELAY_REST_READ_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(RELAY_REST_READ_TIMEOUT_MS, Math.max(25, Math.floor(parsed)))
+    : RELAY_REST_READ_TIMEOUT_MS;
 }
 
 type RelayRestReadbackResultKind = 'confirmed' | 'missing' | 'unavailable' | 'write_safety_failure';
@@ -2557,62 +2567,109 @@ async function readBackRelayRestWrite(input: {
   readonly expectedCanonicalRecord: string;
   readonly target: RelayRestWriteTarget;
 }): Promise<RelayRestReadbackResult> {
+  const deadlineMs = resolveRelayRestReadbackDeadlineMs();
+  const deadline = Date.now() + deadlineMs;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), RELAY_REST_READ_TIMEOUT_MS);
+  let sawPresent = false;
   const execute = async (): Promise<RelayRestReadbackResult> => {
     try {
-      const response = await fetch(relayRestReadbackEndpoint(input.target.endpoint, input.recordKey), {
-        method: 'GET',
-        headers: { accept: 'application/json' },
-        signal: controller.signal,
-      });
-      if (response.status === 404) {
-        return { target: input.target, kind: 'missing' };
-      }
-      if (!response.ok) {
-        return { target: input.target, kind: 'unavailable' };
-      }
-      let body: string;
-      try {
-        body = await response.text();
-      } catch {
-        return { target: input.target, kind: 'unavailable' };
-      }
-      const payload = (() => {
-        try {
-          return body.trim() ? JSON.parse(body) as { record?: unknown } : null;
-        } catch {
-          return null;
+      while (Date.now() < deadline) {
+        const response = await fetch(relayRestReadbackEndpoint(input.target.endpoint, input.recordKey), {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (response.status === 404) {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'missing',
+          };
         }
-      })();
-      if (!isRecord(payload?.record)) {
-        return { target: input.target, kind: 'write_safety_failure' };
+        if (!response.ok && response.status !== 409) {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+          };
+        }
+        if (response.ok) {
+          sawPresent = true;
+        }
+        let body: string;
+        try {
+          body = await response.text();
+        } catch {
+          return {
+            target: input.target,
+            kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+          };
+        }
+        const payload = (() => {
+          try {
+            return body.trim() ? JSON.parse(body) as Record<string, unknown> : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.status === 409) {
+          return {
+            target: input.target,
+            kind: payload?.error_class === 'relay-write-safety'
+              && payload.error === 'news-exact-readback-present-unsafe'
+              ? 'write_safety_failure'
+              : sawPresent
+                ? 'write_safety_failure'
+                : 'unavailable',
+          };
+        }
+        if (!isRecord(payload?.record)) {
+          return { target: input.target, kind: 'write_safety_failure' };
+        }
+        const validation = await validateSystemWriterRecord({
+          path: relayRestRecordBindingPath(input.path, input.recordKey),
+          record: payload.record,
+          pin: input.client.config.systemWriterPin,
+          verify: input.client.config.systemWriterVerify,
+        });
+        const expectedSignature = input.expectedRecord._systemSignature;
+        if (
+          validation.valid
+          && validation.canonicalRecord === input.expectedCanonicalRecord
+          && typeof expectedSignature === 'string'
+          && validation.record._systemSignature === expectedSignature
+        ) {
+          return { target: input.target, kind: 'confirmed' };
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) break;
+        await sleepMs(Math.min(25, remainingMs));
       }
-      const validation = await validateSystemWriterRecord({
-        path: relayRestRecordBindingPath(input.path, input.recordKey),
-        record: payload.record,
-        pin: input.client.config.systemWriterPin,
-        verify: input.client.config.systemWriterVerify,
-      });
-      if (!validation.valid) {
-        return { target: input.target, kind: 'write_safety_failure' };
-      }
-      const expectedSignature = input.expectedRecord._systemSignature;
-      if (
-        validation.canonicalRecord !== input.expectedCanonicalRecord
-        || typeof expectedSignature !== 'string'
-        || validation.record._systemSignature !== expectedSignature
-      ) {
-        return { target: input.target, kind: 'write_safety_failure' };
-      }
-      return { target: input.target, kind: 'confirmed' };
+      return {
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      };
     } catch {
-      return { target: input.target, kind: 'unavailable' };
+      return {
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      };
     }
   };
-  const result = await execute();
-  clearTimeout(timeout);
-  return result;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadlineResult = new Promise<RelayRestReadbackResult>((resolve) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      resolve({
+        target: input.target,
+        kind: sawPresent ? 'write_safety_failure' : 'unavailable',
+      });
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([execute(), deadlineResult]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    controller.abort();
+  }
 }
 
 async function writeNewsRecordViaRelayRest(input: {
