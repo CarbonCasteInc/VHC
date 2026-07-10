@@ -1199,6 +1199,127 @@ test('composite blocker reason order and duplicates suppress while a changed rea
   }
 });
 
+test('adversarial configured origin stays fully redacted across webhook and email while structured reasons dedupe', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const mail = [];
+  const origin = 'https://private.example.invalid/feed?token=prefix:api_key|sk-proj-SYNTHETIC-NOT-A-REAL-KEY/';
+  let reasons = ['latest_index_empty', 'latest_index_timestamp_missing'];
+  try {
+    const options = {
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+        VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
+      }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${reasons.join('|')}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs: null,
+          maxAgeMs: 21_600_000,
+          failures: reasons,
+          storyIds: ['story-body-not-copied'],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+      spawnSyncImpl: (command, args, spawnOptions) => {
+        mail.push({ command, args, input: spawnOptions.input });
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    reasons = ['latest_index_timestamp_missing', 'latest_index_empty', 'latest_index_empty'];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    reasons = ['latest_index_empty', 'latest_index_fetch_failed'];
+    const changed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    reasons = ['latest_index_fetch_failed', 'latest_index_empty', 'latest_index_fetch_failed'];
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(reordered.delivery.reason, 'unchanged_suppressed');
+    assert.notEqual(changed.fingerprint, first.fingerprint);
+    assert.equal(changed.delivery.status, 'sent');
+    assert.equal(changed.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, changed.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.deepEqual(reordered.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_empty',
+      'latest_index_timestamp_missing',
+    ]);
+    assert.deepEqual(unchanged.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_empty',
+      'latest_index_fetch_failed',
+    ]);
+    assert.equal(calls.length, 2);
+    assert.equal(mail.length, 2);
+
+    const webhookPayloads = calls.map((call) => JSON.parse(call.init.body));
+    const emailPayloads = mail.map((message) => {
+      const parsed = parseTextEmail(message.input);
+      assert.equal(parsed.headers['mime-version'], '1.0');
+      assert.equal(parsed.headers['content-type'], 'text/plain; charset=utf-8');
+      return JSON.parse(parsed.body);
+    });
+    const expectedReasonSets = [
+      ['latest_index_empty', 'latest_index_timestamp_missing'],
+      ['latest_index_empty', 'latest_index_fetch_failed'],
+    ];
+    for (const [index, payload] of webhookPayloads.entries()) {
+      const freshnessBlocker = payload.freshness.blockers[0];
+      const blockerHash = freshnessBlocker.match(/url_hash:([0-9a-f]{16}):/)?.[1];
+      assert.equal(blockerHash, payload.freshness.originHashes[0]);
+      assert.equal(blockerHash, payload.freshness.latestIndexReadbacks[0].originHash);
+      assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureReasonCodes, expectedReasonSets[index]);
+      assert.deepEqual(emailPayloads[index], payload);
+    }
+
+    const serializedOutputs = [
+      ...calls.map((call) => call.init.body),
+      ...mail.map((message) => message.input),
+      readFileSync(path.join(root, 'latest.json'), 'utf8'),
+      JSON.stringify([first, reordered, changed, unchanged]),
+    ];
+    const forbiddenFragments = [
+      origin,
+      'private.example.invalid',
+      'prefix:api_key',
+      'sk-proj-SYNTHETIC-NOT-A-REAL-KEY',
+    ];
+    for (const output of serializedOutputs) {
+      for (const fragment of forbiddenFragments) {
+        assert.equal(output.includes(fragment), false, `alert output leaked synthetic fragment: ${fragment}`);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('same stale-feed class suppresses repeat delivery even as monitor ages advance', async () => {
   const root = tempRoot();
   const calls = [];

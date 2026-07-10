@@ -21,7 +21,10 @@ const DEFAULT_WATCH_CLOSURE_MAX_AGE_MS = 90 * 60 * 1000;
 const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
 const NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE = '75';
 const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
-const URL_IN_TEXT_PATTERN = /https?:\/\/[^\s"'<>)}\]]+?(?=:(?:[a-z][a-z0-9_-]*)(?::|\||$)|[\s"'<>)}\]]|$)/gi;
+// URL-shaped text is deliberately consumed through the next whitespace. Flat
+// blocker strings cannot distinguish a structural `:` or `|` from the same
+// bytes inside a URL, so guessing at those delimiters can expose a suffix.
+const URL_IN_TEXT_PATTERN = /https?:\/\/\S+/gi;
 const SEVERITY_RANK = {
   none: 0,
   warning: 1,
@@ -72,8 +75,16 @@ function hashValue(value, length = 16) {
   return createHash('sha256').update(String(value ?? '')).digest('hex').slice(0, length);
 }
 
-function sanitizeAlertText(value) {
-  return String(value ?? '').replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
+function sanitizeAlertText(value, rawUrls = []) {
+  let text = String(value ?? '');
+  const exactUrls = [...new Set(rawUrls
+    .map((url) => String(url ?? ''))
+    .filter(Boolean))]
+    .sort((left, right) => right.length - left.length || left.localeCompare(right));
+  for (const url of exactUrls) {
+    text = text.split(url).join(`url_hash:${hashValue(url)}`);
+  }
+  return text.replace(URL_IN_TEXT_PATTERN, (url) => `url_hash:${hashValue(url)}`);
 }
 
 function sanitizeAlertError(error, redactions = []) {
@@ -89,6 +100,13 @@ function sanitizeAlertError(error, redactions = []) {
 
 function sortedUniqueStrings(values) {
   return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
+}
+
+function structuredFailureReasonCodes(values) {
+  return sortedUniqueStrings((Array.isArray(values) ? values : []).map((value) => {
+    const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+    return match?.[1] ?? 'unclassified_failure';
+  }));
 }
 
 function blockerReasonCode(value) {
@@ -191,15 +209,27 @@ function summarizeFreshnessReadback(readback) {
     newestAgeMs: Number.isFinite(readback?.newestAgeMs) ? readback.newestAgeMs : null,
     maxAgeMs: Number.isFinite(readback?.maxAgeMs) ? readback.maxAgeMs : null,
     failureCount: Array.isArray(readback?.failures) ? readback.failures.length : 0,
+    failureReasonCodes: structuredFailureReasonCodes(readback?.failures),
   };
 }
 
 function summarizeFreshness(summary) {
+  const rawOrigins = [
+    ...(Array.isArray(summary?.config?.origins) ? summary.config.origins : []),
+    ...(Array.isArray(summary?.healthReadbacks)
+      ? summary.healthReadbacks.map((readback) => readback?.origin)
+      : []),
+    ...(Array.isArray(summary?.latestIndexReadbacks)
+      ? summary.latestIndexReadbacks.map((readback) => readback?.origin)
+      : []),
+  ];
   return {
     schemaVersion: summary?.schemaVersion ?? null,
     generatedAt: summary?.generatedAt ?? null,
     status: summary?.status ?? null,
-    blockers: Array.isArray(summary?.blockers) ? summary.blockers.map(sanitizeAlertText) : [],
+    blockers: Array.isArray(summary?.blockers)
+      ? summary.blockers.map((blocker) => sanitizeAlertText(blocker, rawOrigins))
+      : [],
     maxAgeMs: Number.isFinite(summary?.config?.maxAgeMs) ? summary.config.maxAgeMs : null,
     originHashes: Array.isArray(summary?.config?.origins)
       ? summary.config.origins.map((origin) => hashValue(origin))
@@ -724,6 +754,7 @@ function fingerprintFor({
         identityHash: entry.originHash ?? null,
         status: entry.status,
         ageState: freshnessAgeState(entry),
+        failureReasonCodes: sortedUniqueStrings(entry.failureReasonCodes ?? []),
       }))),
     },
     relayLiveness: {
