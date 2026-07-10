@@ -930,7 +930,7 @@ git diff --check
   by both alert ingest and the incident contract; historical v1 underscore and
   current v2 colon forms preserve the four public-feed incident families.
 - Combined local evidence: gun client 187, daemon write/coverage 23, daemon/exit
-  24, AI runtime 54, relay integration 60, alert 55, publisher liveness 6,
+  24, AI runtime 54, relay integration 60, alert 56, publisher liveness 6,
   pager 29, incident response 61 plus 28 required files; focused typechecks,
   pager build, docs governance, and `git diff --check` pass.
 - Authority used: repo-only plus read-only incident evidence. No A6/service,
@@ -947,9 +947,13 @@ git diff --check
   dual-version claim. Both corrections are now integrated at `cb03c44c`: the v2
   fixture/replay is green, and Runtime head `2a7b0109` passed all-four-route
   adversarial coverage plus mandatory same-reviewer follow-up with no remaining
-  finding. The corrected combined worktree has also passed the full local
-  matrix and strict diff coverage. Integration remains unpushed and unmergeable
-  until hosted CI and subsequent review by the same G2 cross-lane reviewer.
+  finding. A subsequent G2 review at `231962bc` found the remaining v2 fixture
+  was hand-shaped rather than producer-authentic. The fixture is now the exact
+  deterministic producer webhook payload and a producer-side deep-equality test
+  prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
+  sprint, docs, and diff gates pass. The corrected head remains `NO-GO`,
+  unpushed, and unmergeable pending subsequent review by the same G2 cross-lane
+  reviewer.
 
 ### Review And Merge Gate
 

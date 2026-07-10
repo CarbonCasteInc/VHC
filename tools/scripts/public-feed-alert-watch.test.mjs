@@ -1883,6 +1883,42 @@ test('publisher exit 69 parked by start limit is critical and not self-recoverin
   }
 });
 
+test('producer-authentic exit 69 start-limit webhook matches the durable v2 fixture', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const now = Date.parse('2026-07-10T00:00:00.000Z');
+  try {
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      now,
+      systemctlShowText: exit69Systemctl({
+        activeState: 'failed',
+        subState: 'failed',
+        nRestarts: 3,
+        result: 'start-limit-hit',
+      }),
+      freshnessMonitorImpl: async () => freshnessSummary({ now }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+
+    assert.equal(summary.delivery.status, 'sent');
+    assert.equal(summary.delivery.reason, 'first_failure');
+    assert.equal(calls.length, 1);
+    const producedPayload = JSON.parse(calls[0].init.body);
+    const fixturePayload = JSON.parse(readFileSync(
+      new URL('../fixtures/incidents/exit69-start-limit-v2.json', import.meta.url),
+      'utf8',
+    ));
+    assert.deepEqual(producedPayload, fixturePayload);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('publisher exit 69 with start-limit result is critical even if substate still says auto-restart', () => {
   const publisher = publicFeedAlertWatchInternal.inspectPublisherUnit({
     env: {},
