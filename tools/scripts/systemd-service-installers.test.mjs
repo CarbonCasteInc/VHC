@@ -59,13 +59,14 @@ test('storycluster production starter refuses non-qdrant service mode', () => {
   assert.match(source, /start-storycluster-local\.mjs/);
 });
 
-test('news aggregator installer still gates publisher start on explicit approval', () => {
+test('news aggregator installer retires direct start and binds all generated evidence services to one exact revision', () => {
   const source = readScript('install-news-aggregator-production-service.sh');
-  assert.match(source, /if \[\[ "\$\{START_PUBLISHER\}" == "true" \]\]/);
-  assert.match(source, /VH_NEWS_DAEMON_START_APPROVED:-/);
-  assert.match(source, /--start-publisher requires VH_NEWS_DAEMON_START_APPROVED=1/);
-  assert.match(source, /systemctl --user set-environment VH_NEWS_DAEMON_START_APPROVED=1/);
-  assert.match(source, /systemctl --user enable --now vh-news-aggregator\.service/);
+  assert.match(source, /--expected-revision/);
+  assert.match(source, /vh_publisher_require_exact_checkout "\$\{REPO_ROOT\}" "\$\{EXPECTED_REVISION\}"/);
+  assert.match(source, /--start-publisher is retired/);
+  assert.doesNotMatch(source, /set-environment VH_NEWS_DAEMON_START_APPROVED=1/);
+  assert.equal((source.match(/Environment=VH_NEWS_DAEMON_EXPECTED_REVISION=\$\{EXPECTED_REVISION\}/g) ?? []).length, 6);
+  assert.equal((source.match(/ExecStartPre=\/usr\/bin\/env bash \$\{REPO_ROOT\}\/tools\/scripts\/check-news-aggregator-expected-revision\.sh \$\{EXPECTED_REVISION\}/g) ?? []).length, 6);
 });
 
 test('news aggregator publisher unit keeps deliberate fail-closed exits stopped and bounds crash loops', () => {
@@ -83,6 +84,14 @@ test('news aggregator publisher unit keeps deliberate fail-closed exits stopped 
     assert.match(source, new RegExp(`RestartPreventExitStatus=${exitCodeMatch?.[1]}`));
     assert.match(source, /RestartSec=30/);
   }
+  const installer = readScript('install-news-aggregator-production-service.sh');
+  assert.match(installer, /Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-authority\.json/);
+  assert.match(installer, /Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h\/\.local\/state\/vhc\/news-aggregator\/recovery\/automatic-restart-permit\.json/);
+  assert.match(installer, /ExecStopPost=.*record-news-aggregator-restartable-exit\.sh \$\{EXPECTED_REVISION\}/);
+  assert.match(
+    readScript('record-news-aggregator-restartable-exit.sh'),
+    /ExecStopPost finishes[\s\S]*service_enter_restart\(\) runs afterward[\s\S]*increments n_restarts/,
+  );
 });
 
 test('news aggregator installer writes publisher liveness watch units without enabling them by default', () => {
@@ -218,4 +227,18 @@ test('news aggregator production start requires qdrant-backed StoryCluster readi
   assert.match(source, /VH_STORYCLUSTER_REMOTE_HEALTH_URL/);
   assert.match(source, /storycluster-ready-not-qdrant-backed/);
   assert.match(source, /detail\?\.startsWith\('qdrant:'\)/);
+});
+
+test('publisher evidence hard-link writers make post-commit temp cleanup non-fatal', () => {
+  for (const scriptName of [
+    'verify-news-aggregator-publisher-recovery.mjs',
+    'write-news-aggregator-publisher-start-control-artifact.mjs',
+    'write-news-aggregator-production-start-artifact.mjs',
+  ]) {
+    assert.match(readScript(scriptName), /await link\([\s\S]*await rm\([^;]+\)\.catch\(\(\) => undefined\)/);
+  }
+  assert.match(
+    readScript('news-aggregator-publisher-recovery-control.sh'),
+    /ln "\$\{finalization_temp\}" "\$\{FINALIZATION_OUTPUT\}"[\s\S]*rm -f "\$\{finalization_temp\}"[^\n]+\|\| true/,
+  );
 });
