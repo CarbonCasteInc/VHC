@@ -386,15 +386,15 @@ The public-beta target is:
 - later tranches: 500, 1000, then open only after green evidence plus Lou
   approval.
 
-## Current Monitor Evidence Fold-In - 2026-07-10
+## Dated Monitor Evidence Fold-In - 2026-07-10
 
-The latest failure-mailbox monitor report changes the immediate sequence.
+The failure-mailbox snapshot that activated S1A changed the immediate sequence.
+It is preserved incident history, not a current alias: re-read the moving
+`.tmp/vhc-failure-mailbox-monitor/latest.json` before every gate and record its
+new timestamp and classifications in the private orchestration ledger.
 Monitor `status: pass` means the mailbox monitor ran and classified mail; it is not release clearance.
 
-Monitor artifact:
-`.tmp/vhc-failure-mailbox-monitor/latest.json`.
-
-Current incremental monitor readout:
+Preserved incremental readout:
 
 - generated at `2026-07-10T01:11:56.040Z`;
 - `newCriticalCount: 1`;
@@ -657,9 +657,9 @@ monitor before doing launch-enablement work.
 
 This gate is active when `.tmp/vhc-failure-mailbox-monitor/latest.json` reports
 `newCriticalCount > 0`, including the `2026-07-10T01:11:56.040Z` incremental
-report with `newCriticalCount: 1` and a new public-feed freshness failure. The
-first-run count of 85 remains incident history, not the current incremental
-count.
+historical report with `newCriticalCount: 1` and a new public-feed freshness
+failure. The first-run count of 85 and every dated count in this document remain
+incident history, not a substitute for the moving latest readout.
 
 ### Boundaries
 

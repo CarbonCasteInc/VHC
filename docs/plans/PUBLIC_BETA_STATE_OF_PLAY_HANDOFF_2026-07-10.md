@@ -33,8 +33,8 @@ rehearsal, and then a first public-beta tranche.
 The immediate blocker is S1A/S1B: the failure-mailbox monitor is working, and
 S1A readback classified a real public-feed incident. Monitor `status: pass`
 means the monitor ran and classified mail; it does not mean the release is
-green. As of the latest local artifact at handoff,
-`.tmp/vhc-failure-mailbox-monitor/latest.json` reports:
+green. At shared-integration preparation, the dated orchestration snapshot then
+copied from `.tmp/vhc-failure-mailbox-monitor/latest.json` reported:
 
 - generated at `2026-07-10T15:02:20.895Z`;
 - `status: pass`;
@@ -43,6 +43,11 @@ green. As of the latest local artifact at handoff,
 - both criticals remain in the `public_feed_alert_fail` incident family;
 - recommended next action: treat as incident, preserve email, run read-only
   repo/A6 readback before mutation, Lou retains incident/rollback authority.
+
+That path is a moving alias. Re-read it before every gate and record the new
+timestamp and classifications in the private orchestration ledger. The dated
+counts above are incident history, not current clearance; any newer critical
+keeps the gate closed.
 
 The last read-only A6 refresh at `2026-07-10T15:48:16Z` observed checkout
 `347d20187d164699a35dbd8d76c299570011b1a1`, all three old-image relays
@@ -480,9 +485,11 @@ These are the blockers that matter before tester distribution.
 
 1. S1A mailbox-critical incident is classified but unresolved.
 
-   The latest local monitor snapshot at `2026-07-10T15:02:20.895Z` has
+   The preserved orchestration snapshot at `2026-07-10T15:02:20.895Z` had
    `newCriticalCount: 2` and `newWarningCount: 1`; both criticals remain in the
-   `public_feed_alert_fail` family. S1A readback classified the incident as
+   `public_feed_alert_fail` family. Re-read the moving `latest.json` before
+   every gate; no change in its incremental count clears S1 without the
+   required evidence. S1A readback classified the incident as
    `relay_rest_story_timeout_total_0_of_3_exit_78`: publisher parked at
    `ExecMainStatus=78` after `0/3` raw story relay acknowledgements against a
    required `2/3` quorum. Only read-only evidence and the exact gated S1

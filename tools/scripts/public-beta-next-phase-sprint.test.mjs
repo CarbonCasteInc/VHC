@@ -411,10 +411,21 @@ test('final tuple and honest soak boundary are durable across launch-control sur
   }
   for (const forbidden of [
     'Current merged repo base: `main@297d1bb4',
+    'latest local artifact at handoff',
+    'Current incremental monitor readout:',
     'publisher restart only if required by the approved release/update/canary path',
     'publisher restart remain Lou-approved incident actions',
     'any Lou-approved recovery readback clears it',
   ]) {
     assert.ok(!handoff.includes(forbidden), `handoff stale authority shortcut remains: ${forbidden}`);
   }
+  for (const [label, text] of [
+    ['handoff', handoff],
+    ['checklist', checklist],
+  ]) {
+    assertIncludes(text, 'moving', `${label}: moving mailbox alias boundary`);
+    assertIncludes(text, 'before every gate', `${label}: mailbox refresh boundary`);
+    assertIncludes(text, 'incident history', `${label}: dated mailbox evidence boundary`);
+  }
+  assert.ok(!checklist.includes('Current incremental monitor readout:'), 'checklist must not present a dated mailbox count as current');
 });
