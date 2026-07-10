@@ -1,9 +1,9 @@
-# Public Beta Next-Phase Sprint Checklist - 2026-07-09
+# Public Beta Next-Phase Orchestration Prompt And Sprint Checklist - 2026-07-09
 
-> Status: Technical execution checklist for the next release phase
+> Status: Action prompt and technical execution checklist for the next release phase
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Human authority: Lou
-> Technical executor: Codex
+> Technical executor: Codex orchestrator through isolated implementation and review subagents
 > Branch basis: #759 release-readiness control branch
 > Target public app: `https://venn.carboncaste.io`
 > Target auth boundary: `https://auth.venn.carboncaste.io`
@@ -18,6 +18,296 @@
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`
+
+## Orchestration-Agent Action Prompt
+
+You are the orchestration agent responsible for executing this checklist end to
+end through delegated implementation, independent review, integration, and
+evidence collection. Treat the detailed slice requirements below as the
+normative contract. Do not merely summarize or rewrite them.
+
+Your mission is to move the controlled public beta from its verified current
+state through S0-S12 without weakening release gates, quorum, privacy, incident
+authority, or secret boundaries. Delegate bounded work to subagents, inspect
+their actual diffs and evidence, send defects back to the owning implementer,
+require a subsequent review, and integrate only work that passes every gate.
+
+### Start From Live Truth
+
+Before assigning implementation work:
+
+1. Read this file, its `Depends On` documents, every applicable `AGENTS.md`,
+   and the exact source/test files named by the active slice.
+2. Run `git fetch origin --prune`, inspect the current branch/worktree, and
+   resolve the live PR head/base/check state. Remote PR truth overrides stale
+   status prose.
+3. Preserve unrelated user changes. In Lou's current workspace,
+   `docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
+   `docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md` are untracked and
+   must not be staged, deleted, or copied into a lane.
+4. Read the latest `.tmp/vhc-failure-mailbox-monitor/latest.json` and dedupe
+   state. Monitor `status: pass` is execution health, not incident clearance.
+5. Re-run read-only A6/public-feed readback if the latest critical or live state
+   differs from the evidence below. Do not mutate A6 during truth refresh.
+6. Create `.tmp/public-beta-orchestration/<run-id>/ledger.json` and record the
+   verified base SHA, PR state, active incident, lane assignments, gates, test
+   evidence, review verdicts, and authority decisions. Store no secrets.
+
+Review-time snapshot at `2026-07-10T01:38:58Z`, not execution authority:
+
+- PR #759 is open and non-draft at head `7a32f9fc95ae6d1208ce32fa49027353bb3f7863`;
+- base is `main@1f860ae71b51b588e69cb892bcc479675f6c0a9c`;
+- all 9 reported CI checks passed, including Lighthouse and E2E;
+- GitHub reported merge state `CLEAN`, but the PR remained open;
+- S1A is classified but unresolved, and S1B is the first implementable repo
+  slice.
+
+Revalidate all five facts before acting. Do not call S0 green from this
+snapshot.
+
+### Authority Model
+
+Repo-only implementation subagents may edit their assigned files, run tests,
+commit, push a dedicated branch, and open a focused PR. They may not:
+
+- merge their own PR;
+- edit another lane's files;
+- use the orchestrator's integration worktree;
+- mutate A6, production services, relay state, Gmail, provider accounts, DNS,
+  Cloudflare, Apple, Google, tester distribution, or pager configuration;
+- print or persist raw secrets, private data, provider error bodies, relay
+  tokens, URLs from host-private env, or story bodies.
+
+The orchestrator owns integration, shared control documents, gate adjudication,
+and merge order. Lou alone owns live incident/restart/rollback authority,
+secret-bearing account actions, provider MFA, release go/no-go, and tester-wave
+approval. A merged repo PR never implies live mutation approval.
+
+### Isolation Rules
+
+- One implementation lane equals one subagent, one branch, one isolated
+  worktree or clone, and one focused PR.
+- Never run parallel implementation agents in the same worktree.
+- Branch every lane from the exact recorded base SHA. If PR #759 is not merged,
+  either wait for G0 or use an explicitly stacked base and preserve merge order.
+- If isolated worktrees/clones are unavailable, run lanes sequentially. Finish,
+  test, review, push, and open the first lane PR before starting the next.
+- Review agents inspect the real branch diff and test artifacts read-only. They
+  do not patch the implementation they review.
+- An implementer may not review its own lane. The cross-lane reviewer must be
+  distinct from both G1 implementers and both first-pass reviewers.
+- The orchestrator does not absorb Runtime or Alert implementation into the
+  integration lane for convenience. If a required implementation subagent is
+  unavailable, record that constraint and use the sequential fallback while
+  retaining an independent reviewer.
+- Shared files belong to the orchestrator/integration lane. A subagent that
+  needs a shared-file change must return a proposed patch or requirement in its
+  report instead of editing the file.
+
+Orchestrator-owned shared surfaces include:
+
+- this checklist;
+- `docs/foundational/STATUS.md`;
+- public-beta launch-control, distribution, closeout, and operator docs;
+- `docs/CANON_MAP.md`;
+- root `package.json` and cross-slice guard scripts;
+- release evidence indexes and orchestration ledger files.
+
+### Delegation Waves
+
+| Wave | Delegated work | Parallelism | GO gate |
+| --- | --- | --- | --- |
+| G0 | Repo/PR/CI truth audit for S0 plus latest mailbox/A6 read-only state | One read-only auditor may assist the orchestrator | Exact base selected; PR #759 green/merged or stacked-base decision recorded |
+| G1 | S1B Runtime lane and S1B Alert lane | Parallel only in isolated worktrees | Both implementation PRs independently reviewed, corrected, re-reviewed, and green |
+| G2 | Cross-lane integration review, shared docs, full S1B gate | Sequential after G1 | Combined behavior preserves quorum/exit semantics, alert contract, and CI |
+| G3 | Recovery-packet author and independent packet reviewer | Sequential after merged S1B commit | Secret-safe packet verified; Lou gives explicit live-action approval |
+| G4 | A6 recovery/readback and required 24/48-hour soak | Single live operator session; subagents read-only only | S1A/S1B green with preserved evidence |
+| G5 | S2 StoryCluster repair, then S3 auth-boundary deployment | Sequential; subagents may prepare/review, but the orchestrator owns live action under Lou's authority | Production-readiness and auth health pass without secret leakage |
+| G6 | S4 Apple and S5 Google registration/rehearsal | Repo preparation/review may parallelize after S3; secret-bearing provider actions serialize through Lou-supervised sessions | Both advertised providers pass; X remains hidden |
+| G7 | S6 origin build/deploy, S7 A6 release update, S8 synthesis canary | Strictly sequential | Each slice's live readback is green before the next starts |
+| G8 | S9 evidence, S10 three-browser rehearsal, S11 distribution decision | Strictly sequential | Release packet green and Lou gives final go |
+| G9 | S12 monitored ramp | Recurring monitor plus one orchestrator ledger | Each tranche has green watch evidence and separate Lou approval |
+
+No later wave may consume a fixture-only pass, a stale artifact, an implementer
+summary, or a pending CI run as proof that its prior gate is green.
+
+For G3-G9, subagents may prepare packets, inspect repo changes, review plans,
+or collect read-only evidence. They do not perform live mutations. The
+orchestrator is the single technical driver for an approved live session, and
+only after Lou supplies the exact authority required by that gate.
+
+### G1 Lane Ownership
+
+Runtime implementation lane:
+
+- branch suggestion: `codex/s1b-relay-availability-total`;
+- owns `packages/gun-client/src/newsAdapters.ts` and its focused tests;
+- owns `services/news-aggregator/src/daemonWriteLane.ts`, `daemonCli.ts`, the
+  minimum required `daemon.ts` logging change, and focused tests for those
+  files;
+- may propose, but must not directly edit, shared operational docs;
+- must prove all four critical POST/readback contracts before making deadline
+  retry eligible: story, latest-index, hot-index, and synthesis-lifecycle.
+
+Alert implementation lane:
+
+- branch suggestion: `codex/s1b-alert-fingerprint-mime`;
+- owns `tools/scripts/public-feed-alert-watch.mjs` and its focused tests;
+- owns directly affected publisher-liveness tests only if exit-class display
+  needs adjustment;
+- must preserve full diagnostic values outside the fingerprint, failed-delivery
+  retry, explicit heartbeat, real state changes, and recovery delivery;
+- may propose, but must not directly edit, shared operational docs.
+
+Assign a separate reviewer to each implementation lane. After both lane
+reviewers approve, assign a third cross-lane reviewer to inspect the combined
+diff for timeout classification, brand propagation, exit mapping, fingerprint
+migration, MIME parsing, redaction, and test omissions.
+
+### Subagent Assignment Contract
+
+Every assignment must include:
+
+- lane id and one-sentence objective;
+- exact base SHA, branch, worktree, and allowed file list;
+- forbidden files and external actions;
+- exact invariants and acceptance criteria copied from the relevant slice;
+- exact tests the agent must run;
+- requirement to inspect existing helpers before adding abstractions;
+- requirement to preserve unrelated worktree changes;
+- stop-and-report conditions;
+- required completion report schema.
+
+Each subagent must return:
+
+```text
+laneId:
+role: implementer | reviewer | integration-reviewer | evidence-auditor
+baseSha:
+headSha:
+branch:
+filesChanged:
+tests: command, exit status, concise result
+artifacts:
+findings: severity, file/line, rationale
+unresolved:
+authorityUsed: repo-only | read-only-external | Lou-approved-live
+recommendedGate: GO | NO-GO
+```
+
+An implementer's `GO` is never self-approving. Missing test output, an
+unexpected file, a changed base, an unreported live action, or a command that
+exits zero while running zero matching tests is `NO-GO`.
+
+### Review And Subsequent-Review Protocol
+
+For each implementation PR:
+
+1. The orchestrator verifies branch/base identity, changed-file scope, and test
+   output before assigning review.
+2. The independent reviewer leads with actionable findings ordered by severity
+   and cites exact file/line locations.
+3. Any P0/P1 finding is `NO-GO`. P2 findings must be fixed or explicitly
+   adjudicated by the orchestrator with a written rationale. Test gaps affecting
+   quorum, exit mapping, secret handling, or live rollback are at least P1.
+4. The owning implementer fixes accepted findings in the same lane branch and
+   reruns its complete required test set.
+5. The same reviewer performs a subsequent review of the new head and confirms
+   every prior finding as fixed, still open, or superseded.
+6. The cross-lane reviewer then checks the integrated result and reruns the
+   contract tests independently.
+7. Merge only when there are no unresolved P0/P1 findings, every P2 is fixed or
+   explicitly accepted, required CI is complete and green, and the ledger links
+   the exact reviewed head SHA.
+
+Do not replace review with test output. Do not replace tests with review.
+
+### Orchestrator Decision Loop
+
+At every gate, record exactly one verdict:
+
+- `GO`: all prerequisites and evidence pass on the recorded SHA/state;
+- `NO-GO`: a product, safety, CI, review, privacy, or live-readback requirement
+  failed;
+- `WAITING_FOR_LOU`: a secret-bearing login, MFA, incident mutation, rollback,
+  provider approval, release decision, or tester-wave decision is required;
+- `BLOCKED_EXTERNAL`: the required connector, host, provider, or network surface
+  is unavailable after bounded retries.
+
+On `NO-GO`, stop downstream dispatch, preserve evidence, and return work to the
+owning lane. On `WAITING_FOR_LOU`, continue only unrelated repo work that this
+checklist explicitly allows. On `BLOCKED_EXTERNAL`, do not substitute fixtures
+or stale artifacts for live proof.
+
+### Completion Contract
+
+Do not declare the sprint complete until S12 exit criteria are met. At each
+intermediate stop, report:
+
+- current branch/PR/commit truth;
+- lane and review status;
+- tests and evidence actually verified;
+- unresolved blockers and their owner;
+- live mutations performed, each with Lou's approval reference;
+- next eligible lane and why it is GO, NO-GO, or waiting.
+
+The final report must separate merged repo capability, deployed live state,
+release evidence, manual rehearsal, distribution approval, and post-launch
+watch evidence. Never collapse them into one optimistic readiness claim.
+
+## Review And Validation Record - 2026-07-10
+
+First review found and resolved:
+
+- single-executor prose with no delegation topology;
+- no worktree/branch isolation or sequential fallback;
+- no independent reviewer or subsequent-review contract;
+- no shared-file owner or structured subagent handoff;
+- minimum tests omitted the actual exit-code consumer in
+  `services/news-aggregator`;
+- S1B assumed route-level readback without requiring all four critical
+  POST/readback contracts to be proven.
+
+Subsequent review found and resolved:
+
+- provider/live work could be misread as delegable to repo subagents;
+- implementer and reviewer identities were not explicitly required to differ;
+- S1B's lane/workstream count was internally inconsistent;
+- S1B could be read as green when repo work finished but required A6 recovery
+  had not run;
+- the first relay-server test command used the root Vitest config, which
+  excludes `packages/e2e`;
+- the first news-runtime command targeted a package with no `test` script and
+  could exit zero while running no tests.
+
+Current review verdict: no unresolved checklist-level P0/P1/P2 finding. This is
+a verdict on the orchestration artifact, not on the unimplemented S1B code or
+the unresolved live incident.
+
+Validated locally after refinement:
+
+- gun-client `newsAdapters.test.ts`: 168 passed;
+- ai-engine `newsRuntime.test.ts`: 54 passed;
+- news-aggregator daemon write-lane/exit coverage: 22 passed;
+- relay-server integration: 53 passed;
+- public-feed alert watch: 25 passed;
+- publisher-liveness watch: 6 passed;
+- VHC incident-response suite: 58 passed;
+- gun-client and news-aggregator typechecks: pass;
+- next-phase sprint guard: 8 passed;
+- public-beta launch closeout: pass;
+- docs governance: pass;
+- `git diff --check`: pass.
+
+GitHub validation at `2026-07-10T01:38:58Z`: PR #759 head
+`7a32f9fc95ae6d1208ce32fa49027353bb3f7863` was open, merge-clean, and 9/9 CI
+checks were green. The orchestration refinements in the current worktree are
+newer local changes and require their own reviewed commit/CI before they can be
+treated as remote PR truth.
+
+Local Node is `v23.10.0`, outside the repo-declared `>=20 <23` engine range.
+Commands passed with that warning, but CI on the supported runtime remains the
+merge authority.
 
 ## Executive Frame
 
@@ -406,10 +696,12 @@ Prevent a fully unacknowledged transient relay deadline from becoming an
 immediate non-restarting exit-78 outage, without weakening raw-write quorum or
 hiding real relay backpressure, and restore state-change-only alert delivery.
 
-S1B has two independently testable workstreams:
+S1B has two independently reviewable delegated lanes spanning five workstreams:
 
-1. relay write availability and exit classification;
-2. alert fingerprint stability and readable secret-safe email bodies.
+1. Runtime lane: concurrent fanout, availability-total retry/exit semantics,
+   and secret-safe availability telemetry (Workstreams A-C);
+2. Alert lane: stable fingerprinting and readable secret-safe email bodies
+   (Workstreams D-E).
 
 Repo implementation and review are allowed while the incident is active. A6
 deployment and publisher restart remain incident mutations and require Lou's
@@ -467,13 +759,21 @@ Target:
 Targets:
 
 - `packages/gun-client/src/newsAdapters.ts`;
-- daemon error mapping that consumes
-  `isRelayRestTransportTotalFailureError`;
-- associated gun-client and daemon tests.
+- `services/news-aggregator/src/daemonWriteLane.ts`;
+- `services/news-aggregator/src/daemonCli.ts`;
+- the minimum required `services/news-aggregator/src/daemon.ts` logging change;
+- associated gun-client and news-aggregator tests.
 
 - [ ] Define availability-total as zero validated acknowledgements where every
   endpoint result is `network_unacknowledged` or
   `deadline_unacknowledged`.
+- [ ] Inventory and test the deployed nonmutating per-relay readback contract
+  for `/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and
+  `/vh/news/synthesis-lifecycle` before enabling timeout reconciliation for that
+  class. A generic fallback or aggregate read is not sufficient proof.
+- [ ] If any critical class lacks bounded endpoint-local signed readback, keep
+  that class on exit `78` and stop/report the missing contract instead of
+  silently using blind retry.
 - [ ] For `network_unacknowledged` and `deadline_unacknowledged`, issue a bounded
   endpoint-local readback for the same stable record key using the existing
   signed validation contract; a response-leg network failure can also occur
@@ -589,8 +889,12 @@ Run at minimum:
 ```bash
 corepack pnpm@9.7.1 --filter @vh/gun-client test -- newsAdapters.test.ts
 corepack pnpm@9.7.1 --filter @vh/gun-client typecheck
-corepack pnpm@9.7.1 --filter @vh/ai-engine test -- newsRuntime.test.ts
+corepack pnpm@9.7.1 --filter @vh/news-aggregator test -- daemonWriteLane.test.ts daemon.coverage.test.ts
+corepack pnpm@9.7.1 --filter @vh/news-aggregator typecheck
+corepack pnpm@9.7.1 exec vitest run packages/ai-engine/src/newsRuntime.test.ts
+corepack pnpm@9.7.1 --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts
 corepack pnpm@9.7.1 check:public-feed:alert-watch
+node --test tools/scripts/news-aggregator-publisher-liveness-watch.test.mjs
 corepack pnpm@9.7.1 check:vhc-incident-response
 corepack pnpm@9.7.1 check:public-beta-next-phase-sprint
 corepack pnpm@9.7.1 docs:check
@@ -599,8 +903,9 @@ git diff --check
 
 ### Review And Merge Gate
 
-- [ ] Use one focused branch/PR for the runtime, alert, tests, and directly
-  affected operational docs.
+- [ ] Use one focused branch/PR for the runtime lane and one focused branch/PR
+  for the alert lane, then require a cross-lane integration review. If isolated
+  worktrees are unavailable, run those PRs sequentially.
 - [ ] Include the incident reason code and sanitized timing/quorum evidence in
   the PR description.
 - [ ] Require review of idempotency, quorum, retry eligibility, exit mapping,
@@ -664,8 +969,9 @@ Soak readback:
 
 - [ ] Runtime and alert changes are merged with required tests green.
 - [ ] Relay write quorum remains `2/3` and no exit-78 class was weakened.
-- [ ] A6 recovery was either not attempted, or was Lou-approved and passed all
-  immediate readbacks.
+- [ ] Repo remediation may finish without an A6 action, but S1B cannot exit
+  green until any required A6 recovery is Lou-approved and passes all immediate
+  readbacks.
 - [ ] Publisher, public freshness, relay liveness, and relay snapshots are
   green after recovery.
 - [ ] Watch closure truthfully distinguishes current green operation from

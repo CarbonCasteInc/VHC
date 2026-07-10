@@ -41,6 +41,8 @@ test('next-phase sprint has every required ordered slice', () => {
   for (const slice of [
     'S0  Repo/PR baseline and release commit candidate',
     'S1  Failure-mailbox monitor and incident intake loop',
+    'S1A Monitor-critical public-feed incident readback gate',
+    'S1B Durable relay-timeout and alert-dedupe remediation',
     'S2  StoryCluster headline-soak credential/endpoint repair',
     'S3  Auth boundary infrastructure on Cloudflare',
     'S4  Apple provider registration and rehearsal',
@@ -54,6 +56,46 @@ test('next-phase sprint has every required ordered slice', () => {
     'S12 Post-launch watch, incident loop, and tranche expansion',
   ]) {
     assertIncludes(checklist, slice, `slice ${slice}`);
+  }
+});
+
+test('next-phase sprint is an executable delegation and review prompt', () => {
+  for (const token of [
+    'Public Beta Next-Phase Orchestration Prompt And Sprint Checklist',
+    'You are the orchestration agent responsible for executing this checklist',
+    'One implementation lane equals one subagent, one branch, one isolated',
+    'If isolated worktrees/clones are unavailable, run lanes sequentially',
+    'G1 Lane Ownership',
+    'codex/s1b-relay-availability-total',
+    'codex/s1b-alert-fingerprint-mime',
+    'Subagent Assignment Contract',
+    'Review And Subsequent-Review Protocol',
+    'The same reviewer performs a subsequent review',
+    'cross-lane reviewer',
+    'WAITING_FOR_LOU',
+    'BLOCKED_EXTERNAL',
+    'An implementer\'s `GO` is never self-approving',
+    'exits zero while running zero matching tests is `NO-GO`',
+    '.tmp/public-beta-orchestration/<run-id>/ledger.json',
+  ]) {
+    assertIncludes(checklist, token, `orchestration prompt token ${token}`);
+  }
+});
+
+test('S1B pins the real daemon exit consumer and readback inventory', () => {
+  for (const token of [
+    '`services/news-aggregator/src/daemonWriteLane.ts`',
+    '`services/news-aggregator/src/daemonCli.ts`',
+    '`services/news-aggregator/src/daemon.ts`',
+    '`/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and',
+    '`/vh/news/synthesis-lifecycle`',
+    '--filter @vh/news-aggregator test -- daemonWriteLane.test.ts daemon.coverage.test.ts',
+    'exec vitest run packages/ai-engine/src/newsRuntime.test.ts',
+    '--filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts',
+    'S1B cannot exit',
+    'Lou-approved and passes all immediate',
+  ]) {
+    assertIncludes(checklist, token, `S1B implementation token ${token}`);
   }
 });
 
