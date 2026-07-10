@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -129,6 +130,22 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
+function parseTextEmail(message) {
+  const normalized = String(message).replace(/\r\n/g, '\n');
+  const separatorIndex = normalized.indexOf('\n\n');
+  assert.notEqual(separatorIndex, -1, 'email must contain a header/body separator');
+  const headers = {};
+  for (const line of normalized.slice(0, separatorIndex).split('\n')) {
+    const colonIndex = line.indexOf(':');
+    assert.notEqual(colonIndex, -1, `invalid email header: ${line}`);
+    headers[line.slice(0, colonIndex).trim().toLowerCase()] = line.slice(colonIndex + 1).trim();
+  }
+  return {
+    headers,
+    body: normalized.slice(separatorIndex + 2).trim(),
+  };
+}
+
 function relayLivenessReport(overrides = {}) {
   return {
     schemaVersion: 'vh-news-relay-liveness-watch-v1',
@@ -233,6 +250,192 @@ function writeAuxReports(root, {
   };
 }
 
+function semanticFingerprintInput() {
+  return {
+    status: 'fail',
+    blockers: [
+      'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30000000/21600000',
+      'watch_closure:archive_sample_failures:8',
+    ],
+    publisher: {
+      status: 'fail',
+      activeState: 'failed',
+      subState: 'failed',
+      execMainStatus: '78',
+      failureClass: 'exit_78_fail_closed',
+    },
+    freshness: {
+      status: 'fail',
+      blockers: ['latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30000000/21600000'],
+      originHashes: ['source-b', 'source-a'],
+      latestIndexReadbacks: [
+        {
+          originHash: 'source-b',
+          status: 'fail',
+          newestAgeMs: 30_000_000,
+          maxAgeMs: 21_600_000,
+          recordCount: 80,
+          failureCount: 8,
+          failureReasonCodes: ['latest_index_stale'],
+          failureDiagnostics: [{
+            reasonCode: 'latest_index_stale',
+            numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_000_000] },
+          }],
+        },
+        {
+          originHash: 'source-a',
+          status: 'pass',
+          newestAgeMs: 120_000,
+          maxAgeMs: 21_600_000,
+          recordCount: 79,
+          failureCount: 0,
+          failureReasonCodes: [],
+          failureDiagnostics: [],
+        },
+      ],
+    },
+    relayLiveness: {
+      status: 'fail',
+      blockers: ['relay_liveness:vhc-relay-b:readyz_failed'],
+      relays: [
+        { name: 'vhc-relay-b', status: 'fail', blockerCount: 1, restartCount: 8, watchdogTrips: 8 },
+        { name: 'vhc-relay-a', status: 'pass', blockerCount: 0, restartCount: 0, watchdogTrips: 0 },
+      ],
+    },
+    relaySnapshot: {
+      status: 'fail',
+      blockers: ['relay_snapshot:snapshot_file_hash:fedcba9876543210:newest_entry_stale:30000000/21600000'],
+      snapshots: [
+        { fileHash: 'snapshot-b', relay: 'vhc-relay-b', status: 'fail', entryCount: 80, failureCount: 8, freshnessFailureCount: 8 },
+        { fileHash: 'snapshot-a', relay: 'vhc-relay-a', status: 'pass', entryCount: 79, failureCount: 0, freshnessFailureCount: 0 },
+      ],
+    },
+    watchClosure: {
+      status: 'fail',
+      blockers: ['watch_closure:archive_sample_failures:8'],
+      verdictStatus: 'fail',
+      thresholds: {
+        twentyFourHour: { status: 'fail', blockers: ['archive_sample_failures:8'] },
+        fortyEightHour: { status: 'not_ready', blockers: ['window_short:33.49/48'] },
+      },
+      relayMemory: {
+        status: 'fail',
+        heapPlateauVerdict: 'heap_still_linear',
+        relays: [
+          { name: 'vhc-relay-b', trendStatus: 'fail', heapPlateauVerdict: 'heap_still_linear', shortestProjectedLimitHours: 18 },
+          { name: 'vhc-relay-a', trendStatus: 'pass', heapPlateauVerdict: 'heap_plateau_observed', shortestProjectedLimitHours: 240 },
+        ],
+      },
+    },
+  };
+}
+
+test('semantic fingerprint ignores volatile values and ordering but preserves real state transitions', () => {
+  const baseline = semanticFingerprintInput();
+  const volatileDrift = structuredClone(baseline);
+  volatileDrift.blockers = [
+    'watch_closure:archive_sample_failures:9',
+    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30300000/21600000',
+    'watch_closure:archive_sample_failures:9',
+  ];
+  volatileDrift.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30300000/21600000',
+  ];
+  volatileDrift.freshness.originHashes = ['source-a', 'source-b', 'source-a'];
+  volatileDrift.freshness.latestIndexReadbacks.reverse();
+  volatileDrift.freshness.latestIndexReadbacks.push(structuredClone(volatileDrift.freshness.latestIndexReadbacks[0]));
+  volatileDrift.freshness.latestIndexReadbacks[0].recordCount = 99;
+  volatileDrift.freshness.latestIndexReadbacks[1].newestAgeMs = 30_300_000;
+  volatileDrift.freshness.latestIndexReadbacks[1].recordCount = 99;
+  volatileDrift.freshness.latestIndexReadbacks[1].failureCount = 9;
+  volatileDrift.freshness.latestIndexReadbacks[1].failureReasonCodes = [
+    'latest_index_stale',
+    'latest_index_stale',
+  ];
+  volatileDrift.freshness.latestIndexReadbacks[1].failureDiagnostics = [{
+    reasonCode: 'latest_index_stale',
+    numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_300_000] },
+  }];
+  volatileDrift.relayLiveness.relays.reverse();
+  volatileDrift.relayLiveness.relays.push(structuredClone(volatileDrift.relayLiveness.relays[0]));
+  volatileDrift.relayLiveness.relays[1].blockerCount = 9;
+  volatileDrift.relayLiveness.relays[1].restartCount = 9;
+  volatileDrift.relayLiveness.relays[1].watchdogTrips = 9;
+  volatileDrift.relaySnapshot.snapshots.reverse();
+  volatileDrift.relaySnapshot.snapshots.push(structuredClone(volatileDrift.relaySnapshot.snapshots[0]));
+  volatileDrift.relaySnapshot.snapshots[1].entryCount = 99;
+  volatileDrift.relaySnapshot.snapshots[1].failureCount = 9;
+  volatileDrift.relaySnapshot.snapshots[1].freshnessFailureCount = 9;
+  volatileDrift.watchClosure.blockers = ['watch_closure:archive_sample_failures:9'];
+  volatileDrift.watchClosure.thresholds.twentyFourHour.blockers = ['archive_sample_failures:9'];
+  volatileDrift.watchClosure.thresholds.fortyEightHour.blockers = ['window_short:33.99/48'];
+  volatileDrift.watchClosure.relayMemory.relays.reverse();
+  volatileDrift.watchClosure.relayMemory.relays[1].shortestProjectedLimitHours = 17;
+
+  const fingerprint = publicFeedAlertWatchInternal.fingerprintFor(baseline);
+  assert.equal(publicFeedAlertWatchInternal.fingerprintFor(volatileDrift), fingerprint);
+
+  const exitClassChanged = structuredClone(baseline);
+  exitClassChanged.publisher.activeState = 'activating';
+  exitClassChanged.publisher.subState = 'auto-restart';
+  exitClassChanged.publisher.execMainStatus = '69';
+  exitClassChanged.publisher.failureClass = 'exit_69_transport_unavailable';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(exitClassChanged), fingerprint);
+
+  const thresholdChanged = structuredClone(baseline);
+  thresholdChanged.watchClosure.thresholds.twentyFourHour.status = 'pass';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(thresholdChanged), fingerprint);
+
+  const blockerReasonChanged = structuredClone(baseline);
+  blockerReasonChanged.watchClosure.blockers = ['watch_closure_runtime_failed_ticks:8'];
+  blockerReasonChanged.watchClosure.thresholds.twentyFourHour.blockers = ['watch_closure_runtime_failed_ticks:8'];
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(blockerReasonChanged), fingerprint);
+
+  const compositeReasonChanged = structuredClone(baseline);
+  compositeReasonChanged.blockers = [
+    'public_feed:latest_index_not_fresh:url_hash:1111111111111111',
+    'watch_closure:archive_sample_failures:8',
+  ];
+  compositeReasonChanged.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:1111111111111111',
+  ];
+  compositeReasonChanged.freshness.latestIndexReadbacks[0].failureReasonCodes = [
+    'latest_index_empty',
+    'latest_index_timestamp_missing',
+  ];
+  const compositeFingerprint = publicFeedAlertWatchInternal.fingerprintFor(compositeReasonChanged);
+  assert.notEqual(compositeFingerprint, fingerprint);
+
+  const compositeReasonReordered = structuredClone(compositeReasonChanged);
+  compositeReasonReordered.blockers = [
+    'public_feed:latest_index_not_fresh:url_hash:2222222222222222',
+    'watch_closure:archive_sample_failures:8',
+  ];
+  compositeReasonReordered.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:2222222222222222',
+  ];
+  compositeReasonReordered.freshness.latestIndexReadbacks[0].failureReasonCodes = [
+    'latest_index_timestamp_missing',
+    'latest_index_empty',
+    'latest_index_empty',
+  ];
+  assert.equal(publicFeedAlertWatchInternal.fingerprintFor(compositeReasonReordered), compositeFingerprint);
+
+  const relayChanged = structuredClone(baseline);
+  relayChanged.relayLiveness.relays[0].status = 'pass';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(relayChanged), fingerprint);
+
+  const recovered = structuredClone(baseline);
+  recovered.status = 'pass';
+  recovered.blockers = [];
+  recovered.publisher.status = 'pass';
+  recovered.publisher.activeState = 'active';
+  recovered.publisher.subState = 'running';
+  recovered.publisher.execMainStatus = '0';
+  recovered.publisher.failureClass = 'none';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(recovered), fingerprint);
+});
+
 test('passing feed and active publisher do not require an alert channel', async () => {
   const root = tempRoot();
   try {
@@ -323,11 +526,12 @@ test('relay liveness failures page through the existing alert delivery path', as
 
     assert.equal(summary.status, 'fail');
     assert.equal(summary.severity, 'critical');
-    assert.match(summary.blockers.join('\n'), /relay_liveness:vhc-relay-b:readyz_failed/);
+    assert.match(summary.blockers.join('\n'), /relay_liveness:readyz_failed/);
     assert.equal(summary.delivery.status, 'sent');
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.relayLiveness.status, 'fail');
-    assert.equal(body.relayLiveness.relays[0].name, 'vhc-relay-b');
+    assert.equal(body.relayLiveness.relays[0].name, undefined);
+    assert.equal(body.relayLiveness.relays[0].identityHash.length, 16);
     assert.equal(body.relayLiveness.relays[0].origin, undefined);
     assert.equal(calls[0].init.headers['x-vhc-alert-signature'], undefined);
     assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
@@ -413,11 +617,13 @@ test('relay snapshot failures redact absolute snapshot paths', async () => {
     assert.equal(summary.severity, 'warning');
     assert.equal(summary.relaySnapshot.status, 'fail');
     assert.equal(summary.relaySnapshot.severity, 'warning');
-    assert.match(summary.blockers.join('\n'), /snapshot_file_hash:/);
+    assert.match(summary.blockers.join('\n'), /relay_snapshot:newest_entry_stale/);
+    assert.equal(summary.relaySnapshot.snapshots[0].ordinal, 1);
     assert.equal(JSON.stringify(summary).includes(snapshotPath), false);
     const body = JSON.parse(calls[0].init.body);
-    assert.equal(body.relaySnapshot.snapshots[0].fileHash.length, 16);
-    assert.equal(body.relaySnapshot.snapshots[0].relay, 'vhc-relay-a');
+    assert.equal(body.relaySnapshot.snapshots[0].ordinal, 1);
+    assert.equal(body.relaySnapshot.snapshots[0].relay, undefined);
+    assert.equal(body.relaySnapshot.snapshots[0].relayIdentityHash.length, 16);
     assert.equal(JSON.stringify(body).includes('/home/humble'), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -457,10 +663,148 @@ test('stale auxiliary report output is warning severity and dedupes across age d
     assert.equal(first.status, 'fail');
     assert.equal(first.severity, 'warning');
     assert.equal(first.relayLiveness.severity, 'warning');
-    assert.match(first.blockers.join('\n'), /relay_liveness_output_stale:/);
+    assert.match(first.blockers.join('\n'), /relay_liveness:output_stale:/);
     assert.equal(second.fingerprint, first.fingerprint);
     assert.equal(second.delivery.status, 'suppressed');
     assert.equal(calls.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('volatile progress suppresses repeats while latest and heartbeat payloads retain full diagnostics', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    function writeProgress({ nowIso, windowHours, count, entryCount }) {
+      return writeAuxReports(root, {
+        relay: relayLivenessReport({
+          generatedAt: nowIso,
+          status: 'fail',
+          blockers: ['vhc-relay-b:readyz_failed'],
+          relays: [
+            {
+              name: 'vhc-relay-b',
+              origin: 'http://127.0.0.1:8766/private',
+              status: 'fail',
+              blockers: ['readyz_failed'],
+              docker: { restartCount: count },
+              metrics: {
+                rssBytes: 1_200_000_000 + count,
+                heapUsedBytes: 920_000_000 + count,
+                watchdogTrips: count,
+                eventLoopLagP99Ms: 30 + count,
+                criticalReadbacksQueued: count,
+              },
+            },
+          ],
+        }),
+        snapshot: relaySnapshotReport({
+          generatedAt: nowIso,
+          status: 'fail',
+          blockers: [`newest_entry_stale:${30_000_000 + count}/21600000`],
+          snapshots: [
+            {
+              file: '/home/humble/.local/share/vhc/vhc-relay-b/data/news-latest-index-snapshot.json',
+              status: 'fail',
+              failures: Array.from({ length: count }, () => 'newest_entry_stale'),
+              entryCount,
+              cachedAgeMs: 60_000 + count,
+              newestEntryAgeMs: 30_000_000 + count,
+              freshnessFailures: Array.from({ length: count }, () => 'newest_entry_stale'),
+            },
+          ],
+        }),
+        closure: watchClosureVerdict({
+          generatedAt: nowIso,
+          status: 'fail',
+          severity: 'critical',
+          blockers: [
+            `archive_sample_failures:${count}`,
+            `window_short:${windowHours}/48`,
+          ],
+          thresholds: {
+            twentyFourHour: { thresholdHours: 24, status: 'fail', blockers: [`archive_sample_failures:${count}`] },
+            fortyEightHour: { thresholdHours: 48, status: 'not_ready', blockers: [`window_short:${windowHours}/48`] },
+          },
+        }),
+      });
+    }
+
+    const firstNow = Date.parse('2026-07-02T18:00:00.000Z');
+    const auxEnv = writeProgress({
+      nowIso: new Date(firstNow).toISOString(),
+      windowHours: '33.49',
+      count: 8,
+      entryCount: 80,
+    });
+    const env = baseEnv(root, {
+      ...auxEnv,
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+      VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS: '600000',
+    });
+    let freshnessNow = firstNow;
+    let freshnessAgeMs = 30_000_000;
+    const options = {
+      env,
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => staleFreshnessSummary({
+        now: freshnessNow,
+        newestAgeMs: freshnessAgeMs,
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: firstNow });
+
+    const secondNow = Date.parse('2026-07-02T18:05:00.000Z');
+    freshnessNow = secondNow;
+    freshnessAgeMs = 30_300_000;
+    writeProgress({
+      nowIso: new Date(secondNow).toISOString(),
+      windowHours: '33.99',
+      count: 9,
+      entryCount: 90,
+    });
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: secondNow });
+
+    const thirdNow = Date.parse('2026-07-02T18:11:00.000Z');
+    freshnessNow = thirdNow;
+    freshnessAgeMs = 30_660_000;
+    writeProgress({
+      nowIso: new Date(thirdNow).toISOString(),
+      windowHours: '34.09',
+      count: 10,
+      entryCount: 100,
+    });
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: thirdNow });
+
+    assert.equal(second.fingerprint, first.fingerprint);
+    assert.equal(third.fingerprint, first.fingerprint);
+    assert.equal(second.delivery.status, 'suppressed');
+    assert.equal(second.delivery.reason, 'unchanged_suppressed');
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'heartbeat_due');
+    assert.equal(calls.length, 2);
+
+    const latest = JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8'));
+    assert.equal(latest.freshness.latestIndexReadbacks[0].newestAgeMs, 30_660_000);
+    assert.equal(latest.relayLiveness.relays[0].restartCount, 10);
+    assert.equal(latest.relayLiveness.relays[0].watchdogTrips, 10);
+    assert.equal(latest.relaySnapshot.snapshots[0].entryCount, 100);
+    assert.equal(latest.relaySnapshot.snapshots[0].failureCount, 10);
+    assert.deepEqual(latest.watchClosure.thresholds.fortyEightHour.blockers, ['watch_closure:window_short:34.09/48']);
+    assert.deepEqual(latest.watchClosure.thresholds.twentyFourHour.blockers, ['watch_closure:archive_sample_failures:10']);
+
+    const heartbeatPayload = JSON.parse(calls[1].init.body);
+    assert.equal(heartbeatPayload.freshness.latestIndexReadbacks[0].newestAgeMs, 30_660_000);
+    assert.equal(heartbeatPayload.relayLiveness.relays[0].restartCount, 10);
+    assert.equal(heartbeatPayload.relaySnapshot.snapshots[0].failureCount, 10);
+    assert.deepEqual(heartbeatPayload.watchClosure.thresholds.fortyEightHour.blockers, ['watch_closure:window_short:34.09/48']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -517,7 +861,8 @@ test('watch-closure fail verdict pages as warning with threshold provenance', as
     assert.equal(body.severity, 'warning');
     assert.equal(body.watchClosure.thresholds.fortyEightHour.status, 'fail');
     assert.equal(body.watchClosure.relayMemory.heapPlateauVerdict, 'heap_still_linear');
-    assert.equal(body.watchClosure.relayMemory.relays[0].name, 'vhc-relay-c');
+    assert.equal(body.watchClosure.relayMemory.relays[0].name, undefined);
+    assert.equal(body.watchClosure.relayMemory.relays[0].identityHash.length, 16);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -560,16 +905,127 @@ test('watch-closure default heap limit provenance pages as warning', async () =>
     assert.equal(summary.status, 'fail');
     assert.equal(summary.severity, 'warning');
     assert.equal(summary.watchClosure.severity, 'warning');
-    assert.match(summary.blockers.join('\n'), /watch_closure_heap_limit_source_default:aggregate/);
-    assert.match(summary.blockers.join('\n'), /watch_closure_heap_limit_source_default:vhc-relay-a/);
-    assert.equal(summary.watchClosure.relayMemory.heapLimitSource, 'default:public-beta-compose');
-    assert.equal(summary.watchClosure.relayMemory.relays[0].heapLimitSource, 'default:public-beta-compose:relay-a');
+    assert.deepEqual(summary.blockers, ['watch_closure:heap_limit_source_default']);
+    assert.equal(summary.watchClosure.relayMemory.heapLimitSourceClass, 'default');
+    assert.equal(summary.watchClosure.relayMemory.relays[0].heapLimitSourceClass, 'default');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('state schema migration redelivers an unchanged failure once', async () => {
+test('threshold status, blocker reason, and relay failure transitions each deliver once', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    function closureWith({ twentyFourStatus, fortyEightBlocker }) {
+      return watchClosureVerdict({
+        status: 'in_progress',
+        blockers: [fortyEightBlocker],
+        thresholds: {
+          twentyFourHour: {
+            thresholdHours: 24,
+            status: twentyFourStatus,
+            blockers: twentyFourStatus === 'pass' ? [] : ['window_short:23.99/24'],
+          },
+          fortyEightHour: { thresholdHours: 48, status: 'not_ready', blockers: [fortyEightBlocker] },
+        },
+      });
+    }
+
+    const initialAux = writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'not_ready', fortyEightBlocker: 'window_short:33.49/48' }),
+    });
+    const env = baseEnv(root, {
+      ...initialAux,
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const options = {
+      env,
+      repoRoot: root,
+      systemctlShowText: exit78Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const initial = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'window_short:33.49/48' }),
+    });
+    const thresholdChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:8' }),
+    });
+    const reasonChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      relay: relayLivenessReport({
+        status: 'fail',
+        blockers: ['vhc-relay-b:readyz_failed'],
+        relays: [{
+          name: 'vhc-relay-b',
+          status: 'fail',
+          blockers: ['readyz_failed'],
+          docker: { restartCount: 1 },
+          metrics: { watchdogTrips: 1 },
+        }],
+      }),
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:8' }),
+    });
+    const relayChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      relay: relayLivenessReport({
+        status: 'fail',
+        blockers: ['vhc-relay-b:readyz_failed'],
+        relays: [{
+          name: 'vhc-relay-b',
+          status: 'fail',
+          blockers: ['readyz_failed'],
+          docker: { restartCount: 9 },
+          metrics: { watchdogTrips: 9 },
+        }],
+      }),
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:9' }),
+    });
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:04:00.000Z'),
+    });
+
+    assert.equal(initial.delivery.reason, 'first_failure');
+    assert.equal(thresholdChanged.delivery.reason, 'state_changed');
+    assert.equal(reasonChanged.delivery.reason, 'state_changed');
+    assert.equal(relayChanged.delivery.reason, 'state_changed');
+    assert.notEqual(thresholdChanged.fingerprint, initial.fingerprint);
+    assert.notEqual(reasonChanged.fingerprint, thresholdChanged.fingerprint);
+    assert.notEqual(relayChanged.fingerprint, reasonChanged.fingerprint);
+    assert.equal(unchanged.fingerprint, relayChanged.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 4);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('state schema migration retries a failed delivery once and then suppresses the unresolved incident', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -590,13 +1046,15 @@ test('state schema migration redelivers an unchanged failure once', async () => 
       freshnessMonitorImpl: async () => freshnessSummary(),
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
-        return { ok: true, status: 204 };
+        return calls.length === 2
+          ? { ok: false, status: 503 }
+          : { ok: true, status: 204 };
       },
     };
 
     const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
     const state = JSON.parse(readFileSync(path.join(root, 'state.json'), 'utf8'));
-    assert.equal(state.schemaVersion, 'vh-public-feed-alert-state-v2');
+    assert.equal(state.schemaVersion, 'vh-public-feed-alert-state-v3');
     assert.deepEqual(state.sourceStatuses, {
       publisher: 'pass',
       freshness: 'pass',
@@ -606,15 +1064,22 @@ test('state schema migration redelivers an unchanged failure once', async () => 
     });
     writeJson(path.join(root, 'state.json'), {
       ...state,
-      schemaVersion: 'vh-public-feed-alert-state-v1',
+      schemaVersion: 'vh-public-feed-alert-state-v2',
     });
 
     const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+    const fourth = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
 
     assert.equal(first.fingerprint, second.fingerprint);
-    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.status, 'failed');
     assert.equal(second.delivery.reason, 'state_changed');
-    assert.equal(calls.length, 2);
+    assert.equal(second.state.schemaVersion, 'vh-public-feed-alert-state-v3');
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'retry_failed_delivery');
+    assert.equal(fourth.delivery.status, 'suppressed');
+    assert.equal(fourth.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 3);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -640,9 +1105,9 @@ test('missing required auxiliary reports fail closed before alert timer enableme
     assert.equal(summary.status, 'fail');
     assert.equal(summary.severity, 'critical');
     assert.deepEqual(summary.blockers.filter((blocker) => blocker.endsWith('_missing')).sort(), [
-      'relay_liveness_report_missing',
-      'relay_snapshot_report_missing',
-      'watch_closure_verdict_missing',
+      'relay_liveness:report_missing',
+      'relay_snapshot:report_missing',
+      'watch_closure:verdict_missing',
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -699,13 +1164,413 @@ test('stale feed sends a webhook on state change with secret-safe aggregate payl
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.alertReason, 'first_failure');
     assert.equal(body.severity, 'critical');
-    assert.equal(body.blockers.some((blocker) => blocker.includes('url_hash:')), true);
+    assert.equal(body.blockers.includes('public_feed:latest_index_not_fresh'), true);
     assert.equal(body.freshness.latestIndexReadbacks[0].origin, undefined);
-    assert.equal(body.freshness.latestIndexReadbacks[0].originHash.length, 16);
+    assert.equal(body.freshness.latestIndexReadbacks[0].ordinal, 1);
+    assert.equal(body.freshness.latestIndexReadbacks[0].endpointHash.length, 16);
+    assert.equal(body.freshness.originEndpointHashes.length, 2);
     assert.equal(JSON.stringify(body).includes('story-body-not-copied'), false);
     assert.equal(JSON.stringify(body).includes('venn.carboncaste.io'), false);
     assert.equal(JSON.stringify(body).includes('secret-path'), false);
     assert.equal(JSON.stringify(body).includes('hooks.example.invalid'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('composite blocker reason order and duplicates suppress while a changed reason set delivers once', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const origin = 'https://venn.carboncaste.io/';
+  let reasons = ['latest_index_empty', 'latest_index_timestamp_missing'];
+  try {
+    const options = {
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${reasons.join('|')}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs: null,
+          maxAgeMs: 21_600_000,
+          failures: reasons,
+          storyIds: ['story-body-not-copied'],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    reasons = ['latest_index_timestamp_missing', 'latest_index_empty', 'latest_index_empty'];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    reasons = ['latest_index_empty', 'latest_index_fetch_failed'];
+    const changed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    reasons = ['latest_index_fetch_failed', 'latest_index_empty', 'latest_index_fetch_failed'];
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(reordered.delivery.reason, 'unchanged_suppressed');
+    assert.notEqual(changed.fingerprint, first.fingerprint);
+    assert.equal(changed.delivery.status, 'sent');
+    assert.equal(changed.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, changed.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('adversarial configured origin stays fully redacted across webhook and email while structured reasons dedupe', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const mail = [];
+  const origin = 'https://private.example.invalid/feed?token=prefix:api_key|sk-proj-SYNTHETIC-NOT-A-REAL-KEY/';
+  let reasons = ['latest_index_empty', 'latest_index_timestamp_missing'];
+  try {
+    const options = {
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+        VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
+      }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${reasons.join('|')}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs: null,
+          maxAgeMs: 21_600_000,
+          failures: reasons,
+          storyIds: ['story-body-not-copied'],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+      spawnSyncImpl: (command, args, spawnOptions) => {
+        mail.push({ command, args, input: spawnOptions.input });
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    reasons = ['latest_index_timestamp_missing', 'latest_index_empty', 'latest_index_empty'];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    reasons = ['latest_index_empty', 'latest_index_fetch_failed'];
+    const changed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    reasons = ['latest_index_fetch_failed', 'latest_index_empty', 'latest_index_fetch_failed'];
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(reordered.delivery.reason, 'unchanged_suppressed');
+    assert.notEqual(changed.fingerprint, first.fingerprint);
+    assert.equal(changed.delivery.status, 'sent');
+    assert.equal(changed.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, changed.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.deepEqual(reordered.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_empty',
+      'latest_index_timestamp_missing',
+    ]);
+    assert.deepEqual(unchanged.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_empty',
+      'latest_index_fetch_failed',
+    ]);
+    assert.equal(calls.length, 2);
+    assert.equal(mail.length, 2);
+
+    const webhookPayloads = calls.map((call) => JSON.parse(call.init.body));
+    const emailPayloads = mail.map((message) => {
+      const parsed = parseTextEmail(message.input);
+      assert.equal(parsed.headers['mime-version'], '1.0');
+      assert.equal(parsed.headers['content-type'], 'text/plain; charset=utf-8');
+      return JSON.parse(parsed.body);
+    });
+    const expectedReasonSets = [
+      ['latest_index_empty', 'latest_index_timestamp_missing'],
+      ['latest_index_empty', 'latest_index_fetch_failed'],
+    ];
+    for (const [index, payload] of webhookPayloads.entries()) {
+      const freshnessBlocker = payload.freshness.blockers[0];
+      assert.equal(freshnessBlocker, 'latest_index_not_fresh');
+      assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureReasonCodes, expectedReasonSets[index]);
+      assert.deepEqual(
+        payload.freshness.latestIndexReadbacks[0].failureDiagnostics,
+        expectedReasonSets[index].map((reasonCode) => ({
+          reasonCode,
+          numericDiagnostics: {},
+        })),
+      );
+      assert.deepEqual(emailPayloads[index], payload);
+    }
+
+    const serializedOutputs = [
+      ...calls.map((call) => call.init.body),
+      ...mail.map((message) => message.input),
+      readFileSync(path.join(root, 'latest.json'), 'utf8'),
+      JSON.stringify([first, reordered, changed, unchanged]),
+    ];
+    const forbiddenFragments = [
+      origin,
+      'private.example.invalid',
+      'prefix:api_key',
+      'sk-proj-SYNTHETIC-NOT-A-REAL-KEY',
+    ];
+    for (const output of serializedOutputs) {
+      for (const fragment of forbiddenFragments) {
+        assert.equal(output.includes(fragment), false, `alert output leaked synthetic fragment: ${fragment}`);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('structured failure projections exclude arbitrary detail across every alert output', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const mail = [];
+  const origin = 'https://private.example.invalid/';
+  const failureUrl = [
+    origin,
+    'private/feed?token=prefix:api_key|sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
+  ].join('');
+  const nonUrlToken = 'SYNTHETIC_NONURL_TOKEN_SENTINEL_20260710';
+  const secretOnlyToken = 'SYNTHETIC_SECRET_ONLY_CHANGE_20260710';
+  const driftToken = 'SYNTHETIC_NONURL_TOKEN_DRIFT_20260710';
+  const privateValue = 'SYNTHETIC_PRIVATE_FAILURE_VALUE_20260710';
+  const hostEnvValue = 'SYNTHETIC_HOST_ENV_PRIVATE_VALUE_20260710';
+  const punctuationValue = 'SYNTHETIC_WHITESPACE_PUNCTUATION_VALUE_20260710';
+  const unknownReasonCode = 'synthetic_private_reason_code_20260710';
+  const driftUnknownReasonCode = 'synthetic_private_reason_drift_20260710';
+  const privateStoryBody = 'synthetic-overlap-private-story-body';
+  const fetchFailure = [
+    'latest_index_fetch_failed:http_status=429 attempt=3',
+    `token=${nonUrlToken}`,
+    `private_value=${privateValue}`,
+    `host_env=(${hostEnvValue})`,
+    `punctuation="{${punctuationValue}}";`,
+    `url=${failureUrl}`,
+  ].join(' ');
+  const staleFailure = 'latest_index_stale:30000000/21600000';
+  const unknownFailure = `${unknownReasonCode}:count=7 private_value=${privateValue}`;
+  const secretOnlyFetchFailure = [
+    'latest_index_fetch_failed:attempt=3 http_status=429',
+    `token=${secretOnlyToken}`,
+    `private_value=CHANGED_${privateValue}`,
+    `host_env={CHANGED_${hostEnvValue}}`,
+    `url=${failureUrl}&secret_only=${secretOnlyToken}`,
+  ].join(' ');
+  const secretOnlyStaleFailure = 'latest_index_stale:30000000/21600000';
+  const secretOnlyUnknownFailure = `different_private_reason_20260710:count=7 token=${secretOnlyToken}`;
+  const driftFetchFailure = [
+    'latest_index_fetch_failed:attempt=4 http_status=503',
+    `token=${driftToken}`,
+    `private_value=${privateValue}`,
+    `host_env=[${hostEnvValue}]`,
+    `url=${failureUrl}`,
+  ].join(' ');
+  const driftStaleFailure = 'latest_index_stale:30300000/21600000';
+  const driftUnknownFailure = `${driftUnknownReasonCode}:count=8 host_env=${hostEnvValue}`;
+  let failures = [fetchFailure, unknownFailure, staleFailure, fetchFailure];
+  let newestAgeMs = 30_000_000;
+  try {
+    const options = {
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+        VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
+        VH_SYNTHETIC_PRIVATE_HOST_VALUE: hostEnvValue,
+      }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${failures.join('|')}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs,
+          maxAgeMs: 21_600_000,
+          failures,
+          storyIds: [privateStoryBody],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+      spawnSyncImpl: (command, args, spawnOptions) => {
+        mail.push({ command, args, input: spawnOptions.input });
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    failures = [staleFailure, unknownFailure, fetchFailure, staleFailure, unknownFailure, fetchFailure];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    failures = [secretOnlyFetchFailure, secretOnlyUnknownFailure, secretOnlyStaleFailure, secretOnlyFetchFailure];
+    const secretOnlyDrift = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    failures = [driftUnknownFailure, driftStaleFailure, driftFetchFailure, driftFetchFailure];
+    newestAgeMs = 30_300_000;
+    const numericDrift = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    assert.equal(first.delivery.status, 'sent');
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(secretOnlyDrift.fingerprint, first.fingerprint);
+    assert.equal(secretOnlyDrift.delivery.status, 'suppressed');
+    assert.equal(numericDrift.fingerprint, first.fingerprint);
+    assert.equal(numericDrift.delivery.status, 'suppressed');
+    assert.equal(calls.length, 1);
+    assert.equal(mail.length, 1);
+    assert.deepEqual(first.freshness.blockers, ['latest_index_not_fresh']);
+    assert.deepEqual(first.blockers, ['public_feed:latest_index_not_fresh']);
+    assert.deepEqual(first.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+      'latest_index_fetch_failed',
+      'latest_index_stale',
+      'unclassified_failure',
+    ]);
+    const expectedFirstDiagnostics = [
+      {
+        reasonCode: 'latest_index_fetch_failed',
+        numericDiagnostics: {},
+      },
+      {
+        reasonCode: 'latest_index_stale',
+        numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_000_000] },
+      },
+      {
+        reasonCode: 'unclassified_failure',
+        numericDiagnostics: {},
+      },
+    ];
+    assert.deepEqual(first.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(reordered.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(secretOnlyDrift.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(secretOnlyDrift.freshness.latestIndexReadbacks, first.freshness.latestIndexReadbacks);
+    assert.deepEqual(numericDrift.freshness.latestIndexReadbacks[0].failureDiagnostics, [
+      {
+        reasonCode: 'latest_index_fetch_failed',
+        numericDiagnostics: {},
+      },
+      {
+        reasonCode: 'latest_index_stale',
+        numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_300_000] },
+      },
+      {
+        reasonCode: 'unclassified_failure',
+        numericDiagnostics: {},
+      },
+    ]);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].recordCount, 0);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].newestAgeMs, 30_300_000);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].maxAgeMs, 21_600_000);
+
+    const webhookPayload = JSON.parse(calls[0].init.body);
+    const parsedEmail = parseTextEmail(mail[0].input);
+    assert.equal(parsedEmail.headers['mime-version'], '1.0');
+    assert.equal(parsedEmail.headers['content-type'], 'text/plain; charset=utf-8');
+    assert.deepEqual(JSON.parse(parsedEmail.body), webhookPayload);
+    const consoleOutput = (summary) => JSON.stringify({
+      status: summary.status,
+      observedStatus: summary.observedStatus,
+      severity: summary.severity,
+      blockers: summary.blockers,
+      fingerprint: summary.fingerprint,
+      delivery: summary.delivery,
+      outputFileRole: summary.outputFileRole,
+    });
+    const serializedOutputs = [
+      JSON.stringify([first, reordered, secretOnlyDrift, numericDrift]),
+      calls[0].init.body,
+      mail[0].input,
+      readFileSync(path.join(root, 'latest.json'), 'utf8'),
+      consoleOutput(first),
+      consoleOutput(reordered),
+      consoleOutput(secretOnlyDrift),
+      consoleOutput(numericDrift),
+    ];
+    const forbiddenFragments = [
+      origin,
+      failureUrl,
+      'private.example.invalid',
+      'private/feed?token=',
+      'prefix:api_key',
+      'sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
+      nonUrlToken,
+      secretOnlyToken,
+      driftToken,
+      privateValue,
+      hostEnvValue,
+      punctuationValue,
+      unknownReasonCode,
+      'different_private_reason_20260710',
+      driftUnknownReasonCode,
+      privateStoryBody,
+    ];
+    for (const output of serializedOutputs) {
+      for (const fragment of forbiddenFragments) {
+        assert.equal(output.includes(fragment), false, `alert output leaked synthetic fragment: ${fragment}`);
+      }
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -826,19 +1691,39 @@ test('heartbeat interval can resend an unchanged state', async () => {
   }
 });
 
-test('publisher exit 78 is a fail-close alert and can deliver through sendmail', async () => {
+test('publisher exit 78 email has a readable secret-safe text body and exact safe subject', async () => {
   const root = tempRoot();
   const mail = [];
+  const privateOrigin = 'https://private.example.invalid/feed?token=synthetic-email-token';
+  const privateStoryBody = 'synthetic-private-story-body';
+  const privateSnapshotPath = '/synthetic/private-host/vhc-relay-a/data/news-latest-index-snapshot.json';
   try {
+    const freshness = staleFreshnessSummary({ origin: privateOrigin });
+    freshness.latestIndexReadbacks[0].storyIds = [privateStoryBody];
     const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
       env: baseEnv(root, {
+        ...writeAuxReports(root, {
+          snapshot: relaySnapshotReport({
+            status: 'fail',
+            blockers: [`${privateSnapshotPath}:newest_entry_stale:30000000/21600000`],
+            snapshots: [{
+              file: privateSnapshotPath,
+              status: 'fail',
+              failures: ['newest_entry_stale:30000000/21600000'],
+              entryCount: 80,
+              cachedAgeMs: 60_000,
+              newestEntryAgeMs: 30_000_000,
+              freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+            }],
+          }),
+        }),
         VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
         VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
       }),
       repoRoot: root,
       now: Date.parse('2026-07-02T18:00:00.000Z'),
       systemctlShowText: exit78Systemctl(),
-      freshnessMonitorImpl: async () => freshnessSummary(),
+      freshnessMonitorImpl: async () => freshness,
       spawnSyncImpl: (command, args, options) => {
         mail.push({ command, args, input: options.input });
         return { status: 0, stdout: '', stderr: '' };
@@ -853,8 +1738,25 @@ test('publisher exit 78 is a fail-close alert and can deliver through sendmail',
     assert.match(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
     assert.equal(mail.length, 1);
-    assert.match(mail[0].input, /operator@example\.invalid/);
-    assert.match(mail[0].input, /exit_78_fail_closed/);
+    const parsed = parseTextEmail(mail[0].input);
+    assert.equal(parsed.headers.to, 'operator@example.invalid');
+    assert.equal(parsed.headers['mime-version'], '1.0');
+    assert.equal(parsed.headers['content-type'], 'text/plain; charset=utf-8');
+    assert.equal(parsed.headers['content-transfer-encoding'], '8bit');
+    assert.equal(parsed.headers.subject, `[VHC] public feed alert fail ${summary.fingerprint}`);
+    assert.equal(parsed.headers.subject.includes('publisher_exit_78'), false);
+    assert.ok(parsed.body.length > 0);
+
+    const payload = JSON.parse(parsed.body);
+    assert.equal(payload.alertReason, 'first_failure');
+    assert.equal(payload.publisher.failureClass, 'exit_78_fail_closed');
+    assert.equal(payload.blockers.includes('publisher_exit_78'), true);
+    assert.equal(parsed.body.includes(privateOrigin), false);
+    assert.equal(parsed.body.includes('private.example.invalid'), false);
+    assert.equal(parsed.body.includes('synthetic-email-token'), false);
+    assert.equal(parsed.body.includes(privateStoryBody), false);
+    assert.equal(parsed.body.includes(privateSnapshotPath), false);
+    assert.equal(parsed.body.includes('/synthetic/private-host'), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -881,7 +1783,7 @@ test('publisher exit 69 is a warning transport alert distinct from exit 78', asy
     assert.equal(summary.publisher.failureClass, 'exit_69_transport_unavailable');
     assert.equal(summary.publisher.severity, 'warning');
     assert.equal(summary.publisher.recoveryHint, 'bounded_systemd_restart_in_progress');
-    assert.match(summary.blockers.join('\n'), /publisher_exit_69_transport_unavailable:activating\/auto-restart/);
+    assert.match(summary.blockers.join('\n'), /publisher_exit_69_transport_unavailable/);
     assert.doesNotMatch(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
     assert.equal(summary.delivery.reason, 'first_failure');
@@ -893,6 +1795,49 @@ test('publisher exit 69 is a warning transport alert distinct from exit 78', asy
     assert.equal(body.publisher.severity, 'warning');
     assert.equal(body.publisher.recoveryHint, 'bounded_systemd_restart_in_progress');
     assert.equal(JSON.stringify(body).includes('exit_78_fail_closed'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher exit 78 to restartable exit 69 delivers one failure-class transition', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const options = {
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+    const failClosed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit78Systemctl(),
+    });
+    const restartable = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+      systemctlShowText: exit69Systemctl({ nRestarts: 0 }),
+    });
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+      systemctlShowText: exit69Systemctl({ nRestarts: 0 }),
+    });
+
+    assert.equal(failClosed.publisher.failureClass, 'exit_78_fail_closed');
+    assert.equal(restartable.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.notEqual(restartable.fingerprint, failClosed.fingerprint);
+    assert.equal(restartable.delivery.status, 'sent');
+    assert.equal(restartable.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, restartable.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -924,7 +1869,7 @@ test('publisher exit 69 parked by start limit is critical and not self-recoverin
     assert.equal(summary.publisher.failureClass, 'exit_69_start_limit_parked');
     assert.equal(summary.publisher.severity, 'critical');
     assert.equal(summary.publisher.recoveryHint, 'start_limit_exhausted_operator_restart_required');
-    assert.match(summary.blockers.join('\n'), /publisher_exit_69_start_limit_parked:failed\/failed:start-limit-hit/);
+    assert.match(summary.blockers.join('\n'), /publisher_exit_69_start_limit_parked/);
     assert.doesNotMatch(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
     assert.equal(calls.length, 1);
@@ -973,14 +1918,14 @@ test('publisher exit 75 wrapper refusal is critical', async () => {
     assert.equal(summary.publisher.failureClass, 'exit_75_wrapper_refusal');
     assert.equal(summary.publisher.severity, 'critical');
     assert.equal(summary.publisher.recoveryHint, 'operator_required');
-    assert.match(summary.blockers.join('\n'), /publisher_exit_75_wrapper_refusal:failed\/failed:exit-code/);
+    assert.match(summary.blockers.join('\n'), /publisher_exit_75_wrapper_refusal/);
     assert.equal(summary.delivery.status, 'sent');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('publisher recovery after parked exit 69 sends a state-changed pass alert', async () => {
+test('failed publisher recovery delivery retries on the next unchanged pass and then suppresses', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -990,7 +1935,9 @@ test('publisher recovery after parked exit 69 sends a state-changed pass alert',
       freshnessMonitorImpl: async () => freshnessSummary(),
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
-        return { ok: true, status: 204 };
+        return calls.length === 2
+          ? { ok: false, status: 503 }
+          : { ok: true, status: 204 };
       },
     };
     const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
@@ -1003,17 +1950,33 @@ test('publisher recovery after parked exit 69 sends a state-changed pass alert',
       now: Date.parse('2026-07-02T18:05:00.000Z'),
       systemctlShowText: activeSystemctl(),
     });
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:06:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+    });
+    const fourth = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:07:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+    });
 
     assert.equal(first.status, 'fail');
     assert.equal(first.publisher.failureClass, 'exit_69_start_limit_parked');
-    assert.equal(second.status, 'pass');
     assert.equal(second.observedStatus, 'pass');
     assert.equal(second.publisher.failureClass, 'none');
     assert.equal(second.publisher.severity, 'none');
     assert.equal(second.publisher.recoveryHint, 'none');
-    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.status, 'failed');
     assert.equal(second.delivery.reason, 'state_changed');
-    assert.equal(calls.length, 2);
+    assert.equal(third.status, 'pass');
+    assert.equal(third.observedStatus, 'pass');
+    assert.equal(third.fingerprint, second.fingerprint);
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'retry_failed_delivery');
+    assert.equal(fourth.delivery.status, 'suppressed');
+    assert.equal(fourth.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 3);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1105,7 +2068,7 @@ test('webhook delivery errors redact configured webhook URL from output', async 
 
     assert.equal(summary.status, 'fail');
     assert.equal(summary.delivery.status, 'failed');
-    assert.match(summary.delivery.error, /value_hash:/);
+    assert.equal(summary.delivery.error, 'webhook_network');
     assert.equal(summary.delivery.error.includes(webhookUrl), false);
 
     const output = readFileSync(path.join(root, 'latest.json'), 'utf8');
@@ -1167,5 +2130,1008 @@ test('alert output and state files are persisted for operator inspection', async
     assert.equal(state.lastDeliveredFingerprint, summary.fingerprint);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('same-time freshness secret drift leaves every v2 public projection identical', async () => {
+  const root = tempRoot();
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const runVariant = async (secret) => {
+    rmSync(root, { recursive: true, force: true });
+    mkdirSync(root, { recursive: true });
+    const calls = [];
+    const mail = [];
+    const origins = [
+      `https://user:${secret}@alpha.example.invalid/feed?token=${secret}#${secret}`,
+      `https://user:${secret}@beta.example.invalid/private?token=${secret}#${secret}`,
+    ];
+    const fetchFailure = `latest_index_fetch_failed:attempt=69${secret}&count=15000${secret}&http=503${secret} url=${origins[0]}&attempt=777&count=88 ${secret}`;
+    const readbacks = [
+      {
+        origin: origins[0],
+        status: 'fail',
+        recordCount: 0,
+        newestAgeMs: 30_000_000,
+        maxAgeMs: 21_600_000,
+        failures: [fetchFailure, 'latest_index_stale:30000000/21600000'],
+        storyIds: [`story-${secret}`],
+      },
+      {
+        origin: origins[1],
+        status: 'pass',
+        recordCount: 80,
+        newestAgeMs: 120_000,
+        maxAgeMs: 21_600_000,
+        failures: [],
+        storyIds: [`story-pass-${secret}`],
+      },
+    ];
+    if (secret.includes('_B_')) {
+      origins.reverse();
+      readbacks.reverse();
+    }
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+      }),
+      repoRoot: root,
+      now,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${readbacks.find((entry) => entry.status === 'fail').origin}:${fetchFailure}`],
+        config: { origins, maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: readbacks,
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+      spawnSyncImpl: (command, args, options) => {
+        mail.push(options.input);
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    });
+    const parsedMail = parseTextEmail(mail[0]);
+    return {
+      summary,
+      webhook: JSON.parse(calls[0].init.body),
+      mime: { subject: parsedMail.headers.subject, payload: JSON.parse(parsedMail.body) },
+      latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+      console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+    };
+  };
+
+  try {
+    const baseline = await runVariant('SYNTHETIC_SECRET_A_20260710');
+    const drift = await runVariant('SYNTHETIC_SECRET_B_20260710');
+    assert.deepEqual(drift, baseline);
+    assert.equal(baseline.summary.schemaVersion, 'vh-public-feed-alert-watch-v2');
+    assert.equal(baseline.summary.stateFile, undefined);
+    assert.equal(baseline.summary.outputFile, undefined);
+    assert.equal(baseline.summary.stateFileRole, 'state');
+    assert.equal(baseline.summary.outputFileRole, 'latest');
+    assert.equal(baseline.summary.freshness.originCount, 2);
+    assert.equal(baseline.summary.freshness.originEndpointHashes.length, 2);
+    const failedReadback = baseline.summary.freshness.latestIndexReadbacks.find((entry) => entry.status === 'fail');
+    assert.deepEqual(failedReadback.failureDiagnostics, [
+      { reasonCode: 'latest_index_fetch_failed', numericDiagnostics: {} },
+      {
+        reasonCode: 'latest_index_stale',
+        numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_000_000] },
+      },
+    ]);
+    const serialized = JSON.stringify(baseline);
+    assert.equal(serialized.includes('SYNTHETIC_SECRET_A_20260710'), false);
+    assert.equal(serialized.includes('private.example.invalid'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('same-time auxiliary report detail drift leaves every public projection identical', async (t) => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rows = [
+    {
+      name: 'relay liveness detail',
+      configure(root, secret) {
+        return writeAuxReports(root, {
+          relay: relayLivenessReport({
+            status: 'fail',
+            blockers: [`vhc-relay-a:readyz_failed:${secret}`],
+            relays: [{
+              name: 'vhc-relay-a',
+              status: 'fail',
+              blockers: [
+                `readyz_failed:${secret}`,
+                `metrics_failed:${secret}`,
+                `docker_inspect_failed:${secret}`,
+                'readyz_unhealthy:503',
+                'metrics_unhealthy:502',
+                'restart_count_increased:1/2',
+                'event_loop_lag_hot:2.5e3/3e3',
+              ],
+              docker: { restartCount: 2 },
+              metrics: {
+                rssBytes: 420_000_000,
+                heapUsedBytes: 320_000_000,
+                watchdogTrips: 1,
+                eventLoopLagP99Ms: 2_500,
+                criticalReadbacksQueued: 0,
+              },
+            }],
+          }),
+        });
+      },
+    },
+    {
+      name: 'snapshot detail',
+      configure(root, secret) {
+        const snapshotPath = `/synthetic/${secret}/vhc-relay-a/data/news-latest-index-snapshot.json`;
+        return writeAuxReports(root, {
+          snapshot: relaySnapshotReport({
+            status: 'fail',
+            blockers: [`${snapshotPath}:snapshot_parse_failed:${secret}`],
+            snapshots: [{
+              file: snapshotPath,
+              status: 'fail',
+              failures: [
+                `snapshot_parse_failed:${secret}`,
+                `schema_mismatch:${secret}`,
+                'snapshot_size_not_sane:123',
+                'entry_count_mismatch:79/80',
+                'newest_entry_stale:30000000/21600000',
+              ],
+              entryCount: 79,
+              cachedAgeMs: 60_000,
+              newestEntryAgeMs: 30_000_000,
+              freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+            }],
+          }),
+        });
+      },
+    },
+    {
+      name: 'watch closure detail',
+      configure(root, secret) {
+        return writeAuxReports(root, {
+          closure: watchClosureVerdict({
+            status: 'fail',
+            severity: secret,
+            blockers: [
+              `archive_sample_failures:8 ${secret}`,
+              `private_reason_${secret}:token=${secret}`,
+              'window_short:33.49/48',
+            ],
+            window: {
+              startAt: '2026-07-02T08:00:00.000Z',
+              cleanStartAt: '2026-07-02T08:00:00.000Z',
+              hoursObserved: 33.49,
+              privateDetail: secret,
+            },
+            thresholds: {
+              twentyFourHour: { status: 'fail', blockers: [`runtime_failed_ticks:8 ${secret}`] },
+              fortyEightHour: { status: 'not_ready', blockers: ['window_short:33.49/48'] },
+            },
+            relayMemory: {
+              status: 'warn',
+              heapPlateauVerdict: 'heap_plateau_observed',
+              heapLimitSource: `default:${secret}`,
+              rssLimitSource: `configured:${secret}`,
+              relays: [{
+                name: 'vhc-relay-a',
+                trendStatus: 'warn',
+                heapPlateauVerdict: 'heap_plateau_observed',
+                heapLimitSource: `default:${secret}`,
+                shortestProjectedLimitHours: 72,
+              }],
+            },
+          }),
+        });
+      },
+    },
+  ];
+
+  for (const row of rows) {
+    await t.test(row.name, async () => {
+      const root = tempRoot();
+      const runVariant = async (secret) => {
+        rmSync(root, { recursive: true, force: true });
+        mkdirSync(root, { recursive: true });
+        const calls = [];
+        const mail = [];
+        const env = baseEnv(root, {
+          ...row.configure(root, secret),
+          VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+          VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+        });
+        const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+          env,
+          repoRoot: root,
+          now,
+          systemctlShowText: activeSystemctl(),
+          freshnessMonitorImpl: async () => freshnessSummary(),
+          fetchImpl: async (url, init) => {
+            calls.push({ url, init });
+            return { ok: true, status: 204 };
+          },
+          spawnSyncImpl: (command, args, options) => {
+            mail.push(options.input);
+            return { status: 0, stdout: '', stderr: '' };
+          },
+        });
+        const parsedMail = parseTextEmail(mail[0]);
+        return {
+          summary,
+          webhook: JSON.parse(calls[0].init.body),
+          mime: { subject: parsedMail.headers.subject, payload: JSON.parse(parsedMail.body) },
+          latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+          console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+        };
+      };
+
+      try {
+        const baseline = await runVariant('SYNTHETIC_AUX_SECRET_A_20260710');
+        const drift = await runVariant('SYNTHETIC_AUX_SECRET_B_20260710');
+        assert.deepEqual(drift, baseline);
+        assert.equal(JSON.stringify(baseline).includes('SYNTHETIC_AUX_SECRET_A_20260710'), false);
+        if (row.name === 'relay liveness detail') {
+          const diagnostics = baseline.summary.relayLiveness.relays[0].reasonDiagnostics;
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'readyz_unhealthy')?.numericDiagnostics,
+            { httpStatus: [503] },
+          );
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'metrics_unhealthy')?.numericDiagnostics,
+            { httpStatus: [502] },
+          );
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'restart_count_increased')?.numericDiagnostics,
+            { currentRestartCount: [2], previousRestartCount: [1] },
+          );
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'event_loop_lag_hot')?.numericDiagnostics,
+            { limitMs: [3000], observedMs: [2500] },
+          );
+        }
+        if (row.name === 'snapshot detail') {
+          const diagnostics = baseline.summary.relaySnapshot.snapshots[0].reasonDiagnostics;
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'snapshot_size_not_sane')?.numericDiagnostics,
+            { sizeBytes: [123] },
+          );
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'entry_count_mismatch')?.numericDiagnostics,
+            { actualCount: [79], expectedCount: [80] },
+          );
+          assert.deepEqual(
+            diagnostics.find((entry) => entry.reasonCode === 'newest_entry_stale')?.numericDiagnostics,
+            { maxAgeMs: [21_600_000], newestEntryAgeMs: [30_000_000] },
+          );
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('poisoned prior state is canonicalized before comparison and carry-forward', async () => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const roots = [];
+  const runVariant = async (secret) => {
+    const root = tempRoot();
+    roots.push(root);
+    const stateFile = path.join(root, 'state.json');
+    writeJson(stateFile, {
+      schemaVersion: 'vh-public-feed-alert-state-v3',
+      generatedAt: `not-a-timestamp-${secret}`,
+      lastObservedFingerprint: `not-a-fingerprint-${secret}`,
+      lastObservedStatus: `not-a-status-${secret}`,
+      lastDeliveredFingerprint: `not-a-delivered-fingerprint-${secret}`,
+      lastDeliveredStatus: `not-a-delivered-status-${secret}`,
+      lastDeliveredAt: `not-a-delivery-timestamp-${secret}`,
+      lastDeliveryStatus: `not-a-delivery-state-${secret}`,
+      lastDeliveryReason: `not-a-delivery-reason-${secret}`,
+      lastPublisherNRestarts: `69-${secret}`,
+      sourceStatuses: {
+        publisher: `not-a-source-status-${secret}`,
+        freshness: `not-a-source-status-${secret}`,
+        relayLiveness: `not-a-source-status-${secret}`,
+        relaySnapshot: `not-a-source-status-${secret}`,
+        watchClosure: `not-a-source-status-${secret}`,
+      },
+    });
+    const webhookCalls = [];
+    const mail = [];
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+      }),
+      repoRoot: root,
+      now,
+      systemctlShowText: [
+        'ActiveState=active',
+        'SubState=running',
+        'NRestarts=not-a-number',
+        'ExecMainStatus=0',
+        'Result=success',
+        '',
+      ].join('\n'),
+      freshnessMonitorImpl: async () => staleFreshnessSummary({ now }),
+      fetchImpl: async (url, init) => {
+        webhookCalls.push({ url, init });
+        return { ok: false, status: 503 };
+      },
+      spawnSyncImpl: (command, args, options) => {
+        mail.push(options.input);
+        return { status: 1, stdout: '', stderr: `private-sendmail-detail-${secret}` };
+      },
+    });
+    const parsedMail = parseTextEmail(mail[0]);
+    return {
+      summary,
+      webhook: JSON.parse(webhookCalls[0].init.body),
+      mime: { subject: parsedMail.headers.subject, payload: JSON.parse(parsedMail.body) },
+      latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+      console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+    };
+  };
+
+  try {
+    const baseline = await runVariant('SYNTHETIC_STATE_SECRET_A_20260710');
+    const drift = await runVariant('SYNTHETIC_STATE_SECRET_B_20260710');
+    assert.deepEqual(drift, baseline);
+    assert.equal(baseline.summary.state.lastDeliveredFingerprint, null);
+    assert.equal(baseline.summary.state.lastDeliveredStatus, 'fail');
+    assert.equal(baseline.summary.state.lastDeliveredAt, null);
+    assert.equal(baseline.summary.state.lastPublisherNRestarts, null);
+    assert.deepEqual(baseline.summary.state.sourceStatuses, {
+      publisher: 'pass',
+      freshness: 'fail',
+      relayLiveness: 'skipped',
+      relaySnapshot: 'skipped',
+      watchClosure: 'skipped',
+    });
+    const serialized = JSON.stringify(baseline);
+    assert.equal(serialized.includes('SYNTHETIC_STATE_SECRET_A_20260710'), false);
+    assert.equal(serialized.includes('private-sendmail-detail'), false);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('numeric environment values require exact decimal strings', async () => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const roots = [];
+  const runVariant = async (numericText) => {
+    const root = tempRoot();
+    roots.push(root);
+    const webhookCalls = [];
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        ...writeAuxReports(root),
+        VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS: numericText,
+        VH_PUBLIC_FEED_ALERT_RELAY_LIVENESS_MAX_AGE_MS: numericText,
+        VH_PUBLIC_FEED_ALERT_RELAY_SNAPSHOT_MAX_AGE_MS: numericText,
+        VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_MAX_AGE_MS: numericText,
+      }),
+      repoRoot: root,
+      now,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        webhookCalls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+    return {
+      summary,
+      webhook: JSON.parse(webhookCalls[0].init.body),
+      latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+      console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+    };
+  };
+
+  try {
+    const invalidBaseline = await runVariant('15000SYNTHETIC_NUMERIC_SECRET_A');
+    const invalidDrift = await runVariant('15000SYNTHETIC_NUMERIC_SECRET_B');
+    assert.deepEqual(invalidDrift, invalidBaseline);
+    assert.equal(invalidBaseline.summary.delivery.heartbeatMs, 0);
+    assert.equal(invalidBaseline.summary.relayLiveness.maxAgeMs, 15 * 60 * 1000);
+    assert.equal(invalidBaseline.summary.relaySnapshot.maxAgeMs, 45 * 60 * 1000);
+    assert.equal(invalidBaseline.summary.watchClosure.maxAgeMs, 90 * 60 * 1000);
+
+    const exact = await runVariant('15000');
+    assert.equal(exact.summary.delivery.heartbeatMs, 15_000);
+    assert.equal(exact.summary.relayLiveness.maxAgeMs, 15_000);
+    assert.equal(exact.summary.relaySnapshot.maxAgeMs, 15_000);
+    assert.equal(exact.summary.watchClosure.maxAgeMs, 15_000);
+    assert.equal(
+      exact.summary.relayLiveness.blockers.some((blocker) => blocker.startsWith('relay_liveness:output_stale:')),
+      true,
+    );
+    assert.equal(
+      exact.summary.relaySnapshot.blockers.some((blocker) => blocker.startsWith('relay_snapshot:output_stale:')),
+      true,
+    );
+    assert.equal(
+      exact.summary.watchClosure.blockers.some((blocker) => blocker.startsWith('watch_closure:output_stale:')),
+      true,
+    );
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('delivery timeout accepts exact digits and rejects suffixed numerics', async () => {
+  const roots = [];
+  const observeAbort = async (timeoutText) => {
+    const root = tempRoot();
+    roots.push(root);
+    let aborted = false;
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+        VH_PUBLIC_FEED_ALERT_TIMEOUT_MS: timeoutText,
+      }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => new Promise((resolve) => {
+        const responseTimer = setTimeout(() => resolve({ ok: true, status: 204 }), 30);
+        init.signal.addEventListener('abort', () => {
+          aborted = true;
+          clearTimeout(responseTimer);
+          resolve({ ok: true, status: 204 });
+        }, { once: true });
+      }),
+    });
+    assert.equal(summary.delivery.status, 'sent');
+    return aborted;
+  };
+
+  try {
+    assert.equal(await observeAbort('1SYNTHETIC_TIMEOUT_SECRET'), false);
+    assert.equal(await observeAbort('1'), true);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('systemd numeric classification and persisted restart count require exact digits', async () => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const roots = [];
+  const runVariant = async (suffix) => {
+    const root = tempRoot();
+    roots.push(root);
+    const webhookCalls = [];
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+        VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+      }),
+      repoRoot: root,
+      now,
+      systemctlShowText: [
+        'ActiveState=activating',
+        'SubState=auto-restart',
+        `NRestarts=3${suffix}`,
+        `ExecMainStatus=69${suffix}`,
+        'Result=exit-code',
+        '',
+      ].join('\n'),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        webhookCalls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    });
+    return {
+      summary,
+      webhook: JSON.parse(webhookCalls[0].init.body),
+      latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+      console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+    };
+  };
+
+  try {
+    const invalidBaseline = await runVariant('SYNTHETIC_SYSTEMD_SECRET_A');
+    const invalidDrift = await runVariant('SYNTHETIC_SYSTEMD_SECRET_B');
+    assert.deepEqual(invalidDrift, invalidBaseline);
+    assert.equal(invalidBaseline.summary.publisher.execMainStatus, null);
+    assert.equal(invalidBaseline.summary.publisher.nRestarts, null);
+    assert.equal(invalidBaseline.summary.publisher.failureClass, 'unit_not_running');
+    assert.equal(invalidBaseline.summary.state.lastPublisherNRestarts, null);
+
+    const exact = await runVariant('');
+    assert.equal(exact.summary.publisher.execMainStatus, '69');
+    assert.equal(exact.summary.publisher.nRestarts, 3);
+    assert.equal(exact.summary.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.equal(exact.summary.state.lastPublisherNRestarts, 3);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CRLF mailboxes are refused before any injected header or body is emitted', async () => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const roots = [];
+  const runVariant = async ({ to, from }) => {
+    const root = tempRoot();
+    roots.push(root);
+    let sendmailCalls = 0;
+    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      env: baseEnv(root, {
+        VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+        VH_PUBLIC_FEED_ALERT_EMAIL_TO: to,
+        VH_PUBLIC_FEED_ALERT_EMAIL_FROM: from,
+      }),
+      repoRoot: root,
+      now,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      spawnSyncImpl: () => {
+        sendmailCalls += 1;
+        return { status: 0, stdout: '', stderr: '' };
+      },
+    });
+    return {
+      summary,
+      latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+      console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+      sendmailCalls,
+    };
+  };
+
+  try {
+    const injectedTo = await runVariant({
+      to: 'operator@example.invalid\r\nBcc: attacker@example.invalid',
+      from: 'vhc-alert@example.invalid',
+    });
+    const injectedFrom = await runVariant({
+      to: 'operator@example.invalid',
+      from: 'vhc-alert@example.invalid\r\nX-Injected: yes',
+    });
+    assert.deepEqual(injectedFrom, injectedTo);
+    assert.equal(injectedTo.sendmailCalls, 0);
+    assert.equal(injectedTo.summary.delivery.error, 'email_address_invalid');
+    const serialized = JSON.stringify(injectedTo);
+    assert.equal(serialized.includes('Bcc'), false);
+    assert.equal(serialized.includes('X-Injected'), false);
+    assert.equal(serialized.includes('attacker@example.invalid'), false);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('transport provider detail maps to closed public delivery error classes', async (t) => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rows = [
+    { name: 'webhook network detail', mode: 'network', expectedError: 'webhook_network' },
+    { name: 'webhook HTTP provider detail', mode: 'http', expectedError: 'webhook_http_503' },
+    { name: 'sendmail stderr and exit detail', mode: 'sendmail', expectedError: 'sendmail_exit' },
+  ];
+
+  for (const row of rows) {
+    await t.test(row.name, async () => {
+      const roots = [];
+      const runVariant = async (secret, sendmailStatus) => {
+        const root = tempRoot();
+        roots.push(root);
+        const webhookCalls = [];
+        const mail = [];
+        const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+          env: baseEnv(root, {
+            VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+            ...(row.mode === 'sendmail'
+              ? { VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid' }
+              : { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+          }),
+          repoRoot: root,
+          now,
+          systemctlShowText: activeSystemctl(),
+          freshnessMonitorImpl: async () => freshnessSummary(),
+          fetchImpl: async (url, init) => {
+            webhookCalls.push({ url, init });
+            if (row.mode === 'network') throw new Error(`private-provider-network-detail-${secret}`);
+            return {
+              ok: false,
+              status: 503,
+              statusText: `private-provider-http-detail-${secret}`,
+              providerBody: `private-provider-body-${secret}`,
+            };
+          },
+          spawnSyncImpl: (command, args, options) => {
+            mail.push(options.input);
+            return {
+              status: sendmailStatus,
+              stdout: `private-sendmail-stdout-${secret}`,
+              stderr: `private-sendmail-stderr-${secret}`,
+            };
+          },
+        });
+        const channelPayload = webhookCalls.length > 0
+          ? JSON.parse(webhookCalls[0].init.body)
+          : (() => {
+              const parsed = parseTextEmail(mail[0]);
+              return { subject: parsed.headers.subject, payload: JSON.parse(parsed.body) };
+            })();
+        return {
+          summary,
+          channelPayload,
+          latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+          console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+        };
+      };
+
+      try {
+        const baseline = await runVariant('SYNTHETIC_TRANSPORT_SECRET_A_20260710', 1);
+        const drift = await runVariant('SYNTHETIC_TRANSPORT_SECRET_B_20260710', 75);
+        assert.deepEqual(drift, baseline);
+        assert.equal(baseline.summary.delivery.error, row.expectedError);
+        const serialized = JSON.stringify(baseline);
+        assert.equal(serialized.includes('SYNTHETIC_TRANSPORT_SECRET_A_20260710'), false);
+        assert.equal(serialized.includes('private-provider'), false);
+        assert.equal(serialized.includes('private-sendmail'), false);
+      } finally {
+        for (const root of roots) rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('systemctl stderr and unknown properties cannot alter public projections', async (t) => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rows = [
+    {
+      name: 'systemctl command failure detail',
+      systemctlText: () => null,
+      spawnResult: (secret) => ({
+        status: 1,
+        stdout: `private-systemctl-stdout-${secret}`,
+        stderr: `private-systemctl-stderr-${secret}`,
+      }),
+      expectedBlocker: 'publisher_systemctl_failed',
+    },
+    {
+      name: 'unknown systemd property detail',
+      systemctlText: (secret) => [
+        `ActiveState=private-active-${secret}`,
+        `SubState=private-sub-${secret}`,
+        `NRestarts=3${secret}`,
+        `ExecMainStatus=69${secret}`,
+        `Result=private-result-${secret}`,
+        `PrivateProperty=${secret}`,
+        '',
+      ].join('\n'),
+      spawnResult: () => ({ status: 0, stdout: '', stderr: '' }),
+      expectedBlocker: 'publisher_not_running',
+    },
+  ];
+
+  for (const row of rows) {
+    await t.test(row.name, async () => {
+      const roots = [];
+      const runVariant = async (secret) => {
+        const root = tempRoot();
+        roots.push(root);
+        const webhookCalls = [];
+        const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+          env: baseEnv(root, {
+            VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+            VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+          }),
+          repoRoot: root,
+          now,
+          systemctlShowText: row.systemctlText(secret),
+          freshnessMonitorImpl: async () => freshnessSummary(),
+          fetchImpl: async (url, init) => {
+            webhookCalls.push({ url, init });
+            return { ok: true, status: 204 };
+          },
+          spawnSyncImpl: () => row.spawnResult(secret),
+        });
+        return {
+          summary,
+          webhook: JSON.parse(webhookCalls[0].init.body),
+          latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+          console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+        };
+      };
+
+      try {
+        const baseline = await runVariant('SYNTHETIC_SYSTEMCTL_SECRET_A_20260710');
+        const drift = await runVariant('SYNTHETIC_SYSTEMCTL_SECRET_B_20260710');
+        assert.deepEqual(drift, baseline);
+        assert.equal(baseline.summary.publisher.blockers.includes(row.expectedBlocker), true);
+        assert.equal(baseline.summary.publisher.unitRole, 'publisher');
+        assert.equal(JSON.stringify(baseline).includes('SYNTHETIC_SYSTEMCTL_SECRET_A_20260710'), false);
+      } finally {
+        for (const root of roots) rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('CLI unhandled errors print only the fixed public error class', () => {
+  const roots = [];
+  const runVariant = (secret) => {
+    const root = tempRoot();
+    roots.push(root);
+    const blockingFile = path.join(root, `private-cli-path-${secret}`);
+    writeFileSync(blockingFile, `private-cli-file-${secret}`, 'utf8');
+    const result = spawnSync(process.execPath, [path.resolve('tools/scripts/public-feed-alert-watch.mjs')], {
+      cwd: process.cwd(),
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: root,
+        SYNTHETIC_PRIVATE_CLI_ENV: secret,
+        VH_PUBLIC_FEED_FRESHNESS_ARTIFACT_DIR: path.join(blockingFile, 'child'),
+        VH_PUBLIC_FEED_ALERT_STATE_FILE: path.join(root, 'state.json'),
+        VH_PUBLIC_FEED_ALERT_OUTPUT_FILE: path.join(root, 'latest.json'),
+      },
+      encoding: 'utf8',
+    });
+    return {
+      status: result.status,
+      signal: result.signal,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  };
+
+  try {
+    const baseline = runVariant('SYNTHETIC_CLI_SECRET_A_20260710');
+    const drift = runVariant('SYNTHETIC_CLI_SECRET_B_20260710');
+    assert.deepEqual(drift, baseline);
+    assert.equal(baseline.status, 1);
+    assert.equal(baseline.signal, null);
+    assert.equal(
+      baseline.stderr.trim(),
+      '[vh:public-feed-alert-watch] failed alert_watch_unhandled_error',
+    );
+    assert.equal(baseline.stderr.includes('Error'), false);
+    assert.equal(baseline.stderr.includes('private-cli-path'), false);
+    assert.equal(baseline.stderr.includes('SYNTHETIC_CLI_SECRET'), false);
+  } finally {
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('anonymous projected identities are canonical across secret rotation and mixed-status reorder', async (t) => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rows = [
+    {
+      name: 'freshness readbacks',
+      configure(root) {
+        return {};
+      },
+      freshness(secret, { reverse = false, changed = false } = {}) {
+        const entries = [
+          {
+            origin: `private fail origin ${secret}`,
+            status: 'fail',
+            recordCount: 0,
+            newestAgeMs: 30_000_000,
+            maxAgeMs: 21_600_000,
+            failures: ['latest_index_stale:30000000/21600000'],
+          },
+          {
+            origin: `private pass origin ${secret}`,
+            status: changed ? 'fail' : 'pass',
+            recordCount: 80,
+            newestAgeMs: 120_000,
+            maxAgeMs: 21_600_000,
+            failures: changed ? ['latest_index_empty'] : [],
+          },
+        ];
+        if (reverse) entries.reverse();
+        return freshnessSummary({
+          status: 'fail',
+          blockers: [`latest_index_not_fresh:private-origin-${secret}:latest_index_stale:30000000/21600000`],
+          config: {
+            origins: [`private fail origin ${secret}`, `private pass origin ${secret}`],
+            maxAgeMs: 21_600_000,
+          },
+          latestIndexReadbacks: entries,
+        });
+      },
+    },
+    {
+      name: 'relay liveness relays',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const relays = [
+          {
+            name: `private-relay-fail-${secret}`,
+            status: 'fail',
+            blockers: [`readyz_failed:${secret}`],
+            docker: { restartCount: 1 },
+            metrics: { rssBytes: 2, heapUsedBytes: 1, watchdogTrips: 0, eventLoopLagP99Ms: 3, criticalReadbacksQueued: 0 },
+          },
+          {
+            name: `private-relay-pass-${secret}`,
+            status: changed ? 'fail' : 'pass',
+            blockers: changed ? [`metrics_failed:${secret}`] : [],
+            docker: { restartCount: 0 },
+            metrics: { rssBytes: 4, heapUsedBytes: 2, watchdogTrips: 0, eventLoopLagP99Ms: 5, criticalReadbacksQueued: 0 },
+          },
+        ];
+        if (reverse) relays.reverse();
+        return writeAuxReports(root, {
+          relay: relayLivenessReport({ status: 'fail', blockers: [`private-${secret}`], relays }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+    {
+      name: 'relay snapshots',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const snapshots = [
+          {
+            file: `/private/${secret}/vhc-relay-private_${secret}/fail.json`,
+            status: 'fail',
+            failures: [`snapshot_parse_failed:${secret}`],
+            entryCount: 0,
+            cachedAgeMs: 60_000,
+            newestEntryAgeMs: 30_000_000,
+            freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+          },
+          {
+            file: `/private/${secret}/vhc-relay-private_${secret}/pass.json`,
+            status: changed ? 'fail' : 'pass',
+            failures: changed ? ['entries_empty'] : [],
+            entryCount: changed ? 0 : 80,
+            cachedAgeMs: 60_000,
+            newestEntryAgeMs: 120_000,
+            freshnessFailures: [],
+          },
+        ];
+        if (reverse) snapshots.reverse();
+        return writeAuxReports(root, {
+          snapshot: relaySnapshotReport({ status: 'fail', blockers: [`private-${secret}`], snapshots }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+    {
+      name: 'watch relay memory',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const relays = [
+          {
+            name: `private-relay-warn-${secret}`,
+            trendStatus: 'warn',
+            heapPlateauVerdict: 'heap_still_linear',
+            heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+            shortestProjectedLimitHours: 24,
+          },
+          {
+            name: `private-relay-pass-${secret}`,
+            trendStatus: changed ? 'fail' : 'pass',
+            heapPlateauVerdict: changed ? 'heap_still_linear' : 'heap_plateau_observed',
+            heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+            shortestProjectedLimitHours: 240,
+          },
+        ];
+        if (reverse) relays.reverse();
+        return writeAuxReports(root, {
+          closure: watchClosureVerdict({
+            status: 'in_progress',
+            blockers: [],
+            relayMemory: {
+              status: 'warn',
+              heapPlateauVerdict: 'heap_plateau_observed',
+              heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+              rssLimitSource: 'VH_RELAY_WATCHDOG_MAX_RSS_BYTES',
+              relays,
+            },
+          }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+  ];
+
+  for (const row of rows.slice(0, 4)) {
+    await t.test(row.name, async () => {
+      const roots = [];
+      const runVariant = async (secret, options) => {
+        const root = tempRoot();
+        roots.push(root);
+        const webhookCalls = [];
+        const mail = [];
+        const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+          env: baseEnv(root, {
+            ...row.configure(root, secret, options),
+            VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+            VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+            VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+          }),
+          repoRoot: root,
+          now,
+          systemctlShowText: activeSystemctl(),
+          freshnessMonitorImpl: async () => row.freshness(secret, options),
+          fetchImpl: async (url, init) => {
+            webhookCalls.push({ url, init });
+            return { ok: true, status: 204 };
+          },
+          spawnSyncImpl: (command, args, spawnOptions) => {
+            mail.push(spawnOptions.input);
+            return { status: 0, stdout: '', stderr: '' };
+          },
+        });
+        const parsedMail = parseTextEmail(mail[0]);
+        return {
+          summary,
+          webhook: JSON.parse(webhookCalls[0].init.body),
+          mime: { subject: parsedMail.headers.subject, payload: JSON.parse(parsedMail.body) },
+          latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+          console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+        };
+      };
+
+      try {
+        const baseline = await runVariant('SYNTHETIC_ANON_SECRET_A_20260710', { reverse: false });
+        const reordered = await runVariant('SYNTHETIC_ANON_SECRET_B_20260710', { reverse: true });
+        const semanticChange = await runVariant('SYNTHETIC_ANON_SECRET_C_20260710', { changed: true });
+        assert.deepEqual(reordered, baseline);
+        assert.notEqual(semanticChange.summary.fingerprint, baseline.summary.fingerprint);
+        assert.equal(JSON.stringify(baseline).includes('SYNTHETIC_ANON_SECRET_A_20260710'), false);
+        if (row.name === 'relay liveness relays') {
+          const relays = baseline.summary.relayLiveness.relays;
+          assert.equal(relays.length, 2);
+          assert.deepEqual(relays.map((relay) => relay.ordinal), [1, 2]);
+          assert.deepEqual(relays.map((relay) => relay.identityHash), [null, null]);
+          assert.deepEqual(relays.map((relay) => relay.status).sort(), ['fail', 'pass']);
+          assert.deepEqual(relays.flatMap((relay) => relay.reasonCodes).sort(), ['readyz_failed']);
+          assert.deepEqual(relays.map((relay) => relay.rssBytes).sort((a, b) => a - b), [2, 4]);
+        }
+        if (row.name === 'relay snapshots') {
+          const snapshots = baseline.summary.relaySnapshot.snapshots;
+          assert.equal(snapshots.length, 2);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.ordinal), [1, 2]);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.relayIdentityHash), [null, null]);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.status).sort(), ['fail', 'pass']);
+          assert.deepEqual(
+            snapshots.flatMap((snapshot) => snapshot.reasonCodes).sort(),
+            ['newest_entry_stale', 'snapshot_parse_failed'],
+          );
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.entryCount).sort((a, b) => a - b), [0, 80]);
+          assert.deepEqual(
+            snapshots.map((snapshot) => snapshot.newestEntryAgeMs).sort((a, b) => a - b),
+            [120_000, 30_000_000],
+          );
+        }
+        if (row.name === 'watch relay memory') {
+          const relays = baseline.summary.watchClosure.relayMemory.relays;
+          assert.equal(relays.length, 2);
+          assert.deepEqual(relays.map((relay) => relay.ordinal), [1, 2]);
+          assert.deepEqual(relays.map((relay) => relay.identityHash), [null, null]);
+          assert.deepEqual(relays.map((relay) => relay.trendStatus).sort(), ['pass', 'warn']);
+          assert.deepEqual(
+            relays.map((relay) => relay.heapPlateauVerdict).sort(),
+            ['heap_plateau_observed', 'heap_still_linear'],
+          );
+          assert.deepEqual(
+            relays.map((relay) => relay.shortestProjectedLimitHours).sort((a, b) => a - b),
+            [24, 240],
+          );
+        }
+      } finally {
+        for (const root of roots) rmSync(root, { recursive: true, force: true });
+      }
+    });
   }
 });
