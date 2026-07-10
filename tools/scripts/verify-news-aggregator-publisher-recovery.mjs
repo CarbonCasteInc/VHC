@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
-import { chmod, link, lstat, mkdir, open, readFile, realpath, rm } from 'node:fs/promises';
+import { chmod, link, lstat, open, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyStartControlArtifact } from './news-aggregator-publisher-recovery-guard.mjs';
+import {
+  requirePrivateOutputParent,
+  verifyStartControlArtifact,
+} from './news-aggregator-publisher-recovery-guard.mjs';
 
 const MAX_JSON_BYTES = 1_048_576;
 const TERMINAL_LIFECYCLE_STATUSES = new Set(['accepted_available', 'terminal_unavailable', 'suppressed']);
@@ -13,6 +16,11 @@ const ALL_LIFECYCLE_STATUSES = new Set([
   ...INCOMPLETE_LIFECYCLE_STATUSES,
   'in_progress',
 ]);
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const SYSTEM_WRITER_MODULE_URL = new URL(
+  '../../packages/gun-client/dist/systemWriter.js',
+  import.meta.url,
+);
 
 export class PublisherRecoveryVerificationError extends Error {
   constructor(code) {
@@ -59,6 +67,78 @@ function timestamp(value, code) {
   return parsed;
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
+export function resolveSystemWriterPinFromEnv(env = process.env) {
+  const writerId = firstNonEmpty(
+    env.VH_NEWS_SYSTEM_WRITER_ID,
+    env.VH_SYSTEM_WRITER_ID,
+  ) ?? DEFAULT_SYSTEM_WRITER_ID;
+  const pinJson = firstNonEmpty(
+    env.VH_NEWS_SYSTEM_WRITER_PIN_JSON,
+    env.VH_SYSTEM_WRITER_PIN_JSON,
+  );
+  if (pinJson) {
+    try {
+      const pin = JSON.parse(pinJson);
+      if (!isObject(pin)) fail('system_writer_pin_invalid');
+      return pin;
+    } catch (error) {
+      if (error instanceof PublisherRecoveryVerificationError) throw error;
+      fail('system_writer_pin_invalid');
+    }
+  }
+  const publicKeyMaterial = firstNonEmpty(
+    env.VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL,
+    env.VH_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL,
+  );
+  if (!publicKeyMaterial) fail('system_writer_pin_missing');
+  return {
+    pinVersion: 1,
+    schemaEpoch: 'luma-public-v1',
+    maxProtocolVersion: 'luma-public-v1',
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    writers: [{
+      id: writerId,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: publicKeyMaterial,
+      },
+    }],
+  };
+}
+
+async function loadCanonicalSystemWriterValidator(override) {
+  if (override) return override;
+  let stat;
+  try {
+    stat = await lstat(fileURLToPath(SYSTEM_WRITER_MODULE_URL));
+  } catch {
+    fail('system_writer_validator_unavailable');
+  }
+  if (stat.isSymbolicLink() || !stat.isFile()
+    || (typeof process.getuid === 'function' && stat.uid !== process.getuid())) {
+    fail('system_writer_validator_unavailable');
+  }
+  try {
+    const loaded = await import(`${SYSTEM_WRITER_MODULE_URL.href}?revision-check=${stat.mtimeMs}`);
+    if (typeof loaded.validateSystemWriterRecord !== 'function') {
+      fail('system_writer_validator_unavailable');
+    }
+    return loaded.validateSystemWriterRecord;
+  } catch (error) {
+    if (error instanceof PublisherRecoveryVerificationError) throw error;
+    fail('system_writer_validator_unavailable');
+  }
+}
+
 async function readRegularJson(filePath, label, { privateMode = false } = {}) {
   if (!path.isAbsolute(filePath)) fail(`${label}_path_not_absolute`);
   let stat;
@@ -83,8 +163,7 @@ async function readRegularJson(filePath, label, { privateMode = false } = {}) {
 
 async function writePrivateJsonAtomic(filePath, payload) {
   if (!path.isAbsolute(filePath)) fail('output_path_not_absolute');
-  const parent = path.dirname(filePath);
-  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const parent = await requirePrivateOutputParent(filePath);
   const tempPath = path.join(parent, `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`);
   let handle;
   try {
@@ -108,6 +187,7 @@ async function writePrivateJsonAtomic(filePath, payload) {
 
 async function requireOutputAbsent(filePath) {
   if (!path.isAbsolute(filePath)) fail('output_path_not_absolute');
+  await requirePrivateOutputParent(filePath);
   try {
     await lstat(filePath);
     fail('output_already_exists');
@@ -280,37 +360,42 @@ function captureStoriesForTick(capture, runId, tickWindow) {
 async function fetchJson(url, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
-  let response;
   try {
-    response = await options.fetchFn(url, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-  } catch {
-    fail('relay_readback_network_failed');
+    let response;
+    try {
+      response = await options.fetchFn(url, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        redirect: 'error',
+        signal: controller.signal,
+      });
+    } catch {
+      fail('relay_readback_network_failed');
+    }
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) fail('relay_readback_body_too_large');
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.toLowerCase().includes('application/json')) fail('relay_readback_content_type_invalid');
+    let text;
+    try {
+      text = await response.text();
+    } catch {
+      fail('relay_readback_body_failed');
+    }
+    if (Buffer.byteLength(text, 'utf8') > MAX_JSON_BYTES) fail('relay_readback_body_too_large');
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      fail('relay_readback_json_invalid');
+    }
+    if (!isObject(payload)) fail('relay_readback_shape_invalid');
+    return { status: response.status, payload };
   } finally {
+    // Keep the bound live through body consumption. A relay that sends valid
+    // headers and then stalls must not hold the attended verifier forever.
     clearTimeout(timer);
   }
-  const contentLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) fail('relay_readback_body_too_large');
-  const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.toLowerCase().includes('application/json')) fail('relay_readback_content_type_invalid');
-  let text;
-  try {
-    text = await response.text();
-  } catch {
-    fail('relay_readback_body_failed');
-  }
-  if (Buffer.byteLength(text, 'utf8') > MAX_JSON_BYTES) fail('relay_readback_body_too_large');
-  let payload;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    fail('relay_readback_json_invalid');
-  }
-  if (!isObject(payload)) fail('relay_readback_shape_invalid');
-  return { status: response.status, payload };
 }
 
 function productRecordMatchesStory(record, story) {
@@ -336,6 +421,28 @@ function isSignedSystemRecord(record) {
     && typeof record._systemSignature === 'string'
     && record._systemSignature.length > 0 && record._systemSignature.length <= 16_384
     && !('_authorScheme' in record) && !('signedWriteEnvelope' in record);
+}
+
+const SYSTEM_WRITER_PATHS = {
+  story: (storyId) => `vh/news/stories/${storyId}/`,
+  latest: (storyId) => `vh/news/index/latest/${storyId}/`,
+  hot: (storyId) => `vh/news/index/hot/${storyId}/`,
+  lifecycle: (storyId) => `vh/news/stories/${storyId}/synthesis_lifecycle/latest/`,
+};
+
+async function requireCanonicalSystemWriterSignature(route, storyId, record, options) {
+  if (!isSignedSystemRecord(record)) fail(`positive_${route}_signature_invalid`);
+  let validation;
+  try {
+    validation = await options.validateSystemWriterRecord({
+      path: SYSTEM_WRITER_PATHS[route](storyId),
+      record,
+      pin: options.systemWriterPin,
+    });
+  } catch {
+    validation = null;
+  }
+  if (validation?.valid !== true) fail(`positive_${route}_signature_invalid`);
 }
 
 function lifecycleMatchesStory(lifecycle, story, tickWindow, nowMs, options) {
@@ -407,6 +514,18 @@ async function verifyPositiveStoryOnOrigin(origin, story, tickWindow, options) {
   } catch {
     embeddedStory = null;
   }
+  // Preserve route order so a multi-route pin/configuration failure emits one
+  // deterministic closed reason instead of whichever WebCrypto promise happens
+  // to reject first.
+  await requireCanonicalSystemWriterSignature('story', story.story_id, reads.story.payload.record, options);
+  await requireCanonicalSystemWriterSignature('latest', story.story_id, reads.latest.payload.record, options);
+  await requireCanonicalSystemWriterSignature('hot', story.story_id, reads.hot.payload.record, options);
+  await requireCanonicalSystemWriterSignature(
+    'lifecycle',
+    story.story_id,
+    reads.lifecycle.payload.lifecycle,
+    options,
+  );
   if (!isObject(observedStory)
     || observedStory.story_id !== story.story_id
     || observedStory.topic_id !== story.topic_id
@@ -414,20 +533,17 @@ async function verifyPositiveStoryOnOrigin(origin, story, tickWindow, options) {
     || observedStory.created_at !== story.created_at
     || observedStory.cluster_window_start !== story.cluster_window_start
     || observedStory.cluster_window_end !== story.cluster_window_end
-    || !isSignedSystemRecord(reads.story.payload.record)
     || reads.story.payload.record.story_id !== story.story_id
     || reads.story.payload.record.created_at !== story.created_at
     || reads.story.payload.record.schemaVersion !== story.schemaVersion
     || JSON.stringify(embeddedStory) !== JSON.stringify(story)) {
     fail('positive_story_contract_mismatch');
   }
-  if (!isSignedSystemRecord(reads.latest.payload.record)
-    || !productRecordMatchesStory(reads.latest.payload.record, story)
+  if (!productRecordMatchesStory(reads.latest.payload.record, story)
     || reads.latest.payload.record.latest_activity_at !== Math.max(0, Math.floor(story.cluster_window_end))) {
     fail('positive_latest_contract_mismatch');
   }
-  if (!isSignedSystemRecord(reads.hot.payload.record)
-    || !productRecordMatchesStory(reads.hot.payload.record, story)
+  if (!productRecordMatchesStory(reads.hot.payload.record, story)
     || !Number.isFinite(Number(reads.hot.payload.record.hotness))
     || Number(reads.hot.payload.record.hotness) < 0) {
     fail('positive_hot_contract_mismatch');
@@ -439,18 +555,16 @@ async function verifyPositiveStoryOnOrigin(origin, story, tickWindow, options) {
     options.nowMs,
     options,
   );
-  if (!isSignedSystemRecord(reads.lifecycle.payload.lifecycle)
-    || JSON.stringify(reads.lifecycle.payload.record) !== JSON.stringify(reads.lifecycle.payload.lifecycle)
+  if (JSON.stringify(reads.lifecycle.payload.record) !== JSON.stringify(reads.lifecycle.payload.lifecycle)
     || !lifecycleMode) {
     fail('positive_lifecycle_contract_mismatch');
   }
   return {
     lifecycleMode,
-    signedRecords: {
+    replicatedSignedRecords: {
       story: reads.story.payload.record,
       latest: reads.latest.payload.record,
       hot: reads.hot.payload.record,
-      lifecycle: reads.lifecycle.payload.lifecycle,
     },
   };
 }
@@ -482,12 +596,18 @@ async function verifyMissingContracts(origins, expectedRevision, runId, options)
 export async function verifyPublisherRecovery(options) {
   if (!fullRevision(options.expectedRevision)) fail('expected_revision_invalid');
   await requireOutputAbsent(options.outputFile);
+  const systemWriterPin = options.systemWriterPin ?? resolveSystemWriterPinFromEnv(options.env ?? process.env);
+  const validateSystemWriterRecord = await loadCanonicalSystemWriterValidator(
+    options.validateSystemWriterRecord,
+  );
   const fetchOptions = {
     fetchFn: options.fetchFn ?? fetch,
     timeoutMs: positiveInteger(options.timeoutMs, 5_000, 'timeout_invalid'),
     nowMs: options.nowMs ?? Date.now(),
     incompleteLifecycleMaxAgeMs: options.incompleteLifecycleMaxAgeMs,
     inProgressLifecycleMaxAgeMs: options.inProgressLifecycleMaxAgeMs,
+    systemWriterPin,
+    validateSystemWriterRecord,
   };
   const startControl = await verifyStartControlArtifact({
     filePath: options.startControlFile,
@@ -543,10 +663,10 @@ export async function verifyPublisherRecovery(options) {
       for (const origin of origins) {
         const projection = await verifyPositiveStoryOnOrigin(origin, story, tickWindow, fetchOptions);
         if (signedRecordProjection !== null
-          && JSON.stringify(projection.signedRecords) !== JSON.stringify(signedRecordProjection)) {
+          && JSON.stringify(projection.replicatedSignedRecords) !== JSON.stringify(signedRecordProjection)) {
           fail('positive_signed_record_replication_mismatch');
         }
-        signedRecordProjection = projection.signedRecords;
+        signedRecordProjection = projection.replicatedSignedRecords;
         modes.push(projection.lifecycleMode);
       }
       verifiedStory = story;

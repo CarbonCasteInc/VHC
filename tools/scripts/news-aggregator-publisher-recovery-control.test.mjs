@@ -7,9 +7,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -45,8 +47,15 @@ function harness({
   const enabled = path.join(root, 'enabled');
   const approval = path.join(root, 'approval');
   const nrestarts = path.join(root, 'nrestarts');
+  const attendedPermit = path.join(root, 'attended-start-permit.json');
   mkdirSync(bin, { recursive: true });
   mkdirSync(home, { recursive: true });
+  const publisherEnvDir = path.join(home, '.config/vhc');
+  const publisherEnvFile = path.join(publisherEnvDir, 'news-aggregator.env');
+  mkdirSync(publisherEnvDir, { recursive: true, mode: 0o700 });
+  chmodSync(publisherEnvDir, 0o700);
+  writeFileSync(publisherEnvFile, 'VH_NEWS_SYSTEM_WRITER_ID=test-writer\n', { mode: 0o600 });
+  chmodSync(publisherEnvFile, 0o600);
   writeFileSync(state, 'failed\n');
   writeFileSync(enabled, 'disabled\n');
   writeFileSync(nrestarts, '4\n');
@@ -76,6 +85,7 @@ function harness({
     'exit 0',
   ]);
   executable(path.join(bin, 'systemd-analyze'), ['#!/bin/bash', 'exit 0']);
+  executable(path.join(bin, 'corepack'), ['#!/bin/bash', 'exit 0']);
   executable(path.join(bin, 'systemctl'), [
     '#!/bin/bash',
     'printf "%s\\n" "$*" >> "${VH_TEST_SYSTEMCTL_LOG}"',
@@ -95,6 +105,7 @@ function harness({
     '  reset-failed) printf "0\\n" > "${VH_TEST_NRESTARTS_FILE}"; exit 0 ;;',
     '  start)',
     '    if [[ "${VH_TEST_FAIL_START}" == "1" ]]; then exit 1; fi',
+    '    rm -f "${VH_TEST_ATTENDED_PERMIT_FILE}"',
     '    printf "active\\n" > "${VH_TEST_STATE_FILE}"; exit 0',
     '    ;;',
     '  stop) printf "%s\\n" "${VH_TEST_STOP_STATE:-inactive}" > "${VH_TEST_STATE_FILE}"; exit 0 ;;',
@@ -168,6 +179,7 @@ function harness({
     enabled,
     approval,
     nrestarts,
+    attendedPermit,
     preflightEnvLog: path.join(root, 'preflight-env.log'),
     gitMode,
     failStart,
@@ -193,11 +205,13 @@ function run(script, args, h) {
       VH_TEST_ENABLED_FILE: h.enabled,
       VH_TEST_APPROVAL_FILE: h.approval,
       VH_TEST_NRESTARTS_FILE: h.nrestarts,
+      VH_TEST_ATTENDED_PERMIT_FILE: h.attendedPermit,
       VH_TEST_FAIL_START: h.failStart ? '1' : '0',
       VH_TEST_NODE_MODE: h.nodeMode,
       VH_TEST_STOP_STATE: h.stopState,
       VH_TEST_REAL_NODE: process.execPath,
       VH_TEST_PREFLIGHT_ENV_LOG: h.preflightEnvLog,
+      VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE: h.attendedPermit,
     },
   });
 }
@@ -300,6 +314,20 @@ test('installer requires exact clean revision and binds every S1 evidence servic
       assert.match(source, new RegExp(`Environment=VH_NEWS_DAEMON_EXPECTED_REVISION=${REVISION}`));
       assert.match(source, new RegExp(`ExecStartPre=.*check-news-aggregator-expected-revision\\.sh ${REVISION}`));
     }
+    const generatedPublisherUnit = readFileSync(path.join(unitDir, 'vh-news-aggregator.service'), 'utf8');
+    const checkedInPublisherUnit = readFileSync(
+      path.join(REPO_ROOT, 'infra/systemd/user/vh-news-aggregator.service'),
+      'utf8',
+    );
+    for (const [label, source] of [
+      ['installer output', generatedPublisherUnit],
+      ['checked-in template', checkedInPublisherUnit],
+    ]) {
+      assert.match(source, /^Restart=no$/m, `${label} must default to no broad restart policy`);
+      assert.match(source, /^RestartForceExitStatus=69$/m, `${label} must force only exit 69`);
+      assert.doesNotMatch(source, /^Restart=on-failure$/m, `${label} retained broad on-failure restart`);
+      assert.doesNotMatch(source, /^RestartPreventExitStatus=/m, `${label} retained prevent-list semantics`);
+    }
     assert.doesNotMatch(readFileSync(h.log, 'utf8'), / start | enable /);
   } finally {
     rmSync(h.root, { recursive: true, force: true });
@@ -387,7 +415,7 @@ test('park then preflight then attended start preserves and consumes the reviewe
   }
 });
 
-test('attended start requires exact parked state, fresh guards, and clears transient approval', () => {
+test('attended start requires exact parked state and consumes a private evidence-bound permit', () => {
   const h = harness();
   try {
     const now = new Date();
@@ -420,6 +448,10 @@ test('attended start requires exact parked state, fresh guards, and clears trans
     assert.equal(startControl.preStart.incidentNRestarts, 4);
     assert.equal(startControl.activationBaseline.nRestarts, 0);
     assert.equal(startControl.postActivation.nRestarts, 0);
+    assert.equal(startControl.status, 'active_attended_permit_consumed');
+    assert.equal(startControl.postActivation.attendedPermitConsumed, true);
+    assert.equal(startControl.postActivation.legacyManagerApprovalCleared, true);
+    assert.match(startControl.postActivation.attendedPermitBindingSha256, /^[0-9a-f]{64}$/);
     assert.equal(startControl.evidenceBindings.preflight.runId, 'preflight-test');
     assert.equal(startControl.evidenceBindings.relayRecovery.sha256, relayEvidence.sha256);
     assert.deepEqual(startControl.evidenceBindings.relayRecovery.relayOrigins, RELAY_ORIGINS);
@@ -427,7 +459,7 @@ test('attended start requires exact parked state, fresh guards, and clears trans
     assert.equal(startControl.evidenceBindings.mailbox.newCriticalCount, 11);
     assert.equal(statSync(startControlOutput).mode & 0o777, 0o600);
     const log = readFileSync(h.log, 'utf8');
-    assert.match(log, /set-environment VH_NEWS_DAEMON_ATTENDED_START_APPROVED=1/);
+    assert.doesNotMatch(log, /set-environment VH_NEWS_DAEMON_ATTENDED_START_APPROVED=1/);
     assert.match(log, /enable vh-news-aggregator\.service/);
     assert.match(log, /reset-failed vh-news-aggregator\.service/);
     assert.match(log, /start vh-news-aggregator\.service/);
@@ -480,6 +512,7 @@ test('attended start parks if publisher state drifts while start-control evidenc
     const mailboxBytes = `${JSON.stringify(mailbox(now))}\n`;
     writeFileSync(mailboxFile, mailboxBytes, { mode: 0o600 });
     const relayEvidence = writeRelayEvidence(h, now);
+    const racedOutput = path.join(h.root, 'start-control-raced.json');
     const result = run(CONTROL, [
       'start', '--expected-revision', REVISION,
       '--relay-recovery-evidence', relayEvidence.file,
@@ -488,14 +521,60 @@ test('attended start parks if publisher state drifts while start-control evidenc
       '--mailbox-artifact', mailboxFile,
       '--mailbox-expected-sha256', createHash('sha256').update(mailboxBytes).digest('hex'),
       '--mailbox-expected-critical-count', '11',
-      '--start-control-output', path.join(h.root, 'start-control-raced.json'),
+      '--start-control-output', racedOutput,
       '--approve-attended-start',
     ], h);
     assert.equal(result.status, 78);
     assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
     assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+    assert.equal(existsSync(racedOutput), false);
+    assert.equal(
+      readdirSync(path.dirname(racedOutput)).some((name) => name.startsWith(`.${path.basename(racedOutput)}.pending-`)),
+      false,
+    );
   } finally {
     rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test('attended start rejects weak-mode and symlink output parents before service mutation', () => {
+  for (const parentKind of ['weak-mode', 'symlink']) {
+    const h = harness();
+    try {
+      const now = new Date();
+      const preflightFile = path.join(h.root, `${parentKind}-preflight.json`);
+      const mailboxFile = path.join(h.root, `${parentKind}-mailbox.json`);
+      writeFileSync(preflightFile, `${JSON.stringify(recoveryPreflight(now))}\n`, { mode: 0o600 });
+      const mailboxBytes = `${JSON.stringify(mailbox(now))}\n`;
+      writeFileSync(mailboxFile, mailboxBytes, { mode: 0o600 });
+      const relayEvidence = writeRelayEvidence(h, now);
+      const actualParent = path.join(h.root, `${parentKind}-actual-parent`);
+      mkdirSync(actualParent, { mode: parentKind === 'weak-mode' ? 0o755 : 0o700 });
+      let outputParent = actualParent;
+      if (parentKind === 'symlink') {
+        outputParent = path.join(h.root, 'start-control-parent-link');
+        symlinkSync(actualParent, outputParent);
+      }
+      const output = path.join(outputParent, 'start-control.json');
+      const result = run(CONTROL, [
+        'start', '--expected-revision', REVISION,
+        '--relay-recovery-evidence', relayEvidence.file,
+        '--relay-recovery-expected-sha256', relayEvidence.sha256,
+        '--preflight-artifact', preflightFile,
+        '--mailbox-artifact', mailboxFile,
+        '--mailbox-expected-sha256', createHash('sha256').update(mailboxBytes).digest('hex'),
+        '--mailbox-expected-critical-count', '11',
+        '--start-control-output', output,
+        '--approve-attended-start',
+      ], h);
+      assert.equal(result.status, 78, parentKind);
+      assert.equal(readFileSync(h.state, 'utf8').trim(), 'failed');
+      assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+      assert.equal(existsSync(path.join(actualParent, 'start-control.json')), false);
+      assert.doesNotMatch(existsSync(h.log) ? readFileSync(h.log, 'utf8') : '', / enable | start /);
+    } finally {
+      rmSync(h.root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -620,10 +699,14 @@ function writeFinalizationInputs(h) {
   };
   const start = write('final-start.json', {
     schemaVersion: 'vh-news-publisher-start-control-v1', generatedAt: isoBefore(now, 39),
-    status: 'active_approval_cleared', revision: REVISION, startedAt, activatedAt: isoBefore(now, 39),
+    status: 'active_attended_permit_consumed', revision: REVISION, startedAt, activatedAt: isoBefore(now, 39),
     preStart: { activeState: 'failed', subState: 'failed', result: 'exit-code', execMainStatus: 78, incidentNRestarts: 4, enabledState: 'disabled' },
     activationBaseline: { nRestarts: 0, capturedAfterResetFailed: true },
-    postActivation: { activeState: 'active', subState: 'running', nRestarts: 0, managerApprovalCleared: true },
+    postActivation: {
+      activeState: 'active', subState: 'running', nRestarts: 0,
+      attendedPermitConsumed: true, legacyManagerApprovalCleared: true,
+      attendedPermitBindingSha256: '7'.repeat(64),
+    },
     evidenceBindings: {
       preflight: {
         schemaVersion: 'vh-news-daemon-recovery-preflight-v1', sha256: '1'.repeat(64), revision: REVISION,
@@ -721,10 +804,38 @@ test('verification succeeds only across stable pre/post state and parks every ap
       assert.equal(result.status, row.expectedStatus, `${row.name}: ${result.stderr}`);
       assert.equal(readFileSync(h.state, 'utf8').trim(), row.expectedState, row.name);
       assert.equal(readFileSync(h.enabled, 'utf8').trim(), row.expectedStatus === 0 ? 'enabled' : 'disabled', row.name);
-      if (row.expectedStatus === 0) assert.equal(statSync(output).mode & 0o777, 0o600);
+      if (row.expectedStatus === 0) {
+        assert.equal(statSync(output).mode & 0o777, 0o600);
+      } else {
+        assert.equal(existsSync(output), false, `${row.name}: false pass artifact remained`);
+        assert.equal(
+          readdirSync(path.dirname(output)).some((name) => name.startsWith(`.${path.basename(output)}.pending-`)),
+          false,
+          `${row.name}: staged readback evidence remained`,
+        );
+      }
     } finally {
       rmSync(h.root, { recursive: true, force: true });
     }
+  }
+});
+
+test('verification preserves preexisting evidence byte-for-byte and parks without invoking readback', () => {
+  const h = harness({ nodeMode: 'verify-success' });
+  try {
+    writeFileSync(h.state, 'active\n');
+    writeFileSync(h.enabled, 'enabled\n');
+    writeFileSync(h.nrestarts, '0\n');
+    const files = writeFinalizationInputs(h);
+    const output = path.join(h.root, 'preexisting-readback.json');
+    writeFileSync(output, 'preserve-reviewed-readback\n', { mode: 0o600 });
+    const result = run(CONTROL, verificationArgs(files, output), h);
+    assert.equal(result.status, 78);
+    assert.equal(readFileSync(output, 'utf8'), 'preserve-reviewed-readback\n');
+    assert.equal(readFileSync(h.state, 'utf8').trim(), 'inactive');
+    assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'disabled');
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
   }
 });
 

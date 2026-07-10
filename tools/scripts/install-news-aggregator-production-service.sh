@@ -3,6 +3,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMMON_SH="${REPO_ROOT}/tools/scripts/lib/news-aggregator-publisher-recovery-common.sh"
+if [[ ! -r "${COMMON_SH}" ]]; then
+  echo "Publisher recovery common checks are unavailable" >&2
+  exit 78
+fi
 # shellcheck disable=SC1090
 source "${COMMON_SH}"
 UNIT_DIR="${HOME}/.config/systemd/user"
@@ -108,13 +112,14 @@ Environment=VH_NEWS_DAEMON_EXPECTED_REVISION=${EXPECTED_REVISION}
 Environment=VH_NEWS_DAEMON_SYSTEMD_UNIT=vh-news-aggregator.service
 Environment=VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json
 Environment=VH_NEWS_DAEMON_RESTART_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json
+Environment=VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE=%h/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json
 Environment=PATH=${SERVICE_PATH}
 WorkingDirectory=${REPO_ROOT}
 ExecStartPre=/usr/bin/env bash ${REPO_ROOT}/tools/scripts/check-news-aggregator-expected-revision.sh ${EXPECTED_REVISION}
 ExecStart=/usr/bin/env bash ${REPO_ROOT}/tools/scripts/start-news-aggregator-daemon-production.sh
 ExecStopPost=/usr/bin/env bash ${REPO_ROOT}/tools/scripts/record-news-aggregator-restartable-exit.sh ${EXPECTED_REVISION}
-Restart=on-failure
-RestartPreventExitStatus=78
+Restart=no
+RestartForceExitStatus=69
 RestartSec=30
 KillSignal=SIGTERM
 TimeoutStopSec=30

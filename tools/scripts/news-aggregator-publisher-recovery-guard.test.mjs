@@ -412,7 +412,7 @@ function startControl(overrides = {}) {
   return {
     schemaVersion: 'vh-news-publisher-start-control-v1',
     generatedAt: '2026-07-10T10:31:00.000Z',
-    status: 'active_approval_cleared',
+    status: 'active_attended_permit_consumed',
     revision: REVISION,
     startedAt: '2026-07-10T10:30:00.000Z',
     activatedAt: '2026-07-10T10:30:30.000Z',
@@ -421,7 +421,14 @@ function startControl(overrides = {}) {
       incidentNRestarts: 4, enabledState: 'disabled',
     },
     activationBaseline: { nRestarts: 0, capturedAfterResetFailed: true },
-    postActivation: { activeState: 'active', subState: 'running', nRestarts: 0, managerApprovalCleared: true },
+    postActivation: {
+      activeState: 'active',
+      subState: 'running',
+      nRestarts: 0,
+      attendedPermitConsumed: true,
+      legacyManagerApprovalCleared: true,
+      attendedPermitBindingSha256: '7'.repeat(64),
+    },
     evidenceBindings: {
       preflight: {
         schemaVersion: 'vh-news-daemon-recovery-preflight-v1', sha256: '1'.repeat(64),

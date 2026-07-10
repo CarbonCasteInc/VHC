@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -76,6 +76,31 @@ function positiveInteger(value, fallback, code) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) fail(code);
   return parsed;
+}
+
+export async function requirePrivateOutputParent(filePath) {
+  if (!path.isAbsolute(filePath)) fail('output_path_not_absolute');
+  const parent = path.dirname(filePath);
+  try {
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+  } catch {
+    fail('output_parent_create_failed');
+  }
+  let stat;
+  let canonical;
+  try {
+    stat = await lstat(parent);
+    canonical = await realpath(parent);
+  } catch {
+    fail('output_parent_unavailable');
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()
+    || (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    || (stat.mode & 0o777) !== 0o700
+    || canonical !== path.resolve(parent)) {
+    fail('output_parent_not_private');
+  }
+  return parent;
 }
 
 async function readRegularJson(filePath, label) {
@@ -207,7 +232,7 @@ export async function verifyStartControlArtifact(options) {
   const { parsed: artifact, bytes, stat } = await readRegularJson(options.filePath, 'start_control_artifact');
   requirePrivateOwnedStat(stat, 'start_control_artifact');
   if (artifact.schemaVersion !== 'vh-news-publisher-start-control-v1'
-    || artifact.status !== 'active_approval_cleared'
+    || artifact.status !== 'active_attended_permit_consumed'
     || artifact.revision !== options.expectedRevision) {
     fail('start_control_contract_invalid');
   }
@@ -235,7 +260,9 @@ export async function verifyStartControlArtifact(options) {
     || artifact.activationBaseline.capturedAfterResetFailed !== true
     || artifact.postActivation?.activeState !== 'active'
     || artifact.postActivation?.subState !== 'running'
-    || artifact.postActivation?.managerApprovalCleared !== true
+    || artifact.postActivation?.attendedPermitConsumed !== true
+    || artifact.postActivation?.legacyManagerApprovalCleared !== true
+    || !sha256(artifact.postActivation?.attendedPermitBindingSha256)
     || artifact.postActivation?.nRestarts !== artifact.activationBaseline.nRestarts
     || !exactKeys(bindings, ['preflight', 'relayRecovery', 'mailbox'])
     || !exactKeys(preflight, ['schemaVersion', 'sha256', 'revision', 'runId', 'generatedAt'])
@@ -570,6 +597,9 @@ async function main() {
       expectedRevision: values.get('--expected-revision'),
       expectedSha256: values.get('--expected-sha256'),
     });
+  } else if (command === 'output-parent') {
+    await requirePrivateOutputParent(common.filePath);
+    result = { status: 'pass' };
   } else if (command === 'finalize') {
     result = await verifyRecoveryFinalization({
       expectedRevision: values.get('--expected-revision'),

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -17,6 +18,10 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  canonicalizeSystemWriterRecordBytes,
+  validateSystemWriterRecord,
+} from '../../packages/gun-client/dist/systemWriter.js';
+import {
   PublisherRecoveryVerificationError,
   verifyPublisherRecovery,
 } from './verify-news-aggregator-publisher-recovery.mjs';
@@ -25,6 +30,34 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(SCRIPT_DIR, 'verify-news-aggregator-publisher-recovery.mjs');
 const REVISION = '1883841555c4924be8d35747272c38ce8f2071d9';
 const NOW = Date.parse('2026-07-10T12:00:00.000Z');
+const SYSTEM_WRITER_ID = 'vh-e2e-news-daemon-system-writer-v1';
+const SYSTEM_WRITER_PUBLIC_KEY =
+  'MCowBQYDK2VwAyEA4ZHLho6yDOsGogTtrVUWiTRIGYlxKexsprzKjbuy9js';
+const SYSTEM_WRITER_PRIVATE_KEY = createPrivateKey({
+  key: Buffer.from(
+    'MC4CAQAwBQYDK2VwBCIEIOHbQB3dtUl7cAXBpr6o_V7Tb1YuS6hcp7CLnRS-CscA',
+    'base64url',
+  ),
+  format: 'der',
+  type: 'pkcs8',
+});
+const SYSTEM_WRITER_PIN = {
+  pinVersion: 1,
+  schemaEpoch: 'luma-public-v1',
+  maxProtocolVersion: 'luma-public-v1',
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  writers: [{
+    id: SYSTEM_WRITER_ID,
+    status: 'active',
+    publicKey: { encoding: 'spki-base64url', material: SYSTEM_WRITER_PUBLIC_KEY },
+  }],
+};
+const SIGNED_PATHS = {
+  story: (storyId) => `vh/news/stories/${storyId}/`,
+  latest: (storyId) => `vh/news/index/latest/${storyId}/`,
+  hot: (storyId) => `vh/news/index/hot/${storyId}/`,
+  lifecycle: (storyId) => `vh/news/stories/${storyId}/synthesis_lifecycle/latest/`,
+};
 
 const story = {
   schemaVersion: 'story-bundle-v0',
@@ -77,14 +110,26 @@ function lifecycle(updatedAt = Date.parse('2026-07-10T11:30:00.000Z'), status = 
   };
 }
 
-function signedFields(selectedStory, route) {
-  return {
+function signSystemRecord(payload, selectedStory, route, overrides = {}) {
+  const unsigned = {
+    ...payload,
+    _system: null,
+    _Signature: null,
+    _WriterId: null,
+    _IssuedAt: null,
     _protocolVersion: 'luma-public-v1',
     _writerKind: 'system',
-    _systemWriterId: 'publisher-recovery-test-writer',
+    _systemWriterId: SYSTEM_WRITER_ID,
     _systemIssuedAt: selectedStory.created_at + 1,
-    _systemSignature: `test-signature:${route}:${selectedStory.story_id}`,
+    ...overrides,
   };
+  const signature = sign(
+    null,
+    Buffer.from(canonicalizeSystemWriterRecordBytes(unsigned)),
+    SYSTEM_WRITER_PRIVATE_KEY,
+  ).toString('base64url');
+  assert.ok(SIGNED_PATHS[route](selectedStory.story_id));
+  return { ...unsigned, _systemSignature: signature };
 }
 
 async function privateJson(file, payload) {
@@ -122,7 +167,7 @@ function startControl(overrides = {}) {
   return {
     schemaVersion: 'vh-news-publisher-start-control-v1',
     generatedAt: '2026-07-10T10:31:00.000Z',
-    status: 'active_approval_cleared',
+    status: 'active_attended_permit_consumed',
     revision: REVISION,
     startedAt: '2026-07-10T10:30:00.000Z',
     activatedAt: '2026-07-10T10:30:30.000Z',
@@ -131,7 +176,12 @@ function startControl(overrides = {}) {
       incidentNRestarts: 4, enabledState: 'disabled',
     },
     activationBaseline: { nRestarts: 0, capturedAfterResetFailed: true },
-    postActivation: { activeState: 'active', subState: 'running', nRestarts: 0, managerApprovalCleared: true },
+    postActivation: {
+      activeState: 'active', subState: 'running', nRestarts: 0,
+      attendedPermitConsumed: true,
+      legacyManagerApprovalCleared: true,
+      attendedPermitBindingSha256: '7'.repeat(64),
+    },
     evidenceBindings: {
       preflight: {
         schemaVersion: 'vh-news-daemon-recovery-preflight-v1', sha256: '1'.repeat(64), revision: REVISION,
@@ -279,40 +329,58 @@ function responder(options = {}) {
       jsonResponse(res, 200, {}, { 'content-length': String(1_048_577) });
       return;
     }
+    if (options.redirectPath === url.pathname) {
+      res.writeHead(302, { location: options.redirectLocation });
+      res.end();
+      return;
+    }
+    if (options.stalledBodyPath === url.pathname) {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      res.write('{"ok":');
+      return;
+    }
     let payload;
     if (url.pathname === '/vh/news/story') {
+      const record = signSystemRecord({
+        __story_bundle_json: JSON.stringify(selectedStory),
+        story_id: selectedStory.story_id,
+        created_at: selectedStory.created_at,
+        schemaVersion: selectedStory.schemaVersion,
+      }, selectedStory, 'story', options.signatureOverrides?.story);
       payload = {
         ok: true, story_id: selectedStory.story_id, topic_id: selectedStory.topic_id,
         source: 'story-body', story: selectedStory,
-        record: {
-          __story_bundle_json: JSON.stringify(selectedStory),
-          story_id: selectedStory.story_id,
-          created_at: selectedStory.created_at,
-          schemaVersion: selectedStory.schemaVersion,
-          ...signedFields(selectedStory, 'story'),
-        },
+        record,
       };
     } else if (url.pathname === '/vh/news/latest-index') {
+      const record = signSystemRecord(
+        productRecord({ latest_activity_at: selectedStory.cluster_window_end }, selectedStory),
+        selectedStory,
+        'latest',
+        options.signatureOverrides?.latest,
+      );
       payload = {
         ok: true, story_id: selectedStory.story_id,
-        record: {
-          ...productRecord({ latest_activity_at: selectedStory.cluster_window_end }, selectedStory),
-          ...signedFields(selectedStory, 'latest'),
-        },
+        record,
       };
     } else if (url.pathname === '/vh/news/hot-index') {
+      const record = signSystemRecord(
+        productRecord({ hotness: 0.75 }, selectedStory),
+        selectedStory,
+        'hot',
+        options.signatureOverrides?.hot,
+      );
       payload = {
         ok: true, story_id: selectedStory.story_id,
-        record: {
-          ...productRecord({ hotness: 0.75 }, selectedStory),
-          ...signedFields(selectedStory, 'hot'),
-        },
+        record,
       };
     } else if (url.pathname === '/vh/news/synthesis-lifecycle') {
-      const record = {
-        ...lifecycle(options.lifecycleUpdatedAt, options.lifecycleStatus, selectedStory),
-        ...signedFields(selectedStory, 'lifecycle'),
-      };
+      const perRelayLifecycle = options.lifecycleByRelay?.[options.relayIndex];
+      const record = signSystemRecord(lifecycle(
+        perRelayLifecycle?.updatedAt ?? options.lifecycleUpdatedAt,
+        perRelayLifecycle?.status ?? options.lifecycleStatus,
+        selectedStory,
+      ), selectedStory, 'lifecycle', options.signatureOverrides?.lifecycle);
       if (options.malformedLifecycle) delete record.source_set_revision;
       payload = {
         ok: true, story_id: selectedStory.story_id, topic_id: selectedStory.topic_id,
@@ -328,10 +396,19 @@ function responder(options = {}) {
     }
     if (options.tamperedSignatureStoryId === storyId && options.relayIndex === 0) {
       if (url.pathname === '/vh/news/synthesis-lifecycle') {
-        payload.lifecycle._systemSignature = 'tampered-signature';
+        payload.lifecycle._systemSignature = Buffer.alloc(64, 0xa5).toString('base64url');
         payload.record = payload.lifecycle;
       } else if (payload.record) {
-        payload.record._systemSignature = 'tampered-signature';
+        payload.record._systemSignature = Buffer.alloc(64, 0xa5).toString('base64url');
+      }
+    }
+    if (options.forgedSignaturePath === url.pathname) {
+      const forged = Buffer.alloc(64, options.relayIndex + 1).toString('base64url');
+      if (url.pathname === '/vh/news/synthesis-lifecycle') {
+        payload.lifecycle._systemSignature = forged;
+        payload.record = payload.lifecycle;
+      } else {
+        payload.record._systemSignature = forged;
       }
     }
     jsonResponse(res, 200, payload);
@@ -356,7 +433,10 @@ async function startRelays(options = {}) {
     origins: relays.map((relay) => relay.origin),
     counts,
     requests,
-    close: () => Promise.all(relays.map(({ server }) => new Promise((resolve) => server.close(resolve)))),
+    close: () => Promise.all(relays.map(({ server }) => new Promise((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections?.();
+    }))),
   };
 }
 
@@ -377,11 +457,12 @@ async function verify(files, relays, overrides = {}) {
     maxTickAgeMs: 60 * 60 * 1000,
     startControlMaxAgeMs: 2 * 60 * 60 * 1000,
     completionNowMs: NOW,
+    systemWriterPin: SYSTEM_WRITER_PIN,
     ...verificationOverrides,
   });
 }
 
-test('verifies three relays x four positive and four missing contracts using tick2 and drifted capture counter', async () => {
+test('real Ed25519 verification passes three relays x four positive and four missing contracts', async () => {
   const files = await fixture();
   const relays = await startRelays();
   try {
@@ -410,6 +491,75 @@ test('verifies three relays x four positive and four missing contracts using tic
     const artifact = JSON.parse(await readFile(files.outputFile, 'utf8'));
     assert.equal(artifact.revision, REVISION);
     assert.equal((await lstat(files.outputFile)).mode & 0o777, 0o600);
+  } finally {
+    await relays.close();
+    await rm(files.root, { recursive: true, force: true });
+  }
+});
+
+test('real Ed25519 verification rejects tampering independently on all four positive routes', async () => {
+  const rows = [
+    ['/vh/news/story', 'positive_story_signature_invalid'],
+    ['/vh/news/latest-index', 'positive_latest_signature_invalid'],
+    ['/vh/news/hot-index', 'positive_hot_signature_invalid'],
+    ['/vh/news/synthesis-lifecycle', 'positive_lifecycle_signature_invalid'],
+  ];
+  for (const [forgedSignaturePath, code] of rows) {
+    const files = await fixture();
+    const relays = await startRelays({ forgedSignaturePath });
+    try {
+      await assert.rejects(verify(files, relays), (error) => error.code === code);
+      await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
+    } finally {
+      await relays.close();
+      await rm(files.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('real Ed25519 verification rejects a valid signature under the wrong pinned public key', async () => {
+  const files = await fixture();
+  const relays = await startRelays();
+  const wrongPublicKey = generateKeyPairSync('ed25519').publicKey.export({
+    format: 'der',
+    type: 'spki',
+  }).toString('base64url');
+  const wrongPin = structuredClone(SYSTEM_WRITER_PIN);
+  wrongPin.writers[0].publicKey.material = wrongPublicKey;
+  try {
+    await assert.rejects(
+      verify(files, relays, { systemWriterPin: wrongPin }),
+      (error) => error.code === 'positive_story_signature_invalid',
+    );
+    await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await relays.close();
+    await rm(files.root, { recursive: true, force: true });
+  }
+});
+
+test('canonical signature validation fails closed when a positive record is checked at a wrong path', async () => {
+  const files = await fixture();
+  const relays = await startRelays();
+  let injectedWrongPath = false;
+  try {
+    await assert.rejects(
+      verify(files, relays, {
+        validateSystemWriterRecord: async (input) => {
+          if (!injectedWrongPath) {
+            injectedWrongPath = true;
+            return validateSystemWriterRecord({
+              ...input,
+              path: `vh/not-allowed/${story.story_id}`,
+            });
+          }
+          return validateSystemWriterRecord(input);
+        },
+      }),
+      (error) => error.code === 'positive_story_signature_invalid',
+    );
+    assert.equal(injectedWrongPath, true);
+    await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
   } finally {
     await relays.close();
     await rm(files.root, { recursive: true, force: true });
@@ -517,7 +667,7 @@ test('never hides a tampered first written candidate behind a later good candida
   try {
     await assert.rejects(
       verify(files, relays),
-      (error) => error.code === 'positive_signed_record_replication_mismatch',
+      (error) => error.code === 'positive_story_signature_invalid',
     );
     assert.equal(relays.requests.flat().some((request) => request.includes(secondStory.story_id)), false);
   } finally {
@@ -573,6 +723,28 @@ test('accepts a preserved current lifecycle and rejects a stale preserved pendin
   }
 });
 
+test('accepts mixed updated, preserved-current, and preserved-terminal lifecycle states across relays', async () => {
+  const files = await fixture();
+  const relays = await startRelays({
+    lifecycleByRelay: [
+      { status: 'pending', updatedAt: Date.parse('2026-07-10T11:12:00.000Z') },
+      { status: 'retryable_failure', updatedAt: Date.parse('2026-07-10T11:30:00.000Z') },
+      { status: 'accepted_available', updatedAt: Date.parse('2026-06-01T00:00:00.000Z') },
+    ],
+  });
+  try {
+    const result = await verify(files, relays);
+    assert.deepEqual(result.lifecycleModes, [
+      'updated_in_tick',
+      'preserved_current',
+      'preserved_terminal',
+    ]);
+  } finally {
+    await relays.close();
+    await rm(files.root, { recursive: true, force: true });
+  }
+});
+
 test('accepts preserved terminal lifecycle and enforces the distinct 10-minute in-progress boundary', async () => {
   const terminalFiles = await fixture();
   const terminalRelays = await startRelays({
@@ -609,7 +781,7 @@ test('accepts preserved terminal lifecycle and enforces the distinct 10-minute i
   const malformedFiles = await fixture();
   const malformedRelays = await startRelays({ lifecycleStatus: 'accepted_available', malformedLifecycle: true });
   try {
-    await assert.rejects(verify(malformedFiles, malformedRelays), (error) => error.code === 'positive_lifecycle_contract_mismatch');
+    await assert.rejects(verify(malformedFiles, malformedRelays), (error) => error.code === 'positive_lifecycle_signature_invalid');
   } finally {
     await malformedRelays.close();
     await rm(malformedFiles.root, { recursive: true, force: true });
@@ -632,6 +804,54 @@ test('rejects malformed and oversize response bodies without accepting partial r
       await relays.close();
       await rm(files.root, { recursive: true, force: true });
     }
+  }
+});
+
+test('rejects redirects without ever contacting the redirect target', async () => {
+  let redirectTargetContacts = 0;
+  const target = http.createServer((_req, res) => {
+    redirectTargetContacts += 1;
+    jsonResponse(res, 200, { ok: true });
+  });
+  await new Promise((resolve) => target.listen(0, '127.0.0.1', resolve));
+  const targetAddress = target.address();
+  const targetOrigin = `http://127.0.0.1:${targetAddress.port}`;
+  const files = await fixture();
+  const relays = await startRelays({
+    redirectPath: '/vh/news/story',
+    redirectLocation: `${targetOrigin}/must-not-be-contacted`,
+  });
+  try {
+    await assert.rejects(
+      verify(files, relays),
+      (error) => error.code === 'relay_readback_network_failed',
+    );
+    assert.equal(redirectTargetContacts, 0);
+    await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await relays.close();
+    await new Promise((resolve) => {
+      target.close(resolve);
+      target.closeAllConnections?.();
+    });
+    await rm(files.root, { recursive: true, force: true });
+  }
+});
+
+test('response-body stalls remain inside the relay timeout and leave no pass artifact', async () => {
+  const files = await fixture();
+  const relays = await startRelays({ stalledBodyPath: '/vh/news/story' });
+  const startedAt = Date.now();
+  try {
+    await assert.rejects(
+      verify(files, relays, { timeoutMs: 100 }),
+      (error) => error.code === 'relay_readback_body_failed',
+    );
+    assert.ok(Date.now() - startedAt < 2_000, 'stalled body exceeded the bounded verifier timeout');
+    await assert.rejects(lstat(files.outputFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await relays.close();
+    await rm(files.root, { recursive: true, force: true });
   }
 });
 
@@ -717,7 +937,10 @@ function spawnVerifier(args) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [SCRIPT, ...args], {
       cwd: path.resolve(SCRIPT_DIR, '../..'),
-      env: process.env,
+      env: {
+        ...process.env,
+        VH_NEWS_SYSTEM_WRITER_PIN_JSON: JSON.stringify(SYSTEM_WRITER_PIN),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

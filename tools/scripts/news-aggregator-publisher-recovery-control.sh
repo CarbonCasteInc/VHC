@@ -8,8 +8,10 @@ GUARD_SCRIPT="${REPO_ROOT}/tools/scripts/news-aggregator-publisher-recovery-guar
 VERIFY_SCRIPT="${REPO_ROOT}/tools/scripts/verify-news-aggregator-publisher-recovery.mjs"
 START_CONTROL_WRITER="${REPO_ROOT}/tools/scripts/write-news-aggregator-publisher-start-control-artifact.mjs"
 SERVICE="vh-news-aggregator.service"
+PUBLISHER_ENV_FILE="${VH_NEWS_DAEMON_ENV_FILE:-${HOME}/.config/vhc/news-aggregator.env}"
 RESTART_AUTHORITY_FILE="${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json}"
 RESTART_PERMIT_FILE="${VH_NEWS_DAEMON_RESTART_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json}"
+ATTENDED_START_PERMIT_FILE="${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json}"
 RESTART_AUTHORITY_SCRIPT="${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs"
 
 if [[ ! -r "${COMMON_SH}" ]]; then
@@ -156,11 +158,13 @@ park_internal() {
     VH_NEWS_DAEMON_START_APPROVED >/dev/null
   if ! node "${RESTART_AUTHORITY_SCRIPT}" disarm \
     --authority-file "${RESTART_AUTHORITY_FILE}" \
-    --permit-file "${RESTART_PERMIT_FILE}" >/dev/null 2>&1; then
+    --permit-file "${RESTART_PERMIT_FILE}" \
+    --attended-permit-file "${ATTENDED_START_PERMIT_FILE}" >/dev/null 2>&1; then
     echo "[vh:publisher-recovery] automatic restart authority failed to clear" >&2
     return 78
   fi
-  if [[ -e "${RESTART_PERMIT_FILE}" || -L "${RESTART_PERMIT_FILE}"
+  if [[ -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}"
+    || -e "${RESTART_PERMIT_FILE}" || -L "${RESTART_PERMIT_FILE}"
     || -e "${RESTART_AUTHORITY_FILE}" || -L "${RESTART_AUTHORITY_FILE}" ]]; then
     echo "[vh:publisher-recovery] automatic restart authority remained after park" >&2
     return 78
@@ -226,6 +230,7 @@ if [[ "${COMMAND}" == "start" ]]; then
     echo "[vh:publisher-recovery] start-control output must be a new absolute path" >&2
     exit 78
   fi
+  node "${GUARD_SCRIPT}" output-parent --file "${START_CONTROL_OUTPUT}" >/dev/null
   preflight_json="$(node "${GUARD_SCRIPT}" preflight \
     --file "${PREFLIGHT_ARTIFACT}" \
     --expected-revision "${EXPECTED_REVISION}" \
@@ -255,9 +260,14 @@ if [[ "${COMMAND}" == "start" ]]; then
   fi
 
   mutation_started=false
+  start_control_staging=""
   cleanup_start() {
     local status=$?
     trap - EXIT HUP INT TERM
+    if [[ -n "${start_control_staging}" ]]; then
+      rm -f -- "${start_control_staging}" >/dev/null 2>&1 || status=78
+      [[ ! -e "${start_control_staging}" && ! -L "${start_control_staging}" ]] || status=78
+    fi
     systemctl --user unset-environment \
       VH_NEWS_DAEMON_ATTENDED_START_APPROVED \
       VH_NEWS_DAEMON_START_APPROVED >/dev/null 2>&1 || status=78
@@ -272,7 +282,6 @@ if [[ "${COMMAND}" == "start" ]]; then
 
   started_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
   mutation_started=true
-  systemctl --user set-environment VH_NEWS_DAEMON_ATTENDED_START_APPROVED=1 >/dev/null
   systemctl --user enable "${SERVICE}" >/dev/null
   systemctl --user reset-failed "${SERVICE}" >/dev/null
   baseline_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
@@ -285,13 +294,38 @@ if [[ "${COMMAND}" == "start" ]]; then
     --authority-file "${RESTART_AUTHORITY_FILE}" \
     --permit-file "${RESTART_PERMIT_FILE}" \
     --baseline-nrestarts "${baseline_nrestarts}" >/dev/null
+  attended_evidence_bindings="$(node -e '
+    const [preflight, relay, mailbox] = process.argv.slice(1).map(JSON.parse);
+    process.stdout.write(JSON.stringify({
+      preflightSha256: preflight.sha256,
+      relayEvidenceSha256: relay.sha256,
+      relayPacketSha256: relay.packetSha256,
+      relayCaptureSha256: relay.captureSha256,
+      mailboxSha256: mailbox.sha256,
+      mailboxCriticalCount: mailbox.newCriticalCount,
+    }));
+  ' "${preflight_json}" "${relay_recovery_json}" "${mailbox_current_json}")"
+  attended_permit_json="$(node "${RESTART_AUTHORITY_SCRIPT}" issue-attended \
+    --expected-revision "${EXPECTED_REVISION}" \
+    --attended-permit-file "${ATTENDED_START_PERMIT_FILE}" \
+    --baseline-nrestarts "${baseline_nrestarts}" \
+    --start-control-output "${START_CONTROL_OUTPUT}" \
+    --evidence-bindings-json "${attended_evidence_bindings}" \
+    --controller-pid "$$" \
+    --max-age-ms 120000)"
+  attended_permit_binding_sha256="$(node -e '
+    const value = JSON.parse(process.argv[1]);
+    if (value.status !== "attended_start_permit_issued" || !/^[0-9a-f]{64}$/.test(value.permitBindingSha256 ?? "")) process.exit(78);
+    process.stdout.write(value.permitBindingSha256);
+  ' "${attended_permit_json}")"
   systemctl --user start "${SERVICE}" >/dev/null
 
   deadline=$((SECONDS + ACTIVE_TIMEOUT_SECONDS))
   while true; do
     active_state="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
     sub_state="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
-    if [[ "${active_state}" == "active" && "${sub_state}" == "running" ]]; then
+    if [[ "${active_state}" == "active" && "${sub_state}" == "running"
+      && ! -e "${ATTENDED_START_PERMIT_FILE}" && ! -L "${ATTENDED_START_PERMIT_FILE}" ]]; then
       break
     fi
     if [[ "${active_state}" == "failed" || "${SECONDS}" -ge "${deadline}" ]]; then
@@ -307,20 +341,26 @@ if [[ "${COMMAND}" == "start" ]]; then
     echo "[vh:publisher-recovery] one-shot approval did not clear" >&2
     exit 78
   fi
+  if [[ -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}" ]]; then
+    echo "[vh:publisher-recovery] attended start permit was not consumed" >&2
+    exit 78
+  fi
   post_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
   if [[ ! "${post_nrestarts}" =~ ^[0-9]+$ || "${post_nrestarts}" != "${baseline_nrestarts}" ]]; then
     echo "[vh:publisher-recovery] publisher restart count changed during activation" >&2
     exit 78
   fi
   activated_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
+  start_control_staging="$(dirname "${START_CONTROL_OUTPUT}")/.${START_CONTROL_OUTPUT##*/}.pending-$$-${RANDOM}"
   node "${START_CONTROL_WRITER}" \
-    --output-file "${START_CONTROL_OUTPUT}" \
+    --output-file "${start_control_staging}" \
     --expected-revision "${EXPECTED_REVISION}" \
     --started-at "${started_at}" \
     --activated-at "${activated_at}" \
     --incident-nrestarts "${incident_nrestarts}" \
     --baseline-nrestarts "${baseline_nrestarts}" \
     --post-nrestarts "${post_nrestarts}" \
+    --attended-permit-binding-sha256 "${attended_permit_binding_sha256}" \
     --preflight-binding-json "${preflight_json}" \
     --relay-binding-json "${relay_recovery_json}" \
     --mailbox-binding-json "${mailbox_current_json}"
@@ -328,20 +368,29 @@ if [[ "${COMMAND}" == "start" ]]; then
   final_sub_state="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
   final_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
   if [[ "${final_active_state}" != "active" || "${final_sub_state}" != "running"
-    || "${final_nrestarts}" != "${baseline_nrestarts}" ]] || manager_approval_is_set; then
+    || "${final_nrestarts}" != "${baseline_nrestarts}"
+    || -e "${ATTENDED_START_PERMIT_FILE}" || -L "${ATTENDED_START_PERMIT_FILE}" ]] || manager_approval_is_set; then
     echo "[vh:publisher-recovery] publisher state drifted while committing start evidence" >&2
     exit 78
   fi
+  ln "${start_control_staging}" "${START_CONTROL_OUTPUT}"
+  rm -f -- "${start_control_staging}" >/dev/null 2>&1 || true
+  start_control_staging=""
   mutation_started=false
-  echo "[vh:publisher-recovery] publisher reached active/running; one-shot approval is cleared; wrapper preflights remain to be proven by verify"
+  echo "[vh:publisher-recovery] publisher reached active/running; attended permit is consumed; wrapper preflights remain to be proven by verify"
   exit 0
 fi
 
 if [[ "${COMMAND}" == "verify" ]]; then
   verification_succeeded=false
+  verification_staging=""
   cleanup_verification() {
     local status=$?
     trap - EXIT HUP INT TERM
+    if [[ -n "${verification_staging}" ]]; then
+      rm -f -- "${verification_staging}" >/dev/null 2>&1 || status=78
+      [[ ! -e "${verification_staging}" && ! -L "${verification_staging}" ]] || status=78
+    fi
     if [[ "${verification_succeeded}" != "true" || "${status}" -ne 0 ]]; then
       park_internal >/dev/null 2>&1 || true
       exit 78
@@ -358,6 +407,12 @@ if [[ "${COMMAND}" == "verify" ]]; then
     echo "[vh:publisher-recovery] verification requires three relays, evidence files, output, and abort approval" >&2
     exit 78
   }
+  if [[ "${OUTPUT_FILE}" != /* || -e "${OUTPUT_FILE}" || -L "${OUTPUT_FILE}" ]]; then
+    echo "[vh:publisher-recovery] verification output must be a new absolute path" >&2
+    exit 78
+  fi
+  node "${GUARD_SCRIPT}" output-parent --file "${OUTPUT_FILE}" >/dev/null
+  verification_staging="$(dirname "${OUTPUT_FILE}")/.${OUTPUT_FILE##*/}.pending-$$-${RANDOM}"
   start_control_json="$(node "${GUARD_SCRIPT}" start-control \
     --file "${START_CONTROL_ARTIFACT}" \
     --expected-revision "${EXPECTED_REVISION}" \
@@ -368,7 +423,7 @@ if [[ "${COMMAND}" == "verify" ]]; then
     --start-control-file "${START_CONTROL_ARTIFACT}"
     --current-run-file "${CURRENT_RUN_FILE}"
     --runtime-diagnostics-file "${RUNTIME_DIAGNOSTICS_FILE}"
-    --output-file "${OUTPUT_FILE}"
+    --output-file "${verification_staging}"
     --timeout-ms "${TIMEOUT_MS}"
     --max-tick-age-ms "${MAX_TICK_AGE_MS}"
     --start-control-max-age-ms "${START_CONTROL_MAX_AGE_MS}"
@@ -383,7 +438,28 @@ if [[ "${COMMAND}" == "verify" ]]; then
     echo "[vh:publisher-recovery] publisher state changed before readback" >&2
     exit 78
   fi
-  node "${VERIFY_SCRIPT}" "${verify_args[@]}"
+  node -e '
+    const { lstatSync, realpathSync } = require("node:fs");
+    const path = require("node:path");
+    const file = process.argv[1];
+    const stat = lstatSync(file);
+    if (stat.isSymbolicLink() || !stat.isFile()
+      || (typeof process.getuid === "function" && stat.uid !== process.getuid())
+      || (stat.mode & 0o777) !== 0o600
+      || realpathSync(file) !== path.resolve(file)) process.exit(78);
+  ' "${PUBLISHER_ENV_FILE}"
+  corepack pnpm@9.7.1 --filter @vh/gun-client build >/dev/null
+  (
+    set +x
+    set -a
+    if ! source "${PUBLISHER_ENV_FILE}" >/dev/null 2>&1; then
+      echo "[vh:publisher-recovery] publisher env file could not be loaded for signature verification" >&2
+      exit 78
+    fi
+    set +a
+    unset VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL
+    node "${VERIFY_SCRIPT}" "${verify_args[@]}"
+  )
   verify_active="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
   verify_sub="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
   verify_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
@@ -391,6 +467,9 @@ if [[ "${COMMAND}" == "verify" ]]; then
     echo "[vh:publisher-recovery] publisher state changed during readback" >&2
     exit 78
   fi
+  ln "${verification_staging}" "${OUTPUT_FILE}"
+  rm -f -- "${verification_staging}" >/dev/null 2>&1 || true
+  verification_staging=""
   verification_succeeded=true
   trap - EXIT HUP INT TERM
   echo "[vh:publisher-recovery] exact-run four-route recovery readback passed"
@@ -442,7 +521,7 @@ if [[ "${COMMAND}" == "finalize" ]]; then
     echo "[vh:publisher-recovery] refusing to overwrite existing finalization evidence" >&2
     exit 78
   fi
-  mkdir -p "$(dirname "${FINALIZATION_OUTPUT}")"
+  node "${GUARD_SCRIPT}" output-parent --file "${FINALIZATION_OUTPUT}" >/dev/null
   finalization_temp="${FINALIZATION_OUTPUT}.tmp-$$-${RANDOM}"
   finalization_passed=false
   while [[ "${SECONDS}" -lt "${deadline}" ]]; do

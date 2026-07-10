@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -24,6 +25,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/start-news-aggregator-daemon-production.sh');
 const ARTIFACT_SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/write-news-aggregator-production-start-artifact.mjs');
+const AUTHORITY_SCRIPT_PATH = path.join(REPO_ROOT, 'tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs');
 const EXPECTED_REVISION = '1883841555c4924be8d35747272c38ce8f2071d9';
 
 function makeHarness({
@@ -54,6 +56,8 @@ function makeHarness({
   const psIndexFile = path.join(root, 'ps-index.txt');
   const restartAuthorityFile = path.join(root, 'state/recovery/automatic-restart-authority.json');
   const restartPermitFile = path.join(root, 'state/recovery/automatic-restart-permit.json');
+  const attendedPermitFile = path.join(root, 'state/recovery/attended-start-permit.json');
+  const managerApprovalFile = path.join(root, 'manager-approval');
   mkdirSync(binDir, { recursive: true });
   writeFileSync(
     path.join(binDir, 'git'),
@@ -71,6 +75,12 @@ function makeHarness({
     path.join(binDir, 'systemctl'),
     [
       '#!/usr/bin/env bash',
+      '[[ "$1" == "--user" ]] && shift',
+      'if [[ "$1" == "unset-environment" ]]; then rm -f "${VH_TEST_MANAGER_APPROVAL_FILE:?}"; exit 0; fi',
+      'if [[ "$1" == "show-environment" ]]; then',
+      '  if [[ -f "${VH_TEST_MANAGER_APPROVAL_FILE:?}" ]]; then printf "VH_NEWS_DAEMON_ATTENDED_START_APPROVED=1\\n"; fi',
+      '  exit 0',
+      'fi',
       'if [[ "$*" == *"--property=NRestarts --value"* ]]; then printf "%s\\n" "${VH_TEST_SYSTEMD_NRESTARTS:-0}"; exit 0; fi',
       'exit 1',
       '',
@@ -115,6 +125,7 @@ function makeHarness({
       path.join(binDir, 'node'),
       [
         '#!/usr/bin/env bash',
+        'if [[ "${1:-}" == *"news-aggregator-publisher-automatic-restart-authority.mjs" ]]; then exec "${VH_TEST_REAL_NODE:?}" "$@"; fi',
         'printf "node_args=%s\\n" "$*" >> "${VH_TEST_NODE_MARKER:?}"',
         'exit "${VH_TEST_NODE_STATUS:?}"',
         '',
@@ -188,6 +199,29 @@ function makeHarness({
     'utf8',
   );
 
+  if (approved) {
+    const evidenceBindings = JSON.stringify({
+      preflightSha256: '1'.repeat(64),
+      relayEvidenceSha256: '2'.repeat(64),
+      relayPacketSha256: '3'.repeat(64),
+      relayCaptureSha256: '4'.repeat(64),
+      mailboxSha256: '5'.repeat(64),
+      mailboxCriticalCount: 2,
+    });
+    const issued = spawnSync(process.execPath, [
+      AUTHORITY_SCRIPT_PATH,
+      'issue-attended',
+      '--expected-revision', EXPECTED_REVISION,
+      '--attended-permit-file', attendedPermitFile,
+      '--baseline-nrestarts', '0',
+      '--start-control-output', path.join(root, 'start-control.json'),
+      '--evidence-bindings-json', evidenceBindings,
+      '--controller-pid', String(process.pid),
+      '--max-age-ms', '120000',
+    ], { encoding: 'utf8' });
+    assert.equal(issued.status, 0, issued.stderr);
+  }
+
   return {
     root,
     approved,
@@ -206,6 +240,8 @@ function makeHarness({
     psIndexFile: psSequence !== null ? psIndexFile : null,
     restartAuthorityFile,
     restartPermitFile,
+    attendedPermitFile,
+    managerApprovalFile,
     systemdNRestarts: 0,
   };
 }
@@ -221,13 +257,16 @@ function runStartScript(harness) {
     VHC_REPO: REPO_ROOT,
     VH_NEWS_DAEMON_ENV_FILE: harness.envFile,
     VH_NEWS_DAEMON_EXPECTED_REVISION: EXPECTED_REVISION,
-    VH_NEWS_DAEMON_ATTENDED_START_APPROVED: harness.approved ? '1' : '',
+    VH_NEWS_DAEMON_ATTENDED_START_APPROVED: '',
     VH_NEWS_DAEMON_PREFLIGHT_ONLY: harness.preflightOnly ? '1' : '',
     VH_NEWS_DAEMON_PREFLIGHT_APPROVED: harness.preflightApproved ? '1' : '',
     VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE: harness.restartAuthorityFile,
     VH_NEWS_DAEMON_RESTART_PERMIT_FILE: harness.restartPermitFile,
+    VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE: harness.attendedPermitFile,
     VH_NEWS_DAEMON_SYSTEMD_UNIT: 'vh-news-aggregator.service',
     VH_TEST_SYSTEMD_NRESTARTS: String(harness.systemdNRestarts),
+    VH_TEST_MANAGER_APPROVAL_FILE: harness.managerApprovalFile,
+    VH_TEST_REAL_NODE: process.execPath,
     VH_TEST_EXPECTED_REVISION: EXPECTED_REVISION,
     VH_TEST_PNPM_MARKER: harness.pnpmMarker,
     VH_TEST_PNPM_STATUS_FILE: harness.pnpmStatusFile,
@@ -248,12 +287,26 @@ function runStartScript(harness) {
   });
 }
 
-test('production daemon start requires one-shot manager approval before any preflight runs', () => {
+test('production daemon start requires a private single-use permit before any preflight runs', () => {
   const harness = makeHarness({ approved: false });
   try {
     const result = runStartScript(harness);
     assert.equal(result.status, 78);
     assert.match(result.stderr, /refusing live start without attended or verified automatic-restart authority/);
+    assert.equal(existsSync(harness.pnpmMarker), false);
+  } finally {
+    rmSync(harness.root, { recursive: true, force: true });
+  }
+});
+
+test('setting the legacy systemd manager approval cannot forge attended authority', () => {
+  const harness = makeHarness({ approved: false });
+  try {
+    writeFileSync(harness.managerApprovalFile, '1\n');
+    const result = runStartScript(harness);
+    assert.equal(result.status, 78);
+    assert.match(result.stderr, /refusing live start without attended or verified automatic-restart authority/);
+    assert.equal(existsSync(harness.managerApprovalFile), false);
     assert.equal(existsSync(harness.pnpmMarker), false);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
@@ -293,7 +346,7 @@ test('exit69 automatic restart consumes exact prior+1 permit once, while a later
   }
 });
 
-test('an automatic restart during the attended window must consume its exit69 permit', async () => {
+test('ambiguous attended and automatic permits fail closed before either can authorize', async () => {
   const harness = makeHarness({ approved: true });
   harness.systemdNRestarts = 1;
   try {
@@ -310,9 +363,10 @@ test('an automatic restart during the attended window must consume its exit69 pe
       serviceResult: 'exit-code', exitCode: 'exited', exitStatus: '69', previousNRestarts: 0,
     });
     const result = runStartScript(harness);
-    assert.equal(result.status, 99);
-    assert.match(result.stdout, /verified single-use automatic restart after exit 69/);
-    assert.equal(existsSync(harness.restartPermitFile), false);
+    assert.equal(result.status, 78);
+    assert.match(result.stderr, /refusing live start without attended or verified automatic-restart authority/);
+    assert.equal(existsSync(harness.restartPermitFile), true);
+    assert.equal(existsSync(harness.attendedPermitFile), true);
   } finally {
     rmSync(harness.root, { recursive: true, force: true });
   }
@@ -571,6 +625,30 @@ test('production start artifact helper is path-safe, private, closed-error, and 
     });
     assert.equal(unsafe.status, 78);
     assert.match(unsafe.stderr, /artifact run id is missing/);
+
+    const weakParent = path.join(root, 'weak-parent');
+    mkdirSync(weakParent, { mode: 0o755 });
+    const weakOutput = path.join(weakParent, 'preflight.json');
+    const weak = spawnSync(process.execPath, [ARTIFACT_SCRIPT_PATH, '--mode', 'preflight'], {
+      encoding: 'utf8',
+      env: { ...baseEnv, VH_NEWS_DAEMON_PREFLIGHT_ARTIFACT: weakOutput },
+    });
+    assert.equal(weak.status, 78);
+    assert.match(weak.stderr, /preflight_artifact_write_failed/);
+    assert.equal(existsSync(weakOutput), false);
+
+    const privateParent = path.join(root, 'private-parent');
+    const symlinkParent = path.join(root, 'symlink-parent');
+    mkdirSync(privateParent, { mode: 0o700 });
+    symlinkSync(privateParent, symlinkParent);
+    const symlinkOutput = path.join(symlinkParent, 'preflight.json');
+    const linked = spawnSync(process.execPath, [ARTIFACT_SCRIPT_PATH, '--mode', 'preflight'], {
+      encoding: 'utf8',
+      env: { ...baseEnv, VH_NEWS_DAEMON_PREFLIGHT_ARTIFACT: symlinkOutput },
+    });
+    assert.equal(linked.status, 78);
+    assert.match(linked.stderr, /preflight_artifact_write_failed/);
+    assert.equal(existsSync(path.join(privateParent, 'preflight.json')), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

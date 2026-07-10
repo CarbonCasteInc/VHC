@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 REPO_ROOT="${VHC_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 COMMON_SH="${REPO_ROOT}/tools/scripts/lib/news-aggregator-publisher-recovery-common.sh"
@@ -7,11 +8,11 @@ ENV_FILE="${VH_NEWS_DAEMON_ENV_FILE:-${HOME}/.config/vhc/news-aggregator.env}"
 STATE_DIR="${VH_NEWS_DAEMON_STATE_DIR:-${HOME}/.local/state/vhc/news-aggregator}"
 ARTIFACT_ROOT="${VH_DAEMON_FEED_ARTIFACT_ROOT:-${STATE_DIR}/artifacts}"
 EXPECTED_REVISION_FROM_EXECSTART="${VH_NEWS_DAEMON_EXPECTED_REVISION:-}"
-ATTENDED_APPROVAL_FROM_MANAGER="${VH_NEWS_DAEMON_ATTENDED_START_APPROVED:-}"
 PREFLIGHT_ONLY_FROM_CALLER="${VH_NEWS_DAEMON_PREFLIGHT_ONLY:-}"
 PREFLIGHT_APPROVAL_FROM_CALLER="${VH_NEWS_DAEMON_PREFLIGHT_APPROVED:-}"
 RESTART_AUTHORITY_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-authority.json}"
 RESTART_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_RESTART_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/automatic-restart-permit.json}"
+ATTENDED_PERMIT_FROM_UNIT="${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE:-${HOME}/.local/state/vhc/news-aggregator/recovery/attended-start-permit.json}"
 SYSTEMD_UNIT_FROM_UNIT="${VH_NEWS_DAEMON_SYSTEMD_UNIT:-vh-news-aggregator.service}"
 
 if [[ ! -r "${COMMON_SH}" ]]; then
@@ -37,12 +38,13 @@ set +a
 # Control authority is intentionally captured before the persistent host env is
 # sourced. A value parked in news-aggregator.env cannot authorize live writes.
 export VH_NEWS_DAEMON_EXPECTED_REVISION="${EXPECTED_REVISION_FROM_EXECSTART}"
-export VH_NEWS_DAEMON_ATTENDED_START_APPROVED="${ATTENDED_APPROVAL_FROM_MANAGER}"
 export VH_NEWS_DAEMON_PREFLIGHT_ONLY="${PREFLIGHT_ONLY_FROM_CALLER}"
 export VH_NEWS_DAEMON_PREFLIGHT_APPROVED="${PREFLIGHT_APPROVAL_FROM_CALLER}"
 export VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE="${RESTART_AUTHORITY_FROM_UNIT}"
 export VH_NEWS_DAEMON_RESTART_PERMIT_FILE="${RESTART_PERMIT_FROM_UNIT}"
+export VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE="${ATTENDED_PERMIT_FROM_UNIT}"
 export VH_NEWS_DAEMON_SYSTEMD_UNIT="${SYSTEMD_UNIT_FROM_UNIT}"
+unset VH_NEWS_DAEMON_ATTENDED_START_APPROVED VH_NEWS_DAEMON_START_APPROVED
 
 truthy_flag() {
   case "${1:-}" in
@@ -142,20 +144,56 @@ elif [[ "${NO_WRITE_DIAGNOSTIC}" == "true" ]]; then
     exit 78
   fi
   DIAGNOSTIC_TIMEOUT_BIN="${VH_NEWS_DAEMON_DIAGNOSTIC_TIMEOUT_BIN:-timeout}"
-elif [[ "${VH_NEWS_DAEMON_ATTENDED_START_APPROVED:-}" != "1"
-  || -e "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" || -L "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" ]]; then
+else
+  # Manager-environment flags were the legacy attended-start mechanism. They
+  # are never authority now, and every live invocation clears them before
+  # consuming exactly one private file permit.
+  if ! systemctl --user unset-environment \
+    VH_NEWS_DAEMON_ATTENDED_START_APPROVED \
+    VH_NEWS_DAEMON_START_APPROVED >/dev/null 2>&1; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval could not be cleared" >&2
+    exit 78
+  fi
+  if ! manager_environment="$(systemctl --user show-environment 2>/dev/null)"; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval state is unavailable" >&2
+    exit 78
+  fi
+  if grep -Eq '^(VH_NEWS_DAEMON_ATTENDED_START_APPROVED|VH_NEWS_DAEMON_START_APPROVED)=' \
+    <<<"${manager_environment}"; then
+    echo "[vh:news-daemon:prod] refusing live start because legacy manager approval remained set" >&2
+    exit 78
+  fi
   current_nrestarts="$(systemctl --user show "${VH_NEWS_DAEMON_SYSTEMD_UNIT}" --property=NRestarts --value 2>/dev/null || true)"
-  if [[ ! "${current_nrestarts}" =~ ^[0-9]+$ ]] || ! node \
-    "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume \
-    --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
-    --authority-file "${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE}" \
-    --permit-file "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" \
-    --current-nrestarts "${current_nrestarts:-invalid}" \
-    --max-age-ms 120000 >/dev/null 2>&1; then
+  attended_present=false
+  automatic_present=false
+  [[ -e "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" || -L "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" ]] \
+    && attended_present=true
+  [[ -e "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" || -L "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" ]] \
+    && automatic_present=true
+  if [[ ! "${current_nrestarts}" =~ ^[0-9]+$ || "${attended_present}" == "${automatic_present}" ]]; then
     echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
     exit 78
   fi
-  echo "[vh:news-daemon:prod] verified single-use automatic restart after exit 69"
+  if [[ "${attended_present}" == "true" ]]; then
+    if ! node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume-attended \
+      --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
+      --attended-permit-file "${VH_NEWS_DAEMON_ATTENDED_START_PERMIT_FILE}" \
+      --current-nrestarts "${current_nrestarts}" >/dev/null 2>&1; then
+      echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+      exit 78
+    fi
+    echo "[vh:news-daemon:prod] verified private single-use attended start permit"
+  elif ! node "${REPO_ROOT}/tools/scripts/news-aggregator-publisher-automatic-restart-authority.mjs" consume \
+    --expected-revision "${VH_NEWS_DAEMON_EXPECTED_REVISION}" \
+    --authority-file "${VH_NEWS_DAEMON_RESTART_AUTHORITY_FILE}" \
+    --permit-file "${VH_NEWS_DAEMON_RESTART_PERMIT_FILE}" \
+    --current-nrestarts "${current_nrestarts}" \
+    --max-age-ms 120000 >/dev/null 2>&1; then
+    echo "[vh:news-daemon:prod] refusing live start without attended or verified automatic-restart authority" >&2
+    exit 78
+  else
+    echo "[vh:news-daemon:prod] verified single-use automatic restart after exit 69"
+  fi
 fi
 
 require_no_news_daemon_siblings "start"

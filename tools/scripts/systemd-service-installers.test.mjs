@@ -69,7 +69,7 @@ test('news aggregator installer retires direct start and binds all generated evi
   assert.equal((source.match(/ExecStartPre=\/usr\/bin\/env bash \$\{REPO_ROOT\}\/tools\/scripts\/check-news-aggregator-expected-revision\.sh \$\{EXPECTED_REVISION\}/g) ?? []).length, 6);
 });
 
-test('news aggregator publisher unit keeps deliberate fail-closed exits stopped and bounds crash loops', () => {
+test('news aggregator publisher unit restarts only exit 69, keeps fail-closed exits stopped, and bounds loops', () => {
   const daemonCliSource = readPackageSource('services/news-aggregator/src/daemonCli.ts');
   const exitCodeMatch = daemonCliSource.match(/NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE\s*=\s*(\d+)/);
   assert.equal(exitCodeMatch?.[1], '78');
@@ -80,8 +80,10 @@ test('news aggregator publisher unit keeps deliberate fail-closed exits stopped 
   ]) {
     assert.match(source, /StartLimitIntervalSec=10min/);
     assert.match(source, /StartLimitBurst=3/);
-    assert.match(source, /Restart=on-failure/);
-    assert.match(source, new RegExp(`RestartPreventExitStatus=${exitCodeMatch?.[1]}`));
+    assert.match(source, /^Restart=no$/m);
+    assert.match(source, /^RestartForceExitStatus=69$/m);
+    assert.doesNotMatch(source, /^Restart=on-failure$/m);
+    assert.doesNotMatch(source, /^RestartPreventExitStatus=/m);
     assert.match(source, /RestartSec=30/);
   }
   const installer = readScript('install-news-aggregator-production-service.sh');

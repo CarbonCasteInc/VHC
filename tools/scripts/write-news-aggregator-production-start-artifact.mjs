@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { chmod, link, mkdir, open, rename, rm } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 const modeIndex = process.argv.indexOf('--mode');
@@ -22,12 +22,24 @@ if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(runId) || runId === '.' || runId 
   process.exit(78);
 }
 
+async function requirePrivateParent(filePath) {
+  const parent = path.dirname(filePath);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const stat = await lstat(parent);
+  if (stat.isSymbolicLink() || !stat.isDirectory()
+    || (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    || (stat.mode & 0o777) !== 0o700
+    || await realpath(parent) !== path.resolve(parent)) {
+    throw new Error('artifact parent must be private');
+  }
+  return parent;
+}
+
 async function writePrivateJsonAtomic(filePath, payload, { replace = true } = {}) {
   if (!path.isAbsolute(filePath)) {
     throw new Error('artifact path must be absolute');
   }
-  const parent = path.dirname(filePath);
-  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const parent = await requirePrivateParent(filePath);
   const tempPath = path.join(parent, `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`);
   let handle;
   try {
@@ -38,6 +50,16 @@ async function writePrivateJsonAtomic(filePath, payload, { replace = true } = {}
     handle = undefined;
     await chmod(tempPath, 0o600);
     if (replace) {
+      try {
+        const existing = await lstat(filePath);
+        if (existing.isSymbolicLink() || !existing.isFile()
+          || (typeof process.getuid === 'function' && existing.uid !== process.getuid())
+          || (existing.mode & 0o777) !== 0o600) {
+          throw new Error('artifact replace target is unsafe');
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
       await rename(tempPath, filePath);
       await chmod(filePath, 0o600);
     } else {

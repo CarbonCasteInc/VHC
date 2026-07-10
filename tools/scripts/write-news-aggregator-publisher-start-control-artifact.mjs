@@ -23,6 +23,7 @@ const activatedAt = values.get('--activated-at') ?? '';
 const incidentNRestarts = Number(values.get('--incident-nrestarts'));
 const baselineNRestarts = Number(values.get('--baseline-nrestarts'));
 const postNRestarts = Number(values.get('--post-nrestarts'));
+const attendedPermitBindingSha256 = values.get('--attended-permit-binding-sha256') ?? '';
 let preflight;
 let relay;
 let mailbox;
@@ -58,6 +59,7 @@ if (!path.isAbsolute(filePath)
   || !Number.isSafeInteger(incidentNRestarts) || incidentNRestarts < 0
   || !Number.isSafeInteger(baselineNRestarts) || baselineNRestarts < 0
   || postNRestarts !== baselineNRestarts
+  || !sha256(attendedPermitBindingSha256)
   || preflight?.status !== 'pass' || preflight?.revision !== revision
   || preflight?.schemaVersion !== 'vh-news-daemon-recovery-preflight-v1'
   || !sha256(preflight?.sha256)
@@ -89,7 +91,7 @@ if (!path.isAbsolute(filePath)
 const payload = {
   schemaVersion: 'vh-news-publisher-start-control-v1',
   generatedAt: new Date().toISOString(),
-  status: 'active_approval_cleared',
+  status: 'active_attended_permit_consumed',
   revision,
   startedAt,
   activatedAt,
@@ -109,7 +111,9 @@ const payload = {
     activeState: 'active',
     subState: 'running',
     nRestarts: postNRestarts,
-    managerApprovalCleared: true,
+    attendedPermitConsumed: true,
+    legacyManagerApprovalCleared: true,
+    attendedPermitBindingSha256,
   },
   evidenceBindings: {
     preflight: {

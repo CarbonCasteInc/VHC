@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,8 +7,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   armRestartAuthority,
+  consumeAttendedStartPermit,
   consumeAutomaticRestartPermit,
   disarmRestartAuthority,
+  issueAttendedStartPermit,
   recordRestartableExit,
 } from './news-aggregator-publisher-automatic-restart-authority.mjs';
 
@@ -22,7 +24,37 @@ async function files() {
     root,
     authorityFile: path.join(root, 'authority.json'),
     permitFile: path.join(root, 'permit.json'),
+    attendedPermitFile: path.join(root, 'attended.json'),
   };
+}
+
+const EVIDENCE_BINDINGS = {
+  preflightSha256: '1'.repeat(64),
+  relayEvidenceSha256: '2'.repeat(64),
+  relayPacketSha256: '3'.repeat(64),
+  relayCaptureSha256: '4'.repeat(64),
+  mailboxSha256: '5'.repeat(64),
+  mailboxCriticalCount: 2,
+};
+
+const CONTROLLER_IDENTITY = {
+  scheme: 'posix-ps-v1',
+  pid: 4242,
+  bootId: 'a'.repeat(64),
+  processStartId: 'b'.repeat(64),
+};
+
+async function issueAttended(target, overrides = {}) {
+  return issueAttendedStartPermit({
+    ...target,
+    expectedRevision: overrides.expectedRevision ?? REVISION,
+    baselineNRestarts: overrides.baselineNRestarts ?? 0,
+    startControlOutput: overrides.startControlOutput ?? path.join(target.root, 'start-control.json'),
+    evidenceBindings: overrides.evidenceBindings ?? EVIDENCE_BINDINGS,
+    controllerIdentity: overrides.controllerIdentity ?? CONTROLLER_IDENTITY,
+    nowMs: overrides.nowMs ?? NOW - 1_000,
+    maxAgeMs: overrides.maxAgeMs ?? 120_000,
+  });
 }
 
 async function armAndRecord(target, overrides = {}) {
@@ -174,7 +206,7 @@ test('arm and non-69 cleanup fail closed when the prior permit cannot be removed
   }
 });
 
-test('hostile non-private recovery parent is rejected before any authority write', async () => {
+test('weak-mode and symlink recovery parents are rejected before any authority write', async () => {
   const target = await files();
   try {
     await chmod(target.root, 0o755);
@@ -186,6 +218,30 @@ test('hostile non-private recovery parent is rejected before any authority write
   } finally {
     await chmod(target.root, 0o700).catch(() => undefined);
     await rm(target.root, { recursive: true, force: true });
+  }
+
+  const host = await realpath(await mkdtemp(path.join(os.tmpdir(), 'vh-restart-authority-parent-')));
+  const privateParent = path.join(host, 'private-recovery');
+  const symlinkParent = path.join(host, 'recovery-link');
+  try {
+    await mkdir(privateParent, { mode: 0o700 });
+    await symlink(privateParent, symlinkParent);
+    const symlinkTarget = {
+      authorityFile: path.join(symlinkParent, 'authority.json'),
+      permitFile: path.join(symlinkParent, 'permit.json'),
+      attendedPermitFile: path.join(symlinkParent, 'attended.json'),
+    };
+    await assert.rejects(
+      armRestartAuthority({
+        ...symlinkTarget,
+        expectedRevision: REVISION,
+        baselineNRestarts: 0,
+      }),
+      (error) => error.code === 'parent_not_regular_directory',
+    );
+    await assert.rejects(lstat(path.join(privateParent, 'authority.json')), (error) => error.code === 'ENOENT');
+  } finally {
+    await rm(host, { recursive: true, force: true });
   }
 });
 
@@ -285,6 +341,179 @@ test('timestamp, baseline, and safe-integer tampering cannot mint or consume res
     );
   } finally {
     await rm(unsafeCounter.root, { recursive: true, force: true });
+  }
+});
+
+test('attended permit is evidence/revision/counter bound, private, and atomically single-use', async () => {
+  const target = await files();
+  try {
+    const issued = await issueAttended(target);
+    assert.equal(issued.status, 'attended_start_permit_issued');
+    assert.match(issued.permitBindingSha256, /^[0-9a-f]{64}$/);
+    assert.equal((await lstat(target.attendedPermitFile)).mode & 0o777, 0o600);
+    const text = await readFile(target.attendedPermitFile, 'utf8');
+    assert.match(text, new RegExp(REVISION));
+    assert.doesNotMatch(text, /private.?key|token|password/i);
+
+    const consumed = await consumeAttendedStartPermit({
+      ...target,
+      expectedRevision: REVISION,
+      currentNRestarts: 0,
+      controllerIdentity: CONTROLLER_IDENTITY,
+      nowMs: NOW,
+    });
+    assert.equal(consumed.status, 'attended_start_authorized');
+    assert.equal(consumed.permitBindingSha256, issued.permitBindingSha256);
+    assert.deepEqual(consumed.evidenceBindings, EVIDENCE_BINDINGS);
+    await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+    await assert.rejects(
+      consumeAttendedStartPermit({
+        ...target,
+        expectedRevision: REVISION,
+        currentNRestarts: 0,
+        controllerIdentity: CONTROLLER_IDENTITY,
+        nowMs: NOW,
+      }),
+      (error) => error.code === 'attended_permit_missing',
+    );
+  } finally {
+    await rm(target.root, { recursive: true, force: true });
+  }
+});
+
+test('attended permit rejects stale, revision, evidence, counter, PID-reuse, and boot drift and destroys itself', async () => {
+  const rows = [
+    {
+      mutate: () => ({ expectedRevision: 'b'.repeat(40) }),
+      code: 'attended_permit_contract_invalid',
+    },
+    {
+      mutate: () => ({ currentNRestarts: 1 }),
+      code: 'attended_permit_contract_invalid',
+    },
+    {
+      issue: { nowMs: NOW - 200_000, maxAgeMs: 10_000 },
+      mutate: () => ({}),
+      code: 'attended_permit_contract_invalid',
+    },
+    {
+      mutate: () => ({
+        controllerIdentity: { ...CONTROLLER_IDENTITY, pid: CONTROLLER_IDENTITY.pid + 1 },
+      }),
+      code: 'attended_controller_identity_changed',
+    },
+    {
+      mutate: () => ({
+        controllerIdentity: { ...CONTROLLER_IDENTITY, bootId: 'd'.repeat(64) },
+      }),
+      code: 'attended_controller_identity_changed',
+    },
+    {
+      // Same PID with a different process-start identity is the PID-reuse case.
+      mutate: () => ({
+        controllerIdentity: { ...CONTROLLER_IDENTITY, processStartId: 'c'.repeat(64) },
+      }),
+      code: 'attended_controller_identity_changed',
+    },
+  ];
+  for (const row of rows) {
+    const target = await files();
+    try {
+      await issueAttended(target, row.issue);
+      const overrides = row.mutate();
+      await assert.rejects(
+        consumeAttendedStartPermit({
+          ...target,
+          expectedRevision: REVISION,
+          currentNRestarts: 0,
+          controllerIdentity: CONTROLLER_IDENTITY,
+          nowMs: NOW,
+          ...overrides,
+        }),
+        (error) => error.code === row.code,
+      );
+      await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+    } finally {
+      await rm(target.root, { recursive: true, force: true });
+    }
+  }
+
+  const evidenceTarget = await files();
+  try {
+    await issueAttended(evidenceTarget);
+    const permit = JSON.parse(await readFile(evidenceTarget.attendedPermitFile, 'utf8'));
+    permit.evidenceBindings.relayEvidenceSha256 = 'not-a-hash';
+    await writeFile(evidenceTarget.attendedPermitFile, `${JSON.stringify(permit)}\n`, { mode: 0o600 });
+    await chmod(evidenceTarget.attendedPermitFile, 0o600);
+    await assert.rejects(
+      consumeAttendedStartPermit({
+        ...evidenceTarget,
+        expectedRevision: REVISION,
+        currentNRestarts: 0,
+        controllerIdentity: CONTROLLER_IDENTITY,
+        nowMs: NOW,
+      }),
+      (error) => error.code === 'attended_evidence_bindings_invalid',
+    );
+    await assert.rejects(lstat(evidenceTarget.attendedPermitFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await rm(evidenceTarget.root, { recursive: true, force: true });
+  }
+});
+
+test('concurrent attended consumers authorize exactly one invocation', async () => {
+  const target = await files();
+  try {
+    await issueAttended(target);
+    const input = {
+      ...target,
+      expectedRevision: REVISION,
+      currentNRestarts: 0,
+      controllerIdentity: CONTROLLER_IDENTITY,
+      nowMs: NOW,
+    };
+    const results = await Promise.allSettled([
+      consumeAttendedStartPermit(input),
+      consumeAttendedStartPermit(input),
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+    await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+  } finally {
+    await rm(target.root, { recursive: true, force: true });
+  }
+});
+
+test('SIGKILL of the issuing controller makes a published attended permit unusable', async () => {
+  const target = await files();
+  const controller = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    stdio: 'ignore',
+  });
+  try {
+    await issueAttendedStartPermit({
+      ...target,
+      expectedRevision: REVISION,
+      baselineNRestarts: 0,
+      startControlOutput: path.join(target.root, 'start-control.json'),
+      evidenceBindings: EVIDENCE_BINDINGS,
+      controllerPid: controller.pid,
+      nowMs: Date.now(),
+    });
+    controller.kill('SIGKILL');
+    await new Promise((resolve) => controller.once('close', resolve));
+    await assert.rejects(
+      consumeAttendedStartPermit({
+        ...target,
+        expectedRevision: REVISION,
+        currentNRestarts: 0,
+        nowMs: Date.now(),
+      }),
+      (error) => error.code === 'controller_not_live',
+    );
+    await assert.rejects(lstat(target.attendedPermitFile), (error) => error.code === 'ENOENT');
+  } finally {
+    controller.kill('SIGKILL');
+    await rm(target.root, { recursive: true, force: true });
   }
 });
 
