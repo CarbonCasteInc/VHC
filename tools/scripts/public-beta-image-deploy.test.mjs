@@ -1089,7 +1089,9 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
     const stageB = packet.indexOf('# Stage B: re-prove parked publisher and exact live/captured prestate, then replace only vhc-relay-b.');
     const goB = packet.indexOf('vhc-relay-b: GO for next relay');
     const stageC = packet.indexOf('# Stage C: re-prove parked publisher and exact live/captured prestate, then replace only vhc-relay-c.');
-    assert.ok(stageA > 0 && stageA < goA && goA < stageB && stageB < goB && goB < stageC, packet);
+    const completedC = packet.indexOf('vhc-relay-c: rolling replacement complete; publisher remains parked');
+    assert.ok(stageA > 0 && stageA < goA && goA < stageB && stageB < goB && goB < stageC && stageC < completedC, packet);
+    assert.doesNotMatch(packet, /vhc-relay-c: GO for next relay/);
     assert.match(packet, /--user '1000:1000'/);
     assert.match(packet, /--memory 2415919104/);
     assert.match(packet, /--memory-swap 2415919104/);
@@ -1116,12 +1118,23 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
       const postVerifyPublisherCheck = packet.indexOf('assert_publisher_parked', publisherCheck + 1);
       const topologyCheck = packet.indexOf(`assert_live_topology_parity '${name}'`, stageStart);
       const prestateCheck = packet.indexOf(`assert_relay_prestate '${name}'`, stageStart);
+      const removalBoundaryCheck = packet.indexOf(`assert_relay_removal_boundary '${name}'`, stageStart);
+      const userJobsCheck = packet.indexOf('assert_no_pending_user_jobs', stageStart);
       const refusal = packet.indexOf(`${name}: pre_mutation_refused_no_change`, stageStart);
       const latch = packet.indexOf('relay_mutation_started=true', stageStart);
       const verify = packet.indexOf(`verify_relay_only_runtime '${name}'`, stageStart);
-      const go = packet.indexOf(`${name}: GO for next relay`, stageStart);
-      assert.ok(stageStart > 0 && topologyCheck < prestateCheck && prestateCheck < publisherCheck && publisherCheck < refusal && refusal < latch && latch < remove, packet);
-      assert.ok(remove < verify && verify < postVerifyPublisherCheck && postVerifyPublisherCheck < go, packet);
+      const completion = packet.indexOf(name.endsWith('-c')
+        ? `${name}: rolling replacement complete; publisher remains parked`
+        : `${name}: GO for next relay`, stageStart);
+      assert.ok(stageStart > 0
+        && topologyCheck < prestateCheck
+        && prestateCheck < removalBoundaryCheck
+        && removalBoundaryCheck < publisherCheck
+        && publisherCheck < userJobsCheck
+        && userJobsCheck < refusal
+        && refusal < latch
+        && latch < remove, packet);
+      assert.ok(remove < verify && verify < postVerifyPublisherCheck && postVerifyPublisherCheck < completion, packet);
     }
     for (const reason of [
       'rollback_remove_failed',
@@ -1143,6 +1156,11 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
     assert.ok(readOnlyPrecheck.indexOf('umask 077') >= 0 && privateDirCreate >= 0 && privateDirCreate < firstPrivateWrite, readOnlyPrecheck);
     assert.match(readOnlyPrecheck, /relay_packet_private_dir_unsafe/);
     assert.match(readOnlyPrecheck, /stat -c '%a'/);
+    const initialJobsCommand = readOnlyPrecheck.indexOf('systemctl --user list-jobs --no-legend --no-pager');
+    const initialDockerRead = readOnlyPrecheck.indexOf('sudo docker ps');
+    assert.ok(initialJobsCommand > privateDirCreate && initialJobsCommand < initialDockerRead, readOnlyPrecheck);
+    assert.match(readOnlyPrecheck, /user_job_queue_unavailable/);
+    assert.match(readOnlyPrecheck, /user_job_queue_not_empty/);
     const bashBlocks = [...packet.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]);
     assert.ok(bashBlocks.length >= 5, packet);
     for (const [index, block] of bashBlocks.entries()) {
@@ -1236,12 +1254,15 @@ test('relay-only approval block keeps precondition refusal nonmutating and close
     const approvalMatch = emitted.stdout.match(/## Approval-Gated Relay-Only Rolling Recovery[\s\S]*?```bash\n([\s\S]*?)\n```/);
     assert.ok(approvalMatch, emitted.stdout);
     const approval = approvalMatch[1];
-    const stageAStart = approval.indexOf('# Stage A:');
-    const stageAEndNeedle = 'echo "vhc-relay-a: GO for next relay"';
-    const stageAEnd = approval.indexOf(stageAEndNeedle, stageAStart) + stageAEndNeedle.length;
-    assert.ok(stageAStart > 0 && stageAEnd > stageAStart);
-    const helpers = approval.slice(0, stageAStart);
-    const stageA = approval.slice(stageAStart, stageAEnd);
+    const stageStarts = ['A', 'B', 'C'].map((stage) => approval.indexOf(`# Stage ${stage}:`));
+    assert.ok(stageStarts[0] > 0 && stageStarts[0] < stageStarts[1] && stageStarts[1] < stageStarts[2]);
+    const helpers = approval.slice(0, stageStarts[0]);
+    const stages = [
+      { stage: 'A', name: 'vhc-relay-a', script: approval.slice(stageStarts[0], stageStarts[1]) },
+      { stage: 'B', name: 'vhc-relay-b', script: approval.slice(stageStarts[1], stageStarts[2]) },
+      { stage: 'C', name: 'vhc-relay-c', script: approval.slice(stageStarts[2]) },
+    ];
+    const stageA = stages[0].script;
     const expectedTopology = stageA.match(/assert_live_topology_parity 'vhc-relay-a' '([^']+)'/u)?.[1];
     assert.ok(expectedTopology);
 
@@ -1259,6 +1280,11 @@ exec "$@"
 `);
     writeExecutable('systemctl', `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "\${1:-}" == "--user" && "\${2:-}" == "list-jobs" && "\${3:-}" == "--no-legend" && "\${4:-}" == "--no-pager" && $# -eq 4 ]]; then
+  if [[ "\${FAKE_LIST_JOBS_ERROR:-}" == "true" ]]; then exit 1; fi
+  printf '%s' "\${FAKE_LIST_JOBS_OUTPUT:-}"
+  exit 0
+fi
 count_file="\${FAKE_SYSTEMCTL_COUNT_FILE:?}"
 count="$(cat "\${count_file}" 2>/dev/null || printf 0)"
 stage=$((count / 4 + 1))
@@ -1373,7 +1399,11 @@ if [[ "\${write_status}" == "true" ]]; then printf '404'; fi
 `);
     writeExecutable('sha256sum', `#!/usr/bin/env bash
 set -euo pipefail
-if [[ "\${FAKE_ROLLBACK_FAILURE:-}" == "checksum" ]]; then exit 1; fi
+count="$(cat "\${FAKE_SHA_COUNT_FILE:?}" 2>/dev/null || printf 0)"
+count=$((count + 1))
+printf '%s\n' "\${count}" > "\${FAKE_SHA_COUNT_FILE}"
+if [[ "\${FAKE_SNAPSHOT_BOUNDARY_DRIFT:-}" == "true" ]]; then exit 1; fi
+if [[ "\${FAKE_ROLLBACK_FAILURE:-}" == "checksum" && "\${count}" -ge 2 ]]; then exit 1; fi
 printf 'snapshot: OK\n'
 `);
     writeExecutable('sleep', '#!/usr/bin/env bash\nexit 0\n');
@@ -1383,6 +1413,7 @@ printf 'snapshot: OK\n'
       dockerState: path.join(root, 'docker-state'),
       rmCount: path.join(root, 'rm-count'),
       runCount: path.join(root, 'run-count'),
+      shaCount: path.join(root, 'sha-count'),
       dockerLog: path.join(root, 'docker.log'),
       mutationLog: path.join(root, 'mutation.log'),
       liveInspect: path.join(root, 'live-inspect.json'),
@@ -1394,10 +1425,11 @@ printf 'snapshot: OK\n'
       FAKE_DOCKER_STATE_FILE: files.dockerState,
       FAKE_RM_COUNT_FILE: files.rmCount,
       FAKE_RUN_COUNT_FILE: files.runCount,
+      FAKE_SHA_COUNT_FILE: files.shaCount,
       FAKE_DOCKER_LOG: files.dockerLog,
     };
     const resetFakes = () => {
-      for (const file of [files.systemctlCount, files.rmCount, files.runCount]) writeFileSync(file, '0\n', 'utf8');
+      for (const file of [files.systemctlCount, files.rmCount, files.runCount, files.shaCount]) writeFileSync(file, '0\n', 'utf8');
       writeFileSync(files.dockerState, 'old\n', 'utf8');
       writeFileSync(files.dockerLog, '', 'utf8');
       writeFileSync(files.mutationLog, '', 'utf8');
@@ -1524,6 +1556,103 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
     assert.equal(hostile.status, 78, hostile.stderr);
     assert.match(hostile.stderr, /exact_missing_key_contract_mismatch/);
     assert.doesNotMatch(hostile.stderr, /HOSTILE_404_SECRET_DO_NOT_LEAK|"secret"|"error"/);
+
+    resetFakes();
+    const queuedJob = runBash(`${helpers}\nassert_no_pending_user_jobs`, {
+      FAKE_LIST_JOBS_OUTPUT: '991 vh-news-aggregator.service start running HOSTILE_JOB_DETAIL_DO_NOT_LEAK',
+    });
+    assert.equal(queuedJob.status, 78, queuedJob.stderr);
+    assert.match(queuedJob.stderr, /^user_job_queue_not_empty$/m);
+    assert.doesNotMatch(`${queuedJob.stdout}\n${queuedJob.stderr}`, /HOSTILE_JOB_DETAIL_DO_NOT_LEAK|vh-news-aggregator\.service/);
+
+    resetFakes();
+    const unavailableJobs = runBash(`${helpers}\nassert_no_pending_user_jobs`, {
+      FAKE_LIST_JOBS_ERROR: 'true',
+    });
+    assert.equal(unavailableJobs.status, 78, unavailableJobs.stderr);
+    assert.match(unavailableJobs.stderr, /^user_job_queue_unavailable$/m);
+
+    resetFakes();
+    const emptyJobs = runBash(`${helpers}\nassert_no_pending_user_jobs`);
+    assert.equal(emptyJobs.status, 0, emptyJobs.stderr);
+
+    const nonmutatingBoundaryHarness = (stage) => `${helpers}
+assert_live_topology_parity() { return 0; }
+assert_relay_prestate() { return 0; }
+assert_publisher_parked() { return 0; }
+verify_relay_only_runtime() { return 0; }
+${stage.script}`;
+    for (const stage of stages) {
+      resetFakes();
+      const jobsAppeared = runBash(nonmutatingBoundaryHarness(stage), {
+        FAKE_LIST_JOBS_OUTPUT: `887 ${stage.name}.service restart running HOSTILE_${stage.stage}_JOB_DETAIL_DO_NOT_LEAK`,
+      });
+      assert.equal(jobsAppeared.status, 78, `${stage.stage} jobs: ${jobsAppeared.stderr}`);
+      assert.match(jobsAppeared.stderr, /user_job_queue_not_empty/);
+      assert.match(jobsAppeared.stderr, new RegExp(`${stage.name}: pre_mutation_refused_no_change`));
+      assert.doesNotMatch(`${jobsAppeared.stdout}\n${jobsAppeared.stderr}`, new RegExp(`HOSTILE_${stage.stage}_JOB_DETAIL_DO_NOT_LEAK|${stage.name}\\.service`));
+      assert.doesNotMatch(jobsAppeared.stderr, /verification failed|rollback_/);
+      assert.equal(readFileSync(files.dockerLog, 'utf8'), '', `${stage.stage} queued job mutated docker`);
+      assert.equal(readFileSync(files.rmCount, 'utf8').trim(), '0');
+      assert.equal(readFileSync(files.runCount, 'utf8').trim(), '0');
+
+      resetFakes();
+      const snapshotDrift = runBash(nonmutatingBoundaryHarness(stage), {
+        FAKE_SNAPSHOT_BOUNDARY_DRIFT: 'true',
+      });
+      assert.equal(snapshotDrift.status, 78, `${stage.stage} snapshot: ${snapshotDrift.stderr}`);
+      assert.match(snapshotDrift.stderr, new RegExp(`${stage.name}: snapshot_baseline_drift_at_removal_boundary`));
+      assert.match(snapshotDrift.stderr, new RegExp(`${stage.name}: pre_mutation_refused_no_change`));
+      assert.doesNotMatch(snapshotDrift.stderr, /verification failed|rollback_/);
+      assert.equal(readFileSync(files.dockerLog, 'utf8'), '', `${stage.stage} snapshot drift mutated docker`);
+      assert.equal(readFileSync(files.rmCount, 'utf8').trim(), '0');
+      assert.equal(readFileSync(files.runCount, 'utf8').trim(), '0');
+    }
+
+    for (const stage of stages) {
+      resetFakes();
+      const publisherTransition = runBash(`${helpers}
+assert_live_topology_parity() { return 0; }
+assert_relay_prestate() { return 0; }
+verify_relay_only_runtime() { return 0; }
+assert_publisher_parked || exit $?
+${stage.script}`, {
+        FAKE_PUBLISHER_SEQUENCE: `failed,failed,exit-code,78;active,running-HOSTILE_${stage.stage}_PUBLISHER_DETAIL_DO_NOT_LEAK,success,0`,
+        FAKE_LIST_JOBS_OUTPUT: '',
+      });
+      assert.equal(publisherTransition.status, 78, `${stage.stage} publisher transition: ${publisherTransition.stderr}`);
+      assert.equal(readFileSync(files.shaCount, 'utf8').trim(), '1', `${stage.stage} removal boundary did not complete before final publisher check`);
+      assert.match(publisherTransition.stderr, /publisher_not_exactly_parked_exit_78/);
+      assert.match(publisherTransition.stderr, new RegExp(`${stage.name}: pre_mutation_refused_no_change`));
+      assert.doesNotMatch(`${publisherTransition.stdout}\n${publisherTransition.stderr}`, /HOSTILE_[ABC]_PUBLISHER_DETAIL_DO_NOT_LEAK/);
+      assert.doesNotMatch(publisherTransition.stderr, /verification failed|rollback_/);
+      assert.equal(readFileSync(files.dockerLog, 'utf8'), '', `${stage.stage} publisher transition mutated docker`);
+      assert.equal(readFileSync(files.rmCount, 'utf8').trim(), '0');
+      assert.equal(readFileSync(files.runCount, 'utf8').trim(), '0');
+    }
+
+    resetFakes();
+    const successfulRolling = runBash(`${helpers}
+assert_live_topology_parity() { return 0; }
+assert_relay_prestate() { return 0; }
+assert_publisher_parked() { return 0; }
+verify_relay_only_runtime() { return 0; }
+${stages.map((stage) => stage.script).join('\n')}`);
+    assert.equal(successfulRolling.status, 0, successfulRolling.stderr);
+    assert.equal(readFileSync(files.dockerLog, 'utf8'), [
+      'rm:vhc-relay-a',
+      `run:${REVIEWED_RELAY_IMAGE_ID}`,
+      'rm:vhc-relay-b',
+      `run:${REVIEWED_RELAY_IMAGE_ID}`,
+      'rm:vhc-relay-c',
+      `run:${REVIEWED_RELAY_IMAGE_ID}`,
+      '',
+    ].join('\n'));
+    const successGoA = successfulRolling.stdout.indexOf('vhc-relay-a: GO for next relay');
+    const successGoB = successfulRolling.stdout.indexOf('vhc-relay-b: GO for next relay');
+    const successCompleteC = successfulRolling.stdout.indexOf('vhc-relay-c: rolling replacement complete; publisher remains parked');
+    assert.ok(successGoA >= 0 && successGoA < successGoB && successGoB < successCompleteC, successfulRolling.stdout);
+    assert.doesNotMatch(successfulRolling.stdout, /vhc-relay-c: GO for next relay/);
 
     const preconditionCases = [
       {

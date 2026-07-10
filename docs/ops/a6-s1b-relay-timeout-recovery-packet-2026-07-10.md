@@ -191,7 +191,12 @@ captured input hash, then return `GO` only if all of these are true:
 - scope is exactly relay A, B, C in that order;
 - no origin or publisher recreate/start command exists;
 - the publisher must match the exact exit-78 parked tuple above at initial
-  precheck and again as the final gate immediately before each A/B/C removal;
+  precheck and again in the final pre-mutation sequence immediately before each
+  A/B/C removal;
+- `systemctl --user list-jobs --no-legend --no-pager` must succeed with no
+  output during the initial executable precheck and freshly as the last check
+  before every A/B/C mutation latch; any command failure or returned job is a
+  closed pre-mutation refusal, and raw job rows are never printed;
 - the new image is `linux/amd64` and its OCI revision equals the merged commit;
 - the mutable image ref resolves to the export manifest's full immutable image
   id immediately before every A/B/C removal; the packet runs that immutable id,
@@ -204,6 +209,10 @@ captured input hash, then return `GO` only if all of these are true:
   policy, user, and memory limits are preserved from inspect evidence and
   rechecked immediately after recreate, after verification, and after rollback;
 - snapshot checks cover latest-index, synthesis-lifecycle, and topic-synthesis;
+  the current relay's captured SHA baseline is freshly verified at the removal
+  boundary after topology/image checks; only then may the final parked-publisher
+  and empty-job checks run, so drift or a publisher transition cannot enter the
+  mutation latch or rollback path;
 - readiness, health, Docker OOM state, and watchdog metrics are checked before
   proceeding; the pre-mutation and per-stage metric artifacts are retained and
   an absent watchdog-trip row is semantic zero because the relay initializes an
@@ -245,7 +254,9 @@ with `--include-recreate-commands`. Its contract is:
    `Result=exit-code`, `ExecMainStatus=78`; all three relays are running;
    loopback readiness and metrics respond; no relay reports OOM; and the three
    required snapshot files are nonempty, schema-valid, and checksummed.
-   Preserve initial metrics privately. An absent watchdog-trip row means zero;
+   Require `systemctl --user list-jobs --no-legend --no-pager` to succeed with
+   no output before continuing, withholding any returned row and emitting only
+   a closed reason. Preserve initial metrics privately. An absent watchdog-trip row means zero;
    that absence is accepted only alongside exactly one valid uptime and RSS
    producer row. Empty/random telemetry and malformed/duplicate/nonzero trip or
    producer rows fail closed.
@@ -258,9 +269,12 @@ with `--include-recreate-commands`. Its contract is:
 4. Immediately before relay A removal, compare live image, env, bind mounts,
    semantic network attachment and `NetworkID`, ports, restart policy,
    configured user, and memory limits with the captured inspect prestate;
-   reject any drift. Recheck the exact exit-78 parked publisher tuple and invoke
-   the atomic removal-boundary check immediately before removal, then replace A
-   only.
+   reject any drift. Invoke the atomic removal-boundary check immediately before
+   removal. That boundary rechecks topology and immutable image binding and
+   freshly verifies A's captured snapshot SHA baseline. Only after it passes,
+   recheck the exact exit-78 parked publisher tuple, then require a freshly empty
+   user-manager job queue as the last executable precondition. Only then replace
+   A.
    A refusal in topology, watchdog/readiness, or publisher preconditions exits
    `78` with no `docker rm`, no `docker run`, and no rollback of the untouched
    relay. Rollback is reachable only after the mutation-started latch is set at
@@ -280,8 +294,10 @@ with `--include-recreate-commands`. Its contract is:
      `news-synthesis-lifecycle-not-found` and HTTP 404.
 7. Proceed to B only after A passes every gate; proceed to C only after B passes.
    Repeat the full live/captured topology comparison, zero-trip prestate, and
-   final exact publisher-state check immediately before each removal. A publisher
-   resume or transitional state between stages stops before the next mutation.
+   current-relay snapshot-baseline, final exact publisher-state, and empty
+   user-manager-job checks in that order immediately before each removal. A publisher resume,
+   transitional state, snapshot drift, or queued job between stages stops before
+   the next mutation.
    Recheck the exact parked tuple again after each relay passes all verification
    and before emitting GO or entering the next stage; a resume during
    verification rolls back the already-mutated current relay and stops.
@@ -291,8 +307,9 @@ with `--include-recreate-commands`. Its contract is:
    command is guarded; remove/run/readiness/checksum failures produce a closed
    reason code and exit `78` rather than leaking command output or falling
    through.
-9. After C passes, keep the publisher parked and return evidence for independent
-   review. Relay deployment success alone does not authorize publisher recovery.
+9. After C passes, emit `rolling replacement complete; publisher remains
+   parked`, not `GO for next relay`, and return evidence for independent review.
+   Relay deployment success alone does not authorize publisher recovery.
 
 ## Hard Stops
 
@@ -307,6 +324,8 @@ Stop before any removal on:
 - publisher state differs in any field from exact exit-78 parked state,
   including inactive, active, activating, deactivating, or resumed between
   relay stages;
+- `systemctl --user list-jobs --no-legend --no-pager` fails or returns any job
+  during initial precheck or at an A/B/C removal boundary;
 - missing, invalid, empty, or changed snapshot;
 - failed readiness/health, pre-existing OOM/watchdog trip, or secret-bearing
   output;

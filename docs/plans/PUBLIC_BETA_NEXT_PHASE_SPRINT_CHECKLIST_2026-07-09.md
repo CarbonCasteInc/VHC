@@ -1074,12 +1074,22 @@ proof, and no live recovery is claimed.
   all-four exact missing-key probes, immediate current-relay rollback, and hard
   stop conditions.
 - [x] Define parked as exactly `failed/failed`, `Result=exit-code`,
-  `ExecMainStatus=78`, then recheck it as the final gate before every A/B/C
-  removal and again after verification before GO, so a transition/resume cannot
-  mutate the next relay or pass unnoticed during verification.
+  `ExecMainStatus=78`, then recheck it in the final pre-mutation sequence before
+  every A/B/C removal and again after verification before GO, so a
+  transition/resume cannot mutate the next relay or pass unnoticed during
+  verification.
+- [x] Require `systemctl --user list-jobs --no-legend --no-pager` to succeed
+  with no output at initial executable precheck and freshly as the last check
+  before every A/B/C mutation latch; withhold raw job rows and fail closed on an
+  unreadable or nonempty queue.
+- [x] Freshly verify the current relay's captured three-snapshot SHA baseline at
+  every removal boundary after topology/image checks; only after that expensive
+  work passes may the final parked-publisher check and then the empty-job check
+  run, so drift or a publisher transition performs zero remove/run/rollback.
 - [x] Keep all pre-mutation refusals outside rollback: topology,
-  watchdog/readiness, or publisher failure exits `78` with zero remove/run of
-  the untouched relay; only a set mutation-started latch can enter rollback.
+  watchdog/readiness, publisher, snapshot-baseline, or user-job failure exits
+  `78` with zero remove/run of the untouched relay;
+  only a set mutation-started latch can enter rollback.
 - [x] Create and validate a current-user-owned, non-symlink `0700` private work
   directory before any initial evidence write.
 - [x] Preserve and parse initial/per-stage metrics before mutation; treat an

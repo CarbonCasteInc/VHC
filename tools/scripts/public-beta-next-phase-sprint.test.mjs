@@ -170,6 +170,8 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'runtime endpoint ids',
     'current A6 `host`/`host` topology',
     'exact `--network host`',
+    '`systemctl --user list-jobs --no-legend --no-pager`',
+    'captured three-snapshot SHA baseline',
   ]) {
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
   }
@@ -195,7 +197,10 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'recreate only the current relay',
     'prestate image id',
     'does not prove publisher recovery',
-    'final gate immediately before each A/B/C removal',
+    '`systemctl --user list-jobs --no-legend --no-pager`',
+    'last check',
+    'captured SHA baseline is freshly verified',
+    'rolling replacement complete; publisher remains',
     'no `docker rm`, no `docker run`, and no rollback of the untouched',
     'mutation-started latch is set at',
     'exactly one valid uptime and RSS',
@@ -206,6 +211,37 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'normalize to exit `78`',
   ]) {
     assertIncludes(recoveryPacket, token, `G3 recovery packet token ${token}`);
+  }
+  const relayABoundaryContract = recoveryPacket.slice(
+    recoveryPacket.indexOf('4. Immediately before relay A removal'),
+    recoveryPacket.indexOf('5. Immediately after recreate'),
+  );
+  const boundarySnapshot = relayABoundaryContract.indexOf('snapshot SHA baseline');
+  const finalPublisher = relayABoundaryContract.indexOf('recheck the exact exit-78 parked publisher tuple');
+  const finalJobs = relayABoundaryContract.indexOf('user-manager job queue as the last executable precondition');
+  assert.ok(
+    boundarySnapshot >= 0 && boundarySnapshot < finalPublisher && finalPublisher < finalJobs,
+    'relay removal boundary must order snapshot -> final publisher -> empty user jobs',
+  );
+  const relayOnlyDeployDocs = imageDeploy.slice(
+    imageDeploy.indexOf('Only after the recorded boundary approval'),
+    imageDeploy.indexOf('## Deploy Order'),
+  );
+  const genericDeployOrder = imageDeploy.slice(
+    imageDeploy.indexOf('## Deploy Order'),
+    imageDeploy.indexOf('## No-Go Criteria'),
+  );
+  assertIncludes(relayOnlyDeployDocs, 'A and B may emit `GO for next relay`', 'relay-only A/B completion scope');
+  assertIncludes(relayOnlyDeployDocs, 'rolling replacement is complete', 'relay-only C completion scope');
+  for (const [token, label] of [
+    ['re-run the current relay\'s captured snapshot checksums', 'captured snapshot rerun'],
+    ['snapshot-baseline', 'snapshot boundary'],
+    ['parked-publisher check', 'parked publisher'],
+    ['empty-job check', 'empty user jobs'],
+    ['`GO for next relay`', 'A/B GO output'],
+    ['rolling replacement is complete', 'C completion output'],
+  ]) {
+    assert.ok(!genericDeployOrder.includes(token), `generic deploy order must not contain relay-only ${label} instructions`);
   }
   assertIncludes(canon, RECOVERY_PACKET_PATH, 'G3 recovery packet canon route');
   assertIncludes(deployPacketScript, '--relay-only', 'deploy relay-only flag');
