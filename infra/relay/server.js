@@ -2893,12 +2893,28 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
   const allowSnapshotFallback = options.allowSnapshotFallback !== false
     && boolEnv('VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK', true);
+  const preferCompleteRecord = options.preferCompleteRecord === true;
   const parseReadResult = (result) => {
     if (result.kind === 'direct') {
       const direct = stripGunMetadata(result.value);
       const envelope = direct && typeof direct === 'object'
         ? parseStoryBundleEnvelope(direct.__story_bundle_json)
         : null;
+      if (preferCompleteRecord && direct && typeof direct === 'object') {
+        // The compatibility scalar is sufficient for the public story-body
+        // response, but it is not the complete signed system-writer record
+        // required to reconcile an unacknowledged POST. Suppress only this
+        // legacy scalar-only shape; other malformed direct rows must still be
+        // returned so the caller can fail closed on signed-record validation.
+        const directKeys = Object.keys(direct);
+        if (directKeys.length === 0 || directKeys.every((key) => key === '__story_bundle_json')) {
+          return null;
+        }
+        return {
+          record: direct,
+          story: envelope?.story_id === storyId ? envelope : { story_id: storyId },
+        };
+      }
       if (envelope?.story_id === storyId) {
         return {
           record: direct,
@@ -2916,20 +2932,554 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
     }
     return null;
   };
-  const pending = storyChains.flatMap((storyChain) => [
+  const directPending = storyChains.map((storyChain) =>
     readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value })),
+  );
+  const scalarPending = storyChains.map((storyChain) =>
     readNonNullOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
       .then((value) => ({ kind: 'scalar', value })),
-  ]);
-  while (pending.length > 0) {
-    const { index, result } = await Promise.race(
-      pending.map((promise, index) => promise.then((result) => ({ index, result }))),
-    );
-    pending.splice(index, 1);
-    const parsed = parseReadResult(result);
-    if (parsed) return parsed;
+  );
+  const firstParsed = async (work) => {
+    const pending = [...work];
+    while (pending.length > 0) {
+      const { index, result } = await Promise.race(
+        pending.map((promise, index) => promise.then((result) => ({ index, result }))),
+      );
+      pending.splice(index, 1);
+      const parsed = parseReadResult(result);
+      if (parsed) return parsed;
+    }
+    return null;
+  };
+  if (preferCompleteRecord) {
+    const direct = await firstParsed(directPending);
+    if (direct) return direct;
+    return null;
+  } else {
+    const first = await firstParsed([...directPending, ...scalarPending]);
+    if (first) return first;
   }
   return allowSnapshotFallback ? readNewsStoryRecordFromLatestIndexSnapshot(storyId) : null;
+}
+
+const NEWS_EXACT_SYSTEM_WRITER_KEYS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+  '_protocolVersion',
+  '_writerKind',
+  '_systemWriterId',
+  '_systemIssuedAt',
+  '_systemSignature',
+];
+const NEWS_EXACT_LEGACY_SYSTEM_WRITER_KEYS = [
+  '_system',
+  '_Signature',
+  '_WriterId',
+  '_IssuedAt',
+];
+const NEWS_EXACT_STORY_KEYS = new Set([
+  '__story_bundle_json',
+  'story_id',
+  'created_at',
+  'schemaVersion',
+  ...NEWS_EXACT_SYSTEM_WRITER_KEYS,
+]);
+const NEWS_EXACT_STORY_RELATION_KEYS = new Set([
+  'synthesis_lifecycle',
+  'analysis',
+  'analysis_latest',
+]);
+const NEWS_EXACT_GUN_LINK_KEYS = new Set(['#']);
+const NEWS_EXACT_STORY_BUNDLE_KEYS = new Set([
+  'schemaVersion',
+  'story_id',
+  'topic_id',
+  'storyline_id',
+  'headline',
+  'summary_hint',
+  'cluster_window_start',
+  'cluster_window_end',
+  'sources',
+  'primary_sources',
+  'secondary_assets',
+  'related_links',
+  'cluster_features',
+  'provenance_hash',
+  'created_at',
+]);
+const NEWS_EXACT_STORY_SOURCE_KEYS = new Set([
+  'source_id',
+  'publisher',
+  'url',
+  'url_hash',
+  'published_at',
+  'title',
+  'imageUrl',
+]);
+const NEWS_EXACT_CLUSTER_FEATURE_KEYS = new Set([
+  'entity_keys',
+  'time_bucket',
+  'semantic_signature',
+  'coverage_score',
+  'velocity_score',
+  'confidence_score',
+  'primary_language',
+  'translation_applied',
+]);
+const NEWS_EXACT_INDEX_METADATA_KEYS = [
+  'product_state_schema_version',
+  'topic_id',
+  'source_set_revision',
+  'source_count',
+  'canonical_source_count',
+  'story_created_at',
+  'cluster_window_start',
+];
+const NEWS_EXACT_LATEST_INDEX_KEYS = new Set([
+  'story_id',
+  'latest_activity_at',
+  ...NEWS_EXACT_INDEX_METADATA_KEYS,
+  ...NEWS_EXACT_SYSTEM_WRITER_KEYS,
+]);
+const NEWS_EXACT_HOT_INDEX_KEYS = new Set([
+  'story_id',
+  'hotness',
+  ...NEWS_EXACT_INDEX_METADATA_KEYS,
+  ...NEWS_EXACT_SYSTEM_WRITER_KEYS,
+]);
+const NEWS_EXACT_LIFECYCLE_KEYS = new Set([
+  'schemaVersion',
+  'story_id',
+  'topic_id',
+  'source_set_revision',
+  'source_count',
+  'canonical_source_count',
+  'status',
+  'retryable',
+  'reason',
+  'synthesis_id',
+  'epoch',
+  'frame_table_state',
+  'updated_at',
+  ...NEWS_EXACT_SYSTEM_WRITER_KEYS,
+]);
+
+function newsExactRecordHasOnlyKeys(record, allowedKeys) {
+  return isPlainRecord(record) && Object.keys(record).every((key) => allowedKeys.has(key));
+}
+
+function isNewsExactNonEmptyString(value) {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isNewsExactFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isNewsExactUrl(value) {
+  if (!isNewsExactNonEmptyString(value)) return false;
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isNewsExactOptional(record, key, validate) {
+  return !(key in record) || validate(record[key]);
+}
+
+function isNewsExactStorySource(value) {
+  return Boolean(
+    newsExactRecordHasOnlyKeys(value, NEWS_EXACT_STORY_SOURCE_KEYS)
+    && isNewsExactNonEmptyString(value.source_id)
+    && isNewsExactNonEmptyString(value.publisher)
+    && isNewsExactUrl(value.url)
+    && isNewsExactNonEmptyString(value.url_hash)
+    && isNewsExactNonEmptyString(value.title)
+    && isNewsExactOptional(value, 'published_at', isNewsExactFiniteNumber)
+    && isNewsExactOptional(value, 'imageUrl', isNewsExactUrl)
+  );
+}
+
+function isNewsExactStorySourceList(value, minimumLength = 0) {
+  return Array.isArray(value)
+    && value.length >= minimumLength
+    && value.every((source) => isNewsExactStorySource(source));
+}
+
+function isNewsExactUnitScore(value) {
+  return isNewsExactFiniteNumber(value) && value >= 0 && value <= 1;
+}
+
+function isNewsExactClusterFeatures(value) {
+  return Boolean(
+    newsExactRecordHasOnlyKeys(value, NEWS_EXACT_CLUSTER_FEATURE_KEYS)
+    && Array.isArray(value.entity_keys)
+    && value.entity_keys.length > 0
+    && value.entity_keys.every((key) => isNewsExactNonEmptyString(key))
+    && isNewsExactNonEmptyString(value.time_bucket)
+    && isNewsExactNonEmptyString(value.semantic_signature)
+    && isNewsExactOptional(value, 'coverage_score', isNewsExactUnitScore)
+    && isNewsExactOptional(value, 'velocity_score', isNewsExactUnitScore)
+    && isNewsExactOptional(value, 'confidence_score', isNewsExactUnitScore)
+    && isNewsExactOptional(
+      value,
+      'primary_language',
+      (language) => typeof language === 'string' && language.length >= 2 && language.length <= 12,
+    )
+    && isNewsExactOptional(value, 'translation_applied', (translated) => typeof translated === 'boolean')
+  );
+}
+
+function isClosedNewsExactStoryBundle(story) {
+  return Boolean(
+    newsExactRecordHasOnlyKeys(story, NEWS_EXACT_STORY_BUNDLE_KEYS)
+    && story.schemaVersion === 'story-bundle-v0'
+    && isNewsExactNonEmptyString(story.story_id)
+    && isNewsExactNonEmptyString(story.topic_id)
+    && isNewsExactNonEmptyString(story.headline)
+    && isNewsExactFiniteNumber(story.cluster_window_start)
+    && isNewsExactFiniteNumber(story.cluster_window_end)
+    && isNewsExactStorySourceList(story.sources, 1)
+    && isNewsExactClusterFeatures(story.cluster_features)
+    && isNewsExactNonEmptyString(story.provenance_hash)
+    && isNewsExactFiniteNumber(story.created_at)
+    && isNewsExactOptional(story, 'storyline_id', isNewsExactNonEmptyString)
+    && isNewsExactOptional(story, 'summary_hint', (summary) => typeof summary === 'string')
+    && isNewsExactOptional(story, 'primary_sources', (sources) => isNewsExactStorySourceList(sources, 1))
+    && isNewsExactOptional(story, 'secondary_assets', (sources) => isNewsExactStorySourceList(sources))
+    && isNewsExactOptional(story, 'related_links', (sources) => isNewsExactStorySourceList(sources))
+  );
+}
+
+function isExpectedNewsExactStoryRelation(value, storyId, relationKey) {
+  return newsExactRecordHasOnlyKeys(value, NEWS_EXACT_GUN_LINK_KEYS)
+    && Object.keys(value).length === 1
+    && value['#'] === `vh/news/stories/${storyId}/${relationKey}`;
+}
+
+function projectSafeNewsStoryExactRecord(record, storyId) {
+  if (!isPlainRecord(record)) return null;
+  const projected = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (NEWS_EXACT_STORY_RELATION_KEYS.has(key)) {
+      if (!isExpectedNewsExactStoryRelation(value, storyId, key)) return null;
+      continue;
+    }
+    projected[key] = value;
+  }
+  if (!newsExactRecordHasOnlyKeys(projected, NEWS_EXACT_STORY_KEYS)) return null;
+  const story = parseStoryBundleEnvelope(projected.__story_bundle_json);
+  return isClosedNewsExactStoryBundle(story) && story.story_id === storyId ? projected : null;
+}
+
+function mergeNewsExactStoryRelationsFromGraph(gun, storyId, record) {
+  if (!isPlainRecord(record)) return record;
+  const rawStory = stripGunMetadata(
+    gun?._?.root?.graph?.[`vh/news/stories/${storyId}`],
+  );
+  if (!isPlainRecord(rawStory)) return record;
+  const merged = { ...record };
+  for (const relationKey of NEWS_EXACT_STORY_RELATION_KEYS) {
+    if (relationKey in rawStory) merged[relationKey] = rawStory[relationKey];
+  }
+  return merged;
+}
+
+function createNewsExactStorySelfPeerSession(storyId, absoluteDeadline) {
+  const peerGun = Gun({
+    peers: [selfGunPeerUrl()],
+    localStorage: false,
+    radisk: false,
+    file: false,
+    stats: false,
+    axe: false,
+  });
+  const storySoul = `vh/news/stories/${storyId}`;
+  const storyChain = peerGun.get(storySoul);
+  const relationChains = [...NEWS_EXACT_STORY_RELATION_KEYS].map((relationKey) =>
+    storyChain.get(relationKey));
+  const sessionBudgetMs = Math.max(1, absoluteDeadline - Date.now());
+  const defaultSettleMs = Math.min(100, Math.max(25, Math.floor(sessionBudgetMs / 4)));
+  const configuredSettleMs = numberEnv(
+    'VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_SETTLE_MS',
+    defaultSettleMs,
+  );
+  const settleMs = Math.max(1, Math.min(sessionBudgetMs, configuredSettleMs));
+  let closed = false;
+  let peerConnected = false;
+  let parentCompleted = false;
+  let parentGeneration = 0;
+  let parentUpdatedAt = 0;
+  let lastReturnedGeneration = -1;
+  let lastReturnedAt = 0;
+  const parentWaiters = new Set();
+  const notifyParentWaiters = () => {
+    for (const resolve of parentWaiters) resolve();
+    parentWaiters.clear();
+  };
+  const noteParentUpdate = () => {
+    parentGeneration += 1;
+    parentUpdatedAt = Date.now();
+    notifyParentWaiters();
+  };
+  const waitForParentUpdateOrTimeout = (timeoutMs) => new Promise((resolve) => {
+    let settled = false;
+    let timer;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      parentWaiters.delete(finish);
+      resolve();
+    };
+    timer = setTimeout(finish, timeoutMs);
+    parentWaiters.add(finish);
+    if (closed) finish();
+  });
+  const peerConnectedSubscription = peerGun._.root.on('hi', function onPeerConnected(peer) {
+    this.to.next(peer);
+    peerConnected = true;
+    notifyParentWaiters();
+  });
+  storyChain.on(() => {
+    parentCompleted = true;
+    noteParentUpdate();
+  });
+  for (const relationChain of relationChains) {
+    relationChain.on(noteParentUpdate);
+  }
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    notifyParentWaiters();
+    try {
+      peerConnectedSubscription?.off?.();
+      storyChain.off?.();
+      for (const relationChain of relationChains) relationChain.off?.();
+      const root = peerGun?._?.root;
+      for (const peer of Object.values(root?.opt?.peers ?? {})) {
+        root?.opt?.mesh?.bye?.(peer);
+      }
+      peerGun.off?.();
+    } catch {
+      // Best-effort loopback Gun client cleanup.
+    }
+  };
+  return {
+    async read() {
+      if (closed || Date.now() >= absoluteDeadline) return { kind: 'unavailable' };
+      const remainingMs = Math.max(1, absoluteDeadline - Date.now());
+      const defaultReadTimeoutMs = Math.min(100, Math.max(1, Math.floor(remainingMs / 2)));
+      const configuredReadTimeoutMs = numberEnv(
+        'VH_RELAY_NEWS_STORY_EXACT_SELF_PEER_READ_TIMEOUT_MS',
+        defaultReadTimeoutMs,
+      );
+      const readTimeoutMs = Math.max(1, Math.min(remainingMs, configuredReadTimeoutMs));
+      try {
+        if (!parentCompleted && !peerConnected) {
+          await waitForParentUpdateOrTimeout(readTimeoutMs);
+        }
+        if (!parentCompleted) {
+          return peerConnected
+            ? { kind: 'complete', record: null }
+            : { kind: 'unavailable' };
+        }
+        while (!closed && Date.now() < absoluteDeadline) {
+          const observedGeneration = parentGeneration;
+          const now = Date.now();
+          const quietRemainingMs = Math.max(0, settleMs - (now - parentUpdatedAt));
+          const repeatRemainingMs = parentGeneration === lastReturnedGeneration
+            ? Math.max(0, settleMs - (now - lastReturnedAt))
+            : 0;
+          const settlementRemainingMs = Math.max(quietRemainingMs, repeatRemainingMs);
+          if (settlementRemainingMs <= 0) break;
+          const deadlineRemainingMs = Math.max(1, absoluteDeadline - Date.now());
+          await waitForParentUpdateOrTimeout(Math.min(settlementRemainingMs, deadlineRemainingMs));
+          if (parentGeneration !== observedGeneration) continue;
+        }
+        const settledAt = Date.now();
+        if (
+          closed
+          || settledAt - parentUpdatedAt < settleMs
+          || (
+            parentGeneration === lastReturnedGeneration
+            && settledAt - lastReturnedAt < settleMs
+          )
+        ) {
+          return { kind: 'unavailable' };
+        }
+        const rawStory = stripGunMetadata(peerGun?._?.root?.graph?.[storySoul]);
+        lastReturnedGeneration = parentGeneration;
+        lastReturnedAt = settledAt;
+        return {
+          kind: 'complete',
+          record: isPlainRecord(rawStory) ? rawStory : null,
+          generation: parentGeneration,
+        };
+      } catch {
+        return { kind: 'unavailable' };
+      }
+    },
+    close,
+  };
+}
+
+function newsExactRecordResult(record, extra = {}) {
+  return { kind: 'record', record, ...extra };
+}
+
+function newsExactMissingResult() {
+  return { kind: 'missing' };
+}
+
+function newsExactUnsafeResult() {
+  return { kind: 'unsafe' };
+}
+
+function newsExactUnavailableResult() {
+  return { kind: 'unavailable' };
+}
+
+function isCompleteSignedSystemWriterRecord(record) {
+  return Boolean(
+    isPlainRecord(record)
+    && NEWS_EXACT_LEGACY_SYSTEM_WRITER_KEYS.every((key) => !(key in record) || record[key] === null)
+    && record._protocolVersion === 'luma-public-v1'
+    && record._writerKind === 'system'
+    && typeof record._systemWriterId === 'string'
+    && record._systemWriterId.trim() === record._systemWriterId
+    && record._systemWriterId.length > 0
+    && Number.isFinite(record._systemIssuedAt)
+    && record._systemIssuedAt >= 0
+    && typeof record._systemSignature === 'string'
+    && record._systemSignature.trim() === record._systemSignature
+    && record._systemSignature.length > 0
+  );
+}
+
+function isCompleteSignedNewsStoryRecord(record, storyId) {
+  const story = parseStoryBundleEnvelope(record?.__story_bundle_json);
+  return Boolean(
+    isCompleteSignedSystemWriterRecord(record)
+    && record.story_id === storyId
+    && story?.story_id === storyId
+    && record.schemaVersion === story.schemaVersion
+    && record.created_at === story.created_at
+  );
+}
+
+function newsExactScalarRecordFingerprint(record) {
+  return JSON.stringify(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, record[key]]),
+  );
+}
+
+async function readNewsStoryExactRecord(gun, storyId, options = {}) {
+  const storyChains = [
+    gun.get('vh/news/stories').get(storyId),
+    gun.get(`vh/news/stories/${storyId}`),
+    gun.get('vh').get('news').get('stories').get(storyId),
+  ];
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
+  const deadline = Date.now() + timeoutMs;
+  const selfPeerSession = createNewsExactStorySelfPeerSession(storyId, deadline);
+  let selfPeerVertex = null;
+  let sawPresent = false;
+  let sawUnsafeOrConflict = false;
+  let stableSafeFingerprint = null;
+  let stableSafeGeneration = null;
+  let stableSafeObservationCount = 0;
+
+  try {
+    do {
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const [storyValues, freshVertex] = await Promise.all([
+        Promise.all(storyChains.map((chain) => readOnce(chain, Math.min(remainingMs, 250)))),
+        selfPeerSession.read(),
+      ]);
+      selfPeerVertex = freshVertex;
+      const observations = storyValues.map((value) => ({
+        present: value !== null && value !== undefined,
+        direct: mergeNewsExactStoryRelationsFromGraph(
+          gun,
+          storyId,
+          stripGunMetadata(value),
+        ),
+      }));
+      if (selfPeerVertex.kind === 'complete' && isPlainRecord(selfPeerVertex.record)) {
+        observations.push({
+          present: true,
+          direct: selfPeerVertex.record,
+          authoritative: true,
+          generation: selfPeerVertex.generation,
+        });
+      }
+      const safeCandidates = [];
+      let batchUnsafe = false;
+      let authoritativeSafeFingerprint = null;
+      let authoritativeSafeGeneration = null;
+      for (const observed of observations) {
+        if (observed.present) sawPresent = true;
+        if (!observed.present) continue;
+        const direct = projectSafeNewsStoryExactRecord(observed.direct, storyId);
+        if (!direct || !isCompleteSignedNewsStoryRecord(direct, storyId)) {
+          batchUnsafe = true;
+          continue;
+        }
+        safeCandidates.push(direct);
+        if (observed.authoritative === true) {
+          authoritativeSafeFingerprint = newsExactScalarRecordFingerprint(direct);
+          authoritativeSafeGeneration = observed.generation;
+        }
+      }
+      const fingerprints = new Set(safeCandidates.map(newsExactScalarRecordFingerprint));
+      if (fingerprints.size > 1) batchUnsafe = true;
+      if (batchUnsafe) {
+        sawUnsafeOrConflict = true;
+        stableSafeFingerprint = null;
+        stableSafeGeneration = null;
+        stableSafeObservationCount = 0;
+      } else if (
+        safeCandidates.length > 0
+        && authoritativeSafeFingerprint !== null
+        && Number.isInteger(authoritativeSafeGeneration)
+      ) {
+        const fingerprint = fingerprints.values().next().value;
+        if (
+          fingerprint === stableSafeFingerprint
+          && authoritativeSafeGeneration === stableSafeGeneration
+        ) {
+          stableSafeObservationCount += 1;
+        } else {
+          stableSafeFingerprint = fingerprint;
+          stableSafeGeneration = authoritativeSafeGeneration;
+          stableSafeObservationCount = 1;
+        }
+        if (stableSafeObservationCount >= 2) {
+          const direct = safeCandidates[0];
+          return newsExactRecordResult(direct, {
+            story: parseStoryBundleEnvelope(direct.__story_bundle_json),
+          });
+        }
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(25, Math.max(1, deadline - Date.now()))));
+    } while (Date.now() < deadline);
+
+    if (sawUnsafeOrConflict) return newsExactUnsafeResult();
+    if (selfPeerVertex?.kind === 'unavailable' || sawPresent) return newsExactUnavailableResult();
+    return newsExactMissingResult();
+  } finally {
+    selfPeerSession.close();
+  }
 }
 
 async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
@@ -2944,6 +3494,75 @@ async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
   const direct = parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
   if (direct || options.allowSnapshotFallback === false) return direct;
   return readNewsSynthesisLifecycleRecordFromSnapshot(storyId);
+}
+
+function isCompleteSignedNewsSynthesisLifecycleRecord(record, storyId) {
+  const statusValues = new Set([
+    'pending',
+    'in_progress',
+    'accepted_available',
+    'retryable_failure',
+    'terminal_unavailable',
+    'suppressed',
+  ]);
+  const frameTableValues = new Set([
+    'frame_table_pending',
+    'frame_table_ready',
+    'frame_table_unavailable',
+  ]);
+  return Boolean(
+    isCompleteSignedSystemWriterRecord(record)
+    && record.schemaVersion === 'vh-news-synthesis-lifecycle-v1'
+    && record.story_id === storyId
+    && typeof record.topic_id === 'string'
+    && record.topic_id.trim()
+    && typeof record.source_set_revision === 'string'
+    && record.source_set_revision.trim()
+    && Number.isFinite(record.source_count)
+    && record.source_count >= 0
+    && Number.isFinite(record.canonical_source_count)
+    && record.canonical_source_count >= 0
+    && statusValues.has(record.status)
+    && typeof record.retryable === 'boolean'
+    && frameTableValues.has(record.frame_table_state)
+    && Number.isFinite(record.updated_at)
+    && record.updated_at >= 0
+    && isNewsExactOptional(record, 'reason', isNewsExactNonEmptyString)
+    && isNewsExactOptional(record, 'synthesis_id', isNewsExactNonEmptyString)
+    && isNewsExactOptional(
+      record,
+      'epoch',
+      (epoch) => isNewsExactFiniteNumber(epoch) && epoch >= 0,
+    )
+  );
+}
+
+async function readNewsSynthesisLifecycleExactRecord(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
+  const deadline = Date.now() + timeoutMs;
+  let sawPresent = false;
+  do {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const raw = await readOnce(lifecycleChain, Math.min(remainingMs, 250));
+    if (raw !== null && raw !== undefined) sawPresent = true;
+    const direct = stripGunMetadata(raw);
+    if (
+      newsExactRecordHasOnlyKeys(direct, NEWS_EXACT_LIFECYCLE_KEYS)
+      && isCompleteSignedNewsSynthesisLifecycleRecord(direct, storyId)
+    ) {
+      return newsExactRecordResult(direct);
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(25, Math.max(1, deadline - Date.now()))));
+  } while (Date.now() < deadline);
+  return sawPresent ? newsExactUnsafeResult() : newsExactMissingResult();
 }
 
 async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options = {}) {
@@ -3529,6 +4148,94 @@ async function readLinkedGunRecord(gun, value, timeoutMs) {
   if (!soul) return value;
   const linked = stripGunMetadata(await readOnce(gun.get(soul), timeoutMs));
   return linked !== null && linked !== undefined ? linked : value;
+}
+
+function isCompleteSignedNewsLatestIndexRecord(record, storyId) {
+  return Boolean(
+    isCompleteSignedSystemWriterRecord(record)
+    && record.story_id === storyId
+    && isNewsExactFiniteNumber(record.latest_activity_at)
+    && record.latest_activity_at >= 0
+    && isCompleteNewsExactIndexMetadata(record)
+  );
+}
+
+function isCompleteSignedNewsHotIndexRecord(record, storyId) {
+  return Boolean(
+    isCompleteSignedSystemWriterRecord(record)
+    && record.story_id === storyId
+    && isNewsExactFiniteNumber(record.hotness)
+    && record.hotness >= 0
+    && isCompleteNewsExactIndexMetadata(record)
+  );
+}
+
+function isCompleteNewsExactIndexMetadata(record) {
+  const isNonnegativeNumber = (value) => isNewsExactFiniteNumber(value) && value >= 0;
+  return Boolean(
+    isNewsExactOptional(
+      record,
+      'product_state_schema_version',
+      (version) => version === 'vh-news-product-feed-index-v1',
+    )
+    && isNewsExactOptional(record, 'topic_id', isNewsExactNonEmptyString)
+    && isNewsExactOptional(record, 'source_set_revision', isNewsExactNonEmptyString)
+    && isNewsExactOptional(record, 'source_count', isNonnegativeNumber)
+    && isNewsExactOptional(record, 'canonical_source_count', isNonnegativeNumber)
+    && isNewsExactOptional(record, 'story_created_at', isNonnegativeNumber)
+    && isNewsExactOptional(record, 'cluster_window_start', isNonnegativeNumber)
+  );
+}
+
+async function readNewsIndexExactRecord(
+  gun,
+  indexName,
+  storyId,
+  allowedKeys,
+  validate,
+  timeoutMs,
+) {
+  const indexChain = gun.get('vh').get('news').get('index').get(indexName);
+  const deadline = Date.now() + timeoutMs;
+  let sawPresent = false;
+  do {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const rawValue = await readOnce(indexChain.get(storyId), Math.min(remainingMs, 250));
+    if (rawValue !== null && rawValue !== undefined) sawPresent = true;
+    const raw = stripGunMetadata(rawValue);
+    const linkedRemainingMs = Math.max(1, deadline - Date.now());
+    const record = stripGunMetadata(
+      await readLinkedGunRecord(gun, raw, Math.min(linkedRemainingMs, 250)),
+    );
+    if (newsExactRecordHasOnlyKeys(record, allowedKeys) && validate(record, storyId)) {
+      return newsExactRecordResult(record);
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(25, Math.max(1, deadline - Date.now()))));
+  } while (Date.now() < deadline);
+  return sawPresent ? newsExactUnsafeResult() : newsExactMissingResult();
+}
+
+function readNewsLatestIndexExactRecord(gun, storyId, timeoutMs = 1_500) {
+  return readNewsIndexExactRecord(
+    gun,
+    'latest',
+    storyId,
+    NEWS_EXACT_LATEST_INDEX_KEYS,
+    isCompleteSignedNewsLatestIndexRecord,
+    timeoutMs,
+  );
+}
+
+function readNewsHotIndexExactRecord(gun, storyId, timeoutMs = 1_500) {
+  return readNewsIndexExactRecord(
+    gun,
+    'hot',
+    storyId,
+    NEWS_EXACT_HOT_INDEX_KEYS,
+    isCompleteSignedNewsHotIndexRecord,
+    timeoutMs,
+  );
 }
 
 async function readNewsLatestIndexRecord(gun, storyId, timeoutMs = 1_500) {
@@ -5971,6 +6678,33 @@ async function handleWriteRoute(req, res, pathname, kind, write) {
   }
 }
 
+function sendNewsExactReadbackFailure(res, outcome, missingError, storyId) {
+  if (outcome.kind === 'record') return false;
+  if (outcome.kind === 'missing') {
+    sendJson(res, 404, {
+      ok: false,
+      error: missingError,
+      story_id: storyId,
+    });
+    return true;
+  }
+  if (outcome.kind === 'unavailable') {
+    sendJson(res, 503, {
+      ok: false,
+      error: 'news-exact-readback-unavailable',
+      story_id: storyId,
+    });
+    return true;
+  }
+  sendJson(res, 409, {
+    ok: false,
+    error_class: 'relay-write-safety',
+    error: 'news-exact-readback-present-unsafe',
+    story_id: storyId,
+  });
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   metrics.httpRequests += 1;
   res.on('finish', () => {
@@ -6112,23 +6846,27 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && pathname === '/vh/news/story') {
     const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    const exactReadback = parsedUrl.searchParams.get('readback') === 'exact';
     if (!storyId) {
       sendJson(res, 400, { ok: false, error: 'story_id-required' });
       return;
     }
-    void readNewsStoryRecord(gun, storyId)
-      .then((result) => {
-        if (!result) {
-          sendJson(res, 404, { ok: false, error: 'news-story-not-found', story_id: storyId });
-          return;
-        }
+    const storyRead = exactReadback
+      ? readNewsStoryExactRecord(gun, storyId)
+      : readNewsStoryRecord(gun, storyId).then((result) =>
+        result
+          ? newsExactRecordResult(result.record, { story: result.story, source: result.source })
+          : newsExactMissingResult());
+    void storyRead
+      .then((outcome) => {
+        if (sendNewsExactReadbackFailure(res, outcome, 'news-story-not-found', storyId)) return;
         sendJson(res, 200, {
           ok: true,
-          story_id: result.story.story_id,
-          topic_id: result.story.topic_id,
-          source: result.source ?? 'story-body',
-          story: result.story,
-          record: result.record,
+          story_id: outcome.story.story_id,
+          topic_id: outcome.story.topic_id,
+          source: outcome.source ?? 'story-body',
+          story: outcome.story,
+          record: outcome.record,
         });
       })
       .catch((error) => {
@@ -6143,6 +6881,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/vh/news/latest-index') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
@@ -6161,6 +6900,30 @@ const server = http.createServer((req, res) => {
         error: 'latest-index-persist-mode-unsupported',
         supported_persist_values: ['false'],
       });
+      return;
+    }
+    if (storyId) {
+      void readNewsLatestIndexExactRecord(
+        gun,
+        storyId,
+        numberEnv('VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS', 1_500),
+      )
+        .then((outcome) => {
+          if (sendNewsExactReadbackFailure(res, outcome, 'news-latest-index-not-found', storyId)) return;
+          sendJson(res, 200, {
+            ok: true,
+            story_id: storyId,
+            record: outcome.record,
+          });
+        })
+        .catch((error) => {
+          sendJson(res, 502, {
+            ok: false,
+            error_class: 'vh-relay-502',
+            error: error instanceof Error ? error.message : String(error),
+            story_id: storyId,
+          });
+        });
       return;
     }
     void readNewsLatestIndexRecordsWithEmptyRetry(
@@ -6215,10 +6978,35 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/vh/news/hot-index') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_HOT_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
+    if (storyId) {
+      void readNewsHotIndexExactRecord(
+        gun,
+        storyId,
+        numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS', 1_500),
+      )
+        .then((outcome) => {
+          if (sendNewsExactReadbackFailure(res, outcome, 'news-hot-index-not-found', storyId)) return;
+          sendJson(res, 200, {
+            ok: true,
+            story_id: storyId,
+            record: outcome.record,
+          });
+        })
+        .catch((error) => {
+          sendJson(res, 502, {
+            ok: false,
+            error_class: 'vh-relay-502',
+            error: error instanceof Error ? error.message : String(error),
+            story_id: storyId,
+          });
+        });
+      return;
+    }
     void readNewsHotIndexRecords(gun, { limit, includeRoot, scanLimit })
       .then((result) => {
         const payload = {
@@ -6245,24 +7033,29 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && pathname === '/vh/news/synthesis-lifecycle') {
     const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    const exactReadback = parsedUrl.searchParams.get('readback') === 'exact';
     if (!storyId) {
       sendJson(res, 400, { ok: false, error: 'story_id-required' });
       return;
     }
-    void Promise.all([
-      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
-      readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
-    ])
-      .then(([direct, fromFields]) => {
+    const lifecycleRead = exactReadback
+      ? readNewsSynthesisLifecycleExactRecord(gun, storyId)
+      : Promise.all([
+        readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+        readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
+      ]).then(([direct, fromFields]) => {
         const lifecycle = direct ?? fromFields;
-        if (!lifecycle) {
-          sendJson(res, 404, {
-            ok: false,
-            error: 'news-synthesis-lifecycle-not-found',
-            story_id: storyId,
-          });
-          return;
-        }
+        return lifecycle ? newsExactRecordResult(lifecycle) : newsExactMissingResult();
+      });
+    void lifecycleRead
+      .then((outcome) => {
+        if (sendNewsExactReadbackFailure(
+          res,
+          outcome,
+          'news-synthesis-lifecycle-not-found',
+          storyId,
+        )) return;
+        const lifecycle = outcome.record;
         sendJson(res, 200, {
           ok: true,
           story_id: storyId,

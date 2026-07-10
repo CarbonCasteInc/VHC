@@ -12,9 +12,9 @@
 
 This packet is the Lane 0 launch note for the current release-readiness sprint.
 It records the intended release envelope, target URLs, claim boundaries,
-rollback contacts, and operator-owned decisions that must be filled before a
-tester wave can be invited. It is not a release approval, release evidence
-packet, or authorization to mutate A6.
+rollback contacts, human authority, and Codex execution permissions that must be
+filled before a tester wave can be invited. It is not a release approval or a
+release evidence packet.
 
 ## Current Decision
 
@@ -24,27 +24,32 @@ This packet was introduced at `main@84360f64` after #751. That commit is a
 launch-control documentation basis, not the intended release commit.
 Source-health release evidence has recovered in the latest local packet, and
 StoryCluster production-readiness now surfaces the headline-soak blocker as the
-secret-safe class `storycluster_openai_invalid_api_key`. The release evidence
-pipeline remains blocked. A public tester wave must not start until the
-owner/signoff fields below are filled, the live blockers are cleared, and a
-release packet passes on the intended release commit.
+secret-safe class `storycluster_openai_invalid_api_key`. The human authority and
+target-envelope decisions are now recorded: Lou is the sole human release
+authority, Codex is the technical executor, and the intended launch is a public
+beta for US/Canada testers. The release evidence pipeline remains blocked. A
+public tester wave must not start until each live release blocker is cleared, the
+remaining evidence fields below are filled, and a release packet passes on the
+intended release commit.
 
 ## Release Envelope
 
 | Field | Current value |
 | --- | --- |
-| Release profile | `dev-small` only; 1-3 testers |
+| Release profile | `public-beta-ramp`; first invite tranche capped at 100 testers, then 500/1000/open only after green evidence plus Lou approval |
 | Tester surface | Venn News Web PWA |
+| Tester geography | US and Canada |
+| Tester copy label | `public beta` |
 | PWA origin | `https://venn.carboncaste.io` |
 | Public relay HTTP origins | `https://gun-a.carboncaste.io`, `https://gun-b.carboncaste.io`, `https://gun-c.carboncaste.io` |
 | Public relay WSS peers | `wss://gun-a.carboncaste.io/gun`, `wss://gun-b.carboncaste.io/gun`, `wss://gun-c.carboncaste.io/gun` |
-| Support intake | Public GitHub issue form: `.github/ISSUE_TEMPLATE/public-beta-support.yml` |
-| Private escalation path | `TBD(operator)`; required for sensitive support, legal/copyright, abuse/safety, account/access, and deletion/correction cases |
+| Support intake | Public GitHub issue form plus tester-visible contact email `carboncasteit@gmail.com` |
+| Private escalation path | `carboncasteit@gmail.com`; required for sensitive support, legal/copyright, abuse/safety, account/access, and deletion/correction cases |
 | Intended release commit | `TBD(release-owner)`; must be the commit used by the passing release evidence packet |
 | A6 deployed commit | Latest recorded read-only readback: `347d2018` on 2026-07-08; must be refreshed before claiming current `main` on A6 |
-| Auth-callback host | `TBD(auth-boundary-owner)`; must be outside A6 |
-| Advertised sign-in providers | `TBD(provider-owners)`; only providers with live passing rehearsal may appear in tester copy |
-| External release approval | `TBD(release-owner)`; record `not_required` with rationale or record the approval/signoff location |
+| Auth-callback host | `https://auth.venn.carboncaste.io`; must be outside A6 |
+| Advertised sign-in providers | Apple and Google for first public beta; X is excluded/hidden until a later live provider packet rehearses it |
+| External release approval | Lou records `not_required_for_public_beta`; legal/commercial hardening happens during beta unless the release claim changes |
 
 The intended full MVP envelope includes accepted-current summaries, the
 bias/framing table, stable point voting, one final stance per user per point,
@@ -59,20 +64,40 @@ release gates.
 
 | Responsibility | Owner/contact | Status |
 | --- | --- | --- |
-| Release owner | `TBD(operator)` | release blocker |
-| Source-health/content policy owner | `TBD(operator)` | release blocker |
-| A6 operator | `TBD(operator)` | release blocker |
-| Auth-callback deploy owner | `TBD(operator)` | release blocker |
-| Apple registration owner | `TBD(operator)` | required if Apple is advertised |
-| Google registration owner | `TBD(operator)` | required if Google is advertised |
-| X registration owner | `TBD(operator)` | required if X is advertised |
-| Release evidence owner | `TBD(operator)` | release blocker |
-| Session operator | `TBD(operator)` | release blocker |
-| Incident owner | `TBD(operator)` | release blocker |
-| Alert-channel owner | `TBD(operator)` | release blocker |
-| Rollback owner | `TBD(operator)` | release blocker |
-| Private support/escalation contact | `TBD(operator)` | release blocker |
-| Legal/commercial approval owner | `TBD(operator or not_required rationale)` | release blocker until recorded |
+| Release owner | Lou | recorded; final go/no-go still requires passing release evidence |
+| Source-health/content policy owner | Lou; Codex prepares evidence and recommendations | recorded |
+| A6 operator | Lou authorizes; Codex executes through the existing A6 SSH path | recorded |
+| Auth-callback deploy owner | Lou authorizes; Codex configures/deploys via Cloudflare/browser access | recorded |
+| Apple registration owner | Lou authorizes; Codex configures records after Lou completes browser login/MFA | recorded for first public beta |
+| Google registration owner | Lou authorizes; Codex configures records after Lou completes browser login/MFA | recorded for first public beta |
+| X registration owner | Lou; excluded from first public beta provider set | not required until X is advertised |
+| Release evidence owner | Codex runs and interprets; Lou approves go/no-go | recorded |
+| Session operator | Codex runs checks/automation; Lou remains human authority | recorded |
+| Incident owner | Lou | recorded |
+| Alert-channel owner | Lou; monitored at `carboncasteit@gmail.com` | recorded |
+| Rollback owner | Lou authorizes; Codex prepares and executes approved rollback steps | recorded |
+| Private support/escalation contact | `carboncasteit@gmail.com` | recorded |
+| Legal/commercial approval owner | Lou: `not_required_for_public_beta` | recorded |
+
+## Authorized Live Actions
+
+Lou has authorized Codex to perform the following after the relevant packet
+preconditions pass:
+
+1. use the existing A6 SSH path for readback;
+2. update A6 to the intended release commit;
+3. rebuild/redeploy the `vhc-public-beta-origin` PWA image;
+4. restart the publisher if required by the release/update/canary path;
+5. enable the accepted-synthesis canary only after its preconditions pass;
+6. create/configure Apple and Google OAuth app records after Lou completes
+   browser login/MFA;
+7. configure the auth boundary at `https://auth.venn.carboncaste.io`;
+8. use Codex App automation with the Gmail connector to retrieve and analyze
+   failure notifications delivered to `carboncasteit@gmail.com`.
+
+This does not authorize Codex live execution/autonomy, pager cutover, relay
+restart, retention/compaction/eviction, source-surface mutation without a
+content-policy decision, or release approval without Lou's final go.
 
 ## Allowed Tester Copy
 
@@ -130,6 +155,7 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
+| Failure-mailbox monitor | The first 2026-07-10 run reported 85 criticals; that count is historical. The moving latest artifact remains incident-blocking and S1A classified `relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation is not deployed or recovery-proven. | Treat as active incident gate; no A6 mutation or launch-enablement work before the reviewed recovery packet, Lou approval, and required readbacks |
 
 ## Rollback And Stop Rules
 
@@ -152,14 +178,15 @@ owner if any of these occur:
 7. any release gate or closeout command is red on the intended release commit.
 
 Rollback is claim-first for this sprint: hide or narrow tester copy, stop
-invites, and keep email alerting live. Service rollback or A6 mutation requires
-a separate operator packet. Do not restart the publisher or relays while raw
-feed freshness, relay liveness, relay snapshot freshness, and watch-closure are
-green unless an explicit operator maintenance packet authorizes it.
+invites, and keep email alerting live. Publisher restart is authorized only when
+required by the release/update/canary path above or by a focused incident
+packet. Do not restart relays while raw feed freshness, relay liveness, relay
+snapshot freshness, and watch-closure are green unless an explicit operator
+maintenance packet authorizes it.
 
 ## Go Rule
 
-Change this packet to `go_for_dev_small_tester_wave` only after all of these are
+Change this packet to `go_for_public_beta_ramp` only after all of these are
 true:
 
 1. every owner/contact row above is filled with a real operator or an explicit
@@ -177,3 +204,6 @@ true:
    deployed target;
 9. tester copy contains only the allowed claims for the surfaces actually
    proven in the release packet.
+10. the latest failure-mailbox monitor has no unresolved critical items, or Lou
+    has classified the incident after read-only repo/A6 readback and explicitly
+    authorized the return to release work.

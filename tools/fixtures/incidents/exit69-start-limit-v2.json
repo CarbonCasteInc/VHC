@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "vh-public-feed-alert-watch-v2",
+  "generatedAt": "2026-07-10T00:00:00.000Z",
+  "alertReason": "first_failure",
+  "status": "fail",
+  "observedStatus": "fail",
+  "severity": "critical",
+  "blockers": [
+    "publisher_exit_69_start_limit_parked"
+  ],
+  "fingerprint": "d9e351aa1864fd440d17a413",
+  "publisher": {
+    "unitRole": "publisher",
+    "status": "fail",
+    "blockers": [
+      "publisher_exit_69_start_limit_parked"
+    ],
+    "activeState": "failed",
+    "subState": "failed",
+    "execMainStatus": "69",
+    "result": "start-limit-hit",
+    "nRestarts": 3,
+    "failureClass": "exit_69_start_limit_parked",
+    "severity": "critical",
+    "recoveryHint": "start_limit_exhausted_operator_restart_required"
+  },
+  "freshness": {
+    "schemaVersion": "public-feed-freshness-monitor-v1",
+    "generatedAt": "2026-07-10T00:00:00.000Z",
+    "status": "pass",
+    "blockers": [],
+    "maxAgeMs": 21600000,
+    "originCount": 2,
+    "originEndpointHashes": [
+      "3918c358b6222215",
+      "964d718451cf39de"
+    ],
+    "latestIndexReadbacks": [
+      {
+        "endpointHash": "964d718451cf39de",
+        "status": "pass",
+        "recordCount": 80,
+        "newestAgeMs": 120000,
+        "maxAgeMs": 21600000,
+        "failureCount": 0,
+        "failureReasonCodes": [],
+        "failureDiagnostics": [],
+        "ordinal": 1
+      }
+    ]
+  },
+  "relayLiveness": {
+    "status": "skipped",
+    "severity": "none",
+    "required": false,
+    "sourceRole": "relay_liveness",
+    "blockers": []
+  },
+  "relaySnapshot": {
+    "status": "skipped",
+    "severity": "none",
+    "required": false,
+    "sourceRole": "relay_snapshot",
+    "blockers": []
+  },
+  "watchClosure": {
+    "status": "skipped",
+    "severity": "none",
+    "required": false,
+    "sourceRole": "watch_closure",
+    "blockers": []
+  }
+}

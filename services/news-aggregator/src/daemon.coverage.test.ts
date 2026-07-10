@@ -91,16 +91,23 @@ describe('news daemon coverage guards', () => {
     expect(__internal.NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE).not.toBe(75);
   });
 
-  it('resolves EX_UNAVAILABLE only for branded transport-total relay failures', () => {
+  it('resolves EX_UNAVAILABLE for availability-total and legacy transport-total relay failures', () => {
+    const availabilityTotal = Object.assign(new Error('Relay REST deadline availability-total'), {
+      relayRestAvailabilityTotalFailure: true,
+    });
     const transportTotal = Object.assign(new Error('Relay REST news write failed: 0/3 succeeded'), {
       relayRestTransportTotalFailure: true,
     });
+    expect(__internal.resolveFailClosedExitCode(availabilityTotal)).toBe(69);
     expect(__internal.resolveFailClosedExitCode(transportTotal)).toBe(69);
     expect(__internal.resolveFailClosedExitCode(new Error('Relay REST news write failed: 1/3 succeeded'))).toBe(78);
     expect(__internal.resolveFailClosedExitCode(undefined)).toBe(78);
     expect(__internal.resolveFailClosedExitCode('fetch failed')).toBe(78);
     expect(
       __internal.resolveFailClosedExitCode({ relayRestTransportTotalFailure: true }),
+    ).toBe(78);
+    expect(
+      __internal.resolveFailClosedExitCode({ relayRestAvailabilityTotalFailure: true }),
     ).toBe(78);
   });
 

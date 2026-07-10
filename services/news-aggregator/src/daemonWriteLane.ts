@@ -34,22 +34,35 @@ interface LaneState {
   failedCount: number;
   durations: number[];
   stopped: boolean;
+  stoppedByAvailabilityTotalFailure: boolean;
   stoppedByTransportTotalFailure: boolean;
 }
 
-// Mirrors the RelayRestTransportTotalFailureError brand from @vh/gun-client.
+// Mirrors the availability/legacy transport brands from @vh/gun-client.
 // Lane-stopped rejection errors must carry the brand of the error that stopped
 // the lane, or the daemon's fail-close exit-code classification sees a plain
-// Error and a transport-total event loses its bounded-restart exit code.
+// Error and an availability-total event loses its bounded-restart exit code.
+const AVAILABILITY_TOTAL_BRAND = 'relayRestAvailabilityTotalFailure';
 const TRANSPORT_TOTAL_BRAND = 'relayRestTransportTotalFailure';
+
+function isAvailabilityTotalBrandedError(error: unknown): boolean {
+  return error instanceof Error
+    && (
+      (error as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure === true
+      || (error as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure === true
+    );
+}
 
 function isTransportTotalBrandedError(error: unknown): boolean {
   return error instanceof Error
     && (error as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure === true;
 }
 
-function laneStoppedError(writeClass: string, transportTotal: boolean): Error {
+function laneStoppedError(writeClass: string, availabilityTotal: boolean, transportTotal: boolean): Error {
   const error = new Error(`daemon write lane stopped after failure: ${writeClass}`);
+  if (availabilityTotal) {
+    (error as { relayRestAvailabilityTotalFailure?: boolean })[AVAILABILITY_TOTAL_BRAND] = true;
+  }
   if (transportTotal) {
     (error as { relayRestTransportTotalFailure?: boolean })[TRANSPORT_TOTAL_BRAND] = true;
   }
@@ -103,6 +116,7 @@ export function createDaemonWriteLaneRegistry(
       failedCount: 0,
       durations: [],
       stopped: false,
+      stoppedByAvailabilityTotalFailure: false,
       stoppedByTransportTotalFailure: false,
     };
     lanes.set(writeClass, created);
@@ -183,10 +197,15 @@ export function createDaemonWriteLaneRegistry(
           });
           if (shouldStopClassOnFailure(writeClass) && !state.stopped) {
             state.stopped = true;
+            state.stoppedByAvailabilityTotalFailure = isAvailabilityTotalBrandedError(error);
             state.stoppedByTransportTotalFailure = isTransportTotalBrandedError(error);
             const pending = state.pending.splice(0);
             for (const pendingItem of pending) {
-              pendingItem.reject(laneStoppedError(writeClass, state.stoppedByTransportTotalFailure));
+              pendingItem.reject(laneStoppedError(
+                writeClass,
+                state.stoppedByAvailabilityTotalFailure,
+                state.stoppedByTransportTotalFailure,
+              ));
             }
             logger.error('[vh:news-daemon] write lane stopped after failure', {
               write_class: writeClass,
@@ -211,7 +230,11 @@ export function createDaemonWriteLaneRegistry(
       }
       const state = stateFor(writeClass);
       if (state.stopped) {
-        return Promise.reject(laneStoppedError(writeClass, state.stoppedByTransportTotalFailure));
+        return Promise.reject(laneStoppedError(
+          writeClass,
+          state.stoppedByAvailabilityTotalFailure,
+          state.stoppedByTransportTotalFailure,
+        ));
       }
       return new Promise<T>((resolve, reject) => {
         state.pending.push({

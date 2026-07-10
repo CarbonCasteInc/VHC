@@ -224,6 +224,9 @@ describe('daemonWriteLane', () => {
     expect(pendingError).toBeInstanceOf(Error);
     expect((pendingError as Error).message).toContain('daemon write lane stopped after failure: news_bundle');
     expect((pendingError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBe(true);
+    expect(
+      (pendingError as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure,
+    ).toBe(true);
 
     // Later writes on the stopped lane carry the brand too: a restart is the
     // correct recovery for a lane stopped by a transport-total event.
@@ -231,6 +234,9 @@ describe('daemonWriteLane', () => {
       .run('news_bundle', { story_id: 'story-c' }, async () => 'unreachable')
       .then(() => null, (error: unknown) => error);
     expect((laterError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBe(true);
+    expect(
+      (laterError as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure,
+    ).toBe(true);
 
     // A lane stopped by a NON-transport failure keeps plain rejections.
     const plainLane = createDaemonWriteLaneRegistry({
@@ -247,6 +253,49 @@ describe('daemonWriteLane', () => {
       .run('news_bundle', { story_id: 'story-e' }, async () => 'unreachable')
       .then(() => null, (error: unknown) => error);
     expect((plainStopError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure).toBeUndefined();
+    expect(
+      (plainStopError as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure,
+    ).toBeUndefined();
+  });
+
+  it('propagates the availability-total brand without relabeling deadline failures as legacy transport-total', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const lane = createDaemonWriteLaneRegistry({
+      logger,
+      defaultConcurrency: 1,
+      stopClassOnFailure: (writeClass) => writeClass === 'news_bundle',
+    });
+    const availabilityTotal = Object.assign(
+      new Error('Relay REST deadline availability-total after signed readback'),
+      { relayRestAvailabilityTotalFailure: true },
+    );
+    let rejectFirst: ((error: Error) => void) | null = null;
+    const first = lane.run('news_bundle', {}, () => new Promise<never>((_resolve, reject) => {
+      rejectFirst = reject;
+    }));
+    const pending = lane.run('news_bundle', {}, async () => 'unreachable');
+    while (!rejectFirst) {
+      await flushMicrotasks();
+    }
+    rejectFirst(availabilityTotal);
+
+    await expect(first).rejects.toBe(availabilityTotal);
+    const pendingError = await pending.then(() => null, (error: unknown) => error);
+    expect(
+      (pendingError as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure,
+    ).toBe(true);
+    expect(
+      (pendingError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure,
+    ).toBeUndefined();
+
+    const laterError = await lane.run('news_bundle', {}, async () => 'unreachable')
+      .then(() => null, (error: unknown) => error);
+    expect(
+      (laterError as { relayRestAvailabilityTotalFailure?: unknown }).relayRestAvailabilityTotalFailure,
+    ).toBe(true);
+    expect(
+      (laterError as { relayRestTransportTotalFailure?: unknown }).relayRestTransportTotalFailure,
+    ).toBeUndefined();
   });
 
   it('paces product-feed repair writes with dedicated concurrency-one lanes', async () => {

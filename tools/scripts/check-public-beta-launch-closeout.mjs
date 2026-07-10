@@ -15,6 +15,7 @@ const files = {
   status: 'docs/foundational/STATUS.md',
   compliance: 'docs/ops/public-beta-compliance-minimums.md',
   betaRunbook: 'docs/ops/BETA_SESSION_RUNSHEET.md',
+  nextPhaseSprint: 'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md',
   distributionPacket: 'docs/ops/public-beta-distribution-packet-2026-07-09.md',
   mvpReleaseGates: 'packages/e2e/src/mvp-release-gates.mjs',
   launchContentSnapshot: 'packages/e2e/src/launch-content-snapshot.mjs',
@@ -26,7 +27,9 @@ const requiredScripts = {
   'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
   'check:public-beta-compliance': 'node ./tools/scripts/check-public-beta-compliance.mjs',
+  'check:public-beta-next-phase-sprint': 'node --test ./tools/scripts/public-beta-next-phase-sprint.test.mjs',
   'check:public-beta-distribution-packet': 'node --test ./tools/scripts/public-beta-distribution-packet.test.mjs',
+  'check:beta-session-runsheet': 'node --test ./tools/scripts/beta-session-runsheet.test.mjs',
   'check:public-beta-launch-control': 'node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
   'check:release-readiness-operator-packets': 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs',
@@ -74,10 +77,12 @@ const requiredEvidenceNeedles = [
   'pnpm check:public-beta-launch-control',
   'pnpm check:public-beta-distribution-packet',
   'pnpm check:release-readiness-operator-packets',
+  'pnpm check:beta-session-runsheet',
   'pnpm check:mvp-release-gates',
   'pnpm check:mvp-closeout',
   'pnpm check:launch-content-snapshot',
   'pnpm check:public-beta-compliance',
+  'pnpm check:public-beta-next-phase-sprint',
   'pnpm docs:check',
   '.tmp/mvp-release-gates/latest/mvp-release-gates-report.json',
   '.tmp/mvp-closeout/latest/mvp-closeout-report.json',
@@ -85,6 +90,7 @@ const requiredEvidenceNeedles = [
   'docs/ops/public-beta-launch-readiness-closeout.md',
   LAUNCH_CONTROL_PATH,
   'docs/ops/public-beta-distribution-packet-2026-07-09.md',
+  'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md',
   'docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md',
   'docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md',
   'docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md',
@@ -139,6 +145,7 @@ const roadmap = readRepoFile(files.roadmap);
 const status = readRepoFile(files.status);
 const compliance = readRepoFile(files.compliance);
 const betaRunbook = readRepoFile(files.betaRunbook);
+const nextPhaseSprint = readRepoFile(files.nextPhaseSprint);
 const mvpReleaseGates = readRepoFile(files.mvpReleaseGates);
 const launchContentSnapshot = readRepoFile(files.launchContentSnapshot);
 const publicBetaCompliance = readRepoFile(files.publicBetaCompliance);
@@ -188,11 +195,20 @@ requireIncludes(files.publicBetaCompliance, publicBetaCompliance, 'private escal
 requireIncludes(
   files.distributionPacket,
   distributionPacket,
-  'blocked_pending_release_evidence_rehearsal_and_operator_fields',
+  'blocked_pending_release_evidence_rehearsal_and_live_fields',
   'blocked distribution packet status',
 );
-requireIncludes(files.distributionPacket, distributionPacket, 'go_for_dev_small_distribution', 'distribution go status');
+requireIncludes(files.distributionPacket, distributionPacket, 'go_for_public_beta_distribution', 'distribution go status');
 requireIncludes(files.distributionPacket, distributionPacket, 'Rollback is claim-first', 'distribution rollback boundary');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S12 - Post-Launch Watch, Incident Loop, And Tranche Expansion', 'next-phase tranche expansion slice');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'first public-beta tranche is capped at 100 testers', 'next-phase first tranche cap');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S1A - Monitor-Critical Public-Feed Incident Readback Gate', 'next-phase mailbox critical incident gate');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN', 'next-phase monitor pass boundary');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'READ_ONLY_INCIDENT_TRIAGE_ONLY', 'next-phase read-only incident triage state');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount > 0', 'next-phase mailbox critical blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'public_feed_alert_fail', 'next-phase public feed alert failure blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'pager_deadman_workflow_failed', 'next-phase pager dead-man warning blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount == 0', 'next-phase mailbox clear requirement');
 
 requireRegex(
   files.closeout,

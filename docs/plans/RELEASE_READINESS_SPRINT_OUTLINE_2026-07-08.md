@@ -2,7 +2,8 @@
 
 > Status: Execution outline for fastest credible tester distribution
 > Owner: VHC Core Engineering + VHC Launch Ops
-> Current repo basis: `main@9c35a676` after #757
+> Basis for this outline revision: `main@1f860ae7` after #758; this revision
+> adds the beta-session runsheet guard
 > Latest release evidence basis: stale packet at `1a83434b`
 > Latest recorded Scope A proof packet: `47ba218d`
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
@@ -47,8 +48,9 @@ separate programs with their own gates.
 For the first controlled tester release, users can:
 
 1. open the Web PWA;
-2. register or sign in through the account shell using Apple, Google, or X when
-   the provider is configured;
+2. register or sign in through the account shell using Apple or Google when the
+   provider is configured; X is hidden until a later packet registers and
+   rehearses it;
 3. create or attach a beta-local LUMA identity to that account session;
 4. open a story with accepted-current synthesis;
 5. read the accepted summary;
@@ -78,8 +80,9 @@ Claim boundaries:
 
 Repository and GitHub state at this alignment point:
 
-- current repo: `main@9c35a676`;
-- open PRs: none at the time of this branch;
+- repo basis for this outline revision: `main@1f860ae7`;
+- revision PR: #759, adding
+  `pnpm check:beta-session-runsheet` and wiring it into launch closeout;
 - open issues: #178, #277, #279 only, all older unrelated backlog;
 - local untracked operator readiness docs remain preserved and out of scope:
   `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
@@ -126,7 +129,7 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 - A6 `/home/humble/VHC` is at `347d2018` (merge of #744), pulled 2026-07-08
   12:10 EDT; prior pulls were `1a83434b` (2026-07-07) and `47ba218d`
   (2026-07-06);
-- A6 is 35 commits behind `main@9c35a676`; the delta includes #741
+- A6 is 37 commits behind `main@1f860ae7`; the delta includes #741
   reject-unmarked system-writer adapters, #742 VaultV2 old-bundle write
   preservation, #745 civic representative durability readback, #746 docs
   alignment, #747 release-readiness sprint outline, #748 source-health
@@ -134,7 +137,8 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
   diagnostics, #751/#752 launch control, #753 StoryCluster credential repair
   packet, #754 A6 accepted-synthesis canary packet, #755 auth-callback
   deployment packet/provider allowlist wiring, #756 launch-control gate, and
-  #757 first-wave distribution packet;
+  #757 first-wave distribution packet, and #758 release-readiness state
+  alignment plus operator-packet guard;
 - `vh-news-aggregator.service` and `vh-storycluster-engine.service` are both
   `active/running` with `ExecMainStatus=0`;
 - `vh-public-feed-alert-watch.timer` and
@@ -156,9 +160,10 @@ readback, 2026-07-08 ~22:05 EDT (recorded here as Lane 2's first readback):
 2. Every repo change gets a branch, tests, docs if needed, push, and PR.
 3. Operator-only live actions get a packet or runbook entry before execution.
 4. Do not mutate A6 when a read-only gate can answer the question.
-5. Do not restart publisher or relays while freshness, relay liveness, relay
-   snapshot freshness, and watch-closure are green unless an explicit operator
-   maintenance packet says so.
+5. Do not restart relays while freshness, relay liveness, relay snapshot
+   freshness, and watch-closure are green unless an explicit operator
+   maintenance packet says so. Publisher restart is allowed only when required
+   by the approved release/update/canary path or a focused incident packet.
 6. Treat a new alert email as an incident.
 7. Keep `services/auth-callback` outside A6.
 8. Keep provider secrets out of repo, browser bundle, logs, issues, PRs, and
@@ -201,18 +206,20 @@ surface before any operator action starts.
      is not yet deployed. Narrowing changes tester-facing claims only; it does
      not waive any release gate (see Lane 3).
 2. Tester audience:
-   - `dev-small`: 1-3 testers;
-   - `beta-scale`: up to 10 testers, only after the run-sheet flip-switch
-     criteria in Lane 8 are met. A "daily gate" here means a daily
-     `check:mvp-release-gates` run recorded in the evidence workspace.
+   - `dev-small`: 1-3 testers for burn-in only;
+   - `beta-scale`: up to 10 testers for burn-in only;
+   - `public-beta-ramp`: first public tranche capped at 100 testers, then
+     500/1000/open only after green evidence plus Lou approval. A "daily gate"
+     here means a daily `check:mvp-release-gates` run recorded in the evidence
+     workspace.
 3. Owners:
-   - source-health/content policy owner;
-   - A6 operator;
-   - auth boundary deploy owner;
-   - Apple/Google/X registration owners;
-   - release evidence owner;
-   - session operator for tester wave;
-   - incident owner and alert-channel owner for the tester wave.
+   - Lou is the sole human authority for release go/no-go, incident, rollback,
+     content-policy, and external-approval decisions;
+   - Codex is the technical executor for repo work, release evidence, A6
+     readback/update, origin image redeploy, auth setup, and Gmail failure-loop
+     analysis after Lou grants the relevant account/browser access;
+   - Apple and Google are the first public-beta providers; X stays hidden until a
+     later packet adds and rehearses it.
 4. Release commit pinning: the launch note names the intended release commit
    once known. If `main` advances past the commit read back or deployed in
    Lane 2, the Lane 2 readback/update packet must be re-run before Lane 6
@@ -223,10 +230,10 @@ surface before any operator action starts.
    beta-local identity and its votes, because identity is origin-scoped
    encrypted IndexedDB — an origin change is a tester-visible reset and must
    be treated as one.
-6. External release approval: record whether legal/commercial signoff is
-   required for this controlled tester distribution. The closeout evidence
-   classifies `external_release_approval_not_recorded` as a ship blocker, so
-   capture either the signoff record or the explicit not-required decision.
+6. External release approval: Lou has recorded
+   `not_required_for_public_beta`; legal/commercial hardening happens during
+   testing unless the public claim changes. The closeout evidence still
+   classifies an unrecorded disposition as a ship blocker.
 
 ### Exit criteria
 
@@ -234,7 +241,7 @@ surface before any operator action starts.
   operator owners, deployed target URLs, and rollback contacts.
 - `corepack pnpm@9.7.1 check:public-beta-launch-control` passes. The current
   no-go packet must retain explicit operator blanks and live-evidence blockers;
-  a future `go_for_dev_small_tester_wave` packet must not retain stale no-go
+  a future `go_for_public_beta_ramp` packet must not retain stale no-go
   language.
 - If the release envelope is narrowed, every excluded claim is removed from
   tester-facing copy before distribution.
@@ -364,7 +371,8 @@ If the tester release depends on post-`347d2018` repo code (the current
 the #745 civic representative durability fix), the operator packet must
 explicitly update A6 to the intended release commit. The packet must state:
 
-- whether publisher restart is included or explicitly excluded;
+- whether publisher restart is required and, if so, the exact stop/start and
+  post-restart readback;
 - how freshness is observed before and after;
 - how alert delivery is preserved;
 - rollback target and command;
@@ -419,7 +427,7 @@ The packet must:
   accepted-current story is proven end to end.
 - If accepted synthesis is not enabled, the release envelope and tester copy do
   not claim it.
-- No unbounded publisher/relay restart occurred outside the packet.
+- No unbounded publisher or relay restart occurred outside the packet.
 
 ## Lane 3 - Public-Feed And Stance Aggregate Gate Recovery
 
@@ -482,8 +490,8 @@ release evidence.
 
 ### Goal
 
-Make Apple/Google/X account continuity real on a deployed, secret-bearing
-service outside A6.
+Make Apple/Google account continuity real on a deployed, secret-bearing service
+outside A6, while keeping X hidden until a later provider packet rehearses it.
 
 ### Repo capability
 
@@ -537,9 +545,9 @@ Workers-family edge host outside A6, with:
 8. Configure the Web PWA public env:
 
    ```bash
-   VITE_AUTH_CALLBACK_BASE_URL=https://<auth-boundary>
+   VITE_AUTH_CALLBACK_BASE_URL=https://auth.venn.carboncaste.io
    VITE_AUTH_CALLBACK_ROUTE=/auth/callback
-   VITE_AUTH_CALLBACK_PROVIDERS=<space-or-comma-separated rehearsed provider ids>
+   VITE_AUTH_CALLBACK_PROVIDERS=apple google
    ```
 
    These `VITE_*` values are baked into the PWA bundle at build time. Applying
@@ -552,10 +560,10 @@ Workers-family edge host outside A6, with:
 9. Extend the content-security policy to reach the boundary. The PWA's
    `connect-src` is restricted to self, the relay origins, and localhost, so
    browser fetches to the auth boundary are CSP-blocked unless
-   `https://<auth-boundary>` is added to `VITE_VH_CSP_CONNECT_SRC` at PWA/origin
-   image build time and to `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC` on the deployed
-   origin. Verify the deployed page's effective `connect-src` includes the
-   boundary before starting Lane 5 rehearsal.
+   `https://auth.venn.carboncaste.io` is added to `VITE_VH_CSP_CONNECT_SRC` at
+   PWA/origin image build time and to `VH_PUBLIC_ORIGIN_CSP_CONNECT_SRC` on the
+   deployed origin. Verify the deployed page's effective `connect-src` includes
+   the boundary before starting Lane 5 rehearsal.
 
 ### Exit criteria
 
@@ -576,7 +584,8 @@ provider redirects.
 1. Apple first, because Services ID, domain/redirect verification, and `.p8`
    key handling are the longest lead.
 2. Google second.
-3. X third.
+3. X is excluded from the first public beta; keep it out of tester copy and
+   `VITE_AUTH_CALLBACK_PROVIDERS` until a later packet adds and rehearses it.
 
 ### Required provider configuration
 
@@ -597,7 +606,7 @@ Google:
 - redirect URIs;
 - client secret in host secret store.
 
-X:
+X (deferred for first public beta):
 
 - X developer app;
 - OAuth 2.0 confidential client;
@@ -625,7 +634,8 @@ For each provider:
 ### Exit criteria
 
 - At least one provider can support tester sign-in before distribution.
-- If Apple/Google/X are all claimed in tester copy, all three pass the matrix.
+- Apple and Google must pass the matrix before first public-beta sign-in claims.
+  If X is later claimed in tester copy, X must pass the same matrix first.
 - Any unavailable provider is removed from tester copy and from
   `VITE_AUTH_CALLBACK_PROVIDERS`, not merely left visible with a failing start
   action.
@@ -702,6 +712,7 @@ release commit.
    corepack pnpm@9.7.1 check:public-beta-launch-control
    corepack pnpm@9.7.1 check:public-beta-distribution-packet
    corepack pnpm@9.7.1 check:release-readiness-operator-packets
+   corepack pnpm@9.7.1 check:beta-session-runsheet
    corepack pnpm@9.7.1 check:launch-content-snapshot
    corepack pnpm@9.7.1 check:public-beta-compliance
    corepack pnpm@9.7.1 docs:check
@@ -819,7 +830,7 @@ claim.
 - providers enabled;
 - accepted synthesis status;
 - source-health status;
-- tester envelope (`dev-small` or `beta-scale`);
+- tester envelope (`dev-small`, `beta-scale`, or `public-beta-ramp`);
 - forbidden claims;
 - support path and privacy instructions;
 - rollback commands;
@@ -868,15 +879,15 @@ and additionally:
 
 ### First wave limits
 
-- Start with `dev-small`: 1-3 testers.
-- Keep one operator watching email alerts and session telemetry.
+- Start the first public-beta tranche at 100 testers maximum.
+- Keep Codex automation watching failure email through the Gmail connector, and
+  keep Lou reachable as the human incident/rollback authority.
 - Pause intake on freshness alert, ack-timeout degradation, convergence p95
   above 10 seconds for 15 minutes, analysis 429 rate above 3% for 10 minutes
   or 5% for 5 minutes, or support privacy leak.
-- Move to `beta-scale` only after the run-sheet flip-switch criteria: two
-  consecutive daily gates on `dev-small`, two passing manual 3-browser checks,
-  no sustained 429 or ack-timeout degradation during either qualifying
-  session, and the flip changes profile values only.
+- Expand to 500, then 1000, then open intake only after green release evidence,
+  no sustained 429 or ack-timeout degradation, no alert-loop failures, passing
+  support/incident handling for the prior tranche, and explicit Lou approval.
 
 ### Rollback
 
@@ -897,9 +908,9 @@ Rollback must be possible without A6 mutation unless A6 was the changed surface:
 ### Exit criteria
 
 - The distribution packet is complete with every listed field filled in.
-- The first `dev-small` wave is invited with claim-safe copy only.
-- One operator is actively watching email alerts and session telemetry for the
-  wave.
+- The first public-beta tranche is invited with claim-safe copy only.
+- Codex automation is actively watching failure email and session telemetry, and
+  Lou is reachable for incident/rollback authority.
 - The rollback path has been read through by the incident owner and is
   executable without improvisation.
 - Every pause-intake trigger has a named owner who can act on it.
@@ -952,6 +963,7 @@ The release-readiness sprint is complete when all of these are true:
    `check:public-beta-launch-closeout`, `check:public-beta-launch-control`,
    `check:public-beta-distribution-packet`,
    `check:release-readiness-operator-packets`,
+   `check:beta-session-runsheet`,
    `check:launch-content-snapshot`, `check:public-beta-compliance`,
    `docs:check`, typecheck, lint, build, and
    `git diff --check` all pass — the accepted mesh/canary boundary outcomes
@@ -960,19 +972,26 @@ The release-readiness sprint is complete when all of these are true:
 8. the manual 3-browser rehearsal passes;
 9. tester copy and support instructions are claim-safe;
 10. rollback and incident owners are named;
-11. first wave starts at `dev-small`, not `beta-scale`.
+11. first public-beta tranche is capped at 100 testers and cannot expand without
+    green evidence plus Lou approval.
 
 ## Immediate Next Actions
 
-1. Fill the operator-owned blanks in the Lane 0 launch-control packet:
+1. Keep the Lane 0 launch-control packet current:
    `docs/ops/public-beta-launch-control-2026-07-09.md`. The packet now records
    the envelope, target URLs, claim boundaries, rollback/stop rules, and the
    current `no_go_pending_operator_decisions_and_live_evidence` decision; it
-   remains no-go until real owners, rollback contacts, release commit, external
-   approval disposition, auth host, and advertised-provider decisions are
+   now records Lou as the sole human authority, Codex as technical executor,
+   `https://auth.venn.carboncaste.io` as the auth boundary, Apple/Google as the
+   first provider set, X as hidden, `carboncasteit@gmail.com` as support/failure
+   mailbox, and `not_required_for_public_beta` as the external-approval
+   disposition. It remains no-go until release commit and live evidence are
    recorded. The first A6 read-only readback (2026-07-08, `347d2018`, services
    green, freshness pass) is already recorded above.
-2. Assign owners for Lane 1 source-health and Lane 4/5 auth provider setup.
+2. Use Codex App automation with the Gmail connector for the failure mailbox at
+   `carboncasteit@gmail.com`; the query should prefer high-signal alert terms,
+   include unread/recent failure mail, and avoid requiring a brittle single
+   subject line.
 3. Rerun source-health on the intended release commit. The `ap-topnews`
    source-surface fix is already merged, and the latest local source-health
    packet is `ready`/`pass`; the consolidated release evidence packet still
@@ -996,11 +1015,12 @@ The release-readiness sprint is complete when all of these are true:
    `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`; it uses a
    one-shot `catchup:public-synthesis` canary and does not authorize a live
    Scope B publisher flip.
-6. Stand up the auth-callback edge host, start Apple provider registration,
+6. Stand up the auth-callback edge host at
+   `https://auth.venn.carboncaste.io`, start Apple provider registration,
    and plan the origin-image rebuild that bakes the auth, provider allowlist,
    and CSP env into the deployed PWA. Use
    `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`; it
-   records the Apple/Google/X redirect URI split, the
+   records the Apple/Google redirect URI split and the deferred X boundary, the
    `VITE_AUTH_CALLBACK_PROVIDERS` build-time allowlist, start-leg smoke, secret
    scan, and rollback sequence.
 7. Keep the sign-in/account-binding rehearsal in
@@ -1010,4 +1030,5 @@ The release-readiness sprint is complete when all of these are true:
    cross-browser distinct-principal checks.
 8. Regenerate release evidence only after the live blockers are cleared.
 9. Run the 3-browser rehearsal against the deployed target.
-10. Ship `dev-small` tester invites with claim-safe copy.
+10. Ship the first public-beta tranche, capped at 100 testers, with claim-safe
+    copy.

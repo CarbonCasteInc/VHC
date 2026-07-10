@@ -90,7 +90,7 @@ Operator handling rules:
 | Minimum trusted operator gate exists | Implemented | `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `/admin/reports`, Gun adapter authorization checks, and the `operator_trust_gate` MVP release gate require trusted beta operator capability records before reviewed reports, synthesis corrections, or comment moderation records are written. |
 | Public feed release gates distinguish live evidence from fixtures | Implemented | `public_feed_composition_freshness`, `public_feed_lifecycle_accountability`, `public_feed_pagination_refresh`, and `stance_aggregate_decay_public_mesh` are tracked in `pnpm check:mvp-release-gates`; `pnpm check:public-feed:stance-aggregate-decay` requires current accepted synthesis before public stance/aggregate convergence can pass; fixture-only gates remain labeled as fixture/snapshot evidence in the closeout. |
 | Deterministic release check exists | Implemented | `pnpm check:public-beta-compliance` verifies route wiring, support-channel wiring, operator trust-gate wiring, no-overclaim language, and private escalation protocol coverage. |
-| Public-beta launch closeout exists | Implemented | `docs/ops/public-beta-launch-control-2026-07-09.md` records the go/no-go operator packet; `docs/ops/public-beta-distribution-packet-2026-07-09.md` records the first-wave distribution packet; the StoryCluster credential repair, accepted-synthesis canary, and auth-callback/provider packets are guarded by `pnpm check:release-readiness-operator-packets`; `docs/ops/public-beta-launch-readiness-closeout.md` maps launch gates to deterministic commands/reports, classifies remaining work as `ship_blocker` or `post_beta_follow_up`, and all four focused checks run through launch closeout. |
+| Public-beta launch closeout exists | Implemented | `docs/ops/public-beta-launch-control-2026-07-09.md` records the go/no-go operator packet; `docs/ops/public-beta-distribution-packet-2026-07-09.md` records the first-wave distribution packet; the StoryCluster credential repair, accepted-synthesis canary, and auth-callback/provider packets are guarded by `pnpm check:release-readiness-operator-packets`; beta-session runsheet rehearsal requirements are guarded by `pnpm check:beta-session-runsheet`; `docs/ops/public-beta-launch-readiness-closeout.md` maps launch gates to deterministic commands/reports, classifies remaining work as `ship_blocker` or `post_beta_follow_up`, and all five focused checks run through launch closeout. |
 
 ## 5. Boundaries That Remain Open
 
@@ -116,6 +116,7 @@ pnpm check:luma:mvp-production-readiness
 pnpm check:public-beta-launch-control
 pnpm check:public-beta-distribution-packet
 pnpm check:release-readiness-operator-packets
+pnpm check:beta-session-runsheet
 pnpm check:public-beta-launch-closeout
 pnpm docs:check
 pnpm check:mvp-release-gates

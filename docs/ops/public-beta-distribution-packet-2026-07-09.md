@@ -1,6 +1,6 @@
 # Public Beta Distribution Packet - 2026-07-09
 
-> Status: `blocked_pending_release_evidence_rehearsal_and_operator_fields`
+> Status: `blocked_pending_release_evidence_rehearsal_and_live_fields`
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-09
 > Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
@@ -13,10 +13,10 @@
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/launch/public-beta-copy.md`
 
-This is the Lane 8 distribution packet for the first controlled Venn News Web
-PWA tester wave. It is the artifact the session operator fills after the live
-release evidence packet, provider rehearsal, and manual three-browser rehearsal
-have passed.
+This is the Lane 8 distribution packet for the first Venn News Web PWA public
+beta ramp. It is the artifact the session operator fills after the live release
+evidence packet, provider rehearsal, and manual three-browser rehearsal have
+passed.
 
 This packet is not a release approval in its current state. It authorizes no
 A6 mutation, no origin image redeploy, no auth-provider registration, no
@@ -25,36 +25,36 @@ is a release-control checklist and tester-copy boundary.
 
 ## Current Decision
 
-`blocked_pending_release_evidence_rehearsal_and_operator_fields`
+`blocked_pending_release_evidence_rehearsal_and_live_fields`
 
 Do not invite testers while this status remains blocked. Change the status to
-`go_for_dev_small_distribution` only after every required field below is filled
+`go_for_public_beta_distribution` only after every required field below is filled
 with secret-safe evidence and the final go checklist passes.
 
 ## Distribution Envelope
 
 | Field | Current value | Required before invite |
 | --- | --- | --- |
-| Release profile | `dev-small` | Keep `dev-small` for the first wave; 1-3 testers maximum. |
+| Release profile | `public-beta-ramp` | First invite tranche capped at 100 testers; expand to 500/1000/open only after green evidence plus Lou approval. |
 | Release commit | `TBD(release-owner)` | Exact commit with passing release evidence packet. |
 | Web PWA target URL | `https://venn.carboncaste.io` | Must serve release-commit assets. |
-| Auth-callback target URL | `TBD(auth-boundary-owner)` | Must be outside A6 and health-checked. |
+| Auth-callback target URL | `https://auth.venn.carboncaste.io` | Must be outside A6 and health-checked. |
 | A6 deployed commit | `TBD(A6-operator)` | Read back immediately before distribution, or record why the release envelope avoids A6-newer claims. |
 | A6 service state | `TBD(A6-operator)` | Freshness, relay liveness, relay snapshot, watch closure, and alert email path pass. |
 | Accepted synthesis status | `TBD(A6-operator)` | Required if tester copy claims summaries, framing tables, or voting on accepted-current stories. |
 | Source-health status | `TBD(source-health-owner)` | Release evidence `pass` on the release commit. |
 | StoryCluster production-readiness | `TBD(source-health-owner)` | Headline-soak credential/endpoint blocker cleared if live headline readiness is claimed. |
-| Providers enabled | `TBD(provider-owners)` | Only providers that passed live rehearsal may appear in UI/copy and `VITE_AUTH_CALLBACK_PROVIDERS`. |
+| Providers enabled | `apple google`; `x` hidden/excluded | Only providers that passed live rehearsal may appear in UI/copy and `VITE_AUTH_CALLBACK_PROVIDERS`. |
 | Release evidence packet | `TBD(release-evidence-owner)` | `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json` status `pass`, `release_commit_verified: true`, blockers `[]`. |
 | MVP release gates | `TBD(release-evidence-owner)` | `check:mvp-release-gates` pass. |
 | MVP closeout | `TBD(release-evidence-owner)` | `check:mvp-closeout` pass. |
 | Launch control | `TBD(release-owner)` | `docs/ops/public-beta-launch-control-2026-07-09.md` status is go and has no stale TBD/blocker language. |
 | Manual rehearsal | `TBD(session-operator)` | `docs/ops/BETA_SESSION_RUNSHEET.md` three-browser and privacy checks pass. |
-| Incident owner | `TBD(operator)` | Named person watching email alerts and session telemetry during the wave. |
-| Alert-channel owner | `TBD(operator)` | Named person who confirms alert email reachability before invite. |
-| Rollback owner | `TBD(operator)` | Named person who has read the rollback section and can execute it. |
-| Private support/escalation contact | `TBD(operator)` | Non-public channel for sensitive support handoffs. |
-| External release approval | `TBD(release-owner)` | Record approval location or explicit `not_required` rationale. |
+| Incident owner | Lou | Named person watching email alerts and session telemetry during the wave. |
+| Alert-channel owner | Lou; `carboncasteit@gmail.com` | Confirm alert email reachability before invite. |
+| Rollback owner | Lou authorizes; Codex prepares/executes approved steps | Named authority has read the rollback section and can execute it. |
+| Private support/escalation contact | `carboncasteit@gmail.com` | Non-public channel for sensitive support handoffs. |
+| External release approval | Lou: `not_required_for_public_beta` | Lou has recorded that legal/commercial approval is not required before public beta testing. |
 
 ## Required Evidence Paths
 
@@ -80,11 +80,12 @@ or private user details.
 | Three-browser rehearsal | pass | `TBD` |
 | Privacy spot-check | no leak | `TBD` |
 | Alert delivery | confirmed reachable | `TBD` |
+| Failure-mailbox monitor | no unresolved criticals, or Lou-classified incident fully closed by approved recovery/readback | `TBD`; the first 2026-07-10 snapshot's 85 criticals are historical, while the moving latest artifact remains incident-blocking and S1A is classified exit `78`; distribution stays blocked until S1A/S1B clear |
 
 ## Final Go Checklist
 
 All checks must be true before changing the status to
-`go_for_dev_small_distribution`.
+`go_for_public_beta_distribution`.
 
 1. `docs/ops/public-beta-launch-control-2026-07-09.md` is go for the same
    release commit and target URLs.
@@ -113,6 +114,9 @@ All checks must be true before changing the status to
 13. The rollback owner has read the rollback sequence below.
 14. External release approval is recorded, or `not_required` is recorded with
     rationale.
+15. The latest failure-mailbox monitor has `newCriticalCount == 0`, or Lou has
+    classified any critical incident after read-only repo/A6 readback and
+    explicitly authorized distribution to continue.
 
 ## Tester Invite Copy
 
@@ -121,7 +125,7 @@ fields with release-specific values. Delete any sentence whose surface did not
 pass live evidence and rehearsal.
 
 ```text
-You are invited to a controlled Venn News Web PWA beta session.
+You are invited to the Venn News Web PWA public beta.
 
 Open: [WEB_PWA_TARGET_URL]
 
@@ -196,13 +200,18 @@ Forbidden in every invite, support note, issue, release note, and social copy:
 
 ## Session Limits
 
-- Start with 1-3 testers.
-- Do not expand to `beta-scale` from this packet.
-- Keep one operator watching email alerts and session telemetry during the
+- Start with at most 100 testers in the first public-beta tranche.
+- Expand to 500 testers only after 24 hours green evidence and Lou approval.
+- Expand to 1000 testers only after another 24 hours green evidence and Lou
+  approval.
+- Open beyond 1000 only after the release evidence packet, alert loop, support
+  loop, and incident/rollback process remain green through the prior tranche and
+  Lou explicitly approves open intake.
+- Keep Codex automation watching failure email and keep Lou reachable during the
   entire wave.
 - Pause intake immediately if any stop rule below fires.
-- Do not change flow, env, or code mid-wave. A `dev-small` to `beta-scale`
-  move requires the run-sheet flip-switch criteria and a new packet/update.
+- Do not change flow, env, or code mid-wave. A tranche expansion requires the
+  run-sheet flip-switch criteria and a packet update or appended evidence entry.
 
 ## Stop Rules
 
@@ -239,9 +248,10 @@ Rollback is claim-first unless the changed surface itself must be disabled.
    `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`.
 6. Keep raw feed and email alerting active unless a separate incident packet
    authorizes otherwise.
-7. Do not restart publisher or relays while raw feed freshness, relay liveness,
-   relay snapshot freshness, and watch closure are green unless an explicit
-   operator packet authorizes it.
+7. Publisher restart is allowed only when required by the approved
+   release/update/canary path or a focused incident packet. Do not restart relays
+   while raw feed freshness, relay liveness, relay snapshot freshness, and watch
+   closure are green unless an explicit operator packet authorizes it.
 
 ## Evidence Entry Template
 
@@ -271,7 +281,8 @@ Final disposition:
 
 ## Current Status
 
-This packet remains blocked because the required live/operator fields are not
+This packet remains blocked because the release commit, live evidence, deployed
+auth/provider proof, A6/origin readbacks, and manual rehearsal fields are not
 filled yet. The next valid actions are the operator-owned items already listed
 in `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`: repair the
 headline-soak credential/endpoint, complete A6 accepted-synthesis canary

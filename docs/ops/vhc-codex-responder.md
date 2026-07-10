@@ -2,7 +2,7 @@
 
 > Status: Draft / Dry-Run-Only Live Boundary
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-06
+> Last Reviewed: 2026-07-10
 > Depends On: docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
 
 ## Role
@@ -17,11 +17,13 @@ work:
 - draft operator packets;
 - never execute live A6 mutation from the issue.
 
-As of 2026-07-06, the responder tooling exists in repo after #722, but live A6
-execution/autonomy is not enabled. The active guardrail is the Slice 0 email
-alert path: if no alert is firing and the feed remains fresh, the responder
-should not manufacture live work. The next allowed engineering triggers are a
-new alert or the first post-recovery 500 MB -> 700 MB heap-summary pair.
+The responder tooling exists in repo after #722, but live A6
+execution/autonomy is not enabled. A real alert is active: S1A classified
+`relay_rest_story_timeout_total_0_of_3_exit_78`, and the publisher remains
+parked exit `78`. Repo-only S1B implementation and review may proceed; A6
+update, service action, alert-channel change, and downstream launch work may
+not. The next live boundary is an independently reviewed recovery packet built
+from the merged S1B commit and Lou's explicit incident approval.
 
 ## First Checks
 
@@ -100,6 +102,11 @@ The verifier fails closed on:
 - forbidden action id;
 - publisher restart packet when readback shows exit 75 or exit 78;
 - automation kill switch.
+
+The shipped executor action is deliberately limited to
+`restart_publisher_exit69_only`. It cannot authorize the current exit-78
+recovery, and changing that guard is not part of S1B. The exit-78 recovery must
+use the dedicated attended packet and authority boundary described above.
 
 ## Pull Executor
 

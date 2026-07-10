@@ -8,7 +8,7 @@ export const LAUNCH_CONTROL_PATH = 'docs/ops/public-beta-launch-control-2026-07-
 
 const allowedStatuses = new Set([
   'no_go_pending_operator_decisions_and_live_evidence',
-  'go_for_dev_small_tester_wave',
+  'go_for_public_beta_ramp',
 ]);
 
 const requiredDependsOn = [
@@ -62,6 +62,7 @@ const requiredEvidenceRows = [
   'A6 accepted synthesis',
   'Auth callback',
   'Manual rehearsal',
+  'Failure-mailbox monitor',
 ];
 
 const requiredGoRules = [
@@ -74,6 +75,7 @@ const requiredGoRules = [
   'release evidence is regenerated and passing on the release commit',
   'the manual three-browser rehearsal and privacy spot-check pass',
   'tester copy contains only the allowed claims',
+  'the latest failure-mailbox monitor has no unresolved critical items',
 ];
 
 const requiredStopRules = [
@@ -169,7 +171,7 @@ export function validatePublicBetaLaunchControl(content, options = {}) {
   const currentStatus = status.header ?? status.decision;
   if (currentStatus === 'no_go_pending_operator_decisions_and_live_evidence') {
     if (!hasPlaceholder(content)) {
-      issues.push(`${relPath}: no-go launch-control packet must retain explicit TBD operator blanks`);
+      issues.push(`${relPath}: no-go launch-control packet must retain explicit TBD blanks for unresolved release evidence`);
     }
     if (!/\brelease blocker\b/.test(content)) {
       issues.push(`${relPath}: no-go launch-control packet must mark blocker rows as release blockers`);
@@ -182,9 +184,9 @@ export function validatePublicBetaLaunchControl(content, options = {}) {
     }
   }
 
-  if (currentStatus === 'go_for_dev_small_tester_wave') {
+  if (currentStatus === 'go_for_public_beta_ramp') {
     const goForbidden = [
-      [/\bTBD\([^)]+\)/, 'TBD operator blanks'],
+      [/\bTBD\([^)]+\)/, 'TBD blanks'],
       [/\brelease blocker\b/, 'release blocker rows'],
       [/release evidence\s+pipeline remains blocked/i, 'blocked release evidence text'],
       [/No tester wave/, 'No tester wave launch implication'],

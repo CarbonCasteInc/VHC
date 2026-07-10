@@ -110,7 +110,7 @@ test('auth-callback provider packet keeps secrets outside A6 and advertises only
     'Auth boundary host URL',
     'Edge host/project/account',
     'Durable nonce store binding',
-    'Providers advertised for `dev-small`',
+    'Providers advertised for first public beta',
     'Origin image rebuild owner',
     'Rollback owner',
   ]) {
@@ -128,9 +128,9 @@ test('auth-callback provider packet keeps secrets outside A6 and advertises only
     assertIncludes(text, secret, `${secret} secret handling`);
   }
 
-  assertIncludes(text, 'Apple provider redirect URI | `https://<auth-boundary>/auth/apple/return`', 'Apple form_post redirect');
+  assertIncludes(text, 'Apple provider redirect URI | `https://auth.venn.carboncaste.io/auth/apple/return`', 'Apple form_post redirect');
   assertIncludes(text, 'Google provider redirect URI | `https://venn.carboncaste.io/auth/callback`', 'Google PWA redirect');
-  assertIncludes(text, 'X provider redirect URI | `https://venn.carboncaste.io/auth/callback`', 'X PWA redirect');
+  assertIncludes(text, 'X provider redirect URI | not registered for the first public beta', 'X deferred redirect');
   assertIncludes(text, 'Do not register Google or X directly to the worker callback endpoint', 'Google/X callback boundary');
   assertIncludes(text, 'durableStore` is `true`', 'durable store health requirement');
   assertIncludes(text, 'Start-Leg Smoke', 'start-leg smoke');
@@ -142,8 +142,9 @@ test('auth-callback provider packet keeps secrets outside A6 and advertises only
 
 test('operator packets do not grant pager, Codex, broad synthesis, or release approval authority', () => {
   for (const [name, { text }] of Object.entries(packets)) {
-    assertNotIncludes(text, 'go_for_dev_small_distribution', `${name} distribution approval`);
+    assertNotIncludes(text, 'go_for_public_beta_distribution', `${name} distribution approval`);
     assertNotIncludes(text, 'go_for_dev_small_tester_wave', `${name} launch approval`);
+    assertNotIncludes(text, 'go_for_public_beta_ramp', `${name} launch approval`);
     assertNotIncludes(text, 'Codex live execution enabled', `${name} Codex autonomy approval`);
     assertNotIncludes(text, 'pager-backed 24/7 operations', `${name} pager launch claim`);
   }

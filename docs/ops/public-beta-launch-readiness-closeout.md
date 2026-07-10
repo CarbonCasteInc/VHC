@@ -153,8 +153,8 @@ rollback ownership, and final launch status. The launch-control packet must not
 fake signoff: while any required approval, owner, release commit, auth host,
 provider decision, A6 readback, release evidence, or rehearsal field is pending,
 its status remains `no_go_pending_operator_decisions_and_live_evidence`. A
-future `go_for_dev_small_tester_wave` status is valid only after the packet's
-operator fields and evidence rows are filled. `pnpm
+future `go_for_public_beta_ramp` status is valid only after the packet's
+authority/contact fields and evidence rows are filled. `pnpm
 check:public-beta-launch-control` statically enforces that no-go packets retain
 explicit blockers and go packets do not retain TBDs, release-blocker rows, stale
 blocked-evidence text, or "No tester wave" language.
@@ -175,6 +175,36 @@ credential repair, A6 accepted-synthesis canary, and auth-callback/provider
 deployment. The check keeps those packets pending or draft until their
 preconditions are met, and pins their secret-safe evidence, non-goals, stop
 rules, rollback boundaries, and no-live-authority claims.
+
+The manual tester-session procedure is guarded by
+`pnpm check:beta-session-runsheet`. That check pins the canonical
+`docs/ops/BETA_SESSION_RUNSHEET.md` contract for daily feed/source review,
+account sign-in/provider readiness, 3-browser persistence, cross-client
+convergence, privacy-leak inspection, account-to-LUMA binding, flip-switch
+criteria, monitoring thresholds, rollback, and session evidence capture. It
+does not execute the manual rehearsal; it prevents the release closeout from
+forgetting which manual evidence has to be collected before distribution.
+
+The next-phase execution checklist is recorded in
+`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` and guarded
+by `pnpm check:public-beta-next-phase-sprint`. It turns the launch-control
+decisions into ordered slices for Cloudflare/auth, Apple/Google provider
+registration, A6 release update, accepted-synthesis canary, release evidence,
+manual rehearsal, first public-beta tranche, and post-launch monitoring/ramp.
+
+2026-07-10 failure-mailbox monitor update: the Codex App mailbox monitor writes
+moving secret-safe state at `.tmp/vhc-failure-mailbox-monitor/latest.json`; a
+monitor `status: pass` means execution health, not release clearance. The first
+run's `newCriticalCount: 85` is a dated historical snapshot, not the current
+count. Subsequent artifacts remain incident-blocking, and S1A read-only
+evidence classified
+`relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation does not
+prove deployment or recovery. Preserve the email/readback evidence and do not
+start StoryCluster repair, auth deployment, provider registration, origin
+redeploy, A6 update, accepted-synthesis canary, release-evidence regeneration,
+manual rehearsal, distribution, or tranche expansion until the reviewed S1B
+recovery packet is merged, Lou authorizes its live boundary, and S1A/S1B exit
+green.
 
 The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
@@ -244,10 +274,12 @@ Run these commands on the final public-beta release commit and preserve their ou
 
 | Evidence | Command | Deterministic report or artifact | Required result |
 | --- | --- | --- | --- |
-| Release-owner launch control | `pnpm check:public-beta-launch-control` | `docs/ops/public-beta-launch-control-2026-07-09.md` plus `tools/scripts/check-public-beta-launch-control.mjs` | Current no-go packet must retain explicit operator blanks and live-evidence blockers; a future `go_for_dev_small_tester_wave` packet must have operator fields and evidence rows filled and must not retain stale no-go/blocker language |
+| Release-owner launch control | `pnpm check:public-beta-launch-control` | `docs/ops/public-beta-launch-control-2026-07-09.md` plus `tools/scripts/check-public-beta-launch-control.mjs` | Current no-go packet must retain explicit unresolved evidence blanks and live-evidence blockers; a future `go_for_public_beta_ramp` packet must have authority/contact fields and evidence rows filled and must not retain stale no-go/blocker language |
 | First-wave distribution packet | `pnpm check:public-beta-distribution-packet` | `docs/ops/public-beta-distribution-packet-2026-07-09.md` plus `tools/scripts/public-beta-distribution-packet.test.mjs` | Current packet must remain blocked until every release evidence, A6/origin readback, provider rehearsal, manual rehearsal, owner, alert, support, rollback, and external-approval field is filled; tester copy remains claim-safe and rollback remains claim-first |
 | Operator packet boundary guard | `pnpm check:release-readiness-operator-packets` | `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`, `docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md`, `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`, plus `tools/scripts/release-readiness-operator-packets.test.mjs` | Pending/draft operator packets retain secret-safe handling, exact live authority boundaries, non-goals, stop rules, and rollback constraints before any live execution |
-| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control, distribution-packet, and operator-packet checks above |
+| Beta session runsheet guard | `pnpm check:beta-session-runsheet` | `docs/ops/BETA_SESSION_RUNSHEET.md` plus `tools/scripts/beta-session-runsheet.test.mjs` | `pass`; daily gate, provider readiness, 3-browser convergence, privacy, account-to-LUMA binding, flip-switch, monitoring, rollback, and evidence-capture requirements remain pinned before manual rehearsal |
+| Next-phase sprint checklist guard | `pnpm check:public-beta-next-phase-sprint` | `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` plus `tools/scripts/public-beta-next-phase-sprint.test.mjs` | `pass`; ordered slices, Lou/Codex authority model, Apple/Google first provider set, `auth.venn.carboncaste.io`, A6/update/canary permissions, secret boundaries, first-tranche cap, and post-launch ramp rules remain pinned |
+| Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control, distribution-packet, operator-packet, and beta-session runsheet checks above |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
 | Public feed analysis/frame reliability | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm test:public-feed:browser-smoke` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` plus `.tmp/analysis-frame-pipeline/<timestamp>/` consistency probes | `pass`; public top-N latest-index body 404 count is zero or inside an explicitly recorded repair/tombstone window; app-open feed population succeeds without a manual refresh click; at least one current accepted synthesis is visible by default with frame/reframe rows and point ids when relay lifecycle matches the current story/source-set revision; pending/terminal stories still render honest non-votable states |
 | Public feed composition/freshness | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm check:public-feed:composition-freshness` | `.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json` | `pass`; public latest feed includes both singleton and multi-source/corroborated stories, reports composition/per-story public-state counts, verifies latest-index product metadata, verifies relay cursor pagination for older latest-index rows, independently verifies latest-index and sampled story-body readback on every configured public relay peer, and fails instead of `setup_scarcity` when source-health evidence proves corroborated supply exists but the deployed feed remains singleton-only |
@@ -322,7 +354,7 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 
 | Item | Classification | Closeout decision |
 | --- | --- | --- |
-| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
+| `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:beta-session-runsheet`, `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
 | `external_release_approval_not_recorded` | ship_blocker | This repo does not create legal/commercial approval. If the organization requires legal/operator approval before public distribution, that signoff must be recorded outside the code gates before public launch claims are made. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | Do not market live public headlines as production-grade unless `pnpm check:storycluster:production-readiness` resolves to `release_ready`. The Web PWA beta may still use the constrained beta and validated-snapshot scope. |
 | `scope_a_sustained_stability_claim_without_retainer_evidence` | ship_blocker | Do not claim 48-hour Scope A stability or host-failure tolerance from outage recovery alone. The current verdict is `heap_driver_off_graph_likely`; sustained live-headline claims require early-capture retainer evidence or a later clean plateau/window that supersedes the verdict. |
