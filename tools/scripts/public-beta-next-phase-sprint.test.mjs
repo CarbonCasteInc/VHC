@@ -399,4 +399,22 @@ test('final tuple and honest soak boundary are durable across launch-control sur
     assert.doesNotMatch(text, /classified[\s\S]{0,160}authorized/i, `${label}: classified-incident authorization waiver remains`);
   }
   assert.ok(!/S1 has no active critical incident, or Lou has classified the incident and\s+explicitly authorized this slice to proceed\./.test(checklist), 'S2 must not retain incident-authorization shortcut');
+
+  for (const token of [
+    'Shared-integration parent base: `main@297d1bb4bd7654e713953930d61f55ca930df50e`',
+    'The merge commit containing this integration becomes',
+    'publisher recovery before C, independent relay-evidence acceptance, and a',
+    'separate later Lou confirmation for the exact revision',
+    'human authority or immediate readback cannot',
+  ]) {
+    assertIncludes(handoff, token, `handoff exact authority transition ${token}`);
+  }
+  for (const forbidden of [
+    'Current merged repo base: `main@297d1bb4',
+    'publisher restart only if required by the approved release/update/canary path',
+    'publisher restart remain Lou-approved incident actions',
+    'any Lou-approved recovery readback clears it',
+  ]) {
+    assert.ok(!handoff.includes(forbidden), `handoff stale authority shortcut remains: ${forbidden}`);
+  }
 });
