@@ -11,7 +11,7 @@ import { runPublicFeedFreshnessMonitor } from './public-feed-freshness-monitor.m
 import { newsAggregatorPublisherLivenessWatchInternal } from './news-aggregator-publisher-liveness-watch.mjs';
 
 const REPORT_SCHEMA_VERSION = 'vh-public-feed-alert-watch-v1';
-const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v2';
+const STATE_SCHEMA_VERSION = 'vh-public-feed-alert-state-v3';
 const DEFAULT_UNIT = 'vh-news-aggregator.service';
 const DEFAULT_STATE_DIR = '.local/state/vhc/public-feed-alert';
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -87,10 +87,57 @@ function sanitizeAlertError(error, redactions = []) {
   return sanitizeAlertText(message);
 }
 
-function stableFingerprintText(value) {
-  return sanitizeAlertText(value)
-    .replace(/publisher_restart_churn:\d+\/\d+/g, 'publisher_restart_churn:<n>/<n>')
-    .replace(/\b\d{4,}\b/g, '<n>');
+function sortedUniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
+}
+
+function blockerReasonCode(value) {
+  const hashMarkers = new Set(['url_hash', 'value_hash', 'snapshot_file_hash']);
+  const segments = sanitizeAlertText(value)
+    .split(/[:|]/)
+    .map((segment) => segment.trim().toLowerCase())
+    .filter(Boolean);
+  const codes = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (hashMarkers.has(segment)) {
+      index += 1;
+      continue;
+    }
+    if (!/^[a-z][a-z0-9_-]*$/.test(segment)) continue;
+    if (index === 0 || segment.includes('_')) {
+      codes.push(segment);
+    }
+  }
+  return codes.length > 0 ? codes.join(':') : 'unclassified_blocker';
+}
+
+function blockerReasonCodes(values) {
+  return sortedUniqueStrings((values ?? []).map(blockerReasonCode));
+}
+
+function canonicalObjectSet(values) {
+  const byKey = new Map();
+  for (const value of values) {
+    const key = JSON.stringify(value);
+    if (!byKey.has(key)) byKey.set(key, value);
+  }
+  return [...byKey.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([, value]) => value);
+}
+
+function identityHash(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized ? hashValue(normalized) : null;
+}
+
+function thresholdFingerprintState(threshold) {
+  if (!threshold) return null;
+  return {
+    status: threshold.status ?? null,
+    blockerReasonCodes: blockerReasonCodes(threshold.blockers),
+  };
 }
 
 function maxSeverity(...values) {
@@ -657,9 +704,11 @@ function fingerprintFor({
   relaySnapshot,
   watchClosure,
 }) {
+  // Diagnostics retain their full secret-safe values; only this projection is
+  // reduced to stable semantic state before hashing for delivery dedupe.
   return hashValue(JSON.stringify({
     status,
-    blockers: [...blockers].map(stableFingerprintText).sort(),
+    blockerReasonCodes: blockerReasonCodes(blockers),
     publisher: {
       status: publisher.status,
       activeState: publisher.activeState,
@@ -669,45 +718,45 @@ function fingerprintFor({
     },
     freshness: {
       status: freshness.status,
-      blockers: freshness.blockers.map(stableFingerprintText),
-      latestIndexReadbacks: freshness.latestIndexReadbacks.map((entry) => ({
-        originHash: entry.originHash,
+      blockerReasonCodes: blockerReasonCodes(freshness.blockers),
+      originIdentities: sortedUniqueStrings(freshness.originHashes ?? []),
+      latestIndexReadbacks: canonicalObjectSet(freshness.latestIndexReadbacks.map((entry) => ({
+        identityHash: entry.originHash ?? null,
         status: entry.status,
         ageState: freshnessAgeState(entry),
-        recordCount: entry.recordCount,
-        failureCount: entry.failureCount,
-      })),
+      }))),
     },
     relayLiveness: {
       status: relayLiveness.status,
-      blockers: relayLiveness.blockers.map(stableFingerprintText),
-      relays: (relayLiveness.relays ?? []).map((relay) => ({
-        name: relay.name,
+      blockerReasonCodes: blockerReasonCodes(relayLiveness.blockers),
+      relays: canonicalObjectSet((relayLiveness.relays ?? []).map((relay) => ({
+        identityHash: identityHash(relay.name),
         status: relay.status,
-        blockerCount: relay.blockerCount,
-        restartCount: relay.restartCount,
-        watchdogTrips: relay.watchdogTrips,
-      })),
+      }))),
     },
     relaySnapshot: {
       status: relaySnapshot.status,
-      blockers: relaySnapshot.blockers.map(stableFingerprintText),
-      snapshots: (relaySnapshot.snapshots ?? []).map((snapshot) => ({
-        fileHash: snapshot.fileHash,
-        relay: snapshot.relay,
+      blockerReasonCodes: blockerReasonCodes(relaySnapshot.blockers),
+      snapshots: canonicalObjectSet((relaySnapshot.snapshots ?? []).map((snapshot) => ({
+        identityHash: identityHash(snapshot.relay ?? snapshot.fileHash),
         status: snapshot.status,
-        entryCount: snapshot.entryCount,
-        failureCount: snapshot.failureCount,
-        freshnessFailureCount: snapshot.freshnessFailureCount,
-      })),
+      }))),
     },
     watchClosure: {
       status: watchClosure.status,
-      blockers: watchClosure.blockers.map(stableFingerprintText),
+      blockerReasonCodes: blockerReasonCodes(watchClosure.blockers),
       verdictStatus: watchClosure.verdictStatus,
-      thresholds: watchClosure.thresholds,
+      thresholds: {
+        twentyFourHour: thresholdFingerprintState(watchClosure.thresholds?.twentyFourHour),
+        fortyEightHour: thresholdFingerprintState(watchClosure.thresholds?.fortyEightHour),
+      },
       relayMemoryStatus: watchClosure.relayMemory?.status ?? null,
       relayMemoryVerdict: watchClosure.relayMemory?.heapPlateauVerdict ?? null,
+      relayMemoryRelays: canonicalObjectSet((watchClosure.relayMemory?.relays ?? []).map((relay) => ({
+        identityHash: identityHash(relay.name),
+        status: relay.trendStatus ?? null,
+        verdict: relay.heapPlateauVerdict ?? null,
+      }))),
     },
   }), 24);
 }
@@ -732,16 +781,16 @@ function shouldDeliverAlert({
     && (!Number.isFinite(lastDeliveredAtMs) || now - lastDeliveredAtMs >= heartbeatMs);
   const changed = previousFingerprint !== null && previousFingerprint !== fingerprint;
   const firstFailure = previousFingerprint === null && status === 'fail';
-  const retryUndeliveredFailure = previousFingerprint === fingerprint
-    && status === 'fail'
-    && previousDeliveredFingerprint !== fingerprint;
+  const priorDeliveryFailed = ['failed', 'missing_channel'].includes(previousState?.lastDeliveryStatus);
+  const retryUndeliveredState = previousFingerprint === fingerprint
+    && (priorDeliveryFailed || (status === 'fail' && previousDeliveredFingerprint !== fingerprint));
   const failureOrRecoveryChanged = changed && (status === 'fail' || previousStatus === 'fail');
   let reason = 'unchanged_suppressed';
   if (testFire) {
     reason = 'test_fire';
   } else if (firstFailure) {
     reason = 'first_failure';
-  } else if (retryUndeliveredFailure) {
+  } else if (retryUndeliveredState) {
     reason = 'retry_failed_delivery';
   } else if (failureOrRecoveryChanged) {
     reason = 'state_changed';
@@ -753,7 +802,7 @@ function shouldDeliverAlert({
   return {
     deliver: testFire
       || firstFailure
-      || retryUndeliveredFailure
+      || retryUndeliveredState
       || failureOrRecoveryChanged
       || (stateSchemaMismatch && status === 'fail')
       || heartbeatDue,
@@ -850,11 +899,13 @@ function formatEmail({ to, from, subject, payload }) {
     `To: ${to}`,
     `From: ${from}`,
     `Subject: ${subject}`,
-    'Content-Type: application/json; charset=utf-8',
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: 8bit',
     '',
     JSON.stringify(payload, null, 2),
     '',
-  ].join('\n');
+  ].join('\r\n');
 }
 
 function deliverEmail({

@@ -129,6 +129,22 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
+function parseTextEmail(message) {
+  const normalized = String(message).replace(/\r\n/g, '\n');
+  const separatorIndex = normalized.indexOf('\n\n');
+  assert.notEqual(separatorIndex, -1, 'email must contain a header/body separator');
+  const headers = {};
+  for (const line of normalized.slice(0, separatorIndex).split('\n')) {
+    const colonIndex = line.indexOf(':');
+    assert.notEqual(colonIndex, -1, `invalid email header: ${line}`);
+    headers[line.slice(0, colonIndex).trim().toLowerCase()] = line.slice(colonIndex + 1).trim();
+  }
+  return {
+    headers,
+    body: normalized.slice(separatorIndex + 2).trim(),
+  };
+}
+
 function relayLivenessReport(overrides = {}) {
   return {
     schemaVersion: 'vh-news-relay-liveness-watch-v1',
@@ -232,6 +248,143 @@ function writeAuxReports(root, {
     VH_PUBLIC_FEED_ALERT_WATCH_CLOSURE_VERDICT_FILE: closureFile,
   };
 }
+
+function semanticFingerprintInput() {
+  return {
+    status: 'fail',
+    blockers: [
+      'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30000000/21600000',
+      'watch_closure:archive_sample_failures:8',
+    ],
+    publisher: {
+      status: 'fail',
+      activeState: 'failed',
+      subState: 'failed',
+      execMainStatus: '78',
+      failureClass: 'exit_78_fail_closed',
+    },
+    freshness: {
+      status: 'fail',
+      blockers: ['latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30000000/21600000'],
+      originHashes: ['source-b', 'source-a'],
+      latestIndexReadbacks: [
+        { originHash: 'source-b', status: 'fail', newestAgeMs: 30_000_000, maxAgeMs: 21_600_000, recordCount: 80, failureCount: 8 },
+        { originHash: 'source-a', status: 'pass', newestAgeMs: 120_000, maxAgeMs: 21_600_000, recordCount: 79, failureCount: 0 },
+      ],
+    },
+    relayLiveness: {
+      status: 'fail',
+      blockers: ['relay_liveness:vhc-relay-b:readyz_failed'],
+      relays: [
+        { name: 'vhc-relay-b', status: 'fail', blockerCount: 1, restartCount: 8, watchdogTrips: 8 },
+        { name: 'vhc-relay-a', status: 'pass', blockerCount: 0, restartCount: 0, watchdogTrips: 0 },
+      ],
+    },
+    relaySnapshot: {
+      status: 'fail',
+      blockers: ['relay_snapshot:snapshot_file_hash:fedcba9876543210:newest_entry_stale:30000000/21600000'],
+      snapshots: [
+        { fileHash: 'snapshot-b', relay: 'vhc-relay-b', status: 'fail', entryCount: 80, failureCount: 8, freshnessFailureCount: 8 },
+        { fileHash: 'snapshot-a', relay: 'vhc-relay-a', status: 'pass', entryCount: 79, failureCount: 0, freshnessFailureCount: 0 },
+      ],
+    },
+    watchClosure: {
+      status: 'fail',
+      blockers: ['watch_closure:archive_sample_failures:8'],
+      verdictStatus: 'fail',
+      thresholds: {
+        twentyFourHour: { status: 'fail', blockers: ['archive_sample_failures:8'] },
+        fortyEightHour: { status: 'not_ready', blockers: ['window_short:33.49/48'] },
+      },
+      relayMemory: {
+        status: 'fail',
+        heapPlateauVerdict: 'heap_still_linear',
+        relays: [
+          { name: 'vhc-relay-b', trendStatus: 'fail', heapPlateauVerdict: 'heap_still_linear', shortestProjectedLimitHours: 18 },
+          { name: 'vhc-relay-a', trendStatus: 'pass', heapPlateauVerdict: 'heap_plateau_observed', shortestProjectedLimitHours: 240 },
+        ],
+      },
+    },
+  };
+}
+
+test('semantic fingerprint ignores volatile values and ordering but preserves real state transitions', () => {
+  const baseline = semanticFingerprintInput();
+  const volatileDrift = structuredClone(baseline);
+  volatileDrift.blockers = [
+    'watch_closure:archive_sample_failures:9',
+    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30300000/21600000',
+    'watch_closure:archive_sample_failures:9',
+  ];
+  volatileDrift.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_stale:30300000/21600000',
+  ];
+  volatileDrift.freshness.originHashes = ['source-a', 'source-b', 'source-a'];
+  volatileDrift.freshness.latestIndexReadbacks.reverse();
+  volatileDrift.freshness.latestIndexReadbacks.push(structuredClone(volatileDrift.freshness.latestIndexReadbacks[0]));
+  volatileDrift.freshness.latestIndexReadbacks[0].recordCount = 99;
+  volatileDrift.freshness.latestIndexReadbacks[1].newestAgeMs = 30_300_000;
+  volatileDrift.freshness.latestIndexReadbacks[1].recordCount = 99;
+  volatileDrift.freshness.latestIndexReadbacks[1].failureCount = 9;
+  volatileDrift.relayLiveness.relays.reverse();
+  volatileDrift.relayLiveness.relays.push(structuredClone(volatileDrift.relayLiveness.relays[0]));
+  volatileDrift.relayLiveness.relays[1].blockerCount = 9;
+  volatileDrift.relayLiveness.relays[1].restartCount = 9;
+  volatileDrift.relayLiveness.relays[1].watchdogTrips = 9;
+  volatileDrift.relaySnapshot.snapshots.reverse();
+  volatileDrift.relaySnapshot.snapshots.push(structuredClone(volatileDrift.relaySnapshot.snapshots[0]));
+  volatileDrift.relaySnapshot.snapshots[1].entryCount = 99;
+  volatileDrift.relaySnapshot.snapshots[1].failureCount = 9;
+  volatileDrift.relaySnapshot.snapshots[1].freshnessFailureCount = 9;
+  volatileDrift.watchClosure.blockers = ['watch_closure:archive_sample_failures:9'];
+  volatileDrift.watchClosure.thresholds.twentyFourHour.blockers = ['archive_sample_failures:9'];
+  volatileDrift.watchClosure.thresholds.fortyEightHour.blockers = ['window_short:33.99/48'];
+  volatileDrift.watchClosure.relayMemory.relays.reverse();
+  volatileDrift.watchClosure.relayMemory.relays[1].shortestProjectedLimitHours = 17;
+
+  const fingerprint = publicFeedAlertWatchInternal.fingerprintFor(baseline);
+  assert.equal(publicFeedAlertWatchInternal.fingerprintFor(volatileDrift), fingerprint);
+
+  const exitClassChanged = structuredClone(baseline);
+  exitClassChanged.publisher.activeState = 'activating';
+  exitClassChanged.publisher.subState = 'auto-restart';
+  exitClassChanged.publisher.execMainStatus = '69';
+  exitClassChanged.publisher.failureClass = 'exit_69_transport_unavailable';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(exitClassChanged), fingerprint);
+
+  const thresholdChanged = structuredClone(baseline);
+  thresholdChanged.watchClosure.thresholds.twentyFourHour.status = 'pass';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(thresholdChanged), fingerprint);
+
+  const blockerReasonChanged = structuredClone(baseline);
+  blockerReasonChanged.watchClosure.blockers = ['watch_closure:runtime_failed_ticks:8'];
+  blockerReasonChanged.watchClosure.thresholds.twentyFourHour.blockers = ['runtime_failed_ticks:8'];
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(blockerReasonChanged), fingerprint);
+
+  const compositeReasonChanged = structuredClone(baseline);
+  compositeReasonChanged.blockers = [
+    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_empty|latest_index_timestamp_missing',
+    'watch_closure:archive_sample_failures:8',
+  ];
+  compositeReasonChanged.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_empty|latest_index_timestamp_missing',
+  ];
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(compositeReasonChanged), fingerprint);
+
+  const relayChanged = structuredClone(baseline);
+  relayChanged.relayLiveness.relays[0].status = 'pass';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(relayChanged), fingerprint);
+
+  const recovered = structuredClone(baseline);
+  recovered.status = 'pass';
+  recovered.blockers = [];
+  recovered.publisher.status = 'pass';
+  recovered.publisher.activeState = 'active';
+  recovered.publisher.subState = 'running';
+  recovered.publisher.execMainStatus = '0';
+  recovered.publisher.failureClass = 'none';
+  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(recovered), fingerprint);
+});
 
 test('passing feed and active publisher do not require an alert channel', async () => {
   const root = tempRoot();
@@ -466,6 +619,144 @@ test('stale auxiliary report output is warning severity and dedupes across age d
   }
 });
 
+test('volatile progress suppresses repeats while latest and heartbeat payloads retain full diagnostics', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    function writeProgress({ nowIso, windowHours, count, entryCount }) {
+      return writeAuxReports(root, {
+        relay: relayLivenessReport({
+          generatedAt: nowIso,
+          status: 'fail',
+          blockers: ['vhc-relay-b:readyz_failed'],
+          relays: [
+            {
+              name: 'vhc-relay-b',
+              origin: 'http://127.0.0.1:8766/private',
+              status: 'fail',
+              blockers: ['readyz_failed'],
+              docker: { restartCount: count },
+              metrics: {
+                rssBytes: 1_200_000_000 + count,
+                heapUsedBytes: 920_000_000 + count,
+                watchdogTrips: count,
+                eventLoopLagP99Ms: 30 + count,
+                criticalReadbacksQueued: count,
+              },
+            },
+          ],
+        }),
+        snapshot: relaySnapshotReport({
+          generatedAt: nowIso,
+          status: 'fail',
+          blockers: [`newest_entry_stale:${30_000_000 + count}/21600000`],
+          snapshots: [
+            {
+              file: '/home/humble/.local/share/vhc/vhc-relay-b/data/news-latest-index-snapshot.json',
+              status: 'fail',
+              failures: Array.from({ length: count }, () => 'newest_entry_stale'),
+              entryCount,
+              cachedAgeMs: 60_000 + count,
+              newestEntryAgeMs: 30_000_000 + count,
+              freshnessFailures: Array.from({ length: count }, () => 'newest_entry_stale'),
+            },
+          ],
+        }),
+        closure: watchClosureVerdict({
+          generatedAt: nowIso,
+          status: 'fail',
+          severity: 'critical',
+          blockers: [
+            `archive_sample_failures:${count}`,
+            `window_short:${windowHours}/48`,
+          ],
+          thresholds: {
+            twentyFourHour: { thresholdHours: 24, status: 'fail', blockers: [`archive_sample_failures:${count}`] },
+            fortyEightHour: { thresholdHours: 48, status: 'not_ready', blockers: [`window_short:${windowHours}/48`] },
+          },
+        }),
+      });
+    }
+
+    const firstNow = Date.parse('2026-07-02T18:00:00.000Z');
+    const auxEnv = writeProgress({
+      nowIso: new Date(firstNow).toISOString(),
+      windowHours: '33.49',
+      count: 8,
+      entryCount: 80,
+    });
+    const env = baseEnv(root, {
+      ...auxEnv,
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+      VH_PUBLIC_FEED_ALERT_HEARTBEAT_MS: '600000',
+    });
+    let freshnessNow = firstNow;
+    let freshnessAgeMs = 30_000_000;
+    const options = {
+      env,
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => staleFreshnessSummary({
+        now: freshnessNow,
+        newestAgeMs: freshnessAgeMs,
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: firstNow });
+
+    const secondNow = Date.parse('2026-07-02T18:05:00.000Z');
+    freshnessNow = secondNow;
+    freshnessAgeMs = 30_300_000;
+    writeProgress({
+      nowIso: new Date(secondNow).toISOString(),
+      windowHours: '33.99',
+      count: 9,
+      entryCount: 90,
+    });
+    const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: secondNow });
+
+    const thirdNow = Date.parse('2026-07-02T18:11:00.000Z');
+    freshnessNow = thirdNow;
+    freshnessAgeMs = 30_660_000;
+    writeProgress({
+      nowIso: new Date(thirdNow).toISOString(),
+      windowHours: '34.09',
+      count: 10,
+      entryCount: 100,
+    });
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({ ...options, now: thirdNow });
+
+    assert.equal(second.fingerprint, first.fingerprint);
+    assert.equal(third.fingerprint, first.fingerprint);
+    assert.equal(second.delivery.status, 'suppressed');
+    assert.equal(second.delivery.reason, 'unchanged_suppressed');
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'heartbeat_due');
+    assert.equal(calls.length, 2);
+
+    const latest = JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8'));
+    assert.equal(latest.freshness.latestIndexReadbacks[0].newestAgeMs, 30_660_000);
+    assert.equal(latest.relayLiveness.relays[0].restartCount, 10);
+    assert.equal(latest.relayLiveness.relays[0].watchdogTrips, 10);
+    assert.equal(latest.relaySnapshot.snapshots[0].entryCount, 100);
+    assert.equal(latest.relaySnapshot.snapshots[0].failureCount, 10);
+    assert.deepEqual(latest.watchClosure.thresholds.fortyEightHour.blockers, ['window_short:34.09/48']);
+    assert.deepEqual(latest.watchClosure.thresholds.twentyFourHour.blockers, ['archive_sample_failures:10']);
+
+    const heartbeatPayload = JSON.parse(calls[1].init.body);
+    assert.equal(heartbeatPayload.freshness.latestIndexReadbacks[0].newestAgeMs, 30_660_000);
+    assert.equal(heartbeatPayload.relayLiveness.relays[0].restartCount, 10);
+    assert.equal(heartbeatPayload.relaySnapshot.snapshots[0].failureCount, 10);
+    assert.deepEqual(heartbeatPayload.watchClosure.thresholds.fortyEightHour.blockers, ['window_short:34.09/48']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('watch-closure fail verdict pages as warning with threshold provenance', async () => {
   const root = tempRoot();
   const calls = [];
@@ -569,7 +860,119 @@ test('watch-closure default heap limit provenance pages as warning', async () =>
   }
 });
 
-test('state schema migration redelivers an unchanged failure once', async () => {
+test('threshold status, blocker reason, and relay failure transitions each deliver once', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    function closureWith({ twentyFourStatus, fortyEightBlocker }) {
+      return watchClosureVerdict({
+        status: 'in_progress',
+        blockers: [fortyEightBlocker],
+        thresholds: {
+          twentyFourHour: {
+            thresholdHours: 24,
+            status: twentyFourStatus,
+            blockers: twentyFourStatus === 'pass' ? [] : ['window_short:23.99/24'],
+          },
+          fortyEightHour: { thresholdHours: 48, status: 'not_ready', blockers: [fortyEightBlocker] },
+        },
+      });
+    }
+
+    const initialAux = writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'not_ready', fortyEightBlocker: 'window_short:33.49/48' }),
+    });
+    const env = baseEnv(root, {
+      ...initialAux,
+      VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+    });
+    const options = {
+      env,
+      repoRoot: root,
+      systemctlShowText: exit78Systemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const initial = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'window_short:33.49/48' }),
+    });
+    const thresholdChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:8' }),
+    });
+    const reasonChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      relay: relayLivenessReport({
+        status: 'fail',
+        blockers: ['vhc-relay-b:readyz_failed'],
+        relays: [{
+          name: 'vhc-relay-b',
+          status: 'fail',
+          blockers: ['readyz_failed'],
+          docker: { restartCount: 1 },
+          metrics: { watchdogTrips: 1 },
+        }],
+      }),
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:8' }),
+    });
+    const relayChanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    writeAuxReports(root, {
+      relay: relayLivenessReport({
+        status: 'fail',
+        blockers: ['vhc-relay-b:readyz_failed'],
+        relays: [{
+          name: 'vhc-relay-b',
+          status: 'fail',
+          blockers: ['readyz_failed'],
+          docker: { restartCount: 9 },
+          metrics: { watchdogTrips: 9 },
+        }],
+      }),
+      closure: closureWith({ twentyFourStatus: 'pass', fortyEightBlocker: 'archive_sample_failures:9' }),
+    });
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:04:00.000Z'),
+    });
+
+    assert.equal(initial.delivery.reason, 'first_failure');
+    assert.equal(thresholdChanged.delivery.reason, 'state_changed');
+    assert.equal(reasonChanged.delivery.reason, 'state_changed');
+    assert.equal(relayChanged.delivery.reason, 'state_changed');
+    assert.notEqual(thresholdChanged.fingerprint, initial.fingerprint);
+    assert.notEqual(reasonChanged.fingerprint, thresholdChanged.fingerprint);
+    assert.notEqual(relayChanged.fingerprint, reasonChanged.fingerprint);
+    assert.equal(unchanged.fingerprint, relayChanged.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 4);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('state schema migration retries a failed delivery once and then suppresses the unresolved incident', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -590,13 +993,15 @@ test('state schema migration redelivers an unchanged failure once', async () => 
       freshnessMonitorImpl: async () => freshnessSummary(),
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
-        return { ok: true, status: 204 };
+        return calls.length === 2
+          ? { ok: false, status: 503 }
+          : { ok: true, status: 204 };
       },
     };
 
     const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
     const state = JSON.parse(readFileSync(path.join(root, 'state.json'), 'utf8'));
-    assert.equal(state.schemaVersion, 'vh-public-feed-alert-state-v2');
+    assert.equal(state.schemaVersion, 'vh-public-feed-alert-state-v3');
     assert.deepEqual(state.sourceStatuses, {
       publisher: 'pass',
       freshness: 'pass',
@@ -606,15 +1011,22 @@ test('state schema migration redelivers an unchanged failure once', async () => 
     });
     writeJson(path.join(root, 'state.json'), {
       ...state,
-      schemaVersion: 'vh-public-feed-alert-state-v1',
+      schemaVersion: 'vh-public-feed-alert-state-v2',
     });
 
     const second = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
+    const fourth = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch(options);
 
     assert.equal(first.fingerprint, second.fingerprint);
-    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.status, 'failed');
     assert.equal(second.delivery.reason, 'state_changed');
-    assert.equal(calls.length, 2);
+    assert.equal(second.state.schemaVersion, 'vh-public-feed-alert-state-v3');
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'retry_failed_delivery');
+    assert.equal(fourth.delivery.status, 'suppressed');
+    assert.equal(fourth.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 3);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -826,19 +1238,39 @@ test('heartbeat interval can resend an unchanged state', async () => {
   }
 });
 
-test('publisher exit 78 is a fail-close alert and can deliver through sendmail', async () => {
+test('publisher exit 78 email has a readable secret-safe text body and exact safe subject', async () => {
   const root = tempRoot();
   const mail = [];
+  const privateOrigin = 'https://private.example.invalid/feed?token=synthetic-email-token';
+  const privateStoryBody = 'synthetic-private-story-body';
+  const privateSnapshotPath = '/synthetic/private-host/vhc-relay-a/data/news-latest-index-snapshot.json';
   try {
+    const freshness = staleFreshnessSummary({ origin: privateOrigin });
+    freshness.latestIndexReadbacks[0].storyIds = [privateStoryBody];
     const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
       env: baseEnv(root, {
+        ...writeAuxReports(root, {
+          snapshot: relaySnapshotReport({
+            status: 'fail',
+            blockers: [`${privateSnapshotPath}:newest_entry_stale:30000000/21600000`],
+            snapshots: [{
+              file: privateSnapshotPath,
+              status: 'fail',
+              failures: ['newest_entry_stale:30000000/21600000'],
+              entryCount: 80,
+              cachedAgeMs: 60_000,
+              newestEntryAgeMs: 30_000_000,
+              freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+            }],
+          }),
+        }),
         VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
         VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
       }),
       repoRoot: root,
       now: Date.parse('2026-07-02T18:00:00.000Z'),
       systemctlShowText: exit78Systemctl(),
-      freshnessMonitorImpl: async () => freshnessSummary(),
+      freshnessMonitorImpl: async () => freshness,
       spawnSyncImpl: (command, args, options) => {
         mail.push({ command, args, input: options.input });
         return { status: 0, stdout: '', stderr: '' };
@@ -853,8 +1285,25 @@ test('publisher exit 78 is a fail-close alert and can deliver through sendmail',
     assert.match(summary.blockers.join('\n'), /publisher_exit_78/);
     assert.equal(summary.delivery.status, 'sent');
     assert.equal(mail.length, 1);
-    assert.match(mail[0].input, /operator@example\.invalid/);
-    assert.match(mail[0].input, /exit_78_fail_closed/);
+    const parsed = parseTextEmail(mail[0].input);
+    assert.equal(parsed.headers.to, 'operator@example.invalid');
+    assert.equal(parsed.headers['mime-version'], '1.0');
+    assert.equal(parsed.headers['content-type'], 'text/plain; charset=utf-8');
+    assert.equal(parsed.headers['content-transfer-encoding'], '8bit');
+    assert.equal(parsed.headers.subject, `[VHC] public feed alert fail ${summary.fingerprint}`);
+    assert.equal(parsed.headers.subject.includes('publisher_exit_78'), false);
+    assert.ok(parsed.body.length > 0);
+
+    const payload = JSON.parse(parsed.body);
+    assert.equal(payload.alertReason, 'first_failure');
+    assert.equal(payload.publisher.failureClass, 'exit_78_fail_closed');
+    assert.equal(payload.blockers.some((blocker) => blocker.startsWith('publisher_exit_78:')), true);
+    assert.equal(parsed.body.includes(privateOrigin), false);
+    assert.equal(parsed.body.includes('private.example.invalid'), false);
+    assert.equal(parsed.body.includes('synthetic-email-token'), false);
+    assert.equal(parsed.body.includes(privateStoryBody), false);
+    assert.equal(parsed.body.includes(privateSnapshotPath), false);
+    assert.equal(parsed.body.includes('/synthetic/private-host'), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -893,6 +1342,49 @@ test('publisher exit 69 is a warning transport alert distinct from exit 78', asy
     assert.equal(body.publisher.severity, 'warning');
     assert.equal(body.publisher.recoveryHint, 'bounded_systemd_restart_in_progress');
     assert.equal(JSON.stringify(body).includes('exit_78_fail_closed'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publisher exit 78 to restartable exit 69 delivers one failure-class transition', async () => {
+  const root = tempRoot();
+  const calls = [];
+  try {
+    const options = {
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      freshnessMonitorImpl: async () => freshnessSummary(),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+    const failClosed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+      systemctlShowText: exit78Systemctl(),
+    });
+    const restartable = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+      systemctlShowText: exit69Systemctl({ nRestarts: 0 }),
+    });
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+      systemctlShowText: exit69Systemctl({ nRestarts: 0 }),
+    });
+
+    assert.equal(failClosed.publisher.failureClass, 'exit_78_fail_closed');
+    assert.equal(restartable.publisher.failureClass, 'exit_69_transport_unavailable');
+    assert.notEqual(restartable.fingerprint, failClosed.fingerprint);
+    assert.equal(restartable.delivery.status, 'sent');
+    assert.equal(restartable.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, restartable.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -980,7 +1472,7 @@ test('publisher exit 75 wrapper refusal is critical', async () => {
   }
 });
 
-test('publisher recovery after parked exit 69 sends a state-changed pass alert', async () => {
+test('failed publisher recovery delivery retries on the next unchanged pass and then suppresses', async () => {
   const root = tempRoot();
   const calls = [];
   try {
@@ -990,7 +1482,9 @@ test('publisher recovery after parked exit 69 sends a state-changed pass alert',
       freshnessMonitorImpl: async () => freshnessSummary(),
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
-        return { ok: true, status: 204 };
+        return calls.length === 2
+          ? { ok: false, status: 503 }
+          : { ok: true, status: 204 };
       },
     };
     const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
@@ -1003,17 +1497,33 @@ test('publisher recovery after parked exit 69 sends a state-changed pass alert',
       now: Date.parse('2026-07-02T18:05:00.000Z'),
       systemctlShowText: activeSystemctl(),
     });
+    const third = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:06:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+    });
+    const fourth = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:07:00.000Z'),
+      systemctlShowText: activeSystemctl(),
+    });
 
     assert.equal(first.status, 'fail');
     assert.equal(first.publisher.failureClass, 'exit_69_start_limit_parked');
-    assert.equal(second.status, 'pass');
     assert.equal(second.observedStatus, 'pass');
     assert.equal(second.publisher.failureClass, 'none');
     assert.equal(second.publisher.severity, 'none');
     assert.equal(second.publisher.recoveryHint, 'none');
-    assert.equal(second.delivery.status, 'sent');
+    assert.equal(second.delivery.status, 'failed');
     assert.equal(second.delivery.reason, 'state_changed');
-    assert.equal(calls.length, 2);
+    assert.equal(third.status, 'pass');
+    assert.equal(third.observedStatus, 'pass');
+    assert.equal(third.fingerprint, second.fingerprint);
+    assert.equal(third.delivery.status, 'sent');
+    assert.equal(third.delivery.reason, 'retry_failed_delivery');
+    assert.equal(fourth.delivery.status, 'suppressed');
+    assert.equal(fourth.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 3);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
