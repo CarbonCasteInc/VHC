@@ -4,9 +4,9 @@
 > Owner: VHC Launch Ops + VHC Core Engineering
 > Human authority: Lou
 > Technical executor: Codex
-> Current merged repo base: `main@982774750d923915617bea49997fa86df624a137`
+> Current merged repo base: `main@bb9340101b98f33e0bbf4e719d0cc6f14226ade4`
 > Merged coordination PR: #759 at reviewed head `0e5bac8f7a25a62d0d5c36c6f171b7a915d99848`
-> Current repo lane: blocked G3 recovery-packet branch; review/publish pending
+> Current repo lane: exact-packet binding correction; review/publish pending
 > Current target app: `https://venn.carboncaste.io`
 > Current auth boundary target: `https://auth.venn.carboncaste.io`
 > Support/failure mailbox: `carboncasteit@gmail.com`
@@ -103,38 +103,43 @@ into the coordination branch at `5116616a`. Final coordination head
 `0e5bac8f` passed same-reviewer audit and 9/9 hosted CI; PR #759 merged to
 `main` as `98277475`.
 
-Recovery-packet design also exposed a hard authority contradiction before any
-live action: `infra/relay/server.js` is copied into immutable relay images and
-is not bind mounted, so the reviewed route changes require controlled rolling
-relay recreation, while the current S1B boundary says not to restart relays. A
-separate repo-only packet lane is `NO-GO` / `WAITING_FOR_LOU`; its first
-independent review returned additional fail-closed corrections. No packet was
-generated or executed, and this handoff does not treat the boundary as
-corrected or approved. No A6 update, service action, relay action,
-Gmail/provider mutation, alert-channel change, or recovery was performed.
-S1A/S1B remain red and every S2+ launch slice remains blocked.
+Recovery-packet design exposed the immutable-image restart boundary before any
+live action. PR #763 supplied the repo-side boundary packet and merged to
+`main@bb934010`; Lou explicitly approved #763 and instructed an attended A/B/C
+restart on 2026-07-10. The first exact packet review then correctly returned
+`NO-GO`: its capture admitted duplicate/extra relay entries, its topology
+comparison reduced network attachment state to names, and a mutable tag with a
+matching revision could resolve to the wrong image. The correction lane remains
+repo-only pending subsequent exact-packet review. No A6 update, service action,
+relay action, Gmail/provider mutation, alert-channel change, or recovery was
+performed by this lane. S1A/S1B remain red and every S2+ launch slice remains
+blocked.
 
-G3 repo preparation also proved an authority contradiction. The exact-readback
-routes live in `infra/relay/server.js`, which the relay Dockerfile copies into an
-immutable image; public-beta compose mounts only `/data`. Updating the A6
-checkout cannot activate those routes without a rolling relay image replacement,
-but the standing recovery boundary still prohibits relay restart. The durable
-packet at
-`docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md` is therefore
-`blocked_pending_relay_restart_boundary_correction` and `WAITING_FOR_LOU`.
+The exact-readback routes live in `infra/relay/server.js`, which the relay
+Dockerfile copies into an immutable image; public-beta compose mounts only
+`/data`. Updating the A6 checkout cannot activate those routes without rolling
+relay replacement. Lou has now corrected that boundary, but independent `GO` on
+the corrected exact packet/capture/image tuple remains mandatory.
 
-Repo-only tooling now supports an inert, exactly-three-relay export/packet mode
-that excludes origin/publisher deployment, preserves captured runtime topology
-and env, checks revision/amd64 plus readiness/snapshots/OOM, probes all four
-exact missing-key contracts, and stops with current-relay rollback before the
-next relay on any failure. Recreate commands remain opt-in, the generic packet
-executor was not widened, no live packet was generated, and no relay or
-publisher action occurred. From merged `main@98277475`, an exact packet still
-needs fresh secret-safe capture, independent review, and Lou's explicit correction of the
-relay-restart boundary before any rolling action. Relay deployment evidence
-would still not authorize publisher recovery or make S1B green.
+Corrected repo-only tooling requires an inspect array containing exactly one
+each of canonical relay A/B/C and binds the packet to the export manifest's full
+immutable image id, not only a mutable tag/revision. It captures portable
+semantic network state including name, `NetworkID`, static IPAM intent, aliases,
+links, driver options, gateway priority, and configured MAC intent. Supported
+state is recreated and compared at the removal boundary, immediately after
+recreate, after verification, and after rollback; runtime-assigned endpoint ids
+and addresses are not treated as stable. Unsupported/nonportable topology is a
+hard stop. Recreate commands remain opt-in, the generic packet executor was not
+widened, and relay deployment evidence still would not authorize publisher
+recovery or make S1B green.
 
-The fail-closed packet contract now treats parked as exactly `failed/failed`,
+The current read-only A6 structure is the supported `host`/`host` case on all
+three relays: one valid shared 64-hex `NetworkID`, all 15 canonical endpoint
+keys, null IPAM/aliases/links/driver options, `GwPriority=0`, and no configured
+MAC intent. Correct packet output uses exact `--network host` and captured
+`GUN_PORT` loopback verifier URLs.
+
+The fail-closed packet contract treats parked as exactly `failed/failed`,
 `Result=exit-code`, `ExecMainStatus=78` and rechecks that tuple as the final gate
 before each A/B/C removal and after verification before GO. It also compares every stage's live
 image/env/mount/network/port/restart/user/memory topology with the capture,
@@ -142,8 +147,10 @@ preserves and rejects pre-existing watchdog-trip evidence before counters can
 reset, never prints hostile unexpected 404 bodies, and normalizes each rollback
 failure class to a closed reason and exit `78`. Deterministic adversarial tests
 cover transitional/resumed publisher state, every captured topology dimension,
-pre-existing trips, secret-bearing bodies, and rollback remove/run/readiness/
-checksum failures. These are repo safeguards, not live proof or authority.
+duplicate/extra/malformed capture scope, same-revision wrong-image binding,
+runtime endpoint churn, pre-existing trips, secret-bearing bodies, and rollback
+remove/run/readiness/checksum failures. These are repo safeguards, not live
+proof.
 
 Pre-mutation refusals are isolated from rollback: topology,
 readiness/watchdog, or publisher failure exits `78` without removing, running,
@@ -161,22 +168,22 @@ publisher resume during/post-verification.
 Current branch:
 
 ```text
-coord/s1b-relay-recovery-packet-2026-07-10
+coord/s1b-exact-packet-binding-2026-07-10
 ```
 
 Current review state:
 
 ```text
-G3 blocked recovery-packet branch
-PR: pending final same-reviewer GO and publish
-decision: WAITING_FOR_LOU
-live packet: not generated
+G3 exact-packet correction branch
+base: main@bb934010 (merged PR #763)
+decision: NO-GO_PENDING_EXACT_PACKET_REVIEW
+live action: not started
 ```
 
 Current `main` at handoff:
 
 ```text
-982774750d923915617bea49997fa86df624a137 Merge PR #759: public beta S1B release-readiness remediation
+bb9340101b98f33e0bbf4e719d0cc6f14226ade4 Merge PR #763: approved S1B relay recovery packet
 ```
 
 Merged S1B PRs:
@@ -185,6 +192,7 @@ Merged S1B PRs:
 - #761 Runtime lane.
 - #762 Cross-lane integration.
 - #759 Coordination and `main` merge.
+- #763 Approved relay-restart boundary and recovery-packet preparation.
 
 Open non-release follow-up issues at handoff:
 
@@ -477,24 +485,24 @@ These are the blockers that matter before tester distribution.
 
 Do this in order.
 
-### 1. Preserve the merged S1B base
+### 1. Preserve the merged S1B and approved boundary base
 
-PR #759 is already merged. Do not replay its repo work. Treat
-`main@982774750d923915617bea49997fa86df624a137` as the S1B remediation base and
-verify it before preparing any exact recovery packet.
+PRs #759 and #763 are already merged. Do not replay their repo work. Treat
+`main@bb9340101b98f33e0bbf4e719d0cc6f14226ade4` as the approved recovery-boundary
+base and verify it before preparing any corrected exact recovery packet.
 
 Before acting:
 
 ```bash
 git fetch origin --prune
-gh pr view 759 --json number,title,headRefName,headRefOid,state,mergedAt,mergeCommit,statusCheckRollup,url
+gh pr view 763 --json number,title,headRefName,headRefOid,state,mergedAt,mergeCommit,statusCheckRollup,url
 git rev-parse origin/main
 git status --short --branch
 ```
 
-### 2. Preserve S1A finding and finish G3 packet review
+### 2. Preserve S1A finding and finish the exact-packet correction/review
 
-Do not mutate A6. Do not restart services. Do not repair credentials yet.
+Do not mutate A6 from an unreviewed packet. Do not repair credentials yet.
 
 Preserve the classified S1A finding:
 
@@ -502,11 +510,11 @@ Preserve the classified S1A finding:
 relay_rest_story_timeout_total_0_of_3_exit_78
 ```
 
-Runtime, Alert, integration, hosted CI, and the `main` merge are complete. Do
-not replay them. Finish only the repo-side G3 packet review on the exact branch
-head, then stop at `WAITING_FOR_LOU`. Generating an exact host packet, rolling
-relay images, updating A6, and restarting the parked publisher are incident
-mutations, not routine launch-enablement actions.
+Runtime, Alert, integration, hosted CI, #759, and #763 are complete. Do not
+replay them. Finish the exact capture/image/network binding correction and
+subsequent review on the exact branch and packet hash. Lou's recorded approval
+then permits only the attended A/B/C rolling relay action; publisher restart
+remains a separate reviewed incident mutation.
 
 ### 3. Only after S1A/S1B exit green, repair StoryCluster credential/endpoint
 
@@ -741,7 +749,8 @@ Do not:
 - treat green CI on #759 as release readiness;
 - treat monitor `status: pass` as release clearance;
 - mutate A6 before S1A readback/classification;
-- restart relays from this sprint;
+- restart relays except through Lou's approved, independently reviewed exact
+  A/B/C packet;
 - restart publisher unless the approved path requires it;
 - deploy auth or configure providers before the active mailbox critical is
   classified/cleared or Lou explicitly authorizes return to release work;
@@ -754,16 +763,15 @@ Do not:
 
 ## Plain-English Current Status
 
-The repo-side S1B remediation is reviewed, CI-green, and merged through #759 at
-`main@98277475`. The product MVP is largely built at repo level.
+The repo-side S1B remediation and approved restart-boundary packet are merged
+through #763 at `main@bb934010`. The product MVP is largely built at repo level.
 
 The live release is still blocked. The alert mailbox is doing its job and is
 still reporting a public-feed critical. S1A readback has already proved this is
 a real parked-publisher incident, not setup noise. The next dev's first real
-job is not Cloudflare, Google, Apple, A6 update, or canary. It is to finish the
-repo-only G3 packet review, stop at `WAITING_FOR_LOU`, and obtain an explicit
-boundary correction and attended recovery authorization before any relay or
-publisher action.
+job is not Cloudflare, Google, Apple, broad A6 update, or canary. It is to finish
+the exact-packet correction and subsequent review, then execute only Lou's
+approved attended A/B/C relay action. Publisher recovery remains separate.
 
 Once S1A/S1B are green, the path is straightforward: repair StoryCluster
 credentials, stand up auth, register Apple/Google, redeploy the PWA origin,

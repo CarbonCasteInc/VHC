@@ -1,13 +1,13 @@
 # A6 S1B Relay-Timeout Recovery Packet - 2026-07-10
 
-> Status: `blocked_pending_relay_restart_boundary_correction`
+> Status: `boundary_approved_exact_packet_correction_in_review`
 > Owner: VHC Ops + VHC Core Engineering
 > Last Reviewed: 2026-07-10
 > Depends On: `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/news-aggregator-production-service.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/plans/PUBLIC_BETA_STATE_OF_PLAY_HANDOFF_2026-07-10.md`
-> Decision: `WAITING_FOR_LOU`
+> Decision: `NO-GO_PENDING_EXACT_PACKET_REVIEW`
 > Human incident, restart, and rollback authority: Lou
 > Repo preparation owner: VHC Core Engineering
 > Live actions performed by this document/branch: none
@@ -30,46 +30,47 @@ The A6 relay runtime is image-bound:
   route surface.
 
 Therefore the reviewed relay route change cannot become live without replacing
-the relay image and recreating the relay containers. The current S1B recovery
-checklist simultaneously says not to restart relays. That is a real authority
-contradiction. This packet does not resolve it by assumption.
+the relay image and recreating the relay containers. Lou approved PR #763 and
+the attended A/B/C restart boundary on 2026-07-10. That resolves the authority
+contradiction, but it does not waive exact-packet review. Review of the first
+candidate packet returned `NO-GO` for inspect-scope, network-prestate, and
+immutable-image binding gaps; the corrected packet must be regenerated and
+reviewed before any removal.
 
 No relay, origin, publisher, service, timer, Gmail/provider, pager, alert
 channel, or production state was changed. No live packet was generated or run.
 S1A/S1B are not recovered or green.
 
-## Boundary Correction Lou Must Decide
+## Recorded Boundary Approval And Remaining Gate
 
-Lou may either:
-
-1. approve replacing the contradictory no-relay-restart line with a one-time,
-   exact-revision, attended A/B/C rolling relay-image replacement under this
-   packet; or
-2. decline/defer it, leaving S1B blocked and every S2+ launch slice `NO-GO`.
-
-An approval must name the exact merged commit and relay image tag/digest, permit
-only `vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`, and preserve Lou's
-stop/rollback authority. It does not authorize origin or publisher mutation,
+Lou's recorded approval permits one attended replacement of only
+`vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`, with serial rollback and
+stop authority preserved. It does not authorize origin or publisher mutation,
 relay data changes, quorum/timeout changes, provider work, pager cutover,
-monitor enablement, or a live-green claim.
+monitor enablement, or a live-green claim. The remaining gate is technical:
+the corrected exact packet, capture hash, merged revision, and immutable image
+id must receive independent `GO` before the approved action starts.
 
 ## Repo-Only Preparation That Is Complete
 
 The existing image tooling now has explicit inert relay-only modes:
 
 - `tools/scripts/export-public-beta-image-artifacts.sh --relay-only` validates
-  the local relay image revision and `linux/amd64`, exports only that image, and
-  emits load commands that contain no origin artifact or origin load;
+  the local relay image revision, full `sha256:` image id, and `linux/amd64`,
+  exports only that image, and emits load commands that reject a loaded mutable
+  ref unless it resolves to that same immutable id;
 - `tools/scripts/emit-a6-public-beta-deploy-packet.sh --relay-only` requires
-  exactly the three canonical relay names and an expected relay revision,
-  excludes origin from the inspect/deploy scope, and emits no recreate commands
-  unless `--include-recreate-commands` is also explicitly supplied;
+  an inspect array containing exactly one each of `/vhc-relay-a`,
+  `/vhc-relay-b`, and `/vhc-relay-c`, plus expected relay revision and the
+  export manifest's full immutable image id. It excludes origin from the
+  inspect/deploy scope and emits no recreate commands unless
+  `--include-recreate-commands` is also explicitly supplied;
 - `tools/scripts/vhc-packet-executor.mjs` is unchanged. Its live action surface
   has not been widened to execute this rolling recovery.
 
-The generator is not a packet approval. The default output says
-`WAITING_FOR_LOU` and contains only read-only checks plus secret-safe env/snapshot
-capture instructions.
+The generator is not packet review or execution authority. Its default output
+contains only read-only checks plus secret-safe env/snapshot capture
+instructions.
 
 ## Preparation Inputs
 
@@ -81,6 +82,7 @@ Required inputs are:
 - exact merged remediation commit;
 - immutable relay image tag or digest whose OCI
   `org.opencontainers.image.revision` equals that commit;
+- full immutable relay image id from the exporter's `artifact-manifest.json`;
 - local image platform `linux/amd64`;
 - secret-safe `docker inspect` JSON for exactly `vhc-relay-a`,
   `vhc-relay-b`, and `vhc-relay-c`;
@@ -129,12 +131,30 @@ tools/scripts/emit-a6-public-beta-deploy-packet.sh \
   --inspect-json ./relay-containers.json \
   --new-relay-image vhc-public-beta-relay:<reviewed-tag-or-digest> \
   --expected-relay-revision <exact-merged-commit> \
-  --output .tmp/a6-s1b-relay-only-packet.blocked.md
+  --expected-relay-image-id <sha256:id-from-artifact-manifest> \
+  --output .tmp/a6-s1b-relay-only-packet.review.md
 ```
 
-The generator fails closed if the three canonical relay names are not selected,
-the relay image or expected revision is absent, any relay/data bind/host probe
-mapping is absent, or an origin image is supplied in relay-only mode.
+The generator fails closed unless inspect is an array of exactly three unique
+canonical A/B/C entries. Duplicates, extras, blank/malformed names, a missing or
+malformed immutable image id, absent relay/data bind/host probe mapping, or an
+origin image in relay-only mode are rejected.
+
+The captured network contract includes network name and 64-hex `NetworkID`,
+static IPAM intent, aliases, links, driver options, gateway priority, and an
+explicit configured MAC intent when present. Supported fields are recreated and
+compared before removal, immediately after recreate, after verification, and
+after rollback. Runtime-assigned endpoint ids, addresses, gateways, DNS names,
+and an unconfigured endpoint MAC are shape-validated but never treated as
+stable prestate. Unknown, malformed, duplicate, conflicting, or nonportable
+attachment state is a hard stop.
+
+The current secret-safe A6 capture is the supported host-network case: A, B,
+and C each have `HostConfig.NetworkMode=host`, one `NetworkSettings.Networks.host`
+attachment with the same valid 64-hex `NetworkID`, all 15 canonical endpoint
+keys, null IPAM/aliases/links/driver options, `GwPriority=0`, and no configured
+MAC intent. The emitted recreate command is therefore exactly `--network host`,
+and each relay verifier uses its captured `GUN_PORT` on `127.0.0.1`.
 
 Do not add `--include-recreate-commands` before all authority and review gates
 below pass. Do not generate or execute a live packet from this branch.
@@ -149,12 +169,16 @@ captured input hash, then return `GO` only if all of these are true:
 - the publisher must match the exact exit-78 parked tuple above at initial
   precheck and again as the final gate immediately before each A/B/C removal;
 - the new image is `linux/amd64` and its OCI revision equals the merged commit;
+- the mutable image ref resolves to the export manifest's full immutable image
+  id immediately before every A/B/C removal; the packet runs that immutable id,
+  and the recreated container `.Image` must equal it;
 - each relay preserves the exact prestate env set without printing values;
 - immediately before each removal, live image id/ref, env, mounts, network mode
   and attachments, ports, restart policy, user, memory, and memory-swap must
   equal the captured prestate; stale capture is a hard stop, not rollback input;
-- bind mount, network, ports, restart policy, user, and memory limits are
-  preserved from inspect evidence;
+- bind mount, semantic network attachment and `NetworkID`, ports, restart
+  policy, user, and memory limits are preserved from inspect evidence and
+  rechecked immediately after recreate, after verification, and after rollback;
 - snapshot checks cover latest-index, synthesis-lifecycle, and topic-synthesis;
 - readiness, health, Docker OOM state, and watchdog metrics are checked before
   proceeding; the pre-mutation and per-stage metric artifacts are retained and
@@ -177,20 +201,14 @@ captured input hash, then return `GO` only if all of these are true:
 Any correction requires a subsequent review by the same packet reviewer on the
 new exact head and packet hash.
 
-## Lou Approval Gate
+## Recorded Lou Approval Gate
 
-After reviewer `GO`, stop at `WAITING_FOR_LOU`. Lou's approval must explicitly
-answer all of the following:
-
-- Is the no-relay-restart boundary replaced for this exact incident packet?
-- Is the exact merged commit and relay image tag/digest approved?
-- Is attended A/B/C rolling replacement approved with publisher parked?
-- Is automatic per-relay rollback on any failed gate approved?
-- Does Lou accept that this action disturbs historical unattended-window
-  evidence and must be recorded as maintenance?
-
-Silence, general release approval, repo merge approval, or permission to update
-the A6 checkout is not relay-restart approval.
+Lou explicitly approved #763 and instructed the attended A/B/C restart on
+2026-07-10. That approval covers the boundary and automatic current-relay serial
+rollback, with the publisher parked. It remains conditioned on independent `GO`
+for the corrected exact packet. Any change to relay count/order, origin or
+publisher scope, data/quorum/timeouts, or rollback semantics invalidates the
+recorded approval and returns to `WAITING_FOR_LOU`.
 
 ## Approved Rolling Contract
 
@@ -207,20 +225,26 @@ with `--include-recreate-commands`. Its contract is:
    that absence is accepted only alongside exactly one valid uptime and RSS
    producer row. Empty/random telemetry and malformed/duplicate/nonzero trip or
    producer rows fail closed.
-2. Confirm the loaded image is `linux/amd64` and its OCI revision exactly equals
-   the approved merged commit.
+2. Confirm the loaded mutable ref resolves to the full manifest image id, is
+   `linux/amd64`, and has an OCI revision exactly equal to the approved merged
+   commit. Repeat that binding at every removal boundary, run the immutable id,
+   and require the recreated container `.Image` to equal it.
 3. Capture each relay's env privately, without rewriting defaults or printing
    values.
 4. Immediately before relay A removal, compare live image, env, bind mounts,
-   network, ports, restart policy, configured user, and memory limits with the
-   captured inspect prestate; reject any drift. Recheck the exact exit-78 parked
-   publisher tuple as the final command before removal, then replace A only.
+   semantic network attachment and `NetworkID`, ports, restart policy,
+   configured user, and memory limits with the captured inspect prestate;
+   reject any drift. Recheck the exact exit-78 parked publisher tuple and invoke
+   the atomic removal-boundary check immediately before removal, then replace A
+   only.
    A refusal in topology, watchdog/readiness, or publisher preconditions exits
    `78` with no `docker rm`, no `docker run`, and no rollback of the untouched
    relay. Rollback is reachable only after the mutation-started latch is set at
    the removal boundary.
-5. Require A readiness/health, running/non-OOM Docker state, unchanged snapshot
-   checksums, zero watchdog trips, and exact env parity.
+5. Immediately after recreate and again after verification, require exact
+   semantic topology parity including the stable network identity, plus A
+   readiness/health, running/non-OOM Docker state, unchanged snapshot checksums,
+   zero watchdog trips, and exact env parity.
 6. Probe one unique definitely-missing story id through all four endpoint-local
    contracts:
    - story with `readback=exact` returns only
@@ -251,9 +275,11 @@ with `--include-recreate-commands`. Its contract is:
 Stop before any removal on:
 
 - missing or ambiguous Lou approval;
-- commit, image, revision, architecture, or packet-hash mismatch;
-- unexpected container name, count, order, mount, port, network, user, memory,
-  restart policy, or env drift;
+- commit, immutable image id, mutable-ref binding, revision, architecture, or
+  packet-hash mismatch, including a retagged same-revision wrong image;
+- non-array inspect input; duplicate, extra, blank, malformed, or unexpected
+  container name; or mount, port, semantic network attachment/`NetworkID`, user,
+  memory, restart policy, or env drift;
 - publisher state differs in any field from exact exit-78 parked state,
   including inactive, active, activating, deactivating, or resumed between
   relay stages;

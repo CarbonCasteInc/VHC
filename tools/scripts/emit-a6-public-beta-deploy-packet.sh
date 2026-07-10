@@ -7,6 +7,7 @@ NEW_ORIGIN_IMAGE=""
 NEW_RELAY_IMAGE=""
 EXPECTED_ORIGIN_REVISION=""
 EXPECTED_RELAY_REVISION=""
+EXPECTED_RELAY_IMAGE_ID=""
 ANALYSIS_TARGET="http://127.0.0.1:3001"
 ORIGIN_NAME="vhc-public-origin"
 RELAY_NAMES="vhc-relay-a,vhc-relay-b,vhc-relay-c"
@@ -31,6 +32,8 @@ Required with --include-recreate-commands:
                               Release commit expected from origin /healthz after deploy
   --expected-relay-revision <sha>
                               Release commit required from the relay OCI label in relay-only mode
+  --expected-relay-image-id <sha256:id>
+                              Full immutable relay image id from artifact-manifest.json (relay-only)
 
 Options:
   --analysis-target <url>     Corrected origin analysis target (default http://127.0.0.1:3001)
@@ -63,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --expected-relay-revision)
       EXPECTED_RELAY_REVISION="${2:-}"
+      shift 2
+      ;;
+    --expected-relay-image-id)
+      EXPECTED_RELAY_IMAGE_ID="${2:-}"
       shift 2
       ;;
     --analysis-target)
@@ -126,6 +133,10 @@ if [[ "${RELAY_ONLY}" == "true" ]]; then
     echo "--expected-relay-revision must be a full lowercase git object id" >&2
     exit 64
   fi
+  if [[ ! "${EXPECTED_RELAY_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "--expected-relay-image-id is required with --relay-only and must be a full lowercase sha256 image id from artifact-manifest.json" >&2
+    exit 64
+  fi
 elif [[ -z "${NEW_ORIGIN_IMAGE}" ]]; then
   echo "--new-origin-image is required unless --relay-only is set" >&2
   exit 64
@@ -141,6 +152,7 @@ emit_packet() {
   NEW_RELAY_IMAGE="${NEW_RELAY_IMAGE}" \
   EXPECTED_ORIGIN_REVISION="${EXPECTED_ORIGIN_REVISION}" \
   EXPECTED_RELAY_REVISION="${EXPECTED_RELAY_REVISION}" \
+  EXPECTED_RELAY_IMAGE_ID="${EXPECTED_RELAY_IMAGE_ID}" \
   ANALYSIS_TARGET="${ANALYSIS_TARGET}" \
   ORIGIN_NAME="${ORIGIN_NAME}" \
   RELAY_NAMES="${RELAY_NAMES}" \
@@ -148,12 +160,14 @@ emit_packet() {
   RELAY_ONLY="${RELAY_ONLY}" \
   node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 
 const inspectJson = process.env.INSPECT_JSON;
 const newOriginImage = process.env.NEW_ORIGIN_IMAGE;
 const newRelayImage = process.env.NEW_RELAY_IMAGE;
 const expectedOriginRevision = process.env.EXPECTED_ORIGIN_REVISION || '';
 const expectedRelayRevision = process.env.EXPECTED_RELAY_REVISION || '';
+const expectedRelayImageId = process.env.EXPECTED_RELAY_IMAGE_ID || '';
 const analysisTarget = process.env.ANALYSIS_TARGET;
 const originName = process.env.ORIGIN_NAME;
 const relayNames = (process.env.RELAY_NAMES || '').split(',').map((name) => name.trim()).filter(Boolean);
@@ -165,10 +179,37 @@ const relayHeapThresholdByName = new Map(relayNames.map((name, index) => [
   name,
   relayHeapThresholdDefaults[index] ?? relayHeapThresholdDefaults.at(-1),
 ]));
-const containers = JSON.parse(readFileSync(inspectJson, 'utf8'));
+let containers;
+try {
+  containers = JSON.parse(readFileSync(inspectJson, 'utf8'));
+} catch {
+  console.error('inspect JSON must be valid JSON');
+  process.exit(78);
+}
 
 function cleanName(container) {
   return String(container?.Name || '').replace(/^\//, '');
+}
+
+if (!Array.isArray(containers)) {
+  console.error('inspect JSON must be an array');
+  process.exit(78);
+}
+if (relayOnly) {
+  const canonicalNames = ['vhc-relay-a', 'vhc-relay-b', 'vhc-relay-c'];
+  const capturedNames = containers.map((container) => {
+    if (!container || typeof container !== 'object' || Array.isArray(container)) return '';
+    const rawName = container.Name;
+    return typeof rawName === 'string' && /^\/vhc-relay-[abc]$/.test(rawName)
+      ? rawName.slice(1)
+      : '';
+  });
+  const uniqueNames = new Set(capturedNames);
+  const exactCanonicalSet = canonicalNames.every((name) => uniqueNames.has(name));
+  if (containers.length !== 3 || uniqueNames.size !== 3 || capturedNames.includes('') || !exactCanonicalSet) {
+    console.error('relay-only inspect JSON must be an array of exactly three unique canonical entries: /vhc-relay-a, /vhc-relay-b, /vhc-relay-c');
+    process.exit(78);
+  }
 }
 
 const byName = new Map(containers.map((container) => [cleanName(container), container]));
@@ -188,6 +229,141 @@ function envNames(container) {
 
 function networkNames(container) {
   return Object.keys(container?.NetworkSettings?.Networks || {}).sort();
+}
+
+const supportedNetworkAttachmentFields = new Set([
+  'IPAMConfig',
+  'Links',
+  'Aliases',
+  'NetworkID',
+  'EndpointID',
+  'Gateway',
+  'IPAddress',
+  'IPPrefixLen',
+  'IPv6Gateway',
+  'GlobalIPv6Address',
+  'GlobalIPv6PrefixLen',
+  'MacAddress',
+  'DriverOpts',
+  'GwPriority',
+  'DNSNames',
+]);
+
+function plainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function topologyError(code) {
+  throw new Error(code);
+}
+
+function portableStringList(value, code, options = {}) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) topologyError(`${code}_shape_unsupported`);
+  const out = value.map((item) => {
+    if (typeof item !== 'string' || item.length === 0 || /[\0\r\n]/.test(item)) {
+      topologyError(`${code}_value_unsupported`);
+    }
+    if (options.noComma && item.includes(',')) topologyError(`${code}_value_nonportable`);
+    return item;
+  });
+  if (new Set(out).size !== out.length) topologyError(`${code}_duplicates_unsupported`);
+  return out.sort();
+}
+
+function portableIp(value, family, code) {
+  const text = String(value || '');
+  if (text && isIP(text) !== family) topologyError(`${code}_invalid`);
+  return text;
+}
+
+function semanticNetworkAttachment(container) {
+  const networks = container?.NetworkSettings?.Networks;
+  if (!plainObject(networks)) topologyError('networks_shape_unsupported');
+  const names = Object.keys(networks);
+  if (names.length !== 1) topologyError('exactly_one_network_required');
+  const name = names[0];
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) topologyError('network_name_nonportable');
+  if (String(container?.HostConfig?.NetworkMode || '') !== name) topologyError('network_mode_attachment_mismatch');
+  const endpoint = networks[name];
+  if (!plainObject(endpoint)) topologyError('network_attachment_shape_unsupported');
+  for (const key of Object.keys(endpoint)) {
+    if (!supportedNetworkAttachmentFields.has(key)) topologyError(`unsupported_network_attachment_field_${key}`);
+  }
+  const networkId = String(endpoint.NetworkID || '');
+  if (!/^[0-9a-f]{64}$/.test(networkId)) topologyError('network_id_missing_or_malformed');
+
+  const ipam = endpoint.IPAMConfig ?? {};
+  if (!plainObject(ipam)) topologyError('network_ipam_shape_unsupported');
+  const supportedIpamFields = new Set(['IPv4Address', 'IPv6Address', 'LinkLocalIPs']);
+  for (const key of Object.keys(ipam)) {
+    if (!supportedIpamFields.has(key)) topologyError(`unsupported_network_ipam_field_${key}`);
+  }
+  const ipv4Address = portableIp(ipam.IPv4Address, 4, 'network_static_ipv4');
+  const ipv6Address = portableIp(ipam.IPv6Address, 6, 'network_static_ipv6');
+  const linkLocalIps = portableStringList(ipam.LinkLocalIPs, 'network_link_local_ip', { noComma: true });
+  for (const address of linkLocalIps) {
+    if (isIP(address) === 0) topologyError('network_link_local_ip_invalid');
+  }
+
+  const containerId = String(container?.Id || '').replace(/^sha256:/, '');
+  const runtimeIdAliases = new Set([containerId, containerId.slice(0, 12)].filter(Boolean));
+  const aliases = portableStringList(endpoint.Aliases, 'network_alias', { noComma: true })
+    .filter((alias) => !runtimeIdAliases.has(alias));
+  if (aliases.some((alias) => !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(alias))) topologyError('network_alias_nonportable');
+  const endpointLinks = portableStringList(endpoint.Links, 'network_endpoint_link');
+  const hostLinks = portableStringList(container?.HostConfig?.Links, 'network_host_link');
+  if (endpointLinks.length > 0 && hostLinks.length > 0 && JSON.stringify(endpointLinks) !== JSON.stringify(hostLinks)) {
+    topologyError('network_link_state_nonportable');
+  }
+  const links = hostLinks.length > 0 ? hostLinks : endpointLinks;
+
+  const driverOpts = endpoint.DriverOpts ?? {};
+  if (!plainObject(driverOpts)) topologyError('network_driver_opts_shape_unsupported');
+  const normalizedDriverOpts = Object.entries(driverOpts).map(([key, value]) => {
+    if (!key || /[=,\0\r\n]/.test(key) || typeof value !== 'string' || /[,\0\r\n]/.test(value)) {
+      topologyError('network_driver_opt_nonportable');
+    }
+    return { key, value };
+  }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+
+  const gwPriorityValue = endpoint.GwPriority ?? 0;
+  if (!Number.isSafeInteger(gwPriorityValue)) topologyError('network_gw_priority_shape_unsupported');
+
+  for (const key of ['EndpointID', 'Gateway', 'IPAddress', 'IPv6Gateway', 'GlobalIPv6Address', 'MacAddress']) {
+    if (endpoint[key] !== undefined && endpoint[key] !== null && typeof endpoint[key] !== 'string') {
+      topologyError(`network_runtime_${key.toLowerCase()}_shape_unsupported`);
+    }
+  }
+  for (const key of ['IPPrefixLen', 'GlobalIPv6PrefixLen']) {
+    if (endpoint[key] !== undefined && endpoint[key] !== null && !Number.isSafeInteger(endpoint[key])) {
+      topologyError(`network_runtime_${key.toLowerCase()}_shape_unsupported`);
+    }
+  }
+  portableStringList(endpoint.DNSNames, 'network_runtime_dns_name');
+
+  const macAddressIntent = String(container?.Config?.MacAddress || '');
+  if (macAddressIntent && !/^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(macAddressIntent)) {
+    topologyError('network_static_mac_invalid');
+  }
+  if (macAddressIntent && String(endpoint.MacAddress || '').toLowerCase() !== macAddressIntent.toLowerCase()) {
+    topologyError('network_static_mac_state_nonportable');
+  }
+
+  return {
+    name,
+    network_id: networkId,
+    ipam_config: {
+      ipv4_address: ipv4Address,
+      ipv6_address: ipv6Address,
+      link_local_ips: linkLocalIps,
+    },
+    aliases,
+    links,
+    driver_opts: normalizedDriverOpts,
+    gw_priority: gwPriorityValue,
+    mac_address_intent: macAddressIntent.toLowerCase(),
+  };
 }
 
 function portFlags(container) {
@@ -291,7 +467,7 @@ function capturedRelayTopology(container) {
     memory: Number(container?.HostConfig?.Memory || 0),
     memory_swap: Number(container?.HostConfig?.MemorySwap || 0),
     network_mode: String(container?.HostConfig?.NetworkMode || ''),
-    networks: networkNames(container),
+    network: semanticNetworkAttachment(container),
     port_bindings: portBindings,
     mounts,
   };
@@ -323,6 +499,23 @@ function memoryFlags(options = {}) {
 function primaryNetworkFlag(container) {
   const names = networkNames(container);
   return names.length > 0 ? `--network ${names[0]}` : '';
+}
+
+function relayOnlyNetworkFlags(container) {
+  const network = semanticNetworkAttachment(container);
+  const components = [`name=${network.name}`];
+  if (network.ipam_config.ipv4_address) components.push(`ip=${network.ipam_config.ipv4_address}`);
+  if (network.ipam_config.ipv6_address) components.push(`ip6=${network.ipam_config.ipv6_address}`);
+  for (const address of network.ipam_config.link_local_ips) components.push(`link-local-ip=${address}`);
+  for (const alias of network.aliases) components.push(`alias=${alias}`);
+  for (const option of network.driver_opts) components.push(`driver-opt=${option.key}=${option.value}`);
+  if (network.gw_priority !== 0) components.push(`gw-priority=${network.gw_priority}`);
+  const networkSpec = components.length === 1 ? network.name : components.join(',');
+  return [
+    components.length === 1 ? `--network ${network.name}` : `--network ${shellSingleQuote(networkSpec)}`,
+    network.mac_address_intent ? `--mac-address ${shellSingleQuote(network.mac_address_intent)}` : '',
+    ...network.links.map((link) => `--link ${shellSingleQuote(link)}`),
+  ].filter(Boolean);
 }
 
 function shellJoin(parts) {
@@ -473,7 +666,7 @@ function relayOnlyRunCommandFor(name, image) {
     restartFlag(container),
     memory > 0 ? `--memory ${memory}` : '',
     memorySwap > 0 ? `--memory-swap ${memorySwap}` : '',
-    primaryNetworkFlag(container),
+    ...relayOnlyNetworkFlags(container),
     user ? `--user ${shellSingleQuote(user)}` : '',
     `--env-file ${envPath}`,
     ...portFlags(container),
@@ -497,6 +690,32 @@ function relayOnlyVerifierFunction() {
     '  fi',
     '}',
     '',
+    'assert_relay_image_binding() {',
+    '  local image_ref="$1"',
+    '  local expected_id="$2"',
+    '  local expected_revision="$3"',
+    '  local observed id platform revision',
+    '  if ! observed="$(sudo docker image inspect "${image_ref}" --format \'{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels "org.opencontainers.image.revision"}}\' 2>/dev/null)"; then echo "relay_image_binding_unavailable" >&2; return 78; fi',
+    '  IFS="|" read -r id platform revision <<<"${observed}"',
+    '  if [[ "${id}" != "${expected_id}" || "${platform}" != "linux/amd64" || "${revision}" != "${expected_revision}" ]]; then echo "relay_image_binding_mismatch" >&2; return 78; fi',
+    '}',
+    '',
+    'assert_image_id_available() {',
+    '  local expected_id="$1"',
+    '  local observed',
+    '  if ! observed="$(sudo docker image inspect "${expected_id}" --format \'{{.Id}}\' 2>/dev/null)" || [[ "${observed}" != "${expected_id}" ]]; then echo "rollback_image_id_unavailable" >&2; return 78; fi',
+    '}',
+    '',
+    'assert_relay_removal_boundary() {',
+    '  local name="$1"',
+    '  local expected_topology="$2"',
+    '  local image_ref="$3"',
+    '  local expected_id="$4"',
+    '  local expected_revision="$5"',
+    '  assert_live_topology_parity "${name}" "${expected_topology}" || return 78',
+    '  assert_relay_image_binding "${image_ref}" "${expected_id}" "${expected_revision}" || return 78',
+    '}',
+    '',
     'assert_live_topology_parity() {',
     '  local name="$1"',
     '  local expected_base64="$2"',
@@ -508,7 +727,60 @@ function relayOnlyVerifierFunction() {
     '  fi',
     '  chmod 600 "${observed}" || return 78',
     '  if ! EXPECTED_TOPOLOGY_BASE64="${expected_base64}" OBSERVED_INSPECT="${observed}" EXPECTED_ENV="${expected_env}" python3 <<\'PY\'',
-    'import base64, json, os, sys',
+    'import base64, ipaddress, json, os, re, sys',
+    'SUPPORTED_ATTACHMENT_FIELDS = {"IPAMConfig", "Links", "Aliases", "NetworkID", "EndpointID", "Gateway", "IPAddress", "IPPrefixLen", "IPv6Gateway", "GlobalIPv6Address", "GlobalIPv6PrefixLen", "MacAddress", "DriverOpts", "GwPriority", "DNSNames"}',
+    'def closed(condition=True):',
+    '    if condition: raise ValueError("closed")',
+    'def strings(value, no_comma=False):',
+    '    if value is None: return []',
+    '    closed(not isinstance(value, list))',
+    '    closed(any(not isinstance(item, str) or not item or any(char in item for char in "\\x00\\r\\n") or (no_comma and "," in item) for item in value))',
+    '    closed(len(set(value)) != len(value))',
+    '    return sorted(value)',
+    'def ip(value, family):',
+    '    text = str(value or "")',
+    '    if text: closed(ipaddress.ip_address(text).version != family)',
+    '    return text',
+    'def network(container):',
+    '    networks = (container.get("NetworkSettings") or {}).get("Networks")',
+    '    closed(not isinstance(networks, dict) or len(networks) != 1)',
+    '    name, endpoint = next(iter(networks.items()))',
+    '    closed(not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) is None or not isinstance(endpoint, dict))',
+    '    closed(str((container.get("HostConfig") or {}).get("NetworkMode") or "") != name)',
+    '    closed(any(key not in SUPPORTED_ATTACHMENT_FIELDS for key in endpoint))',
+    '    network_id = str(endpoint.get("NetworkID") or "")',
+    '    closed(re.fullmatch(r"[0-9a-f]{64}", network_id) is None)',
+    '    ipam = endpoint.get("IPAMConfig") or {}',
+    '    closed(not isinstance(ipam, dict) or any(key not in {"IPv4Address", "IPv6Address", "LinkLocalIPs"} for key in ipam))',
+    '    link_local_ips = strings(ipam.get("LinkLocalIPs"), no_comma=True)',
+    '    for address in link_local_ips: ipaddress.ip_address(address)',
+    '    container_id = str(container.get("Id") or "").removeprefix("sha256:")',
+    '    runtime_aliases = {value for value in (container_id, container_id[:12]) if value}',
+    '    aliases = [value for value in strings(endpoint.get("Aliases"), no_comma=True) if value not in runtime_aliases]',
+    '    closed(any(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", alias) is None for alias in aliases))',
+    '    endpoint_links = strings(endpoint.get("Links"))',
+    '    host_links = strings((container.get("HostConfig") or {}).get("Links"))',
+    '    closed(bool(endpoint_links and host_links and endpoint_links != host_links))',
+    '    links = host_links if host_links else endpoint_links',
+    '    driver_opts = endpoint.get("DriverOpts") or {}',
+    '    closed(not isinstance(driver_opts, dict))',
+    '    normalized_driver_opts = []',
+    '    for key, value in driver_opts.items():',
+    '        closed(not isinstance(key, str) or not key or any(char in key for char in "=,\\x00\\r\\n") or not isinstance(value, str) or any(char in value for char in ",\\x00\\r\\n"))',
+    '        normalized_driver_opts.append({"key": key, "value": value})',
+    '    normalized_driver_opts.sort(key=lambda item: json.dumps(item, sort_keys=True))',
+    '    gw_priority = endpoint.get("GwPriority", 0)',
+    '    closed(not isinstance(gw_priority, int) or isinstance(gw_priority, bool))',
+    '    for key in ("EndpointID", "Gateway", "IPAddress", "IPv6Gateway", "GlobalIPv6Address", "MacAddress"):',
+    '        closed(endpoint.get(key) is not None and not isinstance(endpoint.get(key), str))',
+    '    for key in ("IPPrefixLen", "GlobalIPv6PrefixLen"):',
+    '        closed(endpoint.get(key) is not None and (not isinstance(endpoint.get(key), int) or isinstance(endpoint.get(key), bool)))',
+    '    strings(endpoint.get("DNSNames"))',
+    '    config = container.get("Config") or {}',
+    '    mac_intent = str(config.get("MacAddress") or "").lower()',
+    '    closed(bool(mac_intent and re.fullmatch(r"[0-9a-f]{2}(?::[0-9a-f]{2}){5}", mac_intent) is None))',
+    '    closed(bool(mac_intent and str(endpoint.get("MacAddress") or "").lower() != mac_intent))',
+    '    return {"name": name, "network_id": network_id, "ipam_config": {"ipv4_address": ip(ipam.get("IPv4Address"), 4), "ipv6_address": ip(ipam.get("IPv6Address"), 6), "link_local_ips": link_local_ips}, "aliases": aliases, "links": links, "driver_opts": normalized_driver_opts, "gw_priority": gw_priority, "mac_address_intent": mac_intent}',
     'def normalize(container):',
     '    bindings = container.get("HostConfig", {}).get("PortBindings") or {}',
     '    ports = []',
@@ -524,8 +796,7 @@ function relayOnlyVerifierFunction() {
     '    host = container.get("HostConfig") or {}',
     '    config = container.get("Config") or {}',
     '    restart = host.get("RestartPolicy") or {}',
-    '    networks = sorted((container.get("NetworkSettings", {}).get("Networks") or {}).keys())',
-    '    return {"image_id": str(container.get("Image") or ""), "image_ref": str(config.get("Image") or ""), "user": str(config.get("User") or ""), "restart": {"name": str(restart.get("Name") or ""), "maximum_retry_count": int(restart.get("MaximumRetryCount") or 0)}, "memory": int(host.get("Memory") or 0), "memory_swap": int(host.get("MemorySwap") or 0), "network_mode": str(host.get("NetworkMode") or ""), "networks": networks, "port_bindings": ports, "mounts": mounts}',
+    '    return {"image_id": str(container.get("Image") or ""), "image_ref": str(config.get("Image") or ""), "user": str(config.get("User") or ""), "restart": {"name": str(restart.get("Name") or ""), "maximum_retry_count": int(restart.get("MaximumRetryCount") or 0)}, "memory": int(host.get("Memory") or 0), "memory_swap": int(host.get("MemorySwap") or 0), "network_mode": str(host.get("NetworkMode") or ""), "network": network(container), "port_bindings": ports, "mounts": mounts}',
     'try:',
     '    expected = json.loads(base64.b64decode(os.environ["EXPECTED_TOPOLOGY_BASE64"]).decode("utf-8"))',
     '    observed_payload = json.load(open(os.environ["OBSERVED_INSPECT"], encoding="utf-8"))',
@@ -733,6 +1004,16 @@ for (const name of relayNames) {
   if (relayOnly && networkNames(container).length !== 1) {
     blockers.push(`${name}: relay-only recovery requires exactly one captured network`);
   }
+  if (relayOnly) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(String(container?.Image || ''))) {
+      blockers.push(`${name}: captured rollback image id is missing or malformed`);
+    }
+    try {
+      semanticNetworkAttachment(container);
+    } catch (error) {
+      blockers.push(`${name}: ${error instanceof Error ? error.message : 'network_topology_unsupported'}`);
+    }
+  }
 }
 
 const lines = [];
@@ -741,7 +1022,7 @@ lines.push(relayOnly ? '# A6 S1B Relay-Only Recovery Packet' : '# A6 Public-Beta
 lines.push('');
 lines.push('Generated from captured `docker inspect` JSON. This packet is secret-safe: it records env var names and uses host-side env-file capture commands without printing values.');
 if (relayOnly) {
-  lines.push('Status: `WAITING_FOR_LOU`. Generation is repo-side preparation only; no command in this packet is authorized until Lou explicitly corrects the relay-restart boundary and approves the exact reviewed packet.');
+  lines.push('Status: `REVIEW_REQUIRED`. Generation is repo-side preparation only; no mutation command in this packet is executable until recorded Lou authority covers its exact scope and independent review returns GO on its exact capture/image/packet tuple.');
   lines.push('Scope is exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`. Origin and publisher deployment are excluded. The publisher must remain parked throughout.');
 }
 lines.push('');
@@ -751,6 +1032,7 @@ if (!relayOnly) lines.push(`- new origin image: \`${newOriginImage}\``);
 lines.push(`- new relay image: \`${newRelayImage}\``);
 if (relayOnly) {
   lines.push(`- expected relay revision: \`${expectedRelayRevision}\``);
+  lines.push(`- expected immutable relay image id: \`${expectedRelayImageId}\``);
   lines.push('- required relay platform: `linux/amd64`');
 } else {
   lines.push(`- expected origin revision: \`${expectedOriginRevision || 'not asserted'}\``);
@@ -876,14 +1158,12 @@ lines.push('');
 if (relayOnly) {
   lines.push('## Relay Image Preflight');
   lines.push('');
-  lines.push('This read-only gate must pass before any container removal. It proves the locally loaded relay image is the reviewed commit and the A6 architecture; a tag match alone is insufficient.');
+  lines.push('This read-only gate must pass before any container removal. It proves the locally loaded relay reference resolves to the full immutable image id recorded by `artifact-manifest.json`, the reviewed commit, and the A6 architecture; a tag or revision match alone is insufficient.');
   lines.push('');
   lines.push('```bash');
   lines.push('set -euo pipefail');
-  lines.push(`relay_image_platform="$(sudo docker image inspect ${shellSingleQuote(newRelayImage)} --format '{{.Os}}/{{.Architecture}}')"`);
-  lines.push('if [[ "${relay_image_platform}" != "linux/amd64" ]]; then echo "relay image platform mismatch: ${relay_image_platform}" >&2; exit 78; fi');
-  lines.push(`relay_image_revision="$(sudo docker image inspect ${shellSingleQuote(newRelayImage)} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"`);
-  lines.push(`if [[ "\${relay_image_revision}" != ${shellSingleQuote(expectedRelayRevision)} ]]; then echo "relay image revision mismatch" >&2; exit 78; fi`);
+  lines.push(`relay_image_binding="$(sudo docker image inspect ${shellSingleQuote(newRelayImage)} --format '{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels "org.opencontainers.image.revision"}}')"`);
+  lines.push(`if [[ "\${relay_image_binding}" != ${shellSingleQuote(`${expectedRelayImageId}|linux/amd64|${expectedRelayRevision}`)} ]]; then echo "relay image immutable binding mismatch" >&2; exit 78; fi`);
   lines.push('```');
   lines.push('');
 }
@@ -892,7 +1172,7 @@ if (includeRecreate) {
   if (relayOnly) {
     lines.push('## Approval-Gated Relay-Only Rolling Recovery');
     lines.push('');
-    lines.push('Hard authority gate: do not run this section until Lou explicitly approves replacing the contradictory no-relay-restart boundary for this exact reviewed revision. Approval is limited to A, then B, then C; it does not authorize origin, publisher, data, quorum, timeout, recipient, provider, pager, or monitor mutation.');
+    lines.push('Hard execution gate: do not run this section unless recorded Lou authority covers this exact reviewed revision, capture, image id, packet hash, and A/B/C scope, and independent packet review is GO. Approval is limited to A, then B, then C; it does not authorize origin, publisher, data, quorum, timeout, recipient, provider, pager, or monitor mutation.');
     lines.push('');
     lines.push('Each relay is verified before the next is touched. A fresh live/captured topology comparison and authenticated zero-trip prestate run for that relay, then the publisher must still be exactly `failed/failed`, `Result=exit-code`, `ExecMainStatus=78` as the final gate before removal. An absent watchdog-trip row is semantic zero only when exactly one valid uptime row and one positive process-RSS row authenticate the payload. Any precondition refusal exits `78` without remove, run, or rollback; only the mutation-started latch at the removal boundary enables recovery. After runtime verification, the publisher is checked again before GO. Any failure after mutation begins immediately recreates only the current relay from its captured immutable image id, verifies readiness/topology/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
     lines.push('');
@@ -907,6 +1187,10 @@ if (includeRecreate) {
       const origin = relayLocalOrigin(name);
       const rollbackImage = container.Image || container.Config?.Image || '<captured-relay-image-id>';
       const expectedTopology = capturedRelayTopologyBase64(container);
+      const deployedTopology = capturedRelayTopology(container);
+      deployedTopology.image_id = expectedRelayImageId;
+      deployedTopology.image_ref = expectedRelayImageId;
+      const deployedTopologyBase64 = Buffer.from(JSON.stringify(deployedTopology), 'utf8').toString('base64');
       const rollbackTopology = capturedRelayTopology(container);
       rollbackTopology.image_id = rollbackImage;
       rollbackTopology.image_ref = rollbackImage;
@@ -916,6 +1200,7 @@ if (includeRecreate) {
       lines.push('if ! {');
       lines.push(`  assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(expectedTopology)} &&`);
       lines.push(`  assert_relay_prestate ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(`prestage-${stage.toLowerCase()}`)} &&`);
+      lines.push(`  assert_relay_removal_boundary ${shellSingleQuote(name)} ${shellSingleQuote(expectedTopology)} ${shellSingleQuote(newRelayImage)} ${shellSingleQuote(expectedRelayImageId)} ${shellSingleQuote(expectedRelayRevision)} &&`);
       lines.push('  assert_publisher_parked');
       lines.push('}; then');
       lines.push(`  echo "${name}: pre_mutation_refused_no_change" >&2`);
@@ -924,15 +1209,17 @@ if (includeRecreate) {
       lines.push('relay_mutation_started=true');
       lines.push('if ! {');
       lines.push(`  sudo docker rm -f ${name} &&`);
-      lines.push(`${relayOnlyRunCommandFor(name, newRelayImage)} &&`.split('\n').map((line) => `  ${line}`).join('\n'));
-      lines.push(`  test "$(sudo docker inspect ${name} --format '{{.Config.Image}}')" = ${shellSingleQuote(newRelayImage)} &&`);
-      lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{.Os}}/{{.Architecture}}')" = "linux/amd64" &&`);
-      lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = ${shellSingleQuote(expectedRelayRevision)} &&`);
+      lines.push(`${relayOnlyRunCommandFor(name, expectedRelayImageId)} &&`.split('\n').map((line) => `  ${line}`).join('\n'));
+      lines.push(`  test "$(sudo docker inspect ${name} --format '{{.Config.Image}}')" = ${shellSingleQuote(expectedRelayImageId)} &&`);
+      lines.push(`  test "$(sudo docker inspect ${name} --format '{{.Image}}')" = ${shellSingleQuote(expectedRelayImageId)} &&`);
+      lines.push(`  assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(deployedTopologyBase64)} &&`);
       lines.push(`  verify_relay_only_runtime ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(dataDestination)} ${shellSingleQuote(expectedRelayRevision)} &&`);
+      lines.push(`  assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(deployedTopologyBase64)} &&`);
       lines.push('  assert_publisher_parked');
       lines.push('}; then');
       lines.push('  if [[ "${relay_mutation_started}" != "true" ]]; then echo "relay_mutation_latch_missing" >&2; exit 78; fi');
       lines.push(`  echo "${name}: verification failed; rolling back only this relay and stopping" >&2`);
+      lines.push(`  if ! assert_image_id_available ${shellSingleQuote(rollbackImage)}; then exit 78; fi`);
       lines.push(`  if sudo docker inspect ${name} >/dev/null 2>&1; then`);
       lines.push(`    if ! sudo docker rm -f ${name} >/dev/null 2>&1; then echo "${name}: rollback_remove_failed" >&2; exit 78; fi`);
       lines.push('  fi');
@@ -942,6 +1229,7 @@ if (includeRecreate) {
       lines.push('    exit 78');
       lines.push('  fi');
       lines.push(`  if ! chmod 600 /tmp/vhc-public-beta-deploy/${name}.rollback.start.out; then echo "${name}: rollback_evidence_permission_failed" >&2; exit 78; fi`);
+      lines.push(`  if ! assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(rollbackTopologyBase64)}; then echo "${name}: rollback_topology_failed" >&2; exit 78; fi`);
       lines.push('  rollback_attempt=1');
       lines.push('  rollback_ready=false');
       lines.push('  while [[ "${rollback_attempt}" -le 60 ]]; do');
@@ -964,7 +1252,7 @@ if (includeRecreate) {
     lines.push('');
     lines.push('## Hard Stop Conditions');
     lines.push('');
-    lines.push('- Stop before container removal on absent explicit Lou approval, wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78, missing relay, any live/captured image/env/mount/network/port/restart/user/memory drift, unreadable or changed snapshot, pre-existing OOM/watchdog trip, unauthenticated or malformed metrics, or non-green readiness. A pre-mutation refusal does not invoke rollback.');
+    lines.push('- Stop before container removal on absent recorded Lou authority or exact packet-review GO, non-array/duplicate/extra/malformed relay capture, wrong immutable image id or mutable-ref binding (including same-revision retag), wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78, missing relay, any live/captured image/env/mount/semantic-network/NetworkID/port/restart/user/memory drift, unsupported network attachment state, unreadable or changed snapshot, pre-existing OOM/watchdog trip, unauthenticated or malformed metrics, or non-green readiness. A pre-mutation refusal does not invoke rollback.');
     lines.push('- After mutation begins, roll back the current relay and stop on publisher transition/resume during verification, readiness/health failure, environment mismatch, snapshot checksum drift, OOM/watchdog trip, wrong image id/revision/platform, or any of the four exact missing-key probes returning anything other than its closed 404 body. Unexpected bodies remain private; only a closed reason code may print.');
     lines.push('- Never batch removals, skip A/B/C order, continue after rollback, clear data, alter quorum/timeouts, start the publisher, recreate origin, or use the generic packet executor for this action.');
     lines.push('');

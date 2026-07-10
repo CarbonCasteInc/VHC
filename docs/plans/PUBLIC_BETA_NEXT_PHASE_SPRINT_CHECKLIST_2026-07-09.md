@@ -962,10 +962,11 @@ git diff --check
 - G3 packet preparation found an authority contradiction before any live action:
   `infra/relay/server.js` is copied into immutable relay images and is not bind
   mounted, so the new readback routes cannot deploy without controlled rolling
-  relay recreation. The checklist currently forbids relay restarts. A separate
-  repo-only packet lane is therefore `NO-GO` / `WAITING_FOR_LOU`; its first
-  independent review also returned fail-closed corrections. No packet was
-  generated or executed and no boundary is treated as approved.
+  relay recreation. Lou approved PR #763 and the attended A/B/C boundary on
+  2026-07-10. The first exact packet review then returned `NO-GO` on capture
+  cardinality, semantic network preservation, and immutable image-id binding.
+  Those corrections must receive subsequent review before the approved live
+  action begins; no relay action is claimed by this repo lane.
 
 ### Review And Merge Gate
 
@@ -994,9 +995,12 @@ only `/data`; an A6 checkout update cannot install the new exact-readback routes
 into running relays. A rolling relay image replacement is therefore technically
 required before publisher recovery can exercise the merged contract.
 
-That fact conflicts with the standing no-relay-restart line below. G3 remains
-`blocked_pending_relay_restart_boundary_correction` and `WAITING_FOR_LOU`; repo
-preparation is not authority and no live recovery is claimed.
+That fact conflicted with the standing no-relay-restart line below. Lou approved
+PR #763 and the attended A/B/C restart boundary on 2026-07-10. The first exact
+packet review then returned `NO-GO` for inspect-scope, network-prestate, and
+immutable-image binding gaps. The current state is
+`boundary_approved_exact_packet_correction_in_review`; repo preparation is not
+execution proof and no live recovery is claimed.
 
 - [x] Add inert `--relay-only` image-export and deploy-packet generation that
   excludes origin, requires exactly relay A/B/C, and defaults to no recreate
@@ -1004,6 +1008,23 @@ preparation is not authority and no live recovery is claimed.
 - [x] Preserve captured env, mount, network, ports, restart policy, user, and
   memory limits; verify exact revision plus `linux/amd64`; and fail before each
   removal if a fresh live inspect differs from that captured prestate.
+- [x] Reject relay-only inspect input unless it is an array of exactly three
+  unique canonical `/vhc-relay-a`, `/vhc-relay-b`, `/vhc-relay-c` entries;
+  reject duplicates, extras, blank/malformed names, and non-array input.
+- [x] Bind the packet to the export manifest's full immutable `sha256:` relay
+  image id, re-resolve the mutable ref immediately before every removal, run the
+  immutable id, and require recreated container `.Image` equality so a retagged
+  same-revision wrong image cannot pass.
+- [x] Preserve full portable semantic network attachment prestate: network name
+  and `NetworkID`, static IPAM intent, aliases, links, driver options, gateway
+  priority, and explicit configured MAC intent. Compare it at the removal
+  boundary, immediately after recreate, after verification, and after rollback;
+  reject unknown/nonportable state and never treat runtime endpoint ids or
+  assigned addresses as stable.
+- [x] Exercise the current A6 `host`/`host` topology for ordered A/B/C with all
+  15 canonical attachment keys, valid shared `NetworkID`, null attachment
+  intent, `GwPriority=0`, no configured MAC, exact `--network host`, captured
+  `GUN_PORT` verifier URLs, and post-recreate/post-verification/rollback parity.
 - [x] Encode A/B/C readiness, three-snapshot integrity, liveness/OOM/watchdog,
   all-four exact missing-key probes, immediate current-relay rollback, and hard
   stop conditions.
@@ -1029,12 +1050,13 @@ preparation is not authority and no live recovery is claimed.
 - [x] Register the blocked authority packet at
   `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.
 - [x] Merge S1B remediation to `main` at `98277475`.
+- [x] Merge the approved recovery-boundary packet as PR #763 at `bb934010`.
 - [ ] Generate the exact packet from the merged commit and fresh secret-safe
   inspect evidence.
 - [ ] Independent packet reviewer returns `GO` on the exact packet hash; any
   correction receives subsequent review by the same reviewer.
-- [ ] Lou explicitly replaces the no-relay-restart boundary for that exact
-  revision and authorizes attended A/B/C rolling replacement plus rollback.
+- [x] Lou explicitly replaced the no-relay-restart boundary by approving #763
+  and authorized attended A/B/C rolling replacement plus rollback on 2026-07-10.
 - [ ] The approved rolling relay packet passes and evidence is independently
   reviewed before a separate publisher recovery is considered.
 
@@ -1051,8 +1073,8 @@ Mutation boundary:
 
 - [ ] Update only to the reviewed remediation commit using the existing deploy
   packet controls.
-- [ ] Do not restart relays unless Lou first replaces this boundary for the exact
-  independently reviewed S1B relay-only packet. If approved, replace only
+- [ ] Use Lou's recorded restart approval only after the corrected exact
+  S1B relay-only packet receives independent `GO`; then replace only
   `vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`, with publisher parked,
   per-relay verification, and immediate serial rollback on failure.
 - [ ] Never alter quorum, increase timeouts, clear relay data, recreate origin,
