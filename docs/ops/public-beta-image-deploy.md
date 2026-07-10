@@ -320,8 +320,8 @@ tools/scripts/export-public-beta-image-artifacts.sh \
   --output-dir .tmp/public-beta-image-artifacts/<tag>
 ```
 
-The exporter refuses images whose Docker metadata platform is not
-`linux/amd64`, and by default refuses images whose
+The exporter refuses images without a full immutable `sha256:` image id, whose
+Docker metadata platform is not `linux/amd64`, and by default refuses images whose
 `org.opencontainers.image.revision` label does not match the current checkout.
 It writes:
 
@@ -347,8 +347,10 @@ tools/scripts/export-public-beta-image-artifacts.sh \
   --output-dir .tmp/public-beta-image-artifacts/<reviewed-tag>
 ```
 
-Relay-only export is still local preparation. It neither transfers nor loads the
-image, and loading the image would still not authorize a relay restart.
+Relay-only export is still local preparation. Its one-image manifest records the
+full immutable image id, and the emitted load packet rejects the loaded mutable
+ref unless it resolves to that id in addition to matching revision/platform. It
+neither transfers nor loads the image by itself.
 
 ## Emit Deploy Packet
 
@@ -390,11 +392,11 @@ into a running container. When a reviewed S1B commit changes those routes, the
 technical deployment requires a replacement relay image and a rolling container
 recreate. This is a technical fact, not live authority.
 
-The S1B recovery authority remains
-`blocked_pending_relay_restart_boundary_correction`. The standing checklist
-prohibition on relay restart must be explicitly corrected by Lou for the exact
-reviewed packet before recreate commands may be generated or used. Prepare the
-inert packet without destructive commands first:
+Lou approved PR #763 and the attended A/B/C restart boundary on 2026-07-10. The
+first exact packet review nevertheless returned `NO-GO` for fail-open capture,
+network, and immutable-image binding gaps. Prepare the corrected inert packet
+without destructive commands first; no removal is permitted until its exact
+capture and packet hash receive independent `GO`:
 
 ```bash
 tools/scripts/emit-a6-public-beta-deploy-packet.sh \
@@ -402,23 +404,36 @@ tools/scripts/emit-a6-public-beta-deploy-packet.sh \
   --inspect-json ./relay-containers.json \
   --new-relay-image vhc-public-beta-relay:<reviewed-tag-or-digest> \
   --expected-relay-revision <reviewed-merged-commit> \
-  --output .tmp/a6-s1b-relay-only-packet.blocked.md
+  --expected-relay-image-id <sha256:id-from-artifact-manifest> \
+  --output .tmp/a6-s1b-relay-only-packet.review.md
 ```
 
-This mode requires exactly `vhc-relay-a,vhc-relay-b,vhc-relay-c`, excludes the
-origin from its capture/deploy scope, preserves each relay's exact captured env
-set, data bind mount, network, ports, restart policy, user, and configured memory
-limits, and checks the new image revision plus `linux/amd64`. Before each relay
-removal it compares that captured topology to a fresh live inspect and rejects
-any image/env/mount/network/port/restart/user/memory drift. It emits no `docker
-rm` or `docker run` commands by default.
+This mode requires an inspect array containing exactly one each of
+`/vhc-relay-a`, `/vhc-relay-b`, and `/vhc-relay-c`; duplicate, extra,
+blank/malformed, or non-array input fails closed. It excludes origin from its
+capture/deploy scope, preserves each relay's exact captured env set, data bind
+mount, semantic network attachment, ports, restart policy, user, and configured
+memory limits, and checks the new image revision, full manifest image id, and
+`linux/amd64`. Before each removal it compares that captured topology to a fresh
+live inspect and rejects any image/env/mount/network/port/restart/user/memory
+drift. It emits no `docker rm` or `docker run` commands by default.
 
-Only after explicit boundary correction, exact-head packet review, and Lou's
-live-action approval may the same command add
+Semantic network prestate includes the network name and 64-hex `NetworkID`,
+static IPAM intent, aliases, links, driver options, gateway priority, and an
+explicit configured MAC intent. Supported state is encoded in `docker run` and
+rechecked immediately after recreate, after verification, and after rollback.
+Runtime-assigned endpoint ids/IPs/gateways/DNS names and an unconfigured endpoint
+MAC are not compared as stable identifiers. Unknown or nonportable attachment
+state is a hard stop.
+
+Only after the recorded boundary approval and exact-head/capture packet review
+returns `GO` may the same command add
 `--include-recreate-commands`. That gated form emits A/B/C rolling replacement,
 per-relay readiness/health, snapshot checksum, OOM/watchdog, env-parity, and all
 four exact missing-key checks for story, latest-index, hot-index, and
-synthesis-lifecycle. A failure rolls back only the current relay to its captured
+synthesis-lifecycle. Immediately before every removal the mutable ref must still
+resolve to the full expected image id; the packet runs that immutable id and
+requires recreated `.Image` equality. A failure rolls back only the current relay to its captured
 immutable image id and exits `78` before the next relay. It never emits an
 origin recreate or publisher start. The generic packet executor is not widened
 for this action.

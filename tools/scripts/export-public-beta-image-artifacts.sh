@@ -146,6 +146,10 @@ inspect_image() {
     revision=""
   fi
   local actual_platform="${os_name}/${arch}"
+  if [[ ! "${id}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    printf '%s image id is not a full immutable sha256 id (%s)\n' "${label}" "${image}" >&2
+    exit 78
+  fi
   if [[ "${actual_platform}" != "${PLATFORM}" ]]; then
     printf '%s image platform mismatch: expected %s, got %s (%s)\n' "${label}" "${PLATFORM}" "${actual_platform}" "${image}" >&2
     exit 78
@@ -298,6 +302,7 @@ This packet is approval-required and relay-only. It loads one reviewed relay ima
 
 - ${RELAY_IMAGE}: \`${relay_tar}\`
   - sha256: \`${relay_sha}\`
+  - immutable image id: \`${relay_id}\`
   - platform: \`${relay_os}/${relay_arch}\`
   - revision: \`${relay_revision:-<empty>}\`
 
@@ -312,7 +317,7 @@ scp $(bash_quote "${relay_tar}") "\${SSH_HOST}:\${REMOTE_DIR}/${relay_file}"
 scp $(bash_quote "${checksums_file}") "\${SSH_HOST}:\${REMOTE_DIR}/SHA256SUMS"
 ssh "\${SSH_HOST}" "cd \${REMOTE_DIR} && sha256sum -c SHA256SUMS"
 ssh "\${SSH_HOST}" "docker load -i \${REMOTE_DIR}/${relay_file}"
-ssh "\${SSH_HOST}" 'docker image inspect ${RELAY_IMAGE} --format "{{.RepoTags}} {{.Id}} {{.Os}}/{{.Architecture}} {{index .Config.Labels \"org.opencontainers.image.revision\"}}"'
+ssh "\${SSH_HOST}" 'test "\$(docker image inspect $(bash_quote "${RELAY_IMAGE}") --format "{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels \\\"org.opencontainers.image.revision\\\"}}")" = $(bash_quote "${relay_id}|${relay_os}/${relay_arch}|${relay_revision}")'
 \`\`\`
 
 ## Abort Criteria
@@ -320,6 +325,7 @@ ssh "\${SSH_HOST}" 'docker image inspect ${RELAY_IMAGE} --format "{{.RepoTags}} 
 - Abort if \`sha256sum -c SHA256SUMS\` fails.
 - Abort if the loaded relay image is not \`${PLATFORM}\`.
 - Abort if the loaded relay image revision is not \`${SOURCE_REVISION:-<revision-check-skipped>}\`.
+- Abort if the loaded relay reference does not resolve to immutable image id \`${relay_id}\`; a matching tag or revision is insufficient.
 - Loading this image is not approval to restart relays, deploy origin, start publisher writes, run exact-readback probes, or re-enable monitors.
 EOF
 } > "${packet_file}"
@@ -384,3 +390,4 @@ if [[ "${RELAY_ONLY}" != "true" ]]; then
   printf 'origin_sha256=%s\n' "${origin_sha}"
 fi
 printf 'relay_sha256=%s\n' "${relay_sha}"
+printf 'relay_image_id=%s\n' "${relay_id}"

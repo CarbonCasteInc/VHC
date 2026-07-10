@@ -14,6 +14,9 @@ const PACKET_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/emit-a6-public-beta-de
 const RECOVER_PROVENANCE_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/recover-public-beta-origin-provenance.mjs');
 const PUBLIC_BETA_COMPOSE = path.join(REPO_ROOT, 'infra/docker/docker-compose.public-beta.yml');
 const REVIEWED_RELAY_REVISION = '231962bcf73e2730cb2f0234fd9d65c2fc9f69cd';
+const REVIEWED_RELAY_IMAGE_ID = `sha256:${'a'.repeat(64)}`;
+const DEFAULT_NETWORK_ID = 'b'.repeat(64);
+const CURRENT_RELAY_A_IMAGE_ID = `sha256:${'1'.repeat(64)}`;
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -115,9 +118,9 @@ if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
   arch="\${FAKE_DOCKER_ARCH:-amd64}"
   revision="\${FAKE_DOCKER_REVISION:-test-revision}"
   case "\${image}" in
-    *origin*) id="sha256:origin-image-id" ;;
-    *relay*) id="sha256:relay-image-id" ;;
-    *) id="sha256:unknown-image-id" ;;
+    *origin*) id="sha256:${'c'.repeat(64)}" ;;
+    *relay*) id="sha256:${'d'.repeat(64)}" ;;
+    *) id="sha256:${'e'.repeat(64)}" ;;
   esac
   printf '%s|linux|%s|%s|2026-06-14T00:00:00Z\\n' "\${id}" "\${arch}" "\${revision}"
   exit 0
@@ -221,7 +224,7 @@ test('relay-only image exporter emits exactly one reviewed relay artifact and no
       `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
-  printf 'sha256:relay-image-id|linux|amd64|${REVIEWED_RELAY_REVISION}|2026-07-10T00:00:00Z\\n'
+  printf '%s|linux|amd64|${REVIEWED_RELAY_REVISION}|2026-07-10T00:00:00Z\\n' "\${FAKE_DOCKER_IMAGE_ID:-${REVIEWED_RELAY_IMAGE_ID}}"
   exit 0
 fi
 if [[ "\${1:-}" == "save" ]]; then
@@ -262,7 +265,29 @@ exit 2
     assert.equal(manifest.relay_only, true);
     assert.equal(manifest.images.length, 1);
     assert.equal(manifest.images[0].image, 'vhc-public-beta-relay:reviewed');
+    assert.equal(manifest.images[0].image_id, REVIEWED_RELAY_IMAGE_ID);
     assert.equal(manifest.images[0].revision, REVIEWED_RELAY_REVISION);
+    assert.match(packet, new RegExp(REVIEWED_RELAY_IMAGE_ID));
+    assert.match(result.stdout, new RegExp(`relay_image_id=${REVIEWED_RELAY_IMAGE_ID}`));
+    const loadBlock = packet.match(/```bash\n([\s\S]*?)\n```/)?.[1];
+    assert.ok(loadBlock);
+    const loadSyntax = run('bash', ['-n'], { input: `${loadBlock}\n` });
+    assert.equal(loadSyntax.status, 0, loadSyntax.stderr);
+
+    const malformedImageId = run('bash', [
+      EXPORT_SCRIPT,
+      '--relay-only',
+      '--relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--output-dir',
+      path.join(root, 'malformed-image-id'),
+      '--source-revision',
+      REVIEWED_RELAY_REVISION,
+    ], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FAKE_DOCKER_IMAGE_ID: 'sha256:short' },
+    });
+    assert.equal(malformedImageId.status, 78);
+    assert.match(malformedImageId.stderr, /full immutable sha256 id/);
 
     const skippedRevision = run('bash', [
       EXPORT_SCRIPT,
@@ -740,10 +765,12 @@ test('relay-only deploy packet is inert by default and excludes origin from capt
       'vhc-public-beta-relay:reviewed',
       '--expected-relay-revision',
       REVIEWED_RELAY_REVISION,
+      '--expected-relay-image-id',
+      REVIEWED_RELAY_IMAGE_ID,
     ]);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /A6 S1B Relay-Only Recovery Packet/);
-    assert.match(result.stdout, /Status: `WAITING_FOR_LOU`/);
+    assert.match(result.stdout, /Status: `REVIEW_REQUIRED`/);
     assert.ok(result.stdout.includes(`expected relay revision: \`${REVIEWED_RELAY_REVISION}\``));
     assert.match(result.stdout, /required relay platform: `linux\/amd64`/);
     assert.match(result.stdout, /requires exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`|Scope is exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`/);
@@ -752,8 +779,8 @@ test('relay-only deploy packet is inert by default and excludes origin from capt
     assert.doesNotMatch(result.stdout, /vhc-public-origin|Origin Deploy|new origin image/);
     assert.doesNotMatch(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true/);
     assert.doesNotMatch(result.stdout, /do-not-print/);
-    assert.match(result.stdout, /relay_image_platform=.*\.Os.*\.Architecture/);
-    assert.match(result.stdout, /relay_image_revision=.*org\.opencontainers\.image\.revision/);
+    assert.match(result.stdout, /relay_image_binding=.*\.Id.*\.Os.*\.Architecture.*org\.opencontainers\.image\.revision/);
+    assert.ok(result.stdout.includes(REVIEWED_RELAY_IMAGE_ID));
 
     const abbreviatedRevision = run('bash', [
       PACKET_SCRIPT,
@@ -772,6 +799,140 @@ test('relay-only deploy packet is inert by default and excludes origin from capt
   }
 });
 
+test('relay-only deploy packet accepts only an exact unique canonical A-B-C inspect array and full image id', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-capture-shape-'));
+  try {
+    const canonical = [
+      makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data'),
+      makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
+      makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
+    ];
+    const cases = [
+      ['object-not-array', { relays: canonical }],
+      ['missing-c', canonical.slice(0, 2)],
+      ['duplicate-a', [canonical[0], structuredClone(canonical[0]), canonical[2]]],
+      ['extra-entry', [...canonical, makeContainer('vhc-public-origin', 'origin:old', [], [], {})]],
+      ['blank-name', canonical.map((relay, index) => index === 1 ? { ...relay, Name: '' } : relay)],
+      ['malformed-name', canonical.map((relay, index) => index === 1 ? { ...relay, Name: 'vhc-relay-b' } : relay)],
+      ['wrong-canonical-name', canonical.map((relay, index) => index === 1 ? { ...relay, Name: '/relay-b' } : relay)],
+    ];
+    for (const [label, payload] of cases) {
+      const inspectPath = path.join(root, `${label}.json`);
+      writeFileSync(inspectPath, JSON.stringify(payload), 'utf8');
+      const result = run('bash', relayOnlyPacketArgs(inspectPath, { recreate: false }));
+      assert.equal(result.status, 78, `${label}: ${result.stderr}`);
+      assert.match(result.stderr, /inspect JSON must be an array|exactly three unique canonical entries/);
+    }
+
+    const inspectPath = path.join(root, 'canonical.json');
+    writeFileSync(inspectPath, JSON.stringify(canonical), 'utf8');
+    const malformedIdArgs = relayOnlyPacketArgs(inspectPath, { recreate: false, imageId: 'sha256:short' });
+    const malformedId = run('bash', malformedIdArgs);
+    assert.equal(malformedId.status, 64);
+    assert.match(malformedId.stderr, /full lowercase sha256 image id from artifact-manifest\.json/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only deploy packet preserves every supported network attachment intent and ignores runtime endpoint identity', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-network-intent-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    const relays = [
+      applyFullNetworkAttachment(makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data')),
+      applyCurrentA6NetworkAttachment(makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data')),
+      applyCurrentA6NetworkAttachment(makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data')),
+    ];
+    writeFileSync(inspectPath, JSON.stringify(relays), 'utf8');
+    const result = run('bash', relayOnlyPacketArgs(inspectPath));
+    assert.equal(result.status, 0, result.stderr);
+    const packet = result.stdout;
+    assert.match(packet, /--network 'name=vh_public_beta,ip=10\.10\.0\.10,ip6=fd00::10,link-local-ip=169\.254\.10\.10,alias=relay-a,driver-opt=com\.example\.mode=locked,gw-priority=7'/);
+    assert.match(packet, /--mac-address '02:42:ac:11:00:0a'/);
+    assert.match(packet, /--link 'database:db'/);
+    assert.ok(packet.includes(`assert_relay_removal_boundary 'vhc-relay-a'`));
+    assert.ok(packet.includes(`'vhc-public-beta-relay:reviewed' '${REVIEWED_RELAY_IMAGE_ID}' '${REVIEWED_RELAY_REVISION}'`));
+    assert.match(packet, new RegExp(`sudo docker run -d[\\s\\S]*${REVIEWED_RELAY_IMAGE_ID}`));
+    assert.doesNotMatch(packet, /sudo docker run -d[\s\S]*vhc-public-beta-relay:reviewed(?:\s|$)/);
+
+    const expectedBase64 = packet.match(/assert_live_topology_parity 'vhc-relay-a' '([^']+)'/)?.[1];
+    assert.ok(expectedBase64);
+    const topology = JSON.parse(Buffer.from(expectedBase64, 'base64').toString('utf8'));
+    assert.deepEqual(topology.network, {
+      name: 'vh_public_beta',
+      network_id: DEFAULT_NETWORK_ID,
+      ipam_config: {
+        ipv4_address: '10.10.0.10',
+        ipv6_address: 'fd00::10',
+        link_local_ips: ['169.254.10.10'],
+      },
+      aliases: ['relay-a'],
+      links: ['database:db'],
+      driver_opts: [{ key: 'com.example.mode', value: 'locked' }],
+      gw_priority: 7,
+      mac_address_intent: '02:42:ac:11:00:0a',
+    });
+    assert.doesNotMatch(JSON.stringify(topology), /runtime-endpoint-id|10\.10\.0\.211|fd00::211/);
+
+    const stageA = packet.slice(packet.indexOf('# Stage A:'), packet.indexOf('# Stage B:'));
+    const beforeRemoval = stageA.indexOf("assert_relay_removal_boundary 'vhc-relay-a'");
+    const remove = stageA.indexOf('sudo docker rm -f vhc-relay-a &&');
+    const postRecreateTopology = stageA.indexOf("assert_live_topology_parity 'vhc-relay-a'", remove);
+    const verify = stageA.indexOf("verify_relay_only_runtime 'vhc-relay-a'", postRecreateTopology);
+    const postVerificationTopology = stageA.indexOf("assert_live_topology_parity 'vhc-relay-a'", postRecreateTopology + 1);
+    assert.ok(beforeRemoval >= 0 && beforeRemoval < remove && remove < postRecreateTopology && postRecreateTopology < verify && verify < postVerificationTopology, stageA);
+    assert.ok((stageA.match(/assert_live_topology_parity 'vhc-relay-a'/g) || []).length >= 5, stageA);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only deploy packet rejects unsupported or nonportable network attachment shapes', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-network-reject-'));
+  try {
+    const base = () => [
+      applyFullNetworkAttachment(makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data')),
+      makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
+      makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
+    ];
+    const cases = [
+      ['unknown-attachment-field', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.UnsupportedField = true; }],
+      ['unknown-ipam-field', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPAMConfig.Address = '10.0.0.1'; }],
+      ['ipam-shape', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPAMConfig = []; }],
+      ['duplicate-link-local', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPAMConfig.LinkLocalIPs = ['169.254.1.1', '169.254.1.1']; }],
+      ['duplicate-alias', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.Aliases = ['relay-a', 'relay-a']; }],
+      ['nonportable-alias', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.Aliases = ['relay,a']; }],
+      ['driver-opts-shape', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.DriverOpts = []; }],
+      ['driver-opt-nonportable', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.DriverOpts = { mode: 'a,b' }; }],
+      ['gw-priority-shape', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.GwPriority = '7'; }],
+      ['conflicting-links', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.Links = ['other:alias']; }],
+      ['missing-network-id', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.NetworkID = ''; }],
+      ['network-mode-attachment-mismatch', (relay) => { relay.HostConfig.NetworkMode = 'other_network'; }],
+      ['multiple-networks', (relay) => { relay.NetworkSettings.Networks.extra = { NetworkID: '9'.repeat(64) }; }],
+      ['malformed-runtime-endpoint', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.EndpointID = { secret: 'DO_NOT_LEAK' }; }],
+      ['malformed-runtime-prefix', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPPrefixLen = '24'; }],
+      ['malformed-runtime-dns', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.DNSNames = 'relay-a'; }],
+      ['malformed-host-links', (relay) => { relay.HostConfig.Links = 'database:db'; }],
+      ['invalid-static-mac', (relay) => { relay.Config.MacAddress = 'not-a-mac'; }],
+      ['mismatched-static-mac', (relay) => { relay.Config.MacAddress = '02:42:ac:11:00:0b'; }],
+      ['malformed-rollback-image-id', (relay) => { relay.Image = 'sha256:short'; }],
+    ];
+    for (const [label, mutate] of cases) {
+      const relays = base();
+      mutate(relays[0]);
+      const inspectPath = path.join(root, `${label}.json`);
+      writeFileSync(inspectPath, JSON.stringify(relays), 'utf8');
+      const result = run('bash', relayOnlyPacketArgs(inspectPath));
+      assert.equal(result.status, 78, `${label}: ${result.stderr}\n${result.stdout}`);
+      assert.match(result.stdout, /Packet Blockers/);
+      assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /DO_NOT_LEAK/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes and serial rollback', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-recreate-'));
   try {
@@ -781,6 +942,7 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
       makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
       makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
     ];
+    applyFullNetworkAttachment(relays[0]);
     relays[0].Config.User = '1000:1000';
     relays[0].HostConfig.Memory = 2415919104;
     relays[0].HostConfig.MemorySwap = 2415919104;
@@ -794,11 +956,13 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
       'vhc-public-beta-relay:reviewed',
       '--expected-relay-revision',
       REVIEWED_RELAY_REVISION,
+      '--expected-relay-image-id',
+      REVIEWED_RELAY_IMAGE_ID,
       '--include-recreate-commands',
     ]);
     assert.equal(result.status, 0, result.stderr);
     const packet = result.stdout;
-    assert.match(packet, /Hard authority gate: do not run this section until Lou explicitly approves/);
+    assert.match(packet, /Hard execution gate: do not run this section unless recorded Lou authority/);
     const stageA = packet.indexOf('# Stage A: re-prove parked publisher and exact live/captured prestate, then replace only vhc-relay-a.');
     const goA = packet.indexOf('vhc-relay-a: GO for next relay');
     const stageB = packet.indexOf('# Stage B: re-prove parked publisher and exact live/captured prestate, then replace only vhc-relay-b.');
@@ -824,7 +988,7 @@ test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes
     assert.match(packet, /\/vh\/news\/synthesis-lifecycle.*readback=exact.*news-synthesis-lifecycle-not-found/);
     for (const name of ['vhc-relay-a', 'vhc-relay-b', 'vhc-relay-c']) {
       assert.match(packet, new RegExp(`${name}: verification failed; rolling back only this relay and stopping`));
-      assert.match(packet, new RegExp(`sha256:${name}`));
+      assert.ok(packet.includes(relays.find((relay) => relay.Name === `/${name}`).Image));
       const stageStart = packet.indexOf(`# Stage ${name.endsWith('-a') ? 'A' : name.endsWith('-b') ? 'B' : 'C'}:`);
       const remove = packet.indexOf(`sudo docker rm -f ${name} &&`, stageStart);
       const publisherCheck = packet.indexOf('assert_publisher_parked', stageStart);
@@ -929,6 +1093,7 @@ test('relay-only approval block keeps precondition refusal nonmutating and close
       makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
       makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
     ];
+    applyFullNetworkAttachment(relays[0]);
     relays[0].Config.User = '1000:1000';
     relays[0].HostConfig.Memory = 2415919104;
     relays[0].HostConfig.MemorySwap = 2415919104;
@@ -942,6 +1107,8 @@ test('relay-only approval block keeps precondition refusal nonmutating and close
       'vhc-public-beta-relay:reviewed',
       '--expected-relay-revision',
       REVIEWED_RELAY_REVISION,
+      '--expected-relay-image-id',
+      REVIEWED_RELAY_IMAGE_ID,
       '--include-recreate-commands',
     ]);
     assert.equal(emitted.status, 0, emitted.stderr);
@@ -1001,9 +1168,11 @@ if [[ "\${command}" == "image" ]]; then
   while [[ $# -gt 0 ]]; do
     if [[ "$1" == "--format" ]]; then format="\${2:-}"; shift 2; else shift; fi
   done
-  if [[ "\${format}" == *Architecture* ]]; then printf 'linux/amd64\n';
+  if [[ "\${format}" == *'|'* ]]; then printf '%s|linux/amd64|${REVIEWED_RELAY_REVISION}\n' "\${FAKE_RELAY_BINDING_ID:-${REVIEWED_RELAY_IMAGE_ID}}";
+  elif [[ "\${format}" == *Architecture* ]]; then printf 'linux/amd64\n';
   elif [[ "\${format}" == *org.opencontainers.image.revision* ]]; then printf '%s\n' '${REVIEWED_RELAY_REVISION}';
-  else printf 'sha256:reviewed-image\n'; fi
+  elif [[ "\${image}" == sha256:* ]]; then printf '%s\n' "\${image}";
+  else printf '${REVIEWED_RELAY_IMAGE_ID}\n'; fi
   exit 0
 fi
 if [[ "\${command}" == "inspect" ]]; then
@@ -1019,9 +1188,9 @@ if [[ "\${command}" == "inspect" ]]; then
   elif [[ "\${format}" == *State.Running* ]]; then printf 'true\n';
   elif [[ "\${format}" == *State.OOMKilled* ]]; then printf 'false\n';
   elif [[ "\${format}" == *Config.Image* ]]; then
-    if [[ "\${state}" == "new" ]]; then printf 'vhc-public-beta-relay:reviewed\n'; else printf 'sha256:vhc-relay-a\n'; fi
+    if [[ "\${state}" == "new" ]]; then printf '${REVIEWED_RELAY_IMAGE_ID}\n'; else printf '${CURRENT_RELAY_A_IMAGE_ID}\n'; fi
   elif [[ "\${format}" == *'.Image'* ]]; then
-    if [[ "\${state}" == "new" ]]; then printf 'sha256:reviewed-image\n'; else printf 'sha256:vhc-relay-a\n'; fi
+    if [[ "\${state}" == "new" ]]; then printf '${REVIEWED_RELAY_IMAGE_ID}\n'; else printf '${CURRENT_RELAY_A_IMAGE_ID}\n'; fi
   elif [[ "\${format}" == *Config.Env* ]]; then printf '%s\n' 'NODE_ENV=production' 'GUN_FILE=/data' 'VH_RELAY_DAEMON_TOKEN=do-not-print';
   else exit 2; fi
   exit 0
@@ -1039,7 +1208,7 @@ if [[ "\${command}" == "run" ]]; then
   image="\${*: -1}"
   printf 'run:%s\n' "\${image}" >> "\${FAKE_DOCKER_LOG:?}"
   if [[ "\${FAKE_ROLLBACK_FAILURE:-}" == "start" && "\${count}" -ge 2 ]]; then exit 1; fi
-  if [[ "\${image}" == *reviewed* ]]; then printf 'new\n' > "\${FAKE_DOCKER_STATE_FILE}"; else printf 'rollback\n' > "\${FAKE_DOCKER_STATE_FILE}"; fi
+  if [[ "\${image}" == '${REVIEWED_RELAY_IMAGE_ID}' ]]; then printf 'new\n' > "\${FAKE_DOCKER_STATE_FILE}"; else printf 'rollback\n' > "\${FAKE_DOCKER_STATE_FILE}"; fi
   printf 'fake-container-id\n'
   exit 0
 fi
@@ -1157,6 +1326,13 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
       ['memory swap', (relay) => { relay.HostConfig.MemorySwap += 1; }],
       ['network mode', (relay) => { relay.HostConfig.NetworkMode = 'host'; }],
       ['networks', (relay) => { relay.NetworkSettings.Networks = { drift: {} }; }],
+      ['network id', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.NetworkID = '9'.repeat(64); }],
+      ['static ipv4 intent', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPAMConfig.IPv4Address = '10.10.0.11'; }],
+      ['aliases', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.Aliases.push('new-alias'); }],
+      ['links', (relay) => { relay.HostConfig.Links = ['other:alias']; relay.NetworkSettings.Networks.vh_public_beta.Links = ['other:alias']; }],
+      ['driver opts', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.DriverOpts['com.example.mode'] = 'changed'; }],
+      ['gateway priority', (relay) => { relay.NetworkSettings.Networks.vh_public_beta.GwPriority = 8; }],
+      ['static mac intent', (relay) => { relay.Config.MacAddress = '02:42:ac:11:00:0b'; relay.NetworkSettings.Networks.vh_public_beta.MacAddress = '02:42:ac:11:00:0b'; }],
       ['ports', (relay) => { relay.HostConfig.PortBindings['7777/tcp'][0].HostPort = '9999'; }],
       ['mounts', (relay) => { relay.Mounts[0].Source = '/HOSTILE_SECRET_DO_NOT_LEAK'; }],
       ['env', (relay) => { relay.Config.Env.push('PRIVATE=HOSTILE_SECRET_DO_NOT_LEAK'); }],
@@ -1170,6 +1346,22 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
       assert.equal(rejected.status, 78, `${label}: ${rejected.stderr}`);
       assert.match(rejected.stderr, /captured_live_topology_parity_failed/);
       assert.doesNotMatch(rejected.stderr, /HOSTILE_SECRET_DO_NOT_LEAK/);
+    }
+
+    const runtimeOnlyMutations = [
+      (relay) => { relay.NetworkSettings.Networks.vh_public_beta.EndpointID = 'different-runtime-endpoint'; },
+      (relay) => { relay.NetworkSettings.Networks.vh_public_beta.Gateway = '10.10.0.254'; },
+      (relay) => { relay.NetworkSettings.Networks.vh_public_beta.IPAddress = '10.10.0.222'; relay.NetworkSettings.Networks.vh_public_beta.IPPrefixLen = 25; },
+      (relay) => { relay.NetworkSettings.Networks.vh_public_beta.GlobalIPv6Address = 'fd00::222'; relay.NetworkSettings.Networks.vh_public_beta.GlobalIPv6PrefixLen = 96; },
+      (relay) => { relay.NetworkSettings.Networks.vh_public_beta.DNSNames = ['different-runtime-name']; },
+    ];
+    for (const mutate of runtimeOnlyMutations) {
+      const changed = structuredClone(relays[0]);
+      mutate(changed);
+      writeFileSync(files.liveInspect, JSON.stringify([changed]), 'utf8');
+      resetFakes();
+      const accepted = runBash(topologyScript, { FAKE_INSPECT_JSON: files.liveInspect, FAKE_PUBLISHER_SEQUENCE: 'failed,failed,exit-code,78' });
+      assert.equal(accepted.status, 0, accepted.stderr);
     }
 
     const prestateScript = `${helpers}\nassert_relay_prestate 'vhc-relay-a' 'http://127.0.0.1:8765' 'prestage-a'`;
@@ -1228,13 +1420,19 @@ printf 'rm-b\n' >> '${files.mutationLog}'`, {
         overrides: 'assert_live_topology_parity() { return 0; }\nassert_relay_prestate() { return 0; }',
         publisher: 'active,running,success,0',
       },
+      {
+        label: 'same-revision-wrong-image-id',
+        overrides: 'assert_live_topology_parity() { return 0; }\nassert_relay_prestate() { return 0; }\nassert_publisher_parked() { return 0; }',
+        publisher: 'failed,failed,exit-code,78',
+        env: { FAKE_RELAY_BINDING_ID: `sha256:${'8'.repeat(64)}` },
+      },
     ];
     for (const precondition of preconditionCases) {
       resetFakes();
       const rejected = runBash(`${helpers}
 ${precondition.overrides}
 verify_relay_only_runtime() { return 0; }
-${stageA}`, { FAKE_PUBLISHER_SEQUENCE: precondition.publisher });
+${stageA}`, { FAKE_PUBLISHER_SEQUENCE: precondition.publisher, ...precondition.env });
       assert.equal(rejected.status, 78, `${precondition.label}: ${rejected.stderr}`);
       assert.match(rejected.stderr, /pre_mutation_refused_no_change/);
       assert.doesNotMatch(rejected.stderr, /verification failed|rollback_/);
@@ -1257,8 +1455,8 @@ ${stageA}`, {
     assert.match(resumedAfterVerification.stderr, /rollback_completed_closed/);
     const resumedDockerLog = readFileSync(files.dockerLog, 'utf8');
     assert.equal((resumedDockerLog.match(/^rm:vhc-relay-a$/gm) || []).length, 2, resumedDockerLog);
-    assert.match(resumedDockerLog, /run:vhc-public-beta-relay:reviewed/);
-    assert.match(resumedDockerLog, /run:sha256:vhc-relay-a/);
+    assert.ok(resumedDockerLog.includes(`run:${REVIEWED_RELAY_IMAGE_ID}`));
+    assert.ok(resumedDockerLog.includes(`run:${CURRENT_RELAY_A_IMAGE_ID}`));
     assert.doesNotMatch(resumedDockerLog, /vhc-relay-b|vhc-relay-c/);
 
     const rollbackHarness = `${helpers}
@@ -1352,6 +1550,72 @@ function makeRelay(name, dataDir) {
   }], { '7777/tcp': [{ HostIp: '127.0.0.1', HostPort: hostPort }] });
 }
 
+function applyFullNetworkAttachment(container) {
+  const runtimeId = 'f'.repeat(64);
+  container.Id = runtimeId;
+  container.Config.MacAddress = '02:42:ac:11:00:0a';
+  container.HostConfig.Links = ['database:db'];
+  container.NetworkSettings.Networks.vh_public_beta = {
+    IPAMConfig: {
+      IPv4Address: '10.10.0.10',
+      IPv6Address: 'fd00::10',
+      LinkLocalIPs: ['169.254.10.10'],
+    },
+    Links: ['database:db'],
+    Aliases: ['relay-a', runtimeId.slice(0, 12)],
+    NetworkID: DEFAULT_NETWORK_ID,
+    EndpointID: 'runtime-endpoint-id',
+    Gateway: '10.10.0.1',
+    IPAddress: '10.10.0.211',
+    IPPrefixLen: 24,
+    IPv6Gateway: 'fd00::1',
+    GlobalIPv6Address: 'fd00::211',
+    GlobalIPv6PrefixLen: 64,
+    MacAddress: '02:42:ac:11:00:0a',
+    DriverOpts: { 'com.example.mode': 'locked' },
+    GwPriority: 7,
+    DNSNames: ['relay-a', runtimeId.slice(0, 12)],
+  };
+  return container;
+}
+
+function applyCurrentA6NetworkAttachment(container) {
+  container.NetworkSettings.Networks.vh_public_beta = {
+    IPAMConfig: null,
+    Links: [],
+    Aliases: [],
+    NetworkID: DEFAULT_NETWORK_ID,
+    EndpointID: 'runtime-endpoint-id',
+    Gateway: '172.30.0.1',
+    IPAddress: '172.30.0.10',
+    IPPrefixLen: 16,
+    IPv6Gateway: '',
+    GlobalIPv6Address: '',
+    GlobalIPv6PrefixLen: 0,
+    MacAddress: '02:42:ac:1e:00:0a',
+    DriverOpts: null,
+    GwPriority: 0,
+    DNSNames: [],
+  };
+  return container;
+}
+
+function relayOnlyPacketArgs(inspectPath, options = {}) {
+  return [
+    PACKET_SCRIPT,
+    '--relay-only',
+    '--inspect-json',
+    inspectPath,
+    '--new-relay-image',
+    options.image || 'vhc-public-beta-relay:reviewed',
+    '--expected-relay-revision',
+    REVIEWED_RELAY_REVISION,
+    '--expected-relay-image-id',
+    options.imageId || REVIEWED_RELAY_IMAGE_ID,
+    ...(options.recreate === false ? [] : ['--include-recreate-commands']),
+  ];
+}
+
 function makeHostNetworkRelay(name, dataDir, gunPort) {
   return makeContainer(name, 'vhc-public-beta-relay:old', [
     'NODE_ENV=production',
@@ -1370,20 +1634,30 @@ function makeHostNetworkRelay(name, dataDir, gunPort) {
 function makeContainer(name, image, env, mounts, portBindings, options = {}) {
   return {
     Name: `/${name}`,
-    Image: `sha256:${name}`,
+    Image: name === 'vhc-relay-a'
+      ? CURRENT_RELAY_A_IMAGE_ID
+      : name === 'vhc-relay-b'
+        ? `sha256:${'2'.repeat(64)}`
+        : name === 'vhc-relay-c'
+          ? `sha256:${'3'.repeat(64)}`
+          : `sha256:${'4'.repeat(64)}`,
     Config: {
       Image: image,
       Env: env,
+      MacAddress: options.macAddress || '',
     },
     HostConfig: {
       RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
       PortBindings: portBindings,
       NetworkMode: options.networkMode || 'vh_public_beta',
+      Links: options.links || null,
     },
     Mounts: mounts,
     NetworkSettings: {
       Networks: options.networks || {
-        vh_public_beta: {},
+        vh_public_beta: {
+          NetworkID: DEFAULT_NETWORK_ID,
+        },
       },
     },
   };

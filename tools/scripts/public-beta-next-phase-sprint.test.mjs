@@ -118,8 +118,8 @@ test('S1B pins the real daemon exit consumer and readback inventory', () => {
 
 test('G3 fails closed on the immutable relay image and restart-authority contradiction', () => {
   for (const token of [
-    '`blocked_pending_relay_restart_boundary_correction`',
-    '`WAITING_FOR_LOU`',
+    '`boundary_approved_exact_packet_correction_in_review`',
+    '`NO-GO`',
     '`infra/relay/server.js`',
     'immutable image',
     'public-beta compose mounts',
@@ -136,16 +136,25 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'absent watchdog-trip row as semantic zero only with exactly one valid uptime',
     'empty/random, malformed, duplicate, or nonzero telemetry',
     'hostile/unexpected exact-readback bodies private',
+    'export manifest\'s full immutable `sha256:` relay',
+    'array of exactly three',
+    'semantic network attachment prestate',
+    'runtime endpoint ids',
   ]) {
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
   }
   for (const token of [
-    'Status: `blocked_pending_relay_restart_boundary_correction`',
-    'Decision: `WAITING_FOR_LOU`',
+    'Status: `boundary_approved_exact_packet_correction_in_review`',
+    'Decision: `NO-GO_PENDING_EXACT_PACKET_REVIEW`',
     'COPY server.js /app/server.js',
     'bind-mounts only `/data`',
     '--relay-only',
     '--expected-relay-revision',
+    '--expected-relay-image-id',
+    'artifact-manifest.json',
+    '64-hex `NetworkID`',
+    'Runtime-assigned endpoint ids',
+    'same-revision wrong image',
     'story with `readback=exact`',
     'latest-index `story_id`',
     'hot-index `story_id`',
@@ -168,6 +177,7 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
   assertIncludes(canon, RECOVERY_PACKET_PATH, 'G3 recovery packet canon route');
   assertIncludes(deployPacketScript, '--relay-only', 'deploy relay-only flag');
   assertIncludes(deployPacketScript, '--expected-relay-revision', 'deploy expected relay revision');
+  assertIncludes(deployPacketScript, '--expected-relay-image-id', 'deploy expected immutable relay image id');
   assertIncludes(exportScript, '--relay-only', 'export relay-only flag');
   assert.ok(!packetExecutor.includes('relay_only'), 'packet executor must not gain a relay-only action');
   assert.ok(!packetExecutor.includes('--relay-only'), 'packet executor must not pass the relay-only flag');
