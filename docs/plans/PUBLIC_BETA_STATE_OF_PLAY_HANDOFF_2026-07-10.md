@@ -97,6 +97,26 @@ review, hosted CI, and merge. Integration remains unpushed. No A6 update, servic
 action, relay action, Gmail/provider mutation, alert-channel change, or recovery
 was performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
 
+G3 repo preparation also proved an authority contradiction. The exact-readback
+routes live in `infra/relay/server.js`, which the relay Dockerfile copies into an
+immutable image; public-beta compose mounts only `/data`. Updating the A6
+checkout cannot activate those routes without a rolling relay image replacement,
+but the standing recovery boundary still prohibits relay restart. The durable
+packet at
+`docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md` is therefore
+`blocked_pending_relay_restart_boundary_correction` and `WAITING_FOR_LOU`.
+
+Repo-only tooling now supports an inert, exactly-three-relay export/packet mode
+that excludes origin/publisher deployment, preserves captured runtime topology
+and env, checks revision/amd64 plus readiness/snapshots/OOM, probes all four
+exact missing-key contracts, and stops with current-relay rollback before the
+next relay on any failure. Recreate commands remain opt-in, the generic packet
+executor was not widened, no live packet was generated, and no relay or
+publisher action occurred. After S1B merge, an exact packet still needs fresh
+secret-safe capture, independent review, and Lou's explicit correction of the
+relay-restart boundary before any rolling action. Relay deployment evidence
+would still not authorize publisher recovery or make S1B green.
+
 ## Current GitHub/Repo State
 
 Current branch:
@@ -227,7 +247,8 @@ Not authorized:
 
 - Codex live execution/autonomy;
 - pager cutover;
-- relay restart;
+- relay restart, unless Lou explicitly replaces this boundary for one exact,
+  independently reviewed focused incident packet;
 - retention/compaction/eviction;
 - source-surface mutation without content-policy decision;
 - release approval without Lou's final go;

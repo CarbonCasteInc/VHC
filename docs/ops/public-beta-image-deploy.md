@@ -2,7 +2,7 @@
 
 > Status: Active
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-07-02
+> Last Reviewed: 2026-07-10
 > Depends On: docs/ops/news-aggregator-production-service.md, docs/ops/analysis-backend-3001.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/mesh-production-operator-runbook.md
 
 This runbook makes the public beta origin and relay image path reproducible
@@ -336,6 +336,20 @@ All files are local artifacts. The emitted load packet contains `scp`,
 not approval to restart containers, deploy relays, deploy origin, run
 latest-index HTTP probes, start publisher writes, or re-enable monitors.
 
+For a reviewed relay-only incident image, keep origin out of both the artifact
+manifest and emitted load commands:
+
+```bash
+tools/scripts/export-public-beta-image-artifacts.sh \
+  --relay-only \
+  --relay-image vhc-public-beta-relay:<reviewed-tag-or-digest> \
+  --source-revision <reviewed-merged-commit> \
+  --output-dir .tmp/public-beta-image-artifacts/<reviewed-tag>
+```
+
+Relay-only export is still local preparation. It neither transfers nor loads the
+image, and loading the image would still not authorize a relay restart.
+
 ## Emit Deploy Packet
 
 Copy `/tmp/vhc-public-beta-capture/containers.json` from A6 to the build
@@ -366,6 +380,49 @@ tools/scripts/emit-a6-public-beta-deploy-packet.sh \
 The approved origin block asserts both the Docker
 `org.opencontainers.image.revision` label and `/healthz.build_revision` before
 the deploy packet can pass.
+
+### S1B exact-readback relay-only packet
+
+`infra/relay/Dockerfile` copies `infra/relay/server.js` into the immutable relay
+image, while `infra/docker/docker-compose.public-beta.yml` bind-mounts only the
+relay `/data` directory. A checkout update cannot install new relay HTTP routes
+into a running container. When a reviewed S1B commit changes those routes, the
+technical deployment requires a replacement relay image and a rolling container
+recreate. This is a technical fact, not live authority.
+
+The S1B recovery authority remains
+`blocked_pending_relay_restart_boundary_correction`. The standing checklist
+prohibition on relay restart must be explicitly corrected by Lou for the exact
+reviewed packet before recreate commands may be generated or used. Prepare the
+inert packet without destructive commands first:
+
+```bash
+tools/scripts/emit-a6-public-beta-deploy-packet.sh \
+  --relay-only \
+  --inspect-json ./relay-containers.json \
+  --new-relay-image vhc-public-beta-relay:<reviewed-tag-or-digest> \
+  --expected-relay-revision <reviewed-merged-commit> \
+  --output .tmp/a6-s1b-relay-only-packet.blocked.md
+```
+
+This mode requires exactly `vhc-relay-a,vhc-relay-b,vhc-relay-c`, excludes the
+origin from its capture/deploy scope, preserves each relay's exact captured env
+set, data bind mount, network, ports, restart policy, user, and configured memory
+limits, and checks the new image revision plus `linux/amd64`. It emits no
+`docker rm` or `docker run` commands by default.
+
+Only after explicit boundary correction, exact-head packet review, and Lou's
+live-action approval may the same command add
+`--include-recreate-commands`. That gated form emits A/B/C rolling replacement,
+per-relay readiness/health, snapshot checksum, OOM/watchdog, env-parity, and all
+four exact missing-key checks for story, latest-index, hot-index, and
+synthesis-lifecycle. A failure rolls back only the current relay to its captured
+immutable image id and exits `78` before the next relay. It never emits an
+origin recreate or publisher start. The generic packet executor is not widened
+for this action.
+
+The canonical blocked packet and authority checklist are in
+`docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.
 
 The packet corrects only:
 

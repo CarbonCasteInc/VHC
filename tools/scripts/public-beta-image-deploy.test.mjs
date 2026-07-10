@@ -13,6 +13,7 @@ const EXPORT_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/export-public-beta-ima
 const PACKET_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/emit-a6-public-beta-deploy-packet.sh');
 const RECOVER_PROVENANCE_SCRIPT = path.join(REPO_ROOT, 'tools/scripts/recover-public-beta-origin-provenance.mjs');
 const PUBLIC_BETA_COMPOSE = path.join(REPO_ROOT, 'infra/docker/docker-compose.public-beta.yml');
+const REVIEWED_RELAY_REVISION = '231962bcf73e2730cb2f0234fd9d65c2fc9f69cd';
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -203,6 +204,86 @@ exit 2
     });
     assert.equal(badPlatform.status, 78);
     assert.match(badPlatform.stderr, /platform mismatch/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only image exporter emits exactly one reviewed relay artifact and no origin action', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-export-'));
+  try {
+    const bin = path.join(root, 'bin');
+    const out = path.join(root, 'artifacts');
+    mkdirSync(bin);
+    const fakeDocker = path.join(bin, 'docker');
+    writeFileSync(
+      fakeDocker,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
+  printf 'sha256:relay-image-id|linux|amd64|${REVIEWED_RELAY_REVISION}|2026-07-10T00:00:00Z\\n'
+  exit 0
+fi
+if [[ "\${1:-}" == "save" ]]; then
+  shift
+  test "\${1:-}" = "-o"
+  printf 'relay-only image tar\\n' > "\${2:-}"
+  exit 0
+fi
+exit 2
+`,
+      'utf8',
+    );
+    chmodSync(fakeDocker, 0o755);
+    const result = run('bash', [
+      EXPORT_SCRIPT,
+      '--relay-only',
+      '--relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--output-dir',
+      out,
+      '--source-revision',
+      REVIEWED_RELAY_REVISION,
+    ], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /origin_tar|origin_sha256/);
+    const packet = readFileSync(path.join(out, 'a6-image-load-packet.md'), 'utf8');
+    assert.match(packet, /A6 S1B Relay Image Load Packet/);
+    assert.match(packet, /relay-only/);
+    assert.match(packet, /docker load -i .*vhc-public-beta-relay_reviewed\.tar/);
+    assert.doesNotMatch(packet, /public-beta-origin|docker load[^\n]*origin|scp[^\n]*origin/);
+    assert.match(packet, /not approval to restart relays, deploy origin/);
+    const checksums = readFileSync(path.join(out, 'SHA256SUMS'), 'utf8').trim().split('\n');
+    assert.equal(checksums.length, 1);
+    assert.match(checksums[0], /vhc-public-beta-relay_reviewed\.tar$/);
+    const manifest = JSON.parse(readFileSync(path.join(out, 'artifact-manifest.json'), 'utf8'));
+    assert.equal(manifest.relay_only, true);
+    assert.equal(manifest.images.length, 1);
+    assert.equal(manifest.images[0].image, 'vhc-public-beta-relay:reviewed');
+    assert.equal(manifest.images[0].revision, REVIEWED_RELAY_REVISION);
+
+    const skippedRevision = run('bash', [
+      EXPORT_SCRIPT,
+      '--relay-only',
+      '--relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--skip-revision-check',
+    ]);
+    assert.equal(skippedRevision.status, 64);
+    assert.match(skippedRevision.stderr, /--skip-revision-check is forbidden with --relay-only/);
+
+    const wrongPlatform = run('bash', [
+      EXPORT_SCRIPT,
+      '--relay-only',
+      '--relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--platform',
+      'linux/arm64',
+    ]);
+    assert.equal(wrongPlatform.status, 64);
+    assert.match(wrongPlatform.stderr, /--relay-only requires --platform linux\/amd64/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -636,6 +717,134 @@ test('deploy packet requires expected origin revision for recreate commands', ()
     ]);
     assert.equal(result.status, 64);
     assert.match(result.stderr, /--expected-origin-revision is required with --include-recreate-commands/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only deploy packet is inert by default and excludes origin from captured scope', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-packet-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    writeFileSync(inspectPath, JSON.stringify([
+      makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data'),
+      makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
+      makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
+    ]), 'utf8');
+    const result = run('bash', [
+      PACKET_SCRIPT,
+      '--relay-only',
+      '--inspect-json',
+      inspectPath,
+      '--new-relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--expected-relay-revision',
+      REVIEWED_RELAY_REVISION,
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /A6 S1B Relay-Only Recovery Packet/);
+    assert.match(result.stdout, /Status: `WAITING_FOR_LOU`/);
+    assert.ok(result.stdout.includes(`expected relay revision: \`${REVIEWED_RELAY_REVISION}\``));
+    assert.match(result.stdout, /required relay platform: `linux\/amd64`/);
+    assert.match(result.stdout, /requires exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`|Scope is exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`/);
+    assert.match(result.stdout, /Recreate Commands Omitted/);
+    assert.doesNotMatch(result.stdout, /sudo docker rm/);
+    assert.doesNotMatch(result.stdout, /vhc-public-origin|Origin Deploy|new origin image/);
+    assert.doesNotMatch(result.stdout, /VH_RELAY_RESOURCE_WATCHDOG_ENABLED=true/);
+    assert.doesNotMatch(result.stdout, /do-not-print/);
+    assert.match(result.stdout, /relay_image_platform=.*\.Os.*\.Architecture/);
+    assert.match(result.stdout, /relay_image_revision=.*org\.opencontainers\.image\.revision/);
+
+    const abbreviatedRevision = run('bash', [
+      PACKET_SCRIPT,
+      '--relay-only',
+      '--inspect-json',
+      inspectPath,
+      '--new-relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--expected-relay-revision',
+      '231962bc',
+    ]);
+    assert.equal(abbreviatedRevision.status, 64);
+    assert.match(abbreviatedRevision.stderr, /full lowercase git object id/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only deploy packet gates an A-B-C rolling recovery with exact probes and serial rollback', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-recreate-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    const relays = [
+      makeRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data'),
+      makeRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data'),
+      makeRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data'),
+    ];
+    relays[0].Config.User = '1000:1000';
+    relays[0].HostConfig.Memory = 2415919104;
+    relays[0].HostConfig.MemorySwap = 2415919104;
+    writeFileSync(inspectPath, JSON.stringify(relays), 'utf8');
+    const result = run('bash', [
+      PACKET_SCRIPT,
+      '--relay-only',
+      '--inspect-json',
+      inspectPath,
+      '--new-relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--expected-relay-revision',
+      REVIEWED_RELAY_REVISION,
+      '--include-recreate-commands',
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const packet = result.stdout;
+    assert.match(packet, /Hard authority gate: do not run this section until Lou explicitly approves/);
+    const stageA = packet.indexOf('# Stage A: replace only vhc-relay-a.');
+    const goA = packet.indexOf('vhc-relay-a: GO for next relay');
+    const stageB = packet.indexOf('# Stage B: replace only vhc-relay-b.');
+    const goB = packet.indexOf('vhc-relay-b: GO for next relay');
+    const stageC = packet.indexOf('# Stage C: replace only vhc-relay-c.');
+    assert.ok(stageA > 0 && stageA < goA && goA < stageB && stageB < goB && goB < stageC, packet);
+    assert.match(packet, /--user '1000:1000'/);
+    assert.match(packet, /--memory 2415919104/);
+    assert.match(packet, /--memory-swap 2415919104/);
+    assert.match(packet, /cmp -s .*\.env\.expected.*\.env\.observed/);
+    assert.match(packet, /sudo sha256sum -c .*\.snapshots\.sha256/);
+    assert.match(packet, /\.State\.OOMKilled/);
+    assert.match(packet, /vh_relay_resource_watchdog_trips_total/);
+    assert.match(packet, /\/vh\/news\/story.*readback=exact.*news-story-not-found/);
+    assert.match(packet, /\/vh\/news\/latest-index.*news-latest-index-not-found/);
+    assert.match(packet, /\/vh\/news\/hot-index.*news-hot-index-not-found/);
+    assert.match(packet, /\/vh\/news\/synthesis-lifecycle.*readback=exact.*news-synthesis-lifecycle-not-found/);
+    for (const name of ['vhc-relay-a', 'vhc-relay-b', 'vhc-relay-c']) {
+      assert.match(packet, new RegExp(`${name}: verification failed; rolling back only this relay and stopping`));
+      assert.match(packet, new RegExp(`sha256:${name}`));
+    }
+    assert.match(packet, /Never batch removals, skip A\/B\/C order, continue after rollback/);
+    assert.match(packet, /Keep the publisher parked/);
+    assert.doesNotMatch(packet, /sudo docker rm -f vhc-public-origin|--name vhc-public-origin|Origin Deploy/);
+    assert.doesNotMatch(packet, /do-not-print/);
+    const bashBlocks = [...packet.matchAll(/```bash\n([\s\S]*?)\n```/g)].map((match) => match[1]);
+    assert.ok(bashBlocks.length >= 5, packet);
+    for (const [index, block] of bashBlocks.entries()) {
+      const syntax = run('bash', ['-n'], { input: `${block}\n` });
+      assert.equal(syntax.status, 0, `relay-only packet bash block ${index + 1}: ${syntax.stderr}`);
+    }
+
+    const badNames = run('bash', [
+      PACKET_SCRIPT,
+      '--relay-only',
+      '--inspect-json',
+      inspectPath,
+      '--new-relay-image',
+      'vhc-public-beta-relay:reviewed',
+      '--expected-relay-revision',
+      REVIEWED_RELAY_REVISION,
+      '--relay-names',
+      'vhc-relay-a,vhc-relay-b',
+    ]);
+    assert.equal(badNames.status, 64);
+    assert.match(badNames.stderr, /requires exactly vhc-relay-a,vhc-relay-b,vhc-relay-c/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

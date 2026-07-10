@@ -7,12 +7,24 @@ const PACKAGE_PATH = 'package.json';
 const CLOSEOUT_PATH = 'docs/ops/public-beta-launch-readiness-closeout.md';
 const CANON_PATH = 'docs/CANON_MAP.md';
 const STATUS_PATH = 'docs/foundational/STATUS.md';
+const RECOVERY_PACKET_PATH = 'docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md';
+const DEPLOY_PACKET_SCRIPT_PATH = 'tools/scripts/emit-a6-public-beta-deploy-packet.sh';
+const EXPORT_SCRIPT_PATH = 'tools/scripts/export-public-beta-image-artifacts.sh';
+const PACKET_EXECUTOR_PATH = 'tools/scripts/vhc-packet-executor.mjs';
+const RELAY_DOCKERFILE_PATH = 'infra/relay/Dockerfile';
+const PUBLIC_BETA_COMPOSE_PATH = 'infra/docker/docker-compose.public-beta.yml';
 
 const checklist = readFileSync(CHECKLIST_PATH, 'utf8');
 const packageJson = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8'));
 const closeout = readFileSync(CLOSEOUT_PATH, 'utf8');
 const canon = readFileSync(CANON_PATH, 'utf8');
 const status = readFileSync(STATUS_PATH, 'utf8');
+const recoveryPacket = readFileSync(RECOVERY_PACKET_PATH, 'utf8');
+const deployPacketScript = readFileSync(DEPLOY_PACKET_SCRIPT_PATH, 'utf8');
+const exportScript = readFileSync(EXPORT_SCRIPT_PATH, 'utf8');
+const packetExecutor = readFileSync(PACKET_EXECUTOR_PATH, 'utf8');
+const relayDockerfile = readFileSync(RELAY_DOCKERFILE_PATH, 'utf8');
+const publicBetaCompose = readFileSync(PUBLIC_BETA_COMPOSE_PATH, 'utf8');
 
 const EXPECTED_SCRIPT = 'node --test ./tools/scripts/public-beta-next-phase-sprint.test.mjs';
 
@@ -100,6 +112,53 @@ test('S1B pins the real daemon exit consumer and readback inventory', () => {
     'Lou-approved and passes all immediate',
   ]) {
     assertIncludes(checklist, token, `S1B implementation token ${token}`);
+  }
+});
+
+test('G3 fails closed on the immutable relay image and restart-authority contradiction', () => {
+  for (const token of [
+    '`blocked_pending_relay_restart_boundary_correction`',
+    '`WAITING_FOR_LOU`',
+    '`infra/relay/server.js`',
+    'immutable image',
+    'public-beta compose mounts',
+    'only `/data`',
+    '`vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`',
+    'all-four exact missing-key probes',
+    'Keep `tools/scripts/vhc-packet-executor.mjs` unchanged',
+  ]) {
+    assertIncludes(checklist, token, `G3 checklist token ${token}`);
+  }
+  for (const token of [
+    'Status: `blocked_pending_relay_restart_boundary_correction`',
+    'Decision: `WAITING_FOR_LOU`',
+    'COPY server.js /app/server.js',
+    'bind-mounts only `/data`',
+    '--relay-only',
+    '--expected-relay-revision',
+    'story with `readback=exact`',
+    'latest-index `story_id`',
+    'hot-index `story_id`',
+    'synthesis-lifecycle with `readback=exact`',
+    'recreate only the current relay',
+    'prestate image id',
+    'does not prove publisher recovery',
+  ]) {
+    assertIncludes(recoveryPacket, token, `G3 recovery packet token ${token}`);
+  }
+  assertIncludes(canon, RECOVERY_PACKET_PATH, 'G3 recovery packet canon route');
+  assertIncludes(deployPacketScript, '--relay-only', 'deploy relay-only flag');
+  assertIncludes(deployPacketScript, '--expected-relay-revision', 'deploy expected relay revision');
+  assertIncludes(exportScript, '--relay-only', 'export relay-only flag');
+  assert.ok(!packetExecutor.includes('relay_only'), 'packet executor must not gain a relay-only action');
+  assert.ok(!packetExecutor.includes('--relay-only'), 'packet executor must not pass the relay-only flag');
+  assertIncludes(relayDockerfile, 'COPY server.js /app/server.js', 'relay image copies route server');
+  assertIncludes(relayDockerfile, 'CMD ["node", "server.js"]', 'relay image runs copied route server');
+  for (const relay of ['relay-a', 'relay-b', 'relay-c']) {
+    const block = publicBetaCompose.match(new RegExp(`  ${relay}:\\n([\\s\\S]*?)(?=\\n  (?:relay-|origin:)|\\nnetworks:)`));
+    assert.ok(block, `${relay}: compose block missing`);
+    assert.match(block[1], /target: \/data/);
+    assert.doesNotMatch(block[1], /server\.js|\/app\/server\.js/);
   }
 });
 

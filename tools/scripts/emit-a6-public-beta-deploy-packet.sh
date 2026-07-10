@@ -6,11 +6,13 @@ INSPECT_JSON=""
 NEW_ORIGIN_IMAGE=""
 NEW_RELAY_IMAGE=""
 EXPECTED_ORIGIN_REVISION=""
+EXPECTED_RELAY_REVISION=""
 ANALYSIS_TARGET="http://127.0.0.1:3001"
 ORIGIN_NAME="vhc-public-origin"
 RELAY_NAMES="vhc-relay-a,vhc-relay-b,vhc-relay-c"
 OUTPUT_FILE=""
 INCLUDE_RECREATE=false
+RELAY_ONLY=false
 
 usage() {
   cat <<'EOF'
@@ -21,17 +23,20 @@ The script prints commands only; it never changes production state.
 
 Required:
   --inspect-json <path>       docker inspect JSON for origin and relay containers
-  --new-origin-image <image>  Rebuilt origin image tag/digest to deploy
   --new-relay-image <image>   Rebuilt relay image tag/digest to deploy
+  --new-origin-image <image>  Rebuilt origin image tag/digest to deploy (full mode)
 
 Required with --include-recreate-commands:
   --expected-origin-revision <sha>
                               Release commit expected from origin /healthz after deploy
+  --expected-relay-revision <sha>
+                              Release commit required from the relay OCI label in relay-only mode
 
 Options:
   --analysis-target <url>     Corrected origin analysis target (default http://127.0.0.1:3001)
   --origin-name <name>        Origin container name (default vhc-public-origin)
   --relay-names <a,b,c>       Relay container names (default vhc-relay-a,vhc-relay-b,vhc-relay-c)
+  --relay-only                Emit an origin-free, exactly-three-relay rolling packet
   --include-recreate-commands Include docker rm/run commands in the packet
   --output <path>             Write packet to a file instead of stdout
   -h, --help                  Show this help
@@ -56,6 +61,10 @@ while [[ $# -gt 0 ]]; do
       EXPECTED_ORIGIN_REVISION="${2:-}"
       shift 2
       ;;
+    --expected-relay-revision)
+      EXPECTED_RELAY_REVISION="${2:-}"
+      shift 2
+      ;;
     --analysis-target)
       ANALYSIS_TARGET="${2:-}"
       shift 2
@@ -70,6 +79,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --include-recreate-commands)
       INCLUDE_RECREATE=true
+      shift
+      ;;
+    --relay-only)
+      RELAY_ONLY=true
       shift
       ;;
     --output)
@@ -92,11 +105,32 @@ if [[ ! -r "${INSPECT_JSON}" ]]; then
   echo "--inspect-json is required and must be readable" >&2
   exit 66
 fi
-if [[ -z "${NEW_ORIGIN_IMAGE}" || -z "${NEW_RELAY_IMAGE}" ]]; then
-  echo "--new-origin-image and --new-relay-image are required" >&2
+if [[ -z "${NEW_RELAY_IMAGE}" ]]; then
+  echo "--new-relay-image is required" >&2
   exit 64
 fi
-if [[ "${INCLUDE_RECREATE}" == "true" && -z "${EXPECTED_ORIGIN_REVISION}" ]]; then
+if [[ "${RELAY_ONLY}" == "true" ]]; then
+  if [[ -n "${NEW_ORIGIN_IMAGE}" ]]; then
+    echo "--new-origin-image is forbidden with --relay-only" >&2
+    exit 64
+  fi
+  if [[ "${RELAY_NAMES}" != "vhc-relay-a,vhc-relay-b,vhc-relay-c" ]]; then
+    echo "--relay-only requires exactly vhc-relay-a,vhc-relay-b,vhc-relay-c" >&2
+    exit 64
+  fi
+  if [[ -z "${EXPECTED_RELAY_REVISION}" ]]; then
+    echo "--expected-relay-revision is required with --relay-only" >&2
+    exit 64
+  fi
+  if [[ ! "${EXPECTED_RELAY_REVISION}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    echo "--expected-relay-revision must be a full lowercase git object id" >&2
+    exit 64
+  fi
+elif [[ -z "${NEW_ORIGIN_IMAGE}" ]]; then
+  echo "--new-origin-image is required unless --relay-only is set" >&2
+  exit 64
+fi
+if [[ "${RELAY_ONLY}" != "true" && "${INCLUDE_RECREATE}" == "true" && -z "${EXPECTED_ORIGIN_REVISION}" ]]; then
   echo "--expected-origin-revision is required with --include-recreate-commands" >&2
   exit 64
 fi
@@ -106,10 +140,12 @@ emit_packet() {
   NEW_ORIGIN_IMAGE="${NEW_ORIGIN_IMAGE}" \
   NEW_RELAY_IMAGE="${NEW_RELAY_IMAGE}" \
   EXPECTED_ORIGIN_REVISION="${EXPECTED_ORIGIN_REVISION}" \
+  EXPECTED_RELAY_REVISION="${EXPECTED_RELAY_REVISION}" \
   ANALYSIS_TARGET="${ANALYSIS_TARGET}" \
   ORIGIN_NAME="${ORIGIN_NAME}" \
   RELAY_NAMES="${RELAY_NAMES}" \
   INCLUDE_RECREATE="${INCLUDE_RECREATE}" \
+  RELAY_ONLY="${RELAY_ONLY}" \
   node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 
@@ -117,10 +153,12 @@ const inspectJson = process.env.INSPECT_JSON;
 const newOriginImage = process.env.NEW_ORIGIN_IMAGE;
 const newRelayImage = process.env.NEW_RELAY_IMAGE;
 const expectedOriginRevision = process.env.EXPECTED_ORIGIN_REVISION || '';
+const expectedRelayRevision = process.env.EXPECTED_RELAY_REVISION || '';
 const analysisTarget = process.env.ANALYSIS_TARGET;
 const originName = process.env.ORIGIN_NAME;
 const relayNames = (process.env.RELAY_NAMES || '').split(',').map((name) => name.trim()).filter(Boolean);
 const includeRecreate = process.env.INCLUDE_RECREATE === 'true';
+const relayOnly = process.env.RELAY_ONLY === 'true';
 const relayMemoryLimit = process.env.VH_RELAY_DOCKER_MEMORY_LIMIT || '2304m';
 const relayHeapThresholdDefaults = ['850000000', '1000000000', '1150000000'];
 const relayHeapThresholdByName = new Map(relayNames.map((name, index) => [
@@ -134,7 +172,7 @@ function cleanName(container) {
 }
 
 const byName = new Map(containers.map((container) => [cleanName(container), container]));
-const requiredNames = [originName, ...relayNames];
+const requiredNames = relayOnly ? relayNames : [originName, ...relayNames];
 const missing = requiredNames.filter((name) => !byName.has(name));
 if (missing.length > 0) {
   console.error(`inspect JSON missing required containers: ${missing.join(', ')}`);
@@ -370,6 +408,107 @@ function runCommandFor(name, image, forceRelayUser = false) {
   return shellJoin(parts);
 }
 
+function relayOnlyRunCommandFor(name, image) {
+  const container = byName.get(name);
+  const envPath = `/tmp/vhc-public-beta-deploy/${name}.env`;
+  const memory = Number(container?.HostConfig?.Memory || 0);
+  const memorySwap = Number(container?.HostConfig?.MemorySwap || 0);
+  const user = String(container?.Config?.User || '').trim();
+  const parts = [
+    'sudo docker run -d',
+    `--name ${name}`,
+    restartFlag(container),
+    memory > 0 ? `--memory ${memory}` : '',
+    memorySwap > 0 ? `--memory-swap ${memorySwap}` : '',
+    primaryNetworkFlag(container),
+    user ? `--user ${shellSingleQuote(user)}` : '',
+    `--env-file ${envPath}`,
+    ...portFlags(container),
+    ...mountFlags(container),
+    shellSingleQuote(image),
+  ];
+  return shellJoin(parts);
+}
+
+function relayOnlyVerifierFunction() {
+  return [
+    'verify_exact_missing_key() {',
+    '  local origin="$1"',
+    '  local route="$2"',
+    '  local query="$3"',
+    '  local expected_error="$4"',
+    '  local story_id="$5"',
+    '  local label="$6"',
+    '  local body="/tmp/vhc-public-beta-deploy/${label}.missing.json"',
+    '  local status',
+    '  if ! status="$(curl --silent --show-error --max-time 10 --output "${body}" --write-out "%{http_code}" "${origin}${route}?${query}")"; then',
+    '    echo "${label}: exact missing-key request failed" >&2',
+    '    return 78',
+    '  fi',
+    '  if [[ "${status}" != "404" ]]; then',
+    '    echo "${label}: expected exact missing-key HTTP 404, got ${status}" >&2',
+    '    return 78',
+    '  fi',
+    '  python3 - "${body}" "${expected_error}" "${story_id}" <<\'PY\'',
+    'import json, sys',
+    'path, expected_error, story_id = sys.argv[1:]',
+    'with open(path, "r", encoding="utf-8") as handle: payload = json.load(handle)',
+    'if payload != {"ok": False, "error": expected_error, "story_id": story_id}:',
+    '    raise SystemExit(f"closed missing-key response mismatch: {payload}")',
+    'PY',
+    '}',
+    '',
+    'verify_relay_only_runtime() {',
+    '  local name="$1"',
+    '  local origin="$2"',
+    '  local data_destination="$3"',
+    '  local expected_revision="$4"',
+    '  local missing_story_id="vh-s1b-exact-missing-${expected_revision}-${name}"',
+    '  local ready="/tmp/vhc-public-beta-deploy/${name}.readyz.json"',
+    '  local health="/tmp/vhc-public-beta-deploy/${name}.healthz.json"',
+    '  local metrics="/tmp/vhc-public-beta-deploy/${name}.metrics"',
+    '  local attempt=1',
+    '  while [[ "${attempt}" -le 60 ]]; do',
+    '    if curl -fsS --max-time 5 "${origin}/readyz" > "${ready}"; then break; fi',
+    '    if [[ "${attempt}" -eq 60 ]]; then echo "${name}: /readyz failed; stop before the next relay" >&2; return 78; fi',
+    '    sleep 1',
+    '    attempt=$((attempt + 1))',
+    '  done',
+    '  curl -fsS --max-time 5 "${origin}/healthz" > "${health}" || return 78',
+    '  if ! python3 - "${ready}" "${health}" <<\'PY\'',
+    'import json, sys',
+    'ready, health = (json.load(open(path, encoding="utf-8")) for path in sys.argv[1:])',
+    'if ready.get("ok") is not True or ready.get("service") != "vh-relay": raise SystemExit("relay readyz contract failed")',
+    'if health.get("ok") is not True or health.get("service") != "vh-relay": raise SystemExit("relay healthz contract failed")',
+    'PY',
+    '  then return 78; fi',
+    '  test "$(sudo docker inspect "${name}" --format \'{{.State.Running}}\')" = "true" || return 78',
+    '  test "$(sudo docker inspect "${name}" --format \'{{.State.OOMKilled}}\')" = "false" || return 78',
+    '  sudo docker exec "${name}" test -s "${data_destination}/news-latest-index-snapshot.json" || return 78',
+    '  sudo docker exec "${name}" test -s "${data_destination}/news-synthesis-lifecycle-snapshot.json" || return 78',
+    '  sudo docker exec "${name}" test -s "${data_destination}/topic-synthesis-latest-snapshot.json" || return 78',
+    '  sudo sha256sum -c "/tmp/vhc-public-beta-deploy/${name}.snapshots.sha256" || return 78',
+    '  curl -fsS --max-time 5 "${origin}/metrics" > "${metrics}" || return 78',
+    '  if ! awk \'/^vh_relay_resource_watchdog_trips_total(\\{| )/ { if ($NF != 0) exit 1 }\' "${metrics}"; then',
+    '    echo "${name}: relay watchdog trip observed; rollback and stop" >&2',
+    '    return 78',
+    '  fi',
+    '  LC_ALL=C sort "/tmp/vhc-public-beta-deploy/${name}.env" > "/tmp/vhc-public-beta-deploy/${name}.env.expected" || return 78',
+    '  sudo docker inspect "${name}" --format \'{{range .Config.Env}}{{println .}}{{end}}\' | LC_ALL=C sort > "/tmp/vhc-public-beta-deploy/${name}.env.observed" || return 78',
+    '  chmod 600 "/tmp/vhc-public-beta-deploy/${name}.env.expected" "/tmp/vhc-public-beta-deploy/${name}.env.observed" || return 78',
+    '  if ! cmp -s "/tmp/vhc-public-beta-deploy/${name}.env.expected" "/tmp/vhc-public-beta-deploy/${name}.env.observed"; then',
+    '    echo "${name}: environment differs from captured prestate; values withheld" >&2',
+    '    return 78',
+    '  fi',
+    '  verify_exact_missing_key "${origin}" "/vh/news/story" "story_id=${missing_story_id}&readback=exact" "news-story-not-found" "${missing_story_id}" "${name}.story" || return 78',
+    '  verify_exact_missing_key "${origin}" "/vh/news/latest-index" "story_id=${missing_story_id}" "news-latest-index-not-found" "${missing_story_id}" "${name}.latest-index" || return 78',
+    '  verify_exact_missing_key "${origin}" "/vh/news/hot-index" "story_id=${missing_story_id}" "news-hot-index-not-found" "${missing_story_id}" "${name}.hot-index" || return 78',
+    '  verify_exact_missing_key "${origin}" "/vh/news/synthesis-lifecycle" "story_id=${missing_story_id}&readback=exact" "news-synthesis-lifecycle-not-found" "${missing_story_id}" "${name}.synthesis-lifecycle" || return 78',
+    '  echo "[relay-only] ${name}: readiness, liveness, snapshots, OOM/watchdog, env parity, and four exact missing-key contracts pass"',
+    '}',
+  ].join('\n');
+}
+
 function rollingRelayVerifierFunction() {
   return [
     'verify_rolling_relay() {',
@@ -457,20 +596,32 @@ for (const name of relayNames) {
   if (!relayLocalOrigin(name)) {
     blockers.push(`${name}: missing host port binding for relay readyz/metrics verification`);
   }
+  if (relayOnly && networkNames(container).length !== 1) {
+    blockers.push(`${name}: relay-only recovery requires exactly one captured network`);
+  }
 }
 
 const lines = [];
-const psPattern = [originName, ...relayNames].map(escapeExtendedRegex).join('|');
-lines.push('# A6 Public-Beta Deploy Packet');
+const psPattern = requiredNames.map(escapeExtendedRegex).join('|');
+lines.push(relayOnly ? '# A6 S1B Relay-Only Recovery Packet' : '# A6 Public-Beta Deploy Packet');
 lines.push('');
 lines.push('Generated from captured `docker inspect` JSON. This packet is secret-safe: it records env var names and uses host-side env-file capture commands without printing values.');
+if (relayOnly) {
+  lines.push('Status: `WAITING_FOR_LOU`. Generation is repo-side preparation only; no command in this packet is authorized until Lou explicitly corrects the relay-restart boundary and approves the exact reviewed packet.');
+  lines.push('Scope is exactly `vhc-relay-a`, `vhc-relay-b`, then `vhc-relay-c`. Origin and publisher deployment are excluded. The publisher must remain parked throughout.');
+}
 lines.push('');
 lines.push('## Images');
 lines.push('');
-lines.push(`- new origin image: \`${newOriginImage}\``);
+if (!relayOnly) lines.push(`- new origin image: \`${newOriginImage}\``);
 lines.push(`- new relay image: \`${newRelayImage}\``);
-lines.push(`- expected origin revision: \`${expectedOriginRevision || 'not asserted'}\``);
-lines.push(`- corrected analysis target: \`${analysisTarget}\``);
+if (relayOnly) {
+  lines.push(`- expected relay revision: \`${expectedRelayRevision}\``);
+  lines.push('- required relay platform: `linux/amd64`');
+} else {
+  lines.push(`- expected origin revision: \`${expectedOriginRevision || 'not asserted'}\``);
+  lines.push(`- corrected analysis target: \`${analysisTarget}\``);
+}
 lines.push('');
 lines.push('## Current Containers');
 lines.push('');
@@ -534,6 +685,17 @@ lines.push('            print(json.dumps({"relay": relay, "file": filename, "siz
 lines.push('        else:');
 lines.push('            print(json.dumps({"relay": relay, "file": filename, "size": st.st_size, "mtime": st.st_mtime, "cached_at": payload.get("cached_at")}, sort_keys=True))');
 lines.push('PY');
+if (relayOnly) {
+  for (const name of relayNames) {
+    const origin = relayLocalOrigin(name);
+    lines.push(`test "$(sudo docker inspect ${name} --format '{{.State.Running}}')" = "true"`);
+    lines.push(`test "$(sudo docker inspect ${name} --format '{{.State.OOMKilled}}')" = "false"`);
+    lines.push(`curl -fsS --max-time 5 ${shellSingleQuote(`${origin}/readyz`)} > /tmp/${name}.predeploy.readyz.json`);
+    lines.push(`curl -fsS --max-time 5 ${shellSingleQuote(`${origin}/metrics`)} > /tmp/${name}.predeploy.metrics`);
+  }
+  lines.push("publisher_active_state=\"$(systemctl --user show vh-news-aggregator.service --property=ActiveState --value)\"");
+  lines.push('if [[ "${publisher_active_state}" == "active" ]]; then echo "publisher must remain parked before relay-only recovery" >&2; exit 78; fi');
+}
 lines.push('```');
 lines.push('');
 lines.push('Abort if any relay data dir is empty, not a bind mount, not writable by `humble`, has a missing snapshot, has a schema mismatch, or has an empty/non-list latest-index entries array.');
@@ -558,13 +720,86 @@ lines.push('```bash');
 lines.push('set -euo pipefail');
 lines.push('install -d -m 700 /tmp/vhc-public-beta-deploy');
 for (const name of relayNames) {
-  lines.push(envCaptureCommand(name, false, true));
+  lines.push(envCaptureCommand(name, false, !relayOnly));
+  if (relayOnly) {
+    const source = dataMount(byName.get(name)).Source.replace(/\/+$/, '');
+    lines.push(`sudo sha256sum ${shellSingleQuote(`${source}/news-latest-index-snapshot.json`)} ${shellSingleQuote(`${source}/news-synthesis-lifecycle-snapshot.json`)} ${shellSingleQuote(`${source}/topic-synthesis-latest-snapshot.json`)} > /tmp/vhc-public-beta-deploy/${name}.snapshots.sha256`);
+    lines.push(`chmod 600 /tmp/vhc-public-beta-deploy/${name}.snapshots.sha256`);
+  }
 }
-lines.push(envCaptureCommand(originName, true));
+if (!relayOnly) lines.push(envCaptureCommand(originName, true));
 lines.push('```');
 lines.push('');
 
+if (relayOnly) {
+  lines.push('## Relay Image Preflight');
+  lines.push('');
+  lines.push('This read-only gate must pass before any container removal. It proves the locally loaded relay image is the reviewed commit and the A6 architecture; a tag match alone is insufficient.');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('set -euo pipefail');
+  lines.push(`relay_image_platform="$(sudo docker image inspect ${shellSingleQuote(newRelayImage)} --format '{{.Os}}/{{.Architecture}}')"`);
+  lines.push('if [[ "${relay_image_platform}" != "linux/amd64" ]]; then echo "relay image platform mismatch: ${relay_image_platform}" >&2; exit 78; fi');
+  lines.push(`relay_image_revision="$(sudo docker image inspect ${shellSingleQuote(newRelayImage)} --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"`);
+  lines.push(`if [[ "\${relay_image_revision}" != ${shellSingleQuote(expectedRelayRevision)} ]]; then echo "relay image revision mismatch" >&2; exit 78; fi`);
+  lines.push('```');
+  lines.push('');
+}
+
 if (includeRecreate) {
+  if (relayOnly) {
+    lines.push('## Approval-Gated Relay-Only Rolling Recovery');
+    lines.push('');
+    lines.push('Hard authority gate: do not run this section until Lou explicitly approves replacing the contradictory no-relay-restart boundary for this exact reviewed revision. Approval is limited to A, then B, then C; it does not authorize origin, publisher, data, quorum, timeout, recipient, provider, pager, or monitor mutation.');
+    lines.push('');
+    lines.push('Each relay is verified before the next is touched. Any failure immediately recreates only the current relay from its captured immutable image id, verifies basic readiness/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
+    lines.push('');
+    lines.push('```bash');
+    lines.push('set -euo pipefail');
+    lines.push(relayOnlyVerifierFunction());
+    lines.push('');
+    for (const name of relayNames) {
+      const container = byName.get(name);
+      const dataDestination = gunFileDestination(container);
+      const origin = relayLocalOrigin(name);
+      const rollbackImage = container.Image || container.Config?.Image || '<captured-relay-image-id>';
+      lines.push(`# Stage ${name.endsWith('-a') ? 'A' : name.endsWith('-b') ? 'B' : 'C'}: replace only ${name}.`);
+      lines.push('if ! {');
+      lines.push(`  sudo docker rm -f ${name} &&`);
+      lines.push(`${relayOnlyRunCommandFor(name, newRelayImage)} &&`.split('\n').map((line) => `  ${line}`).join('\n'));
+      lines.push(`  test "$(sudo docker inspect ${name} --format '{{.Config.Image}}')" = ${shellSingleQuote(newRelayImage)} &&`);
+      lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{.Os}}/{{.Architecture}}')" = "linux/amd64" &&`);
+      lines.push(`  test "$(sudo docker image inspect "$(sudo docker inspect ${name} --format '{{.Image}}')" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = ${shellSingleQuote(expectedRelayRevision)} &&`);
+      lines.push(`  verify_relay_only_runtime ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(dataDestination)} ${shellSingleQuote(expectedRelayRevision)}`);
+      lines.push('}; then');
+      lines.push(`  echo "${name}: verification failed; rolling back only this relay and stopping" >&2`);
+      lines.push(`  sudo docker rm -f ${name} || true`);
+      lines.push(relayOnlyRunCommandFor(name, rollbackImage).split('\n').map((line) => `  ${line}`).join('\n'));
+      lines.push('  rollback_attempt=1');
+      lines.push('  while [[ "${rollback_attempt}" -le 60 ]]; do');
+      lines.push(`    if curl -fsS --max-time 5 ${shellSingleQuote(`${origin}/readyz`)} >/tmp/vhc-public-beta-deploy/${name}.rollback.readyz.json; then break; fi`);
+      lines.push(`    if [[ "\${rollback_attempt}" -eq 60 ]]; then echo "${name}: rollback readiness failed" >&2; exit 78; fi`);
+      lines.push('    sleep 1; rollback_attempt=$((rollback_attempt + 1))');
+      lines.push('  done');
+      lines.push(`  test "$(sudo docker inspect ${name} --format '{{.State.OOMKilled}}')" = "false"`);
+      lines.push(`  sudo sha256sum -c /tmp/vhc-public-beta-deploy/${name}.snapshots.sha256`);
+      lines.push('  exit 78');
+      lines.push('fi');
+      lines.push(`echo "${name}: GO for next relay"`);
+      lines.push('');
+    }
+    lines.push('```');
+    lines.push('');
+    lines.push('## Hard Stop Conditions');
+    lines.push('');
+    lines.push('- Stop before container removal on absent explicit Lou approval, wrong commit/revision, non-`linux/amd64` image, publisher not parked, missing relay, changed mount/network/port topology, unreadable or changed snapshot, pre-existing OOM/watchdog trip, or non-green readiness.');
+    lines.push('- Roll back the current relay and stop on readiness/health failure, environment mismatch, snapshot checksum drift, OOM/watchdog trip, wrong image id/revision/platform, or any of the four exact missing-key probes returning anything other than its closed 404 body.');
+    lines.push('- Never batch removals, skip A/B/C order, continue after rollback, clear data, alter quorum/timeouts, start the publisher, recreate origin, or use the generic packet executor for this action.');
+    lines.push('');
+    lines.push('## Post-Run Decision');
+    lines.push('');
+    lines.push('A successful rolling image replacement proves only the relay-side exact-readback route surface. Keep the publisher parked and return the captured evidence for independent review. A separate Lou-approved recovery packet is required before any publisher reset/start or S1B live-green claim.');
+  } else {
   lines.push('## Relay Deploy');
   lines.push('');
   lines.push('Run one relay at a time while the publisher is live. The packet verifies `/readyz`, snapshot-backed latest-index reload, per-relay early-capture thresholds, suppression config, graph-scan health when enabled, and zero watchdog trips before executing the next relay removal. Stop immediately on any failure; do not batch the relay recreates.');
@@ -639,10 +874,13 @@ if (includeRecreate) {
   lines.push(`sudo docker rm -f ${originName}`);
   lines.push(runCommandFor(originName, origin.Config?.Image || '<captured-origin-image>', false));
   lines.push('```');
+  }
 } else {
   lines.push('## Recreate Commands Omitted');
   lines.push('');
-  lines.push('This packet intentionally omits `docker rm`/`docker run` commands. Re-run with `--include-recreate-commands` after operator approval to print the destructive deploy and rollback sections.');
+  lines.push(relayOnly
+    ? 'This packet intentionally omits `docker rm`/`docker run` commands. The repo-only artifact remains `WAITING_FOR_LOU`; re-run with `--include-recreate-commands` only after the relay-restart boundary is explicitly corrected and the exact revision is approved.'
+    : 'This packet intentionally omits `docker rm`/`docker run` commands. Re-run with `--include-recreate-commands` after operator approval to print the destructive deploy and rollback sections.');
 }
 
 console.log(lines.join('\n'));
