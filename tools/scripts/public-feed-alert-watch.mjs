@@ -21,7 +21,7 @@ const DEFAULT_WATCH_CLOSURE_MAX_AGE_MS = 90 * 60 * 1000;
 const NEWS_DAEMON_TRANSPORT_UNAVAILABLE_EXIT_CODE = '69';
 const NEWS_DAEMON_WRAPPER_REFUSAL_EXIT_CODE = '75';
 const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
-const URL_IN_TEXT_PATTERN = /https?:\/\/[^\s"'<>)}\]]+?(?=:(?:[a-z][a-z0-9_-]*)(?::|$)|[\s"'<>)}\]]|$)/gi;
+const URL_IN_TEXT_PATTERN = /https?:\/\/[^\s"'<>)}\]]+?(?=:(?:[a-z][a-z0-9_-]*)(?::|\||$)|[\s"'<>)}\]]|$)/gi;
 const SEVERITY_RANK = {
   none: 0,
   warning: 1,
@@ -109,7 +109,7 @@ function blockerReasonCode(value) {
       codes.push(segment);
     }
   }
-  return codes.length > 0 ? codes.join(':') : 'unclassified_blocker';
+  return codes.length > 0 ? sortedUniqueStrings(codes).join(':') : 'unclassified_blocker';
 }
 
 function blockerReasonCodes(values) {

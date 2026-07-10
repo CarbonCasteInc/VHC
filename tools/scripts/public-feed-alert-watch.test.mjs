@@ -369,7 +369,18 @@ test('semantic fingerprint ignores volatile values and ordering but preserves re
   compositeReasonChanged.freshness.blockers = [
     'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_empty|latest_index_timestamp_missing',
   ];
-  assert.notEqual(publicFeedAlertWatchInternal.fingerprintFor(compositeReasonChanged), fingerprint);
+  const compositeFingerprint = publicFeedAlertWatchInternal.fingerprintFor(compositeReasonChanged);
+  assert.notEqual(compositeFingerprint, fingerprint);
+
+  const compositeReasonReordered = structuredClone(compositeReasonChanged);
+  compositeReasonReordered.blockers = [
+    'public_feed:latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_timestamp_missing|latest_index_empty|latest_index_empty',
+    'watch_closure:archive_sample_failures:8',
+  ];
+  compositeReasonReordered.freshness.blockers = [
+    'latest_index_not_fresh:url_hash:0123456789abcdef:latest_index_timestamp_missing|latest_index_empty|latest_index_empty',
+  ];
+  assert.equal(publicFeedAlertWatchInternal.fingerprintFor(compositeReasonReordered), compositeFingerprint);
 
   const relayChanged = structuredClone(baseline);
   relayChanged.relayLiveness.relays[0].status = 'pass';
@@ -1118,6 +1129,71 @@ test('stale feed sends a webhook on state change with secret-safe aggregate payl
     assert.equal(JSON.stringify(body).includes('venn.carboncaste.io'), false);
     assert.equal(JSON.stringify(body).includes('secret-path'), false);
     assert.equal(JSON.stringify(body).includes('hooks.example.invalid'), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('composite blocker reason order and duplicates suppress while a changed reason set delivers once', async () => {
+  const root = tempRoot();
+  const calls = [];
+  const origin = 'https://venn.carboncaste.io/';
+  let reasons = ['latest_index_empty', 'latest_index_timestamp_missing'];
+  try {
+    const options = {
+      env: baseEnv(root, { VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token' }),
+      repoRoot: root,
+      systemctlShowText: activeSystemctl(),
+      freshnessMonitorImpl: async () => freshnessSummary({
+        status: 'fail',
+        blockers: [`latest_index_not_fresh:${origin}:${reasons.join('|')}`],
+        config: { origins: [origin], maxAgeMs: 21_600_000 },
+        latestIndexReadbacks: [{
+          origin,
+          status: 'fail',
+          recordCount: 0,
+          newestAgeMs: null,
+          maxAgeMs: 21_600_000,
+          failures: reasons,
+          storyIds: ['story-body-not-copied'],
+        }],
+      }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return { ok: true, status: 204 };
+      },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    reasons = ['latest_index_timestamp_missing', 'latest_index_empty', 'latest_index_empty'];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    reasons = ['latest_index_empty', 'latest_index_fetch_failed'];
+    const changed = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    reasons = ['latest_index_fetch_failed', 'latest_index_empty', 'latest_index_fetch_failed'];
+    const unchanged = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
+    });
+
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(reordered.delivery.reason, 'unchanged_suppressed');
+    assert.notEqual(changed.fingerprint, first.fingerprint);
+    assert.equal(changed.delivery.status, 'sent');
+    assert.equal(changed.delivery.reason, 'state_changed');
+    assert.equal(unchanged.fingerprint, changed.fingerprint);
+    assert.equal(unchanged.delivery.status, 'suppressed');
+    assert.equal(unchanged.delivery.reason, 'unchanged_suppressed');
+    assert.equal(calls.length, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
