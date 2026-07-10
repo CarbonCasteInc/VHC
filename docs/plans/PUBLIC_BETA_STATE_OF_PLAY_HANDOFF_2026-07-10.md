@@ -133,6 +133,12 @@ hard stop. Recreate commands remain opt-in, the generic packet executor was not
 widened, and relay deployment evidence still would not authorize publisher
 recovery or make S1B green.
 
+The current read-only A6 structure is the supported `host`/`host` case on all
+three relays: one valid shared 64-hex `NetworkID`, all 15 canonical endpoint
+keys, null IPAM/aliases/links/driver options, `GwPriority=0`, and no configured
+MAC intent. Correct packet output uses exact `--network host` and captured
+`GUN_PORT` loopback verifier URLs.
+
 The fail-closed packet contract treats parked as exactly `failed/failed`,
 `Result=exit-code`, `ExecMainStatus=78` and rechecks that tuple as the final gate
 before each A/B/C removal and after verification before GO. It also compares every stage's live

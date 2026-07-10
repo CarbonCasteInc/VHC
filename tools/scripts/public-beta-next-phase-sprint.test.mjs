@@ -140,6 +140,8 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     'array of exactly three',
     'semantic network attachment prestate',
     'runtime endpoint ids',
+    'current A6 `host`/`host` topology',
+    'exact `--network host`',
   ]) {
     assertIncludes(checklist, token, `G3 checklist token ${token}`);
   }
@@ -155,6 +157,9 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
     '64-hex `NetworkID`',
     'Runtime-assigned endpoint ids',
     'same-revision wrong image',
+    '`HostConfig.NetworkMode=host`',
+    'all 15 canonical endpoint',
+    '`--network host`',
     'story with `readback=exact`',
     'latest-index `story_id`',
     'hot-index `story_id`',
@@ -179,6 +184,8 @@ test('G3 fails closed on the immutable relay image and restart-authority contrad
   assertIncludes(deployPacketScript, '--expected-relay-revision', 'deploy expected relay revision');
   assertIncludes(deployPacketScript, '--expected-relay-image-id', 'deploy expected immutable relay image id');
   assertIncludes(exportScript, '--relay-only', 'export relay-only flag');
+  assertIncludes(exportScript, 'bash -s --', 'export remote binding verifier shell');
+  assertIncludes(exportScript, `--format '{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels "org.opencontainers.image.revision"}}'`, 'export exact remote Docker format');
   assert.ok(!packetExecutor.includes('relay_only'), 'packet executor must not gain a relay-only action');
   assert.ok(!packetExecutor.includes('--relay-only'), 'packet executor must not pass the relay-only flag');
   assert.throws(() => buildExecutorPlan({

@@ -149,6 +149,13 @@ and an unconfigured endpoint MAC are shape-validated but never treated as
 stable prestate. Unknown, malformed, duplicate, conflicting, or nonportable
 attachment state is a hard stop.
 
+The current secret-safe A6 capture is the supported host-network case: A, B,
+and C each have `HostConfig.NetworkMode=host`, one `NetworkSettings.Networks.host`
+attachment with the same valid 64-hex `NetworkID`, all 15 canonical endpoint
+keys, null IPAM/aliases/links/driver options, `GwPriority=0`, and no configured
+MAC intent. The emitted recreate command is therefore exactly `--network host`,
+and each relay verifier uses its captured `GUN_PORT` on `127.0.0.1`.
+
 Do not add `--include-recreate-commands` before all authority and review gates
 below pass. Do not generate or execute a live packet from this branch.
 

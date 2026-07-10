@@ -1021,6 +1021,10 @@ execution proof and no live recovery is claimed.
   boundary, immediately after recreate, after verification, and after rollback;
   reject unknown/nonportable state and never treat runtime endpoint ids or
   assigned addresses as stable.
+- [x] Exercise the current A6 `host`/`host` topology for ordered A/B/C with all
+  15 canonical attachment keys, valid shared `NetworkID`, null attachment
+  intent, `GwPriority=0`, no configured MAC, exact `--network host`, captured
+  `GUN_PORT` verifier URLs, and post-recreate/post-verification/rollback parity.
 - [x] Encode A/B/C readiness, three-snapshot integrity, liveness/OOM/watchdog,
   all-four exact missing-key probes, immediate current-relay rollback, and hard
   stop conditions.

@@ -317,7 +317,14 @@ scp $(bash_quote "${relay_tar}") "\${SSH_HOST}:\${REMOTE_DIR}/${relay_file}"
 scp $(bash_quote "${checksums_file}") "\${SSH_HOST}:\${REMOTE_DIR}/SHA256SUMS"
 ssh "\${SSH_HOST}" "cd \${REMOTE_DIR} && sha256sum -c SHA256SUMS"
 ssh "\${SSH_HOST}" "docker load -i \${REMOTE_DIR}/${relay_file}"
-ssh "\${SSH_HOST}" 'test "\$(docker image inspect $(bash_quote "${RELAY_IMAGE}") --format "{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels \\\"org.opencontainers.image.revision\\\"}}")" = $(bash_quote "${relay_id}|${relay_os}/${relay_arch}|${relay_revision}")'
+ssh "\${SSH_HOST}" "bash -s -- $(bash_quote "${RELAY_IMAGE}") $(bash_quote "${relay_id}|${relay_os}/${relay_arch}|${relay_revision}")" <<'VHC_RELAY_IMAGE_BINDING'
+set -euo pipefail
+observed="\$(docker image inspect "\$1" --format '{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+if [[ "\${observed}" != "\$2" ]]; then
+  echo "relay_loaded_image_binding_mismatch" >&2
+  exit 78
+fi
+VHC_RELAY_IMAGE_BINDING
 \`\`\`
 
 ## Abort Criteria

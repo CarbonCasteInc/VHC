@@ -512,7 +512,7 @@ function relayOnlyNetworkFlags(container) {
   if (network.gw_priority !== 0) components.push(`gw-priority=${network.gw_priority}`);
   const networkSpec = components.length === 1 ? network.name : components.join(',');
   return [
-    `--network ${shellSingleQuote(networkSpec)}`,
+    components.length === 1 ? `--network ${network.name}` : `--network ${shellSingleQuote(networkSpec)}`,
     network.mac_address_intent ? `--mac-address ${shellSingleQuote(network.mac_address_intent)}` : '',
     ...network.links.map((link) => `--link ${shellSingleQuote(link)}`),
   ].filter(Boolean);

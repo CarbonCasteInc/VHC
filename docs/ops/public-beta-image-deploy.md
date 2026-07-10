@@ -350,6 +350,8 @@ tools/scripts/export-public-beta-image-artifacts.sh \
 Relay-only export is still local preparation. Its one-image manifest records the
 full immutable image id, and the emitted load packet rejects the loaded mutable
 ref unless it resolves to that id in addition to matching revision/platform. It
+passes the exact Docker Go template to a remote `bash -s` verifier; the label key
+arrives as `org.opencontainers.image.revision` without added backslashes. It
 neither transfers nor loads the image by itself.
 
 ## Emit Deploy Packet
@@ -425,6 +427,12 @@ rechecked immediately after recreate, after verification, and after rollback.
 Runtime-assigned endpoint ids/IPs/gateways/DNS names and an unconfigured endpoint
 MAC are not compared as stable identifiers. Unknown or nonportable attachment
 state is a hard stop.
+
+The current A6 structural capture is the supported `host`/`host` case for all
+three relays: one shared valid 64-hex `NetworkID`, all 15 canonical attachment
+keys, null IPAM/aliases/links/driver options, `GwPriority=0`, and no configured
+MAC intent. Its recreate flag is exactly `--network host`, and loopback
+verification derives each relay URL from captured `GUN_PORT`.
 
 Only after the recorded boundary approval and exact-head/capture packet review
 returns `GO` may the same command add

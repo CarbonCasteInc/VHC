@@ -289,6 +289,59 @@ exit 2
     assert.equal(malformedImageId.status, 78);
     assert.match(malformedImageId.stderr, /full immutable sha256 id/);
 
+    const remoteBin = path.join(root, 'remote-bin');
+    mkdirSync(remoteBin);
+    const writeRemoteExecutable = (name, contents) => {
+      const file = path.join(remoteBin, name);
+      writeFileSync(file, contents, 'utf8');
+      chmodSync(file, 0o755);
+    };
+    const remoteFormatFile = path.join(root, 'remote-format.txt');
+    const remoteRefFile = path.join(root, 'remote-ref.txt');
+    writeRemoteExecutable('scp', '#!/usr/bin/env bash\nexit 0\n');
+    writeRemoteExecutable('ssh', `#!/usr/bin/env bash
+set -euo pipefail
+shift
+if [[ "\${1:-}" == bash\\ -s\\ --* ]]; then
+  exec bash -c "$1"
+fi
+exit 0
+`);
+    writeRemoteExecutable('docker', `#!/usr/bin/env bash
+set -euo pipefail
+test "\${1:-}" = image
+test "\${2:-}" = inspect
+test "\${4:-}" = --format
+printf '%s' "\${3:-}" > "\${FAKE_REMOTE_REF_FILE:?}"
+printf '%s' "\${5:-}" > "\${FAKE_REMOTE_FORMAT_FILE:?}"
+printf '%s|%s|%s\n' "\${FAKE_REMOTE_IMAGE_ID:?}" "\${FAKE_REMOTE_PLATFORM:?}" "\${FAKE_REMOTE_REVISION:?}"
+`);
+    const remoteEnv = {
+      ...process.env,
+      PATH: `${remoteBin}:${process.env.PATH}`,
+      FAKE_REMOTE_REF_FILE: remoteRefFile,
+      FAKE_REMOTE_FORMAT_FILE: remoteFormatFile,
+      FAKE_REMOTE_IMAGE_ID: REVIEWED_RELAY_IMAGE_ID,
+      FAKE_REMOTE_PLATFORM: 'linux/amd64',
+      FAKE_REMOTE_REVISION: REVIEWED_RELAY_REVISION,
+    };
+    const executedBinding = run('bash', [], { input: `${loadBlock}\n`, env: remoteEnv });
+    assert.equal(executedBinding.status, 0, executedBinding.stderr);
+    assert.equal(readFileSync(remoteRefFile, 'utf8'), 'vhc-public-beta-relay:reviewed');
+    assert.equal(
+      readFileSync(remoteFormatFile, 'utf8'),
+      '{{.Id}}|{{.Os}}/{{.Architecture}}|{{index .Config.Labels "org.opencontainers.image.revision"}}',
+    );
+    for (const [label, override] of [
+      ['image-id', { FAKE_REMOTE_IMAGE_ID: `sha256:${'9'.repeat(64)}` }],
+      ['platform', { FAKE_REMOTE_PLATFORM: 'linux/arm64' }],
+      ['revision', { FAKE_REMOTE_REVISION: '0'.repeat(40) }],
+    ]) {
+      const rejectedBinding = run('bash', [], { input: `${loadBlock}\n`, env: { ...remoteEnv, ...override } });
+      assert.equal(rejectedBinding.status, 78, `${label}: ${rejectedBinding.stderr}`);
+      assert.match(rejectedBinding.stderr, /relay_loaded_image_binding_mismatch/);
+    }
+
     const skippedRevision = run('bash', [
       EXPORT_SCRIPT,
       '--relay-only',
@@ -883,6 +936,74 @@ test('relay-only deploy packet preserves every supported network attachment inte
     const postVerificationTopology = stageA.indexOf("assert_live_topology_parity 'vhc-relay-a'", postRecreateTopology + 1);
     assert.ok(beforeRemoval >= 0 && beforeRemoval < remove && remove < postRecreateTopology && postRecreateTopology < verify && verify < postVerificationTopology, stageA);
     assert.ok((stageA.match(/assert_live_topology_parity 'vhc-relay-a'/g) || []).length >= 5, stageA);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('relay-only deploy packet preserves the exact current A6 host-network A-B-C topology through recreate and rollback', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vh-public-beta-relay-only-host-network-'));
+  try {
+    const inspectPath = path.join(root, 'inspect.json');
+    const relays = [
+      applyCurrentA6HostNetworkAttachment(makeHostNetworkRelay('vhc-relay-a', '/home/humble/.local/share/vhc/vhc-relay-a/data', '8765')),
+      applyCurrentA6HostNetworkAttachment(makeHostNetworkRelay('vhc-relay-b', '/home/humble/.local/share/vhc/vhc-relay-b/data', '8766')),
+      applyCurrentA6HostNetworkAttachment(makeHostNetworkRelay('vhc-relay-c', '/home/humble/.local/share/vhc/vhc-relay-c/data', '8767')),
+    ];
+    writeFileSync(inspectPath, JSON.stringify(relays), 'utf8');
+    const result = run('bash', relayOnlyPacketArgs(inspectPath));
+    assert.equal(result.status, 0, result.stderr);
+    const packet = result.stdout;
+    assert.match(packet, /--network host/);
+    assert.doesNotMatch(packet, /--network 'host'/);
+
+    const expectedBase64 = packet.match(/assert_live_topology_parity 'vhc-relay-a' '([^']+)'/)?.[1];
+    assert.ok(expectedBase64);
+    const topology = JSON.parse(Buffer.from(expectedBase64, 'base64').toString('utf8'));
+    assert.equal(topology.network_mode, 'host');
+    assert.deepEqual(topology.network, {
+      name: 'host',
+      network_id: DEFAULT_NETWORK_ID,
+      ipam_config: { ipv4_address: '', ipv6_address: '', link_local_ips: [] },
+      aliases: [],
+      links: [],
+      driver_opts: [],
+      gw_priority: 0,
+      mac_address_intent: '',
+    });
+
+    const stages = [
+      ['A', 'vhc-relay-a', '8765', '# Stage B:'],
+      ['B', 'vhc-relay-b', '8766', '# Stage C:'],
+      ['C', 'vhc-relay-c', '8767', '```'],
+    ];
+    for (const [stageName, name, port, nextMarker] of stages) {
+      const start = packet.indexOf(`# Stage ${stageName}:`);
+      const end = packet.indexOf(nextMarker, start + 1);
+      const stage = packet.slice(start, end > start ? end : undefined);
+      const boundary = stage.indexOf(`assert_relay_removal_boundary '${name}'`);
+      const remove = stage.indexOf(`sudo docker rm -f ${name} &&`);
+      const recreateParity = stage.indexOf(`assert_live_topology_parity '${name}'`, remove);
+      const runtimeVerify = stage.indexOf(`verify_relay_only_runtime '${name}' 'http://127.0.0.1:${port}'`, recreateParity);
+      const verifiedParity = stage.indexOf(`assert_live_topology_parity '${name}'`, recreateParity + 1);
+      const rollbackRun = stage.indexOf(`${name}.rollback.start.out`, verifiedParity);
+      const rollbackParity = stage.indexOf(`assert_live_topology_parity '${name}'`, rollbackRun);
+      const rollbackReadiness = stage.indexOf(`${name}.rollback.readyz.json`, rollbackParity);
+      const finalRollbackParity = stage.indexOf(`assert_live_topology_parity '${name}'`, rollbackParity + 1);
+      assert.ok(
+        boundary >= 0
+          && boundary < remove
+          && remove < recreateParity
+          && recreateParity < runtimeVerify
+          && runtimeVerify < verifiedParity
+          && verifiedParity < rollbackRun
+          && rollbackRun < rollbackParity
+          && rollbackParity < rollbackReadiness
+          && rollbackReadiness < finalRollbackParity,
+        stage,
+      );
+      assert.ok((stage.match(/--network host/g) || []).length >= 2, stage);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1596,6 +1717,32 @@ function applyCurrentA6NetworkAttachment(container) {
     DriverOpts: null,
     GwPriority: 0,
     DNSNames: [],
+  };
+  return container;
+}
+
+function applyCurrentA6HostNetworkAttachment(container) {
+  container.Config.MacAddress = '';
+  container.HostConfig.NetworkMode = 'host';
+  container.HostConfig.Links = null;
+  container.NetworkSettings.Networks = {
+    host: {
+      IPAMConfig: null,
+      Links: null,
+      Aliases: null,
+      NetworkID: DEFAULT_NETWORK_ID,
+      EndpointID: 'runtime-host-endpoint-id',
+      Gateway: '',
+      IPAddress: '',
+      IPPrefixLen: 0,
+      IPv6Gateway: '',
+      GlobalIPv6Address: '',
+      GlobalIPv6PrefixLen: 0,
+      MacAddress: '',
+      DriverOpts: null,
+      GwPriority: 0,
+      DNSNames: null,
+    },
   };
   return container;
 }
