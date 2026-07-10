@@ -955,8 +955,9 @@ git diff --check
   prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
   sprint, docs, and diff gates pass. The same G2 reviewer returned final `GO`
   with no P0/P1/P2 at `d6e03308`; PR #762 completed hosted CI without failure
-  (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged at `5116616a`. PR #759
-  exact-head CI and merge to `main` remain required.
+  (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged at `5116616a`. Final
+  coordination head `0e5bac8f` passed same-reviewer audit and 9/9 hosted CI;
+  PR #759 merged to `main` as `98277475`.
 
 - G3 packet preparation found an authority contradiction before any live action:
   `infra/relay/server.js` is copied into immutable relay images and is not bind
@@ -976,7 +977,7 @@ git diff --check
 - [x] Require review of idempotency, quorum, retry eligibility, exit mapping,
   state-schema migration, and secret redaction.
 - [x] CI and every required test above pass on the PR head.
-- [ ] Merge before preparing any A6 mutation packet.
+- [x] Merge before preparing any A6 mutation packet.
 
 ### Lou-Approved A6 Recovery Packet
 
@@ -1027,8 +1028,9 @@ preparation is not authority and no live recovery is claimed.
   authorized for this rolling action.
 - [x] Register the blocked authority packet at
   `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`.
-- [ ] Merge S1B and generate the exact packet from the merged commit and fresh
-  secret-safe inspect evidence.
+- [x] Merge S1B remediation to `main` at `98277475`.
+- [ ] Generate the exact packet from the merged commit and fresh secret-safe
+  inspect evidence.
 - [ ] Independent packet reviewer returns `GO` on the exact packet hash; any
   correction receives subsequent review by the same reviewer.
 - [ ] Lou explicitly replaces the no-relay-restart boundary for that exact

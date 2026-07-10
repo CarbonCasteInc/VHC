@@ -4,8 +4,9 @@
 > Owner: VHC Launch Ops + VHC Core Engineering
 > Human authority: Lou
 > Technical executor: Codex
-> Current active PR: #759 (`coord/release-readiness-beta-runsheet-guard-2026-07-09`)
-> Current PR head at handoff: see PR #759 head
+> Current merged repo base: `main@982774750d923915617bea49997fa86df624a137`
+> Merged coordination PR: #759 at reviewed head `0e5bac8f7a25a62d0d5c36c6f171b7a915d99848`
+> Current repo lane: blocked G3 recovery-packet branch; review/publish pending
 > Current target app: `https://venn.carboncaste.io`
 > Current auth boundary target: `https://auth.venn.carboncaste.io`
 > Support/failure mailbox: `carboncasteit@gmail.com`
@@ -98,8 +99,9 @@ webhook payload with a producer-side deep-equality guard. The focused alert,
 pager, incident-response, sprint, docs, and diff gates pass. The same G2
 reviewer returned final `GO` with no P0/P1/P2 at `d6e03308`; PR #762 completed
 hosted CI without failure (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged
-into the coordination branch at `5116616a`.
-PR #759 exact-head CI and merge to `main` remain required.
+into the coordination branch at `5116616a`. Final coordination head
+`0e5bac8f` passed same-reviewer audit and 9/9 hosted CI; PR #759 merged to
+`main` as `98277475`.
 
 Recovery-packet design also exposed a hard authority contradiction before any
 live action: `infra/relay/server.js` is copied into immutable relay images and
@@ -127,8 +129,8 @@ and env, checks revision/amd64 plus readiness/snapshots/OOM, probes all four
 exact missing-key contracts, and stops with current-relay rollback before the
 next relay on any failure. Recreate commands remain opt-in, the generic packet
 executor was not widened, no live packet was generated, and no relay or
-publisher action occurred. After S1B merge, an exact packet still needs fresh
-secret-safe capture, independent review, and Lou's explicit correction of the
+publisher action occurred. From merged `main@98277475`, an exact packet still
+needs fresh secret-safe capture, independent review, and Lou's explicit correction of the
 relay-restart boundary before any rolling action. Relay deployment evidence
 would still not authorize publisher recovery or make S1B green.
 
@@ -159,29 +161,30 @@ publisher resume during/post-verification.
 Current branch:
 
 ```text
-coord/release-readiness-beta-runsheet-guard-2026-07-09
+coord/s1b-relay-recovery-packet-2026-07-10
 ```
 
-Current active PR:
+Current review state:
 
 ```text
-#759 Add beta session runsheet guard
-https://github.com/CarbonCasteInc/VHC/pull/759
-head: 5116616aa46b2043e0e22893682e30f0a93c1d92 plus this execution-record commit
-state: non-draft
-merge state: revalidate after this execution-record push
-CI: revalidate on the resulting exact head before merge
+G3 blocked recovery-packet branch
+PR: pending final same-reviewer GO and publish
+decision: WAITING_FOR_LOU
+live packet: not generated
 ```
 
 Current `main` at handoff:
 
 ```text
-1f860ae7 Merge pull request #758 from CarbonCasteInc/coord/release-readiness-state-alignment-2026-07-09
+982774750d923915617bea49997fa86df624a137 Merge PR #759: public beta S1B release-readiness remediation
 ```
 
-Open PRs at handoff:
+Merged S1B PRs:
 
-- #759 only.
+- #760 Alert lane.
+- #761 Runtime lane.
+- #762 Cross-lane integration.
+- #759 Coordination and `main` merge.
 
 Open non-release follow-up issues at handoff:
 
@@ -198,10 +201,10 @@ Those two files live locally under `docs/plans/` in Lou's workspace, but they
 are intentionally untracked. Do not stage or delete them unless Lou explicitly
 asks.
 
-## What #759 Adds
+## What #759 Added
 
-#759 is a release-control/documentation guard PR. It does not deploy live code
-or mutate A6.
+#759 is now merged. It carries the release-control guard plus reviewed S1B code;
+the merge did not deploy live code or mutate A6.
 
 It adds or updates:
 
@@ -474,21 +477,22 @@ These are the blockers that matter before tester distribution.
 
 Do this in order.
 
-### 1. Keep #759 current and merge or carry it explicitly
+### 1. Preserve the merged S1B base
 
-PR #759 is green and clean at handoff. It can be merged when Lou wants the
-launch-control/checklist docs on `main`, or carried as the release-control
-branch if Lou decides not to merge yet.
+PR #759 is already merged. Do not replay its repo work. Treat
+`main@982774750d923915617bea49997fa86df624a137` as the S1B remediation base and
+verify it before preparing any exact recovery packet.
 
 Before acting:
 
 ```bash
 git fetch origin --prune
-gh pr view 759 --json number,title,headRefName,headRefOid,isDraft,mergeStateStatus,statusCheckRollup,url
+gh pr view 759 --json number,title,headRefName,headRefOid,state,mergedAt,mergeCommit,statusCheckRollup,url
+git rev-parse origin/main
 git status --short --branch
 ```
 
-### 2. Preserve S1A finding and finish S1B integration
+### 2. Preserve S1A finding and finish G3 packet review
 
 Do not mutate A6. Do not restart services. Do not repair credentials yet.
 
@@ -498,18 +502,11 @@ Preserve the classified S1A finding:
 relay_rest_story_timeout_total_0_of_3_exit_78
 ```
 
-The Runtime and Alert implementation lanes are frozen and independently
-reviewed. Finish the sprint checklist's integration gate by proving:
-
-- combined timeout classification, exact four-route readback, brand propagation,
-  quorum, and exit mapping;
-- v2/v3 fingerprint migration, readable MIME, redaction, and v1/v2 pager-family
-  continuity;
-- full combined tests, distinct cross-lane review, hosted CI, and merge.
-
-After S1B merges, prepare a Lou-approved A6 recovery packet from the merged
-commit. Updating A6 and restarting the parked publisher are incident mutations,
-not routine launch-enablement actions.
+Runtime, Alert, integration, hosted CI, and the `main` merge are complete. Do
+not replay them. Finish only the repo-side G3 packet review on the exact branch
+head, then stop at `WAITING_FOR_LOU`. Generating an exact host packet, rolling
+relay images, updating A6, and restarting the parked publisher are incident
+mutations, not routine launch-enablement actions.
 
 ### 3. Only after S1A/S1B exit green, repair StoryCluster credential/endpoint
 
@@ -757,15 +754,16 @@ Do not:
 
 ## Plain-English Current Status
 
-The repo is in good shape for the launch-control work. #759 is green and
-mergeable. The product MVP is largely built at repo level.
+The repo-side S1B remediation is reviewed, CI-green, and merged through #759 at
+`main@98277475`. The product MVP is largely built at repo level.
 
 The live release is still blocked. The alert mailbox is doing its job and is
 still reporting a public-feed critical. S1A readback has already proved this is
 a real parked-publisher incident, not setup noise. The next dev's first real
-job is not Cloudflare, Google, Apple, A6 update, or canary. It is S1B: implement
-the durable relay-timeout and alert-dedupe remediation, get it reviewed and
-merged, then run only a Lou-approved recovery packet.
+job is not Cloudflare, Google, Apple, A6 update, or canary. It is to finish the
+repo-only G3 packet review, stop at `WAITING_FOR_LOU`, and obtain an explicit
+boundary correction and attended recovery authorization before any relay or
+publisher action.
 
 Once S1A/S1B are green, the path is straightforward: repair StoryCluster
 credentials, stand up auth, register Apple/Google, redeploy the PWA origin,
