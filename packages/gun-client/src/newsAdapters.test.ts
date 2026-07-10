@@ -1643,12 +1643,9 @@ describe('newsAdapters', () => {
             throw error;
           }
           expect(url.searchParams.get('story_id')).toBe(STORY.story_id);
-          if (testCase.path === '/vh/news/story') {
-            expect(url.searchParams.get('readback')).toBe('exact');
-          } else if (testCase.path === '/vh/news/latest-index') {
+          expect(url.searchParams.get('readback')).toBe('exact');
+          if (testCase.path === '/vh/news/latest-index') {
             expect(url.searchParams.get('persist')).toBe('false');
-          } else if (testCase.path === '/vh/news/synthesis-lifecycle') {
-            expect(url.searchParams.get('readback')).toBe('exact');
           }
           if (url.origin === 'https://gun-c.example.test') {
             return new Response(JSON.stringify({ ok: false }), { status: 404 });
@@ -1683,6 +1680,7 @@ describe('newsAdapters', () => {
       VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
       VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
       VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: 'invalid-test-timeout',
     });
     const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
     try {
@@ -1692,6 +1690,39 @@ describe('newsAdapters', () => {
       const cases = [
         {
           readback: () => new Response(JSON.stringify({ ok: false }), { status: 502 }),
+          availabilityTotal: true,
+        },
+        {
+          readback: () => new Response(JSON.stringify({
+            ok: false,
+            error_class: 'relay-write-safety',
+            error: 'news-exact-readback-present-unsafe',
+          }), { status: 409 }),
+          availabilityTotal: false,
+        },
+        {
+          readback: () => new Response(JSON.stringify({
+            ok: false,
+            error_class: 'relay-write-safety',
+            error: 'intermediary-conflict',
+          }), { status: 409 }),
+          availabilityTotal: true,
+        },
+        {
+          readback: () => new Response(JSON.stringify({
+            ok: false,
+            error: 'news-exact-readback-present-unsafe',
+          }), { status: 409 }),
+          availabilityTotal: true,
+        },
+        {
+          readback: () => ({
+            ok: false,
+            status: 409,
+            text: async () => {
+              throw new TypeError('conflict body stream failed before present evidence');
+            },
+          }) as Response,
           availabilityTotal: true,
         },
         {
@@ -1705,7 +1736,47 @@ describe('newsAdapters', () => {
               throw new TypeError('terminated', { cause });
             },
           }) as Response,
-          availabilityTotal: true,
+          availabilityTotal: false,
+        },
+        {
+          readback: (() => {
+            let callCount = 0;
+            return () => {
+              callCount += 1;
+              if (callCount === 1) {
+                return new Response(JSON.stringify({
+                  ok: true,
+                  record: { story_id: STORY.story_id },
+                }), { status: 200 });
+              }
+              return {
+                ok: true,
+                status: 200,
+                text: async () => {
+                  throw new TypeError('terminated after present readback');
+                },
+              } as Response;
+            };
+          })(),
+          availabilityTotal: false,
+          expectedGetCount: 4,
+        },
+        {
+          readback: (() => {
+            let callCount = 0;
+            return () => {
+              callCount += 1;
+              if (callCount === 1) {
+                return new Response(JSON.stringify({
+                  ok: true,
+                  record: { story_id: STORY.story_id },
+                }), { status: 200 });
+              }
+              throw new TypeError('fetch failed after present readback');
+            };
+          })(),
+          availabilityTotal: false,
+          expectedGetCount: 4,
         },
         {
           readback: () => new Response('{', { status: 200 }),
@@ -1741,9 +1812,418 @@ describe('newsAdapters', () => {
         expect(failure).toBeInstanceOf(Error);
         expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(testCase.availabilityTotal);
         expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
-        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+        const expectedGetCount = 'expectedGetCount' in testCase ? testCase.expectedGetCount : 3;
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET'))
+          .toHaveLength(expectedGetCount);
         vi.unstubAllGlobals();
       }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('latches present readback evidence across later unavailable and malformed transitions', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '250',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const cases = [
+        {
+          name: '404',
+          next: () => new Response(JSON.stringify({ ok: false }), { status: 404 }),
+        },
+        {
+          name: '502',
+          next: () => new Response(JSON.stringify({ ok: false }), { status: 502 }),
+        },
+        {
+          name: 'wrong classified 409',
+          next: () => new Response(JSON.stringify({
+            ok: false,
+            error_class: 'relay-write-safety',
+            error: 'intermediary-conflict',
+          }), { status: 409 }),
+        },
+        {
+          name: 'incomplete 409',
+          next: () => new Response(JSON.stringify({
+            ok: false,
+            error: 'news-exact-readback-present-unsafe',
+          }), { status: 409 }),
+        },
+        {
+          name: 'body failure',
+          next: () => ({
+            ok: true,
+            status: 200,
+            text: async () => {
+              throw new TypeError('terminated after present readback');
+            },
+          }) as Response,
+        },
+        {
+          name: 'fetch failure',
+          next: () => {
+            throw new TypeError('fetch failed after present readback');
+          },
+        },
+        {
+          name: 'abort',
+          next: () => {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          },
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const readCounts = new Map<string, number>();
+        const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'POST') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          const origin = new URL(String(input)).origin;
+          const readCount = (readCounts.get(origin) ?? 0) + 1;
+          readCounts.set(origin, readCount);
+          if (readCount === 1) {
+            return new Response(JSON.stringify({
+              ok: true,
+              record: { story_id: STORY.story_id },
+            }), { status: 200 });
+          }
+          return testCase.next();
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/latest-index',
+          record: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+          writeClass: 'news-latest-index',
+          validate: () => true,
+        }).then(() => null, (error: unknown) => error);
+
+        expect(failure, testCase.name).toBeInstanceOf(Error);
+        expect(isRelayRestAvailabilityTotalFailureError(failure), testCase.name).toBe(false);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST'), testCase.name)
+          .toHaveLength(3);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET'), testCase.name)
+          .toHaveLength(6);
+        expect([...readCounts.values()], testCase.name).toEqual([2, 2, 2]);
+        vi.unstubAllGlobals();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps a present readback fail-closed when validation crosses the read deadline', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '25',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          const error = new Error('This operation was aborted');
+          error.name = 'AbortError';
+          throw error;
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 35));
+            return JSON.stringify({
+              ok: true,
+              record: { story_id: STORY.story_id },
+            });
+          },
+        } as Response;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        writeClass: 'news-latest-index',
+        validate: () => true,
+      }).then(() => null, (error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(false);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('bounds hung readback bodies and signature verification with the absolute read deadline', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '40',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const cases = [
+        {
+          name: 'body',
+          clientOptions: {},
+          readback: () => ({
+            ok: true,
+            status: 200,
+            text: () => new Promise<string>(() => {}),
+          }) as Response,
+        },
+        {
+          name: 'signature verification',
+          clientOptions: {
+            systemWriterPin: hooks.pin,
+            systemWriterVerify: () => new Promise<boolean>(() => {}),
+          },
+          readback: () => new Response(JSON.stringify({
+            ok: true,
+            record,
+          }), { status: 200 }),
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const mesh = createFakeMesh();
+        const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+        const client = createClient(mesh, guard, testCase.clientOptions);
+        const readbackSignals: AbortSignal[] = [];
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'POST') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          if (init?.signal) readbackSignals.push(init.signal);
+          return testCase.readback();
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const startedAt = Date.now();
+        const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/latest-index',
+          record,
+          writeClass: 'news-latest-index',
+          validate: () => true,
+        }).then(() => null, (error: unknown) => error);
+        const elapsedMs = Date.now() - startedAt;
+
+        expect(failure, testCase.name).toBeInstanceOf(Error);
+        expect(isRelayRestAvailabilityTotalFailureError(failure), testCase.name).toBe(false);
+        expect(elapsedMs, testCase.name).toBeLessThan(250);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET'), testCase.name)
+          .toHaveLength(3);
+        expect(readbackSignals, testCase.name).toHaveLength(3);
+        expect(readbackSignals.every((signal) => signal.aborted), testCase.name).toBe(true);
+        vi.unstubAllGlobals();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('bounds a pre-present readback fetch stall without changing availability-total classification', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '40',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const readbackSignals: AbortSignal[] = [];
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          const error = new Error('This operation was aborted');
+          error.name = 'AbortError';
+          throw error;
+        }
+        if (init?.signal) readbackSignals.push(init.signal);
+        return new Promise<Response>(() => {});
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const startedAt = Date.now();
+      const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        writeClass: 'news-latest-index',
+        validate: () => true,
+      }).then(() => null, (error: unknown) => error);
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect(elapsedMs).toBeLessThan(250);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+      expect(readbackSignals).toHaveLength(3);
+      expect(readbackSignals.every((signal) => signal.aborted)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps a read deadline that expires before the first fetch retry-eligible', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '25',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    let mockedNow = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      mockedNow += 100;
+      return mockedNow;
+    });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          throw new Error('readback fetch must not start after its deadline');
+        }
+        const error = new Error('This operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        writeClass: 'news-latest-index',
+        validate: () => true,
+      }).then(() => null, (error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(0);
+    } finally {
+      nowSpy.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('polls safe partial exact readbacks until two expected signed records settle', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '250',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        systemWriterPin: hooks.pin,
+        systemWriterSign: hooks.sign,
+      });
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const getCounts = new Map<string, number>();
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (init?.method === 'POST') {
+          const error = new Error('This operation was aborted');
+          error.name = 'AbortError';
+          throw error;
+        }
+        expect(url.searchParams.get('readback')).toBe('exact');
+        expect(url.searchParams.get('persist')).toBe('false');
+        const count = (getCounts.get(url.origin) ?? 0) + 1;
+        getCounts.set(url.origin, count);
+        if (url.origin === 'https://gun-c.example.test') {
+          return new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          story_id: STORY.story_id,
+          record: count === 1
+            ? { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end }
+            : record,
+        }), { status: 200 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record,
+        writeClass: 'news-latest-index',
+        validate: () => true,
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+      expect(getCounts).toEqual(new Map([
+        ['https://gun-a.example.test', 2],
+        ['https://gun-b.example.test', 2],
+        ['https://gun-c.example.test', 1],
+      ]));
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
@@ -1877,6 +2357,7 @@ describe('newsAdapters', () => {
       VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
       VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
       VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '100',
     });
     const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
     try {
@@ -1948,6 +2429,7 @@ describe('newsAdapters', () => {
       VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
       VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
       VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+      VH_NEWS_RELAY_REST_READ_TIMEOUT_MS: '100',
     });
     const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
     try {
