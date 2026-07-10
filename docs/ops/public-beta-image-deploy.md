@@ -455,20 +455,31 @@ per-relay readiness/health, snapshot checksum, OOM/watchdog, env-parity, and all
 four exact missing-key checks for story, latest-index, hot-index, and
 synthesis-lifecycle. Immediately before every removal the mutable ref must still
 resolve to the full expected image id; the packet runs that immutable id and
-requires recreated `.Image` equality. A failure rolls back only the current relay to its captured
-immutable image id and exits `78` before the next relay. It never emits an
-origin recreate or publisher start. The generic packet executor is not widened
-for this action.
+requires recreated `.Image` equality. The same removal-boundary gate freshly
+checks the current relay's three captured snapshot hashes. Only after that
+expensive boundary work passes does the packet freshly recheck the exact parked
+publisher tuple, then require
+`systemctl --user list-jobs --no-legend --no-pager` to return no output as the
+last check before the mutation latch. A command failure or any returned job
+fails closed without printing the job row. A failure rolls back only the
+current relay to its captured immutable image id and exits `78` before the next
+relay. On success, A and B may emit `GO for next relay`; C instead reports that
+rolling replacement is complete and the publisher remains parked. The packet
+never emits an origin recreate or publisher start. The generic packet executor
+is not widened for this action.
 
 The publisher is considered parked only when the live tuple is exactly
 `failed/failed`, `Result=exit-code`, `ExecMainStatus=78`. Initial precheck and the
-final command before each A/B/C removal require that tuple; inactive, active,
-activating, deactivating, a different exit code, or a resume between stages all
-stop before mutation. The tuple is checked again after each relay verifies and
-before GO; a resume during verification rolls back that already-mutated relay
-and stops. Topology, relay-health/watchdog, or publisher refusal before removal
-exits `78` without `docker rm`, `docker run`, or rollback of the untouched relay;
-rollback is reachable only after the mutation-started latch.
+final pre-mutation gate sequence before each A/B/C removal require that tuple;
+inactive, active, activating, deactivating, a different exit code, or a resume
+between stages all stop before mutation. The tuple is checked again after each
+relay verifies and before GO; a resume during verification rolls back that
+already-mutated relay and stops. Topology, relay-health/watchdog, or publisher refusal before removal
+exits `78` without `docker rm`, `docker run`, or rollback of the untouched relay.
+The initial executable precheck and every removal boundary also reject a
+nonempty or unreadable user-manager job queue. Snapshot-baseline or user-job
+refusal is likewise pre-mutation; rollback is reachable only after the
+mutation-started latch.
 
 Initial and per-stage metrics treat an absent watchdog-trip row as semantic zero
 because the relay emits rows from an initially empty reason map, but only when

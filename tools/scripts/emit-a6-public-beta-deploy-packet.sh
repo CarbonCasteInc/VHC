@@ -676,8 +676,26 @@ function relayOnlyRunCommandFor(name, image) {
   return shellJoin(parts);
 }
 
+function noPendingUserJobsFunction() {
+  return [
+    'assert_no_pending_user_jobs() {',
+    '  local jobs',
+    '  if ! jobs="$(systemctl --user list-jobs --no-legend --no-pager 2>/dev/null)"; then',
+    '    echo "user_job_queue_unavailable" >&2',
+    '    return 78',
+    '  fi',
+    '  if [[ -n "${jobs}" ]]; then',
+    '    echo "user_job_queue_not_empty" >&2',
+    '    return 78',
+    '  fi',
+    '}',
+  ].join('\n');
+}
+
 function relayOnlyVerifierFunction() {
   return [
+    noPendingUserJobsFunction(),
+    '',
     'assert_publisher_parked() {',
     '  local active sub result status',
     '  if ! active="$(systemctl --user show vh-news-aggregator.service --property=ActiveState --value 2>/dev/null)"; then echo "publisher_parked_state_unavailable" >&2; return 78; fi',
@@ -714,6 +732,10 @@ function relayOnlyVerifierFunction() {
     '  local expected_revision="$5"',
     '  assert_live_topology_parity "${name}" "${expected_topology}" || return 78',
     '  assert_relay_image_binding "${image_ref}" "${expected_id}" "${expected_revision}" || return 78',
+    '  if ! sudo sha256sum -c "/tmp/vhc-public-beta-deploy/${name}.snapshots.sha256" >/dev/null 2>&1; then',
+    '    echo "${name}: snapshot_baseline_drift_at_removal_boundary" >&2',
+    '    return 78',
+    '  fi',
     '}',
     '',
     'assert_live_topology_parity() {',
@@ -1069,6 +1091,10 @@ lines.push('');
 lines.push('```bash');
 lines.push('set -euo pipefail');
 if (relayOnly) lines.push(...privateDeployWorkDirSetupLines());
+if (relayOnly) {
+  lines.push(noPendingUserJobsFunction());
+  lines.push('assert_no_pending_user_jobs');
+}
 lines.push(`sudo docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}" | grep -E ${shellSingleQuote(psPattern)}`);
 lines.push('python3 <<\'PY\'');
 lines.push('import json, os, time');
@@ -1174,7 +1200,7 @@ if (includeRecreate) {
     lines.push('');
     lines.push('Hard execution gate: do not run this section unless recorded Lou authority covers this exact reviewed revision, capture, image id, packet hash, and A/B/C scope, and independent packet review is GO. Approval is limited to A, then B, then C; it does not authorize origin, publisher, data, quorum, timeout, recipient, provider, pager, or monitor mutation.');
     lines.push('');
-    lines.push('Each relay is verified before the next is touched. A fresh live/captured topology comparison and authenticated zero-trip prestate run for that relay, then the publisher must still be exactly `failed/failed`, `Result=exit-code`, `ExecMainStatus=78` as the final gate before removal. An absent watchdog-trip row is semantic zero only when exactly one valid uptime row and one positive process-RSS row authenticate the payload. Any precondition refusal exits `78` without remove, run, or rollback; only the mutation-started latch at the removal boundary enables recovery. After runtime verification, the publisher is checked again before GO. Any failure after mutation begins immediately recreates only the current relay from its captured immutable image id, verifies readiness/topology/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
+    lines.push('Each relay is verified before the next is touched. A fresh live/captured topology comparison, authenticated zero-trip prestate, captured snapshot-baseline check, exact parked publisher check, and empty user-manager job queue are required immediately before removal, in that order. An absent watchdog-trip row is semantic zero only when exactly one valid uptime row and one positive process-RSS row authenticate the payload. Any precondition refusal exits `78` without remove, run, or rollback; only the mutation-started latch at the removal boundary enables recovery. After runtime verification, the publisher is checked again before GO. Any failure after mutation begins immediately recreates only the current relay from its captured immutable image id, verifies readiness/topology/snapshot/OOM state, and exits `78`. Never continue to the next relay after rollback.');
     lines.push('');
     lines.push('```bash');
     lines.push('set -euo pipefail');
@@ -1201,7 +1227,8 @@ if (includeRecreate) {
       lines.push(`  assert_live_topology_parity ${shellSingleQuote(name)} ${shellSingleQuote(expectedTopology)} &&`);
       lines.push(`  assert_relay_prestate ${shellSingleQuote(name)} ${shellSingleQuote(origin)} ${shellSingleQuote(`prestage-${stage.toLowerCase()}`)} &&`);
       lines.push(`  assert_relay_removal_boundary ${shellSingleQuote(name)} ${shellSingleQuote(expectedTopology)} ${shellSingleQuote(newRelayImage)} ${shellSingleQuote(expectedRelayImageId)} ${shellSingleQuote(expectedRelayRevision)} &&`);
-      lines.push('  assert_publisher_parked');
+      lines.push('  assert_publisher_parked &&');
+      lines.push('  assert_no_pending_user_jobs');
       lines.push('}; then');
       lines.push(`  echo "${name}: pre_mutation_refused_no_change" >&2`);
       lines.push('  exit 78');
@@ -1245,14 +1272,16 @@ if (includeRecreate) {
       lines.push('  exit 78');
       lines.push('fi');
       lines.push('relay_mutation_started=false');
-      lines.push(`echo "${name}: GO for next relay"`);
+      lines.push(stage === 'C'
+        ? `echo "${name}: rolling replacement complete; publisher remains parked"`
+        : `echo "${name}: GO for next relay"`);
       lines.push('');
     }
     lines.push('```');
     lines.push('');
     lines.push('## Hard Stop Conditions');
     lines.push('');
-    lines.push('- Stop before container removal on absent recorded Lou authority or exact packet-review GO, non-array/duplicate/extra/malformed relay capture, wrong immutable image id or mutable-ref binding (including same-revision retag), wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78, missing relay, any live/captured image/env/mount/semantic-network/NetworkID/port/restart/user/memory drift, unsupported network attachment state, unreadable or changed snapshot, pre-existing OOM/watchdog trip, unauthenticated or malformed metrics, or non-green readiness. A pre-mutation refusal does not invoke rollback.');
+    lines.push('- Stop before container removal on absent recorded Lou authority or exact packet-review GO, non-array/duplicate/extra/malformed relay capture, wrong immutable image id or mutable-ref binding (including same-revision retag), wrong commit/revision, non-`linux/amd64` image, publisher state other than exact failed/failed exit 78, an unreadable or nonempty user-manager job queue, missing relay, any live/captured image/env/mount/semantic-network/NetworkID/port/restart/user/memory drift, unsupported network attachment state, unreadable or changed snapshot, pre-existing OOM/watchdog trip, unauthenticated or malformed metrics, or non-green readiness. A pre-mutation refusal does not invoke rollback.');
     lines.push('- After mutation begins, roll back the current relay and stop on publisher transition/resume during verification, readiness/health failure, environment mismatch, snapshot checksum drift, OOM/watchdog trip, wrong image id/revision/platform, or any of the four exact missing-key probes returning anything other than its closed 404 body. Unexpected bodies remain private; only a closed reason code may print.');
     lines.push('- Never batch removals, skip A/B/C order, continue after rollback, clear data, alter quorum/timeouts, start the publisher, recreate origin, or use the generic packet executor for this action.');
     lines.push('');
