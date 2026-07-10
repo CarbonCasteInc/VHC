@@ -96,8 +96,9 @@ A subsequent G2 review at `231962bc` found that the v2 fixture was hand-shaped
 rather than producer-authentic. It is now the exact deterministic producer
 webhook payload with a producer-side deep-equality guard. The focused alert,
 pager, incident-response, sprint, docs, and diff gates pass. The same G2
-reviewer returned final `GO` with no P0/P1/P2 at `d6e03308`; PR #762 passed
-every hosted check and merged into the coordination branch at `5116616a`.
+reviewer returned final `GO` with no P0/P1/P2 at `d6e03308`; PR #762 completed
+hosted CI without failure (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged
+into the coordination branch at `5116616a`.
 PR #759 exact-head CI and merge to `main` remain required.
 
 Recovery-packet design also exposed a hard authority contradiction before any

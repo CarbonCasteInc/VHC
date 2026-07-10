@@ -939,8 +939,9 @@ git diff --check
   remains `relay_rest_story_timeout_total_0_of_3_exit_78`. Repo completion does
   not make S1A/S1B green.
 - G2 status at this record: same-reviewer final `GO` at exact integration head
-  `d6e03308`; PR #762 passed every hosted check and merged into this
-  coordination branch as `5116616a`. Every recovery, immediate-readback, soak,
+  `d6e03308`; PR #762 completed hosted CI without failure (8 `SUCCESS`;
+  Ownership Scope `SKIPPED`) and merged into this coordination branch as
+  `5116616a`. Every recovery, immediate-readback, soak,
   and live-green checkbox below intentionally remains open.
 - First G2 cross review at `ddae488e` returned `NO-GO`: P1 present conflicting
   latest/hot/lifecycle rows were hidden as retry-eligible 404s at the real relay
@@ -953,8 +954,9 @@ git diff --check
   deterministic producer webhook payload and a producer-side deep-equality test
   prevents arbitrary v2 relabeling. The focused alert, pager, incident-response,
   sprint, docs, and diff gates pass. The same G2 reviewer returned final `GO`
-  with no P0/P1/P2 at `d6e03308`; PR #762 passed hosted CI and merged at
-  `5116616a`. PR #759 exact-head CI and merge to `main` remain required.
+  with no P0/P1/P2 at `d6e03308`; PR #762 completed hosted CI without failure
+  (8 `SUCCESS`; Ownership Scope `SKIPPED`) and merged at `5116616a`. PR #759
+  exact-head CI and merge to `main` remain required.
 
 - G3 packet preparation found an authority contradiction before any live action:
   `infra/relay/server.js` is copied into immutable relay images and is not bind
