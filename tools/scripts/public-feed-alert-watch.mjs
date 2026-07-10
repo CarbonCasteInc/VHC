@@ -25,6 +25,26 @@ const NEWS_DAEMON_FAIL_CLOSED_EXIT_CODE = '78';
 // blocker strings cannot distinguish a structural `:` or `|` from the same
 // bytes inside a URL, so guessing at those delimiters can expose a suffix.
 const URL_IN_TEXT_PATTERN = /https?:\/\/\S+/gi;
+const FRESHNESS_FAILURE_REASON_CODES = new Set([
+  'latest_index_empty',
+  'latest_index_fetch_failed',
+  'latest_index_stale',
+  'latest_index_timestamp_missing',
+]);
+const FRESHNESS_BLOCKER_CLASSES = new Set([
+  'health_unhealthy',
+  'latest_index_not_fresh',
+  'openai_preflight_failed',
+  'origins_not_configured',
+]);
+const FAILURE_NUMERIC_DIAGNOSTIC_FIELDS = [
+  { source: 'http_status', target: 'httpStatus', min: 100, max: 599 },
+  { source: 'attempt', target: 'attempt', min: 0, max: 1_000_000 },
+  { source: 'age', target: 'age', min: 0, max: Number.MAX_SAFE_INTEGER },
+  { source: 'age_ms', target: 'ageMs', min: 0, max: Number.MAX_SAFE_INTEGER },
+  { source: 'max_age_ms', target: 'maxAgeMs', min: 0, max: Number.MAX_SAFE_INTEGER },
+  { source: 'count', target: 'count', min: 0, max: Number.MAX_SAFE_INTEGER },
+];
 const SEVERITY_RANK = {
   none: 0,
   warning: 1,
@@ -94,22 +114,66 @@ function sortedUniqueStrings(values) {
   return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))].sort();
 }
 
+function structuredFailureReasonCode(value) {
+  const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+  const candidate = match?.[1] ?? null;
+  return candidate && FRESHNESS_FAILURE_REASON_CODES.has(candidate)
+    ? candidate
+    : 'unclassified_failure';
+}
+
 function structuredFailureReasonCodes(values) {
-  return sortedUniqueStrings((Array.isArray(values) ? values : []).map((value) => {
-    const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
-    return match?.[1] ?? 'unclassified_failure';
-  }));
+  return sortedUniqueStrings((Array.isArray(values) ? values : []).map(structuredFailureReasonCode));
+}
+
+function failureNumericDiagnostics(value) {
+  const text = String(value ?? '');
+  const byTarget = new Map();
+  const add = (target, raw, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+    if (!/^\d{1,15}$/.test(String(raw ?? ''))) return;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) return;
+    if (!byTarget.has(target)) byTarget.set(target, new Set());
+    byTarget.get(target).add(parsed);
+  };
+
+  const staleMatch = text.match(/^latest_index_stale:(\d{1,15})\/(\d{1,15})(?=$|[^a-z0-9_./])/i);
+  if (staleMatch) {
+    add('newestAgeMs', staleMatch[1]);
+    add('maxAgeMs', staleMatch[2]);
+  }
+
+  const fieldBySource = new Map(FAILURE_NUMERIC_DIAGNOSTIC_FIELDS.map((field) => [field.source, field]));
+  const pattern = /(?:^|[^a-z0-9_])(http_status|attempt|age|age_ms|max_age_ms|count)\s*[=:]\s*(\d{1,15})(?=$|[^a-z0-9_./])/gi;
+  for (const match of text.matchAll(pattern)) {
+    const field = fieldBySource.get(match[1].toLowerCase());
+    if (field) add(field.target, match[2], field.min, field.max);
+  }
+
+  return Object.fromEntries([...byTarget.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([target, values]) => [target, [...values].sort((left, right) => left - right)]));
 }
 
 function structuredFailureDiagnostics(values) {
-  return sortedUniqueStrings((Array.isArray(values) ? values : []).map(sanitizeAlertText));
+  // Public alert projections must be identical when only arbitrary detail
+  // changes. Never add raw text or a raw-detail-derived hash here.
+  return canonicalObjectSet((Array.isArray(values) ? values : []).map((value) => ({
+    reasonCode: structuredFailureReasonCode(value),
+    numericDiagnostics: failureNumericDiagnostics(value),
+  })));
+}
+
+function blockerClass(value) {
+  const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
+  const candidate = match?.[1] ?? null;
+  return candidate && FRESHNESS_BLOCKER_CLASSES.has(candidate)
+    ? candidate
+    : 'unclassified_blocker';
 }
 
 function blockerClasses(values) {
-  return sortedUniqueStrings((values ?? []).map((value) => {
-    const match = String(value ?? '').trim().toLowerCase().match(/^([a-z][a-z0-9_-]*)(?=:|$)/);
-    return match?.[1] ?? 'unclassified_blocker';
-  }));
+  return sortedUniqueStrings((values ?? []).map(blockerClass));
 }
 
 function blockerReasonCode(value) {
@@ -222,7 +286,7 @@ function summarizeFreshness(summary) {
     schemaVersion: summary?.schemaVersion ?? null,
     generatedAt: summary?.generatedAt ?? null,
     status: summary?.status ?? null,
-    blockers: Array.isArray(summary?.blockers) ? summary.blockers.map(sanitizeAlertText) : [],
+    blockers: blockerClasses(Array.isArray(summary?.blockers) ? summary.blockers : []),
     maxAgeMs: Number.isFinite(summary?.config?.maxAgeMs) ? summary.config.maxAgeMs : null,
     originHashes: Array.isArray(summary?.config?.origins)
       ? summary.config.origins.map((origin) => hashValue(origin))

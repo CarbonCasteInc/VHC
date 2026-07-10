@@ -276,7 +276,10 @@ function semanticFingerprintInput() {
           recordCount: 80,
           failureCount: 8,
           failureReasonCodes: ['latest_index_stale'],
-          failureDiagnostics: ['latest_index_stale:30000000/21600000'],
+          failureDiagnostics: [{
+            reasonCode: 'latest_index_stale',
+            numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_000_000] },
+          }],
         },
         {
           originHash: 'source-a',
@@ -348,9 +351,10 @@ test('semantic fingerprint ignores volatile values and ordering but preserves re
     'latest_index_stale',
     'latest_index_stale',
   ];
-  volatileDrift.freshness.latestIndexReadbacks[1].failureDiagnostics = [
-    'latest_index_stale:30300000/21600000',
-  ];
+  volatileDrift.freshness.latestIndexReadbacks[1].failureDiagnostics = [{
+    reasonCode: 'latest_index_stale',
+    numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_300_000] },
+  }];
   volatileDrift.relayLiveness.relays.reverse();
   volatileDrift.relayLiveness.relays.push(structuredClone(volatileDrift.relayLiveness.relays[0]));
   volatileDrift.relayLiveness.relays[1].blockerCount = 9;
@@ -1156,7 +1160,7 @@ test('stale feed sends a webhook on state change with secret-safe aggregate payl
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.alertReason, 'first_failure');
     assert.equal(body.severity, 'critical');
-    assert.equal(body.blockers.some((blocker) => blocker.includes('url_hash:')), true);
+    assert.equal(body.blockers.includes('public_feed:latest_index_not_fresh'), true);
     assert.equal(body.freshness.latestIndexReadbacks[0].origin, undefined);
     assert.equal(body.freshness.latestIndexReadbacks[0].originHash.length, 16);
     assert.equal(JSON.stringify(body).includes('story-body-not-copied'), false);
@@ -1325,9 +1329,15 @@ test('adversarial configured origin stays fully redacted across webhook and emai
     ];
     for (const [index, payload] of webhookPayloads.entries()) {
       const freshnessBlocker = payload.freshness.blockers[0];
-      assert.match(freshnessBlocker, /^latest_index_not_fresh:url_hash:[0-9a-f]{16}$/);
+      assert.equal(freshnessBlocker, 'latest_index_not_fresh');
       assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureReasonCodes, expectedReasonSets[index]);
-      assert.deepEqual(payload.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedReasonSets[index]);
+      assert.deepEqual(
+        payload.freshness.latestIndexReadbacks[0].failureDiagnostics,
+        expectedReasonSets[index].map((reasonCode) => ({
+          reasonCode,
+          numericDiagnostics: {},
+        })),
+      );
       assert.deepEqual(emailPayloads[index], payload);
     }
 
@@ -1353,7 +1363,7 @@ test('adversarial configured origin stays fully redacted across webhook and emai
   }
 });
 
-test('configured base origin cannot prefix-redact a longer failure URL across alert outputs', async () => {
+test('structured failure projections exclude arbitrary detail across every alert output', async () => {
   const root = tempRoot();
   const calls = [];
   const mail = [];
@@ -1362,29 +1372,66 @@ test('configured base origin cannot prefix-redact a longer failure URL across al
     origin,
     'private/feed?token=prefix:api_key|sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
   ].join('');
-  const failure = `latest_index_fetch_failed:http_status=429 attempt=3 ${failureUrl}`;
+  const nonUrlToken = 'SYNTHETIC_NONURL_TOKEN_SENTINEL_20260710';
+  const secretOnlyToken = 'SYNTHETIC_SECRET_ONLY_CHANGE_20260710';
+  const driftToken = 'SYNTHETIC_NONURL_TOKEN_DRIFT_20260710';
+  const privateValue = 'SYNTHETIC_PRIVATE_FAILURE_VALUE_20260710';
+  const hostEnvValue = 'SYNTHETIC_HOST_ENV_PRIVATE_VALUE_20260710';
+  const punctuationValue = 'SYNTHETIC_WHITESPACE_PUNCTUATION_VALUE_20260710';
+  const unknownReasonCode = 'synthetic_private_reason_code_20260710';
+  const driftUnknownReasonCode = 'synthetic_private_reason_drift_20260710';
   const privateStoryBody = 'synthetic-overlap-private-story-body';
+  const fetchFailure = [
+    'latest_index_fetch_failed:http_status=429 attempt=3',
+    `token=${nonUrlToken}`,
+    `private_value=${privateValue}`,
+    `host_env=(${hostEnvValue})`,
+    `punctuation="{${punctuationValue}}";`,
+    `url=${failureUrl}`,
+  ].join(' ');
+  const staleFailure = `latest_index_stale:30000000/21600000 token=${nonUrlToken}`;
+  const unknownFailure = `${unknownReasonCode}:count=7 private_value=${privateValue}`;
+  const secretOnlyFetchFailure = [
+    'latest_index_fetch_failed:attempt=3 http_status=429',
+    `token=${secretOnlyToken}`,
+    `private_value=CHANGED_${privateValue}`,
+    `host_env={CHANGED_${hostEnvValue}}`,
+    `url=${failureUrl}&secret_only=${secretOnlyToken}`,
+  ].join(' ');
+  const secretOnlyStaleFailure = `latest_index_stale:30000000/21600000 token=${secretOnlyToken}`;
+  const secretOnlyUnknownFailure = `different_private_reason_20260710:count=7 token=${secretOnlyToken}`;
+  const driftFetchFailure = [
+    'latest_index_fetch_failed:attempt=4 http_status=503',
+    `token=${driftToken}`,
+    `private_value=${privateValue}`,
+    `host_env=[${hostEnvValue}]`,
+    `url=${failureUrl}`,
+  ].join(' ');
+  const driftStaleFailure = `latest_index_stale:30300000/21600000 token=${driftToken}`;
+  const driftUnknownFailure = `${driftUnknownReasonCode}:count=8 host_env=${hostEnvValue}`;
+  let failures = [fetchFailure, unknownFailure, staleFailure, fetchFailure];
+  let newestAgeMs = 30_000_000;
   try {
-    const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+    const options = {
       env: baseEnv(root, {
         VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
         VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
         VH_PUBLIC_FEED_ALERT_SENDMAIL: '/usr/sbin/sendmail',
+        VH_SYNTHETIC_PRIVATE_HOST_VALUE: hostEnvValue,
       }),
       repoRoot: root,
-      now: Date.parse('2026-07-02T18:00:00.000Z'),
       systemctlShowText: activeSystemctl(),
       freshnessMonitorImpl: async () => freshnessSummary({
         status: 'fail',
-        blockers: [`latest_index_not_fresh:${origin}:${failure}`],
+        blockers: [`latest_index_not_fresh:${origin}:${failures.join('|')}`],
         config: { origins: [origin], maxAgeMs: 21_600_000 },
         latestIndexReadbacks: [{
           origin,
           status: 'fail',
           recordCount: 0,
-          newestAgeMs: null,
+          newestAgeMs,
           maxAgeMs: 21_600_000,
-          failures: [failure],
+          failures,
           storyIds: [privateStoryBody],
         }],
       }),
@@ -1396,28 +1443,87 @@ test('configured base origin cannot prefix-redact a longer failure URL across al
         mail.push({ command, args, input: spawnOptions.input });
         return { status: 0, stdout: '', stderr: '' };
       },
+    };
+
+    const first = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:00:00.000Z'),
+    });
+    failures = [staleFailure, unknownFailure, fetchFailure, staleFailure, unknownFailure, fetchFailure];
+    const reordered = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:01:00.000Z'),
+    });
+    failures = [secretOnlyFetchFailure, secretOnlyUnknownFailure, secretOnlyStaleFailure, secretOnlyFetchFailure];
+    const secretOnlyDrift = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:02:00.000Z'),
+    });
+    failures = [driftUnknownFailure, driftStaleFailure, driftFetchFailure, driftFetchFailure];
+    newestAgeMs = 30_300_000;
+    const numericDrift = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+      ...options,
+      now: Date.parse('2026-07-02T18:03:00.000Z'),
     });
 
-    assert.equal(summary.delivery.status, 'sent');
+    assert.equal(first.delivery.status, 'sent');
+    assert.equal(reordered.fingerprint, first.fingerprint);
+    assert.equal(reordered.delivery.status, 'suppressed');
+    assert.equal(secretOnlyDrift.fingerprint, first.fingerprint);
+    assert.equal(secretOnlyDrift.delivery.status, 'suppressed');
+    assert.equal(numericDrift.fingerprint, first.fingerprint);
+    assert.equal(numericDrift.delivery.status, 'suppressed');
     assert.equal(calls.length, 1);
     assert.equal(mail.length, 1);
-    assert.deepEqual(summary.freshness.latestIndexReadbacks[0].failureReasonCodes, [
+    assert.deepEqual(first.freshness.blockers, ['latest_index_not_fresh']);
+    assert.deepEqual(first.blockers, ['public_feed:latest_index_not_fresh']);
+    assert.deepEqual(first.freshness.latestIndexReadbacks[0].failureReasonCodes, [
       'latest_index_fetch_failed',
+      'latest_index_stale',
+      'unclassified_failure',
     ]);
-    assert.match(
-      summary.freshness.latestIndexReadbacks[0].failureDiagnostics[0],
-      /^latest_index_fetch_failed:http_status=429 attempt=3 url_hash:[0-9a-f]{16}$/,
-    );
-    assert.equal(summary.freshness.latestIndexReadbacks[0].recordCount, 0);
-    assert.equal(summary.freshness.latestIndexReadbacks[0].newestAgeMs, null);
-    assert.equal(summary.freshness.latestIndexReadbacks[0].maxAgeMs, 21_600_000);
+    const expectedFirstDiagnostics = [
+      {
+        reasonCode: 'latest_index_fetch_failed',
+        numericDiagnostics: { attempt: [3], httpStatus: [429] },
+      },
+      {
+        reasonCode: 'latest_index_stale',
+        numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_000_000] },
+      },
+      {
+        reasonCode: 'unclassified_failure',
+        numericDiagnostics: { count: [7] },
+      },
+    ];
+    assert.deepEqual(first.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(reordered.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(secretOnlyDrift.freshness.latestIndexReadbacks[0].failureDiagnostics, expectedFirstDiagnostics);
+    assert.deepEqual(secretOnlyDrift.freshness.latestIndexReadbacks, first.freshness.latestIndexReadbacks);
+    assert.deepEqual(numericDrift.freshness.latestIndexReadbacks[0].failureDiagnostics, [
+      {
+        reasonCode: 'latest_index_fetch_failed',
+        numericDiagnostics: { attempt: [4], httpStatus: [503] },
+      },
+      {
+        reasonCode: 'latest_index_stale',
+        numericDiagnostics: { maxAgeMs: [21_600_000], newestAgeMs: [30_300_000] },
+      },
+      {
+        reasonCode: 'unclassified_failure',
+        numericDiagnostics: { count: [8] },
+      },
+    ]);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].recordCount, 0);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].newestAgeMs, 30_300_000);
+    assert.equal(numericDrift.freshness.latestIndexReadbacks[0].maxAgeMs, 21_600_000);
 
     const webhookPayload = JSON.parse(calls[0].init.body);
     const parsedEmail = parseTextEmail(mail[0].input);
     assert.equal(parsedEmail.headers['mime-version'], '1.0');
     assert.equal(parsedEmail.headers['content-type'], 'text/plain; charset=utf-8');
     assert.deepEqual(JSON.parse(parsedEmail.body), webhookPayload);
-    const consoleOutput = JSON.stringify({
+    const consoleOutput = (summary) => JSON.stringify({
       status: summary.status,
       observedStatus: summary.observedStatus,
       severity: summary.severity,
@@ -1427,11 +1533,14 @@ test('configured base origin cannot prefix-redact a longer failure URL across al
       outputFile: summary.outputFile,
     });
     const serializedOutputs = [
-      JSON.stringify(summary),
+      JSON.stringify([first, reordered, secretOnlyDrift, numericDrift]),
       calls[0].init.body,
       mail[0].input,
       readFileSync(path.join(root, 'latest.json'), 'utf8'),
-      consoleOutput,
+      consoleOutput(first),
+      consoleOutput(reordered),
+      consoleOutput(secretOnlyDrift),
+      consoleOutput(numericDrift),
     ];
     const forbiddenFragments = [
       origin,
@@ -1440,6 +1549,15 @@ test('configured base origin cannot prefix-redact a longer failure URL across al
       'private/feed?token=',
       'prefix:api_key',
       'sk-proj-SYNTHETIC-OVERLAP-NOT-A-REAL-KEY',
+      nonUrlToken,
+      secretOnlyToken,
+      driftToken,
+      privateValue,
+      hostEnvValue,
+      punctuationValue,
+      unknownReasonCode,
+      'different_private_reason_20260710',
+      driftUnknownReasonCode,
       privateStoryBody,
     ];
     for (const output of serializedOutputs) {
