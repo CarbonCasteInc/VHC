@@ -278,15 +278,32 @@ function endpointIdentityHash(value) {
   }
 }
 
+function canonicalProjectionJson(value) {
+  const canonicalize = (entry) => {
+    if (Array.isArray(entry)) return entry.map((item) => canonicalize(item));
+    if (!entry || typeof entry !== 'object') return entry;
+    return Object.fromEntries(Object.keys(entry)
+      .filter((key) => entry[key] !== undefined)
+      .sort()
+      .map((key) => [key, canonicalize(entry[key])]));
+  };
+  return JSON.stringify(canonicalize(value));
+}
+
 function canonicalIdentifiedEntries(values, identityKey = 'identityHash') {
   return values
-    .map((value, index) => ({ ...value, sourceOrdinal: index + 1 }))
+    .map(({ ordinal, sourceOrdinal, ...projectedValue }) => projectedValue)
     .sort((left, right) => {
-      const leftKey = left[identityKey] ?? `~${String(left.sourceOrdinal).padStart(8, '0')}`;
-      const rightKey = right[identityKey] ?? `~${String(right.sourceOrdinal).padStart(8, '0')}`;
-      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      const leftProjection = canonicalProjectionJson(left);
+      const rightProjection = canonicalProjectionJson(right);
+      const leftIdentity = left[identityKey];
+      const rightIdentity = right[identityKey];
+      const leftKey = leftIdentity ? `identified:${leftIdentity}` : `anonymous:${leftProjection}`;
+      const rightKey = rightIdentity ? `identified:${rightIdentity}` : `anonymous:${rightProjection}`;
+      if (leftKey !== rightKey) return leftKey < rightKey ? -1 : 1;
+      return leftProjection < rightProjection ? -1 : leftProjection > rightProjection ? 1 : 0;
     })
-    .map(({ sourceOrdinal, ...value }, index) => ({ ...value, ordinal: index + 1 }));
+    .map((value, index) => ({ ...value, ordinal: index + 1 }));
 }
 
 function projectedEnum(value, allowed, fallback = 'unknown') {

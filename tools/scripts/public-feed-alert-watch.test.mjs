@@ -2904,3 +2904,234 @@ test('CLI unhandled errors print only the fixed public error class', () => {
     for (const root of roots) rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('anonymous projected identities are canonical across secret rotation and mixed-status reorder', async (t) => {
+  const now = Date.parse('2026-07-02T18:00:00.000Z');
+  const rows = [
+    {
+      name: 'freshness readbacks',
+      configure(root) {
+        return {};
+      },
+      freshness(secret, { reverse = false, changed = false } = {}) {
+        const entries = [
+          {
+            origin: `private fail origin ${secret}`,
+            status: 'fail',
+            recordCount: 0,
+            newestAgeMs: 30_000_000,
+            maxAgeMs: 21_600_000,
+            failures: ['latest_index_stale:30000000/21600000'],
+          },
+          {
+            origin: `private pass origin ${secret}`,
+            status: changed ? 'fail' : 'pass',
+            recordCount: 80,
+            newestAgeMs: 120_000,
+            maxAgeMs: 21_600_000,
+            failures: changed ? ['latest_index_empty'] : [],
+          },
+        ];
+        if (reverse) entries.reverse();
+        return freshnessSummary({
+          status: 'fail',
+          blockers: [`latest_index_not_fresh:private-origin-${secret}:latest_index_stale:30000000/21600000`],
+          config: {
+            origins: [`private fail origin ${secret}`, `private pass origin ${secret}`],
+            maxAgeMs: 21_600_000,
+          },
+          latestIndexReadbacks: entries,
+        });
+      },
+    },
+    {
+      name: 'relay liveness relays',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const relays = [
+          {
+            name: `private-relay-fail-${secret}`,
+            status: 'fail',
+            blockers: [`readyz_failed:${secret}`],
+            docker: { restartCount: 1 },
+            metrics: { rssBytes: 2, heapUsedBytes: 1, watchdogTrips: 0, eventLoopLagP99Ms: 3, criticalReadbacksQueued: 0 },
+          },
+          {
+            name: `private-relay-pass-${secret}`,
+            status: changed ? 'fail' : 'pass',
+            blockers: changed ? [`metrics_failed:${secret}`] : [],
+            docker: { restartCount: 0 },
+            metrics: { rssBytes: 4, heapUsedBytes: 2, watchdogTrips: 0, eventLoopLagP99Ms: 5, criticalReadbacksQueued: 0 },
+          },
+        ];
+        if (reverse) relays.reverse();
+        return writeAuxReports(root, {
+          relay: relayLivenessReport({ status: 'fail', blockers: [`private-${secret}`], relays }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+    {
+      name: 'relay snapshots',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const snapshots = [
+          {
+            file: `/private/${secret}/vhc-relay-private_${secret}/fail.json`,
+            status: 'fail',
+            failures: [`snapshot_parse_failed:${secret}`],
+            entryCount: 0,
+            cachedAgeMs: 60_000,
+            newestEntryAgeMs: 30_000_000,
+            freshnessFailures: ['newest_entry_stale:30000000/21600000'],
+          },
+          {
+            file: `/private/${secret}/vhc-relay-private_${secret}/pass.json`,
+            status: changed ? 'fail' : 'pass',
+            failures: changed ? ['entries_empty'] : [],
+            entryCount: changed ? 0 : 80,
+            cachedAgeMs: 60_000,
+            newestEntryAgeMs: 120_000,
+            freshnessFailures: [],
+          },
+        ];
+        if (reverse) snapshots.reverse();
+        return writeAuxReports(root, {
+          snapshot: relaySnapshotReport({ status: 'fail', blockers: [`private-${secret}`], snapshots }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+    {
+      name: 'watch relay memory',
+      configure(root, secret, { reverse = false, changed = false } = {}) {
+        const relays = [
+          {
+            name: `private-relay-warn-${secret}`,
+            trendStatus: 'warn',
+            heapPlateauVerdict: 'heap_still_linear',
+            heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+            shortestProjectedLimitHours: 24,
+          },
+          {
+            name: `private-relay-pass-${secret}`,
+            trendStatus: changed ? 'fail' : 'pass',
+            heapPlateauVerdict: changed ? 'heap_still_linear' : 'heap_plateau_observed',
+            heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+            shortestProjectedLimitHours: 240,
+          },
+        ];
+        if (reverse) relays.reverse();
+        return writeAuxReports(root, {
+          closure: watchClosureVerdict({
+            status: 'in_progress',
+            blockers: [],
+            relayMemory: {
+              status: 'warn',
+              heapPlateauVerdict: 'heap_plateau_observed',
+              heapLimitSource: 'VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES',
+              rssLimitSource: 'VH_RELAY_WATCHDOG_MAX_RSS_BYTES',
+              relays,
+            },
+          }),
+        });
+      },
+      freshness() {
+        return freshnessSummary();
+      },
+    },
+  ];
+
+  for (const row of rows.slice(0, 4)) {
+    await t.test(row.name, async () => {
+      const roots = [];
+      const runVariant = async (secret, options) => {
+        const root = tempRoot();
+        roots.push(root);
+        const webhookCalls = [];
+        const mail = [];
+        const summary = await publicFeedAlertWatchInternal.runPublicFeedAlertWatch({
+          env: baseEnv(root, {
+            ...row.configure(root, secret, options),
+            VH_PUBLIC_FEED_ALERT_TEST_FIRE: '1',
+            VH_PUBLIC_FEED_ALERT_WEBHOOK_URL: 'https://hooks.example.invalid/token',
+            VH_PUBLIC_FEED_ALERT_EMAIL_TO: 'operator@example.invalid',
+          }),
+          repoRoot: root,
+          now,
+          systemctlShowText: activeSystemctl(),
+          freshnessMonitorImpl: async () => row.freshness(secret, options),
+          fetchImpl: async (url, init) => {
+            webhookCalls.push({ url, init });
+            return { ok: true, status: 204 };
+          },
+          spawnSyncImpl: (command, args, spawnOptions) => {
+            mail.push(spawnOptions.input);
+            return { status: 0, stdout: '', stderr: '' };
+          },
+        });
+        const parsedMail = parseTextEmail(mail[0]);
+        return {
+          summary,
+          webhook: JSON.parse(webhookCalls[0].init.body),
+          mime: { subject: parsedMail.headers.subject, payload: JSON.parse(parsedMail.body) },
+          latest: JSON.parse(readFileSync(path.join(root, 'latest.json'), 'utf8')),
+          console: publicFeedAlertWatchInternal.alertConsoleProjection(summary),
+        };
+      };
+
+      try {
+        const baseline = await runVariant('SYNTHETIC_ANON_SECRET_A_20260710', { reverse: false });
+        const reordered = await runVariant('SYNTHETIC_ANON_SECRET_B_20260710', { reverse: true });
+        const semanticChange = await runVariant('SYNTHETIC_ANON_SECRET_C_20260710', { changed: true });
+        assert.deepEqual(reordered, baseline);
+        assert.notEqual(semanticChange.summary.fingerprint, baseline.summary.fingerprint);
+        assert.equal(JSON.stringify(baseline).includes('SYNTHETIC_ANON_SECRET_A_20260710'), false);
+        if (row.name === 'relay liveness relays') {
+          const relays = baseline.summary.relayLiveness.relays;
+          assert.equal(relays.length, 2);
+          assert.deepEqual(relays.map((relay) => relay.ordinal), [1, 2]);
+          assert.deepEqual(relays.map((relay) => relay.identityHash), [null, null]);
+          assert.deepEqual(relays.map((relay) => relay.status).sort(), ['fail', 'pass']);
+          assert.deepEqual(relays.flatMap((relay) => relay.reasonCodes).sort(), ['readyz_failed']);
+          assert.deepEqual(relays.map((relay) => relay.rssBytes).sort((a, b) => a - b), [2, 4]);
+        }
+        if (row.name === 'relay snapshots') {
+          const snapshots = baseline.summary.relaySnapshot.snapshots;
+          assert.equal(snapshots.length, 2);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.ordinal), [1, 2]);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.relayIdentityHash), [null, null]);
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.status).sort(), ['fail', 'pass']);
+          assert.deepEqual(
+            snapshots.flatMap((snapshot) => snapshot.reasonCodes).sort(),
+            ['newest_entry_stale', 'snapshot_parse_failed'],
+          );
+          assert.deepEqual(snapshots.map((snapshot) => snapshot.entryCount).sort((a, b) => a - b), [0, 80]);
+          assert.deepEqual(
+            snapshots.map((snapshot) => snapshot.newestEntryAgeMs).sort((a, b) => a - b),
+            [120_000, 30_000_000],
+          );
+        }
+        if (row.name === 'watch relay memory') {
+          const relays = baseline.summary.watchClosure.relayMemory.relays;
+          assert.equal(relays.length, 2);
+          assert.deepEqual(relays.map((relay) => relay.ordinal), [1, 2]);
+          assert.deepEqual(relays.map((relay) => relay.identityHash), [null, null]);
+          assert.deepEqual(relays.map((relay) => relay.trendStatus).sort(), ['pass', 'warn']);
+          assert.deepEqual(
+            relays.map((relay) => relay.heapPlateauVerdict).sort(),
+            ['heap_plateau_observed', 'heap_still_linear'],
+          );
+          assert.deepEqual(
+            relays.map((relay) => relay.shortestProjectedLimitHours).sort((a, b) => a - b),
+            [24, 240],
+          );
+        }
+      } finally {
+        for (const root of roots) rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
