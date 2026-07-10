@@ -2893,12 +2893,28 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
   const storyTimeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_STORY_REST_READ_TIMEOUT_MS', 1_500);
   const allowSnapshotFallback = options.allowSnapshotFallback !== false
     && boolEnv('VH_RELAY_NEWS_STORY_SNAPSHOT_FALLBACK', true);
+  const preferCompleteRecord = options.preferCompleteRecord === true;
   const parseReadResult = (result) => {
     if (result.kind === 'direct') {
       const direct = stripGunMetadata(result.value);
       const envelope = direct && typeof direct === 'object'
         ? parseStoryBundleEnvelope(direct.__story_bundle_json)
         : null;
+      if (preferCompleteRecord && direct && typeof direct === 'object') {
+        // The compatibility scalar is sufficient for the public story-body
+        // response, but it is not the complete signed system-writer record
+        // required to reconcile an unacknowledged POST. Suppress only this
+        // legacy scalar-only shape; other malformed direct rows must still be
+        // returned so the caller can fail closed on signed-record validation.
+        const directKeys = Object.keys(direct);
+        if (directKeys.length === 0 || directKeys.every((key) => key === '__story_bundle_json')) {
+          return null;
+        }
+        return {
+          record: direct,
+          story: envelope?.story_id === storyId ? envelope : { story_id: storyId },
+        };
+      }
       if (envelope?.story_id === storyId) {
         return {
           record: direct,
@@ -2916,18 +2932,32 @@ async function readNewsStoryRecord(gun, storyId, options = {}) {
     }
     return null;
   };
-  const pending = storyChains.flatMap((storyChain) => [
+  const directPending = storyChains.map((storyChain) =>
     readOnce(storyChain, storyTimeoutMs).then((value) => ({ kind: 'direct', value })),
+  );
+  const scalarPending = storyChains.map((storyChain) =>
     readNonNullOnce(storyChain.get('__story_bundle_json'), storyTimeoutMs)
       .then((value) => ({ kind: 'scalar', value })),
-  ]);
-  while (pending.length > 0) {
-    const { index, result } = await Promise.race(
-      pending.map((promise, index) => promise.then((result) => ({ index, result }))),
-    );
-    pending.splice(index, 1);
-    const parsed = parseReadResult(result);
-    if (parsed) return parsed;
+  );
+  const firstParsed = async (work) => {
+    const pending = [...work];
+    while (pending.length > 0) {
+      const { index, result } = await Promise.race(
+        pending.map((promise, index) => promise.then((result) => ({ index, result }))),
+      );
+      pending.splice(index, 1);
+      const parsed = parseReadResult(result);
+      if (parsed) return parsed;
+    }
+    return null;
+  };
+  if (preferCompleteRecord) {
+    const direct = await firstParsed(directPending);
+    if (direct) return direct;
+    return null;
+  } else {
+    const first = await firstParsed([...directPending, ...scalarPending]);
+    if (first) return first;
   }
   return allowSnapshotFallback ? readNewsStoryRecordFromLatestIndexSnapshot(storyId) : null;
 }
@@ -2944,6 +2974,72 @@ async function readNewsSynthesisLifecycleRecord(gun, storyId, options = {}) {
   const direct = parseNewsSynthesisLifecycleRecord(await readOnce(lifecycleChain, timeoutMs), storyId);
   if (direct || options.allowSnapshotFallback === false) return direct;
   return readNewsSynthesisLifecycleRecordFromSnapshot(storyId);
+}
+
+function isCompleteSignedNewsSynthesisLifecycleRecord(record, storyId) {
+  const statusValues = new Set([
+    'pending',
+    'in_progress',
+    'accepted_available',
+    'retryable_failure',
+    'terminal_unavailable',
+    'suppressed',
+  ]);
+  const frameTableValues = new Set([
+    'frame_table_pending',
+    'frame_table_ready',
+    'frame_table_unavailable',
+  ]);
+  return Boolean(
+    record
+    && typeof record === 'object'
+    && record.schemaVersion === 'vh-news-synthesis-lifecycle-v1'
+    && record.story_id === storyId
+    && typeof record.topic_id === 'string'
+    && record.topic_id.trim()
+    && typeof record.source_set_revision === 'string'
+    && record.source_set_revision.trim()
+    && Number.isFinite(record.source_count)
+    && record.source_count >= 0
+    && Number.isFinite(record.canonical_source_count)
+    && record.canonical_source_count >= 0
+    && statusValues.has(record.status)
+    && typeof record.retryable === 'boolean'
+    && frameTableValues.has(record.frame_table_state)
+    && Number.isFinite(record.updated_at)
+    && record.updated_at >= 0
+    && typeof record._protocolVersion === 'string'
+    && record._protocolVersion.trim()
+    && record._writerKind === 'system'
+    && typeof record._systemWriterId === 'string'
+    && record._systemWriterId.trim()
+    && Number.isFinite(record._systemIssuedAt)
+    && record._systemIssuedAt >= 0
+    && typeof record._systemSignature === 'string'
+    && record._systemSignature.trim()
+  );
+}
+
+async function readNewsSynthesisLifecycleExactRecord(gun, storyId, options = {}) {
+  const lifecycleChain = gun
+    .get('vh')
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('synthesis_lifecycle')
+    .get('latest');
+  const timeoutMs = options.timeoutMs ?? numberEnv('VH_RELAY_NEWS_LIFECYCLE_REST_READ_TIMEOUT_MS', 750);
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const direct = stripGunMetadata(await readOnce(lifecycleChain, Math.min(remainingMs, 250)));
+    if (isCompleteSignedNewsSynthesisLifecycleRecord(direct, storyId)) {
+      return direct;
+    }
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(25, Math.max(1, deadline - Date.now()))));
+  } while (Date.now() < deadline);
+  return null;
 }
 
 async function readNewsSynthesisLifecycleRecordFromFields(gun, storyId, options = {}) {
@@ -6112,11 +6208,12 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && pathname === '/vh/news/story') {
     const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    const exactReadback = parsedUrl.searchParams.get('readback') === 'exact';
     if (!storyId) {
       sendJson(res, 400, { ok: false, error: 'story_id-required' });
       return;
     }
-    void readNewsStoryRecord(gun, storyId)
+    void readNewsStoryRecord(gun, storyId, { preferCompleteRecord: exactReadback })
       .then((result) => {
         if (!result) {
           sendJson(res, 404, { ok: false, error: 'news-story-not-found', story_id: storyId });
@@ -6143,6 +6240,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/vh/news/latest-index') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
@@ -6161,6 +6259,37 @@ const server = http.createServer((req, res) => {
         error: 'latest-index-persist-mode-unsupported',
         supported_persist_values: ['false'],
       });
+      return;
+    }
+    if (storyId) {
+      void readNewsLatestIndexRecord(
+        gun,
+        storyId,
+        numberEnv('VH_RELAY_NEWS_LATEST_INDEX_REST_READ_TIMEOUT_MS', 1_500),
+      )
+        .then((record) => {
+          if (!record) {
+            sendJson(res, 404, {
+              ok: false,
+              error: 'news-latest-index-not-found',
+              story_id: storyId,
+            });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            story_id: storyId,
+            record,
+          });
+        })
+        .catch((error) => {
+          sendJson(res, 502, {
+            ok: false,
+            error_class: 'vh-relay-502',
+            error: error instanceof Error ? error.message : String(error),
+            story_id: storyId,
+          });
+        });
       return;
     }
     void readNewsLatestIndexRecordsWithEmptyRetry(
@@ -6215,10 +6344,42 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/vh/news/hot-index') {
+    const storyId = parsedUrl.searchParams.get('story_id')?.trim();
     const limit = parsedUrl.searchParams.get('limit');
     const includeRoot = boolEnv('VH_RELAY_NEWS_HOT_INDEX_REST_INCLUDE_ROOT', false)
       || parsedUrl.searchParams.get('include_root') === 'true';
     const scanLimit = parsedUrl.searchParams.get('scan_limit');
+    if (storyId) {
+      void readNewsHotIndexRecord(
+        gun,
+        storyId,
+        numberEnv('VH_RELAY_NEWS_HOT_INDEX_REST_READ_TIMEOUT_MS', 1_500),
+      )
+        .then((record) => {
+          if (!record) {
+            sendJson(res, 404, {
+              ok: false,
+              error: 'news-hot-index-not-found',
+              story_id: storyId,
+            });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            story_id: storyId,
+            record,
+          });
+        })
+        .catch((error) => {
+          sendJson(res, 502, {
+            ok: false,
+            error_class: 'vh-relay-502',
+            error: error instanceof Error ? error.message : String(error),
+            story_id: storyId,
+          });
+        });
+      return;
+    }
     void readNewsHotIndexRecords(gun, { limit, includeRoot, scanLimit })
       .then((result) => {
         const payload = {
@@ -6245,16 +6406,19 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && pathname === '/vh/news/synthesis-lifecycle') {
     const storyId = parsedUrl.searchParams.get('story_id')?.trim();
+    const exactReadback = parsedUrl.searchParams.get('readback') === 'exact';
     if (!storyId) {
       sendJson(res, 400, { ok: false, error: 'story_id-required' });
       return;
     }
-    void Promise.all([
-      readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
-      readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
-    ])
-      .then(([direct, fromFields]) => {
-        const lifecycle = direct ?? fromFields;
+    const lifecycleRead = exactReadback
+      ? readNewsSynthesisLifecycleExactRecord(gun, storyId)
+      : Promise.all([
+        readNewsSynthesisLifecycleRecord(gun, storyId).catch(() => null),
+        readNewsSynthesisLifecycleRecordFromFields(gun, storyId).catch(() => null),
+      ]).then(([direct, fromFields]) => direct ?? fromFields);
+    void lifecycleRead
+      .then((lifecycle) => {
         if (!lifecycle) {
           sendJson(res, 404, {
             ok: false,

@@ -16,6 +16,7 @@ import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
   type SystemWriterPin,
   type SystemWriterSignHook,
 } from './systemWriter';
@@ -69,7 +70,9 @@ import {
   writeNewsLatestIndexEntry,
   writeNewsSynthesisLifecycleStatus,
   writeNewsStory,
+  RelayRestAvailabilityTotalFailureError,
   RelayRestTransportTotalFailureError,
+  isRelayRestAvailabilityTotalFailureError,
   isRelayRestTransportTotalFailureError,
 } from './newsAdapters';
 
@@ -702,7 +705,7 @@ describe('newsAdapters', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       await expect(writeNewsStory(client, STORY)).rejects.toThrow(
-        'VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[https://gun-a.example.test] is required for relay REST news writes',
+        'Relay daemon token is required for relay REST news write target relay-1',
       );
       expect(mesh.writes).toEqual([]);
       expect(fetchMock).not.toHaveBeenCalled();
@@ -739,7 +742,7 @@ describe('newsAdapters', () => {
 
       await expect(
         writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
-      ).rejects.toThrow('Relay REST news write failed for /vh/news/latest-index: 1/2 succeeded');
+      ).rejects.toThrow('Relay REST news write failed for /vh/news/latest-index: 1/2 confirmed');
       expect(mesh.writes).toEqual([]);
       expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).origin)).toEqual([
         'https://gun-a.example.test',
@@ -794,7 +797,7 @@ describe('newsAdapters', () => {
         relay_success_count: 2,
         relay_target_count: 3,
         relay_required_success_count: 2,
-        relay_failed_endpoint_labels: ['https://gun-b.example.test'],
+        relay_failed_endpoint_labels: ['relay-2'],
         min_success_configured: true,
       }));
     } finally {
@@ -848,7 +851,7 @@ describe('newsAdapters', () => {
 
       await expect(
         writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
-      ).rejects.toThrow(/failed=https:\/\/gun-b\.example\.test:relay-backpressure/);
+      ).rejects.toThrow(/relay-2:http_response:relay-backpressure/);
       expect(mesh.writes).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
@@ -888,7 +891,7 @@ describe('newsAdapters', () => {
 
       await expect(
         writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
-      ).rejects.toThrow(/failed=https:\/\/gun-b\.example\.test:http-503; https:\/\/gun-c\.example\.test:http-503/);
+      ).rejects.toThrow(/relay-2:http_response:http-503; relay-3:http_response:http-503/);
       expect(mesh.writes).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
@@ -929,7 +932,7 @@ describe('newsAdapters', () => {
       await expect(
         writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
       ).rejects.toThrow(
-        'Relay REST news write failed for /vh/news/latest-index: 1/3 succeeded; required=2',
+        'Relay REST news write failed for /vh/news/latest-index: 1/3 confirmed; required=2',
       );
       expect(mesh.writes).toEqual([]);
     } finally {
@@ -958,20 +961,30 @@ describe('newsAdapters', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-      const fetchMock = vi
-        .fn()
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockResolvedValueOnce(okResponse())
-        .mockResolvedValueOnce(okResponse())
-        .mockResolvedValueOnce(okResponse());
+      let postCount = 0;
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return new Response(JSON.stringify({ ok: false, error: 'news-latest-index-not-found' }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        postCount += 1;
+        if (postCount <= 3) {
+          throw new TypeError('fetch failed');
+        }
+        return okResponse();
+      });
       vi.stubGlobal('fetch', fetchMock);
 
       await expect(
         writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY),
       ).resolves.toBeUndefined();
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(fetchMock).toHaveBeenCalledTimes(9);
+      const postBodies = fetchMock.mock.calls
+        .filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => init?.body);
+      expect(new Set(postBodies).size).toBe(1);
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
@@ -1068,14 +1081,17 @@ describe('newsAdapters', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
-      const fetchMock = vi
-        .fn()
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockRejectedValueOnce(new TypeError('fetch failed'))
-        .mockResolvedValueOnce(okResponse())
-        .mockResolvedValueOnce(okResponse())
-        .mockResolvedValueOnce(okResponse());
+      let postCount = 0;
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        postCount += 1;
+        if (postCount <= 3) {
+          throw new TypeError('fetch failed');
+        }
+        return okResponse();
+      });
       vi.stubGlobal('fetch', fetchMock);
 
       await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
@@ -1086,9 +1102,9 @@ describe('newsAdapters', () => {
         validate: (payload) => payload.ok === true,
       })).resolves.toBeUndefined();
 
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(fetchMock).toHaveBeenCalledTimes(9);
       expect(warn).toHaveBeenCalledWith(
-        '[vh:news] relay REST write transport-unavailable; retrying',
+        '[vh:news] relay REST write availability-total; retrying unresolved targets',
         expect.objectContaining({
           attempt: 1,
           max_attempts: 2,
@@ -1132,10 +1148,11 @@ describe('newsAdapters', () => {
       );
       expect(failure).toBeInstanceOf(Error);
       expect(isRelayRestTransportTotalFailureError(failure)).toBe(true);
-      expect((failure as Error).message).toContain('0/3 succeeded');
-      expect((failure as Error).message).toContain('transport_unavailable_attempts=2');
+      expect((failure as Error).message).toContain('0/3 confirmed');
+      expect((failure as Error).message).toContain('availability_total_attempts=2');
       expect((failure as RelayRestTransportTotalFailureError).attemptCount).toBe(2);
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(12);
       expect(mesh.writes).toEqual([]);
     } finally {
       vi.unstubAllGlobals();
@@ -1180,8 +1197,9 @@ describe('newsAdapters', () => {
       );
       expect(failure).toBeInstanceOf(Error);
       expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
-      expect((failure as Error).message).toContain('0/3 succeeded');
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect((failure as Error).message).toContain('0/3 confirmed');
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(2);
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
@@ -1189,7 +1207,7 @@ describe('newsAdapters', () => {
     }
   });
 
-  it('writeNewsLatestIndexEntry does not retry abort/timeout failures', async () => {
+  it('writeNewsLatestIndexEntry reconciles and bounded-retries abort/deadline availability-total', async () => {
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
       VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
@@ -1209,11 +1227,12 @@ describe('newsAdapters', () => {
         error.name = 'AbortError';
         return error;
       };
-      const fetchMock = vi
-        .fn()
-        .mockRejectedValueOnce(abortError())
-        .mockRejectedValueOnce(abortError())
-        .mockRejectedValueOnce(abortError());
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        throw abortError();
+      });
       vi.stubGlobal('fetch', fetchMock);
 
       const failure = await writeNewsLatestIndexEntry(
@@ -1227,7 +1246,10 @@ describe('newsAdapters', () => {
       );
       expect(failure).toBeInstanceOf(Error);
       expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect(failure).toBeInstanceOf(RelayRestAvailabilityTotalFailureError);
+      expect((failure as RelayRestAvailabilityTotalFailureError).attemptCount).toBe(3);
+      expect(fetchMock).toHaveBeenCalledTimes(18);
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
@@ -1235,7 +1257,7 @@ describe('newsAdapters', () => {
     }
   });
 
-  it('writeNewsLatestIndexEntry does not retry undici dispatcher timeouts wrapped as fetch failed', async () => {
+  it('writeNewsLatestIndexEntry reconciles undici response deadlines before bounded retry', async () => {
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
       VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
@@ -1257,11 +1279,12 @@ describe('newsAdapters', () => {
         (cause as NodeJS.ErrnoException).code = 'UND_ERR_HEADERS_TIMEOUT';
         return new TypeError('fetch failed', { cause });
       };
-      const fetchMock = vi
-        .fn()
-        .mockRejectedValueOnce(headersTimeout())
-        .mockRejectedValueOnce(headersTimeout())
-        .mockRejectedValueOnce(headersTimeout());
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'GET') {
+          return new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        throw headersTimeout();
+      });
       vi.stubGlobal('fetch', fetchMock);
 
       const failure = await writeNewsLatestIndexEntry(
@@ -1275,6 +1298,122 @@ describe('newsAdapters', () => {
       );
       expect(failure).toBeInstanceOf(Error);
       expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect((failure as RelayRestAvailabilityTotalFailureError).attemptCount).toBe(3);
+      expect(fetchMock).toHaveBeenCalledTimes(18);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('reconciles response-leg body deadlines and resets while recording received HTTP headers', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const cases = [
+        {
+          summaryKey: 'deadline_unacknowledged_count',
+          failure: () => {
+            const cause = new Error('Body Timeout Error');
+            (cause as NodeJS.ErrnoException).code = 'UND_ERR_BODY_TIMEOUT';
+            return new TypeError('fetch failed', { cause });
+          },
+        },
+        {
+          summaryKey: 'network_unacknowledged_count',
+          failure: () => new TypeError('fetch failed', { cause: new Error('socket hang up') }),
+        },
+      ] as const;
+      for (const testCase of cases) {
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'GET') {
+            return new Response(JSON.stringify({ ok: false }), { status: 404 });
+          }
+          return {
+            ok: true,
+            status: 200,
+            text: async () => { throw testCase.failure(); },
+          } as Response;
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const failure = await writeNewsLatestIndexEntry(
+          client,
+          STORY.story_id,
+          STORY.cluster_window_end,
+          STORY,
+        ).then(() => null, (error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(RelayRestAvailabilityTotalFailureError);
+        expect(isRelayRestTransportTotalFailureError(failure)).toBe(false);
+        expect(warn).toHaveBeenCalledWith(
+          '[vh:news] relay REST write failed closed',
+          expect.objectContaining({
+            relay_attempt_summaries: [expect.objectContaining({
+              [testCase.summaryKey]: 3,
+              http_response_received_count: 3,
+              validation_failure_count: 0,
+            })],
+          }),
+        );
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+        vi.unstubAllGlobals();
+        warn.mockClear();
+      }
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps explicit HTTP failures non-retryable when their response body stream fails', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        text: async () => {
+          const cause = new Error('Body Timeout Error');
+          (cause as NodeJS.ErrnoException).code = 'UND_ERR_BODY_TIMEOUT';
+          throw new TypeError('fetch failed', { cause });
+        },
+      }) as Response);
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await writeNewsLatestIndexEntry(
+        client,
+        STORY.story_id,
+        STORY.cluster_window_end,
+        STORY,
+      ).then(() => null, (error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(false);
+      expect((failure as Error).message).toContain('http-503');
       expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
       vi.unstubAllGlobals();
@@ -1311,7 +1450,519 @@ describe('newsAdapters', () => {
       );
       expect(isRelayRestTransportTotalFailureError(failure)).toBe(true);
       expect((failure as RelayRestTransportTotalFailureError).attemptCount).toBe(1);
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('starts every relay POST before any endpoint in the attempt settles', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    const releases: Array<() => void> = [];
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          const callIndex = releases.length;
+          releases.push(() => resolve(new Response(JSON.stringify({
+            ok: callIndex < 2,
+            story_id: STORY.story_id,
+          }), {
+            status: callIndex < 2 ? 200 : 503,
+            headers: { 'content-type': 'application/json' },
+          })));
+          expect(init?.method).toBe('POST');
+          expect(new URL(String(input)).pathname).toBe('/vh/news/latest-index');
+        }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const write = writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+      expect(releases).toHaveLength(3);
+      releases.forEach((release) => release());
+      await expect(write).resolves.toBeUndefined();
+      const bodies = fetchMock.mock.calls.map(([, init]) => init?.body);
+      expect(new Set(bodies).size).toBe(1);
+    } finally {
+      releases.forEach((release) => release());
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('reconciles exact signed records for all four critical routes without resending', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        systemWriterPin: hooks.pin,
+        systemWriterSign: hooks.sign,
+      });
+      const lifecycle = buildNewsSynthesisLifecycleRecord({
+        story: STORY,
+        status: 'pending',
+        updatedAt: 1_700_000_050_000,
+      });
+      const cases = [
+        {
+          path: '/vh/news/story' as const,
+          bindingPath: `vh/news/stories/${STORY.story_id}/`,
+          payload: {
+            __story_bundle_json: JSON.stringify(STORY),
+            story_id: STORY.story_id,
+            created_at: STORY.created_at,
+            schemaVersion: STORY.schemaVersion,
+          },
+        },
+        {
+          path: '/vh/news/latest-index' as const,
+          bindingPath: `vh/news/index/latest/${STORY.story_id}/`,
+          payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        },
+        {
+          path: '/vh/news/hot-index' as const,
+          bindingPath: `vh/news/index/hot/${STORY.story_id}/`,
+          payload: { story_id: STORY.story_id, hotness: 0.75 },
+        },
+        {
+          path: '/vh/news/synthesis-lifecycle' as const,
+          bindingPath: `vh/news/stories/${STORY.story_id}/synthesis_lifecycle/latest/`,
+          payload: lifecycle,
+        },
+      ];
+
+      for (const testCase of cases) {
+        const record = await buildSignedSystemWriterRecord({
+          path: testCase.bindingPath,
+          payload: testCase.payload,
+          sign: hooks.sign,
+          pin: hooks.pin,
+          writerId: TEST_SYSTEM_WRITER_ID,
+          now: () => TEST_SYSTEM_ISSUED_AT,
+          defaultWriterId: TEST_SYSTEM_WRITER_ID,
+          missingSignerError: 'test signer required',
+        });
+        const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          if (init?.method === 'POST') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          expect(url.searchParams.get('story_id')).toBe(STORY.story_id);
+          if (testCase.path === '/vh/news/story') {
+            expect(url.searchParams.get('readback')).toBe('exact');
+          } else if (testCase.path === '/vh/news/latest-index') {
+            expect(url.searchParams.get('persist')).toBe('false');
+          } else if (testCase.path === '/vh/news/synthesis-lifecycle') {
+            expect(url.searchParams.get('readback')).toBe('exact');
+          }
+          if (url.origin === 'https://gun-c.example.test') {
+            return new Response(JSON.stringify({ ok: false }), { status: 404 });
+          }
+          return new Response(JSON.stringify({ ok: true, story_id: STORY.story_id, record }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: testCase.path,
+          record,
+          writeClass: `test-${testCase.path}`,
+          validate: () => true,
+        })).resolves.toBeUndefined();
+
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('combines one signed readback with one unresolved-endpoint retry without rewriting the confirmed relay', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, { systemWriterPin: hooks.pin, systemWriterSign: hooks.sign });
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const postCounts = new Map<string, number>();
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (init?.method === 'GET') {
+          return url.origin === 'https://gun-a.example.test'
+            ? new Response(JSON.stringify({ ok: true, story_id: STORY.story_id, record }), { status: 200 })
+            : new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        const count = (postCounts.get(url.origin) ?? 0) + 1;
+        postCounts.set(url.origin, count);
+        if (url.origin === 'https://gun-b.example.test' && count === 2) {
+          return new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), { status: 200 });
+        }
+        const error = new Error('This operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record,
+        writeClass: 'news-latest-index',
+        validate: (payload) => payload.ok === true && payload.story_id === STORY.story_id,
+      })).resolves.toBeUndefined();
+
+      expect(postCounts.get('https://gun-a.example.test')).toBe(1);
+      expect(postCounts.get('https://gun-b.example.test')).toBe(2);
+      expect(postCounts.get('https://gun-c.example.test')).toBe(2);
+      const postBodies = fetchMock.mock.calls
+        .filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => init?.body);
+      expect(new Set(postBodies).size).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('combines an acknowledged POST with an exact signed readback without retrying the unresolved mixed attempt', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, { systemWriterPin: hooks.pin, systemWriterSign: hooks.sign });
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (init?.method === 'GET') {
+          return url.origin === 'https://gun-b.example.test'
+            ? new Response(JSON.stringify({ ok: true, story_id: STORY.story_id, record }), { status: 200 })
+            : new Response(JSON.stringify({ ok: false }), { status: 404 });
+        }
+        if (url.origin === 'https://gun-a.example.test') {
+          return new Response(JSON.stringify({ ok: true, story_id: STORY.story_id }), { status: 200 });
+        }
+        const error = new Error('This operation was aborted');
+        error.name = 'AbortError';
+        throw error;
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/latest-index',
+        record,
+        writeClass: 'news-latest-index',
+        validate: (payload) => payload.ok === true && payload.story_id === STORY.story_id,
+      })).resolves.toBeUndefined();
+
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps conflicting, invalid, and tampered timeout readbacks fail-closed and unbranded', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, { systemWriterPin: hooks.pin, systemWriterSign: hooks.sign });
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const conflicting = await buildSignedSystemWriterRecord({
+        path: `vh/news/index/latest/${STORY.story_id}/`,
+        payload: { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end + 1 },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const unsafeRecords = [
+        conflicting,
+        { story_id: STORY.story_id, latest_activity_at: STORY.cluster_window_end },
+        { ...record, latest_activity_at: STORY.cluster_window_end + 1 },
+      ];
+
+      for (const unsafeRecord of unsafeRecords) {
+        const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          if (init?.method === 'POST') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          return url.origin === 'https://gun-a.example.test'
+            ? new Response(JSON.stringify({ ok: true, story_id: STORY.story_id, record: unsafeRecord }), { status: 200 })
+            : new Response(JSON.stringify({ ok: false }), { status: 404 });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+          client,
+          path: '/vh/news/latest-index',
+          record,
+          writeClass: 'news-latest-index',
+          validate: () => true,
+        }).then(() => null, (error: unknown) => error);
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toContain('validation_failure_count=1');
+        expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(false);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('never accepts a synthesized unsigned story record as timeout reconciliation proof', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '1',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const hooks = await createRealSystemWriterHooks();
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, { systemWriterPin: hooks.pin, systemWriterSign: hooks.sign });
+      const record = await buildSignedSystemWriterRecord({
+        path: `vh/news/stories/${STORY.story_id}/`,
+        payload: {
+          __story_bundle_json: JSON.stringify(STORY),
+          story_id: STORY.story_id,
+          created_at: STORY.created_at,
+          schemaVersion: STORY.schemaVersion,
+        },
+        sign: hooks.sign,
+        pin: hooks.pin,
+        writerId: TEST_SYSTEM_WRITER_ID,
+        now: () => TEST_SYSTEM_ISSUED_AT,
+        defaultWriterId: TEST_SYSTEM_WRITER_ID,
+        missingSignerError: 'test signer required',
+      });
+      const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          const error = new Error('This operation was aborted');
+          error.name = 'AbortError';
+          throw error;
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          story_id: STORY.story_id,
+          record: {
+            __story_bundle_json: JSON.stringify(STORY),
+            story_id: STORY.story_id,
+          },
+        }), { status: 200 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const failure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
+        client,
+        path: '/vh/news/story',
+        record,
+        writeClass: 'news-story',
+        validate: () => true,
+      }).then(() => null, (error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain('validation_failure_count=3');
+      expect(isRelayRestAvailabilityTotalFailureError(failure)).toBe(false);
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+      for (const [input, init] of fetchMock.mock.calls) {
+        if (init?.method === 'GET') {
+          expect(new URL(String(input)).searchParams.get('readback')).toBe('exact');
+        }
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('keeps write failure telemetry ordinal and excludes origins, tokens, response bodies, and story content', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://private-a.example.test","https://private-b.example.test","https://private-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'secret-daemon-token-value' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+        ok: false,
+        error: 'relay failure',
+        token: 'secret-response-token-value',
+        story_body: STORY.headline,
+      }), { status: 503 })));
+      const failure = await writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY)
+        .then(() => null, (error: unknown) => error);
+      const evidence = JSON.stringify({
+        failure: failure instanceof Error ? failure.message : failure,
+        logs: warn.mock.calls,
+      });
+      expect(evidence).toContain('relay-1');
+      expect(evidence).toContain('relay-2');
+      expect(evidence).toContain('relay-3');
+      expect(evidence).not.toContain('private-a.example.test');
+      expect(evidence).not.toContain('private-b.example.test');
+      expect(evidence).not.toContain('private-c.example.test');
+      expect(evidence).not.toContain('secret-daemon-token-value');
+      expect(evidence).not.toContain('secret-response-token-value');
+      expect(evidence).not.toContain(STORY.headline);
+    } finally {
+      warn.mockRestore();
+      vi.unstubAllGlobals();
+      restoreEnv();
+      restoreRuntimeConfig();
+    }
+  });
+
+  it('preserves quorum and exit-78 classes for partial, HTTP, validation, and mixed outcomes', async () => {
+    const restoreRuntimeConfig = withGunClientRuntimeConfig({
+      VH_NEWS_RELAY_REST_WRITE_FIRST: 'true',
+      VH_NEWS_RELAY_REST_WRITE_ORIGINS: '["https://gun-a.example.test","https://gun-b.example.test","https://gun-c.example.test"]',
+      VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_COUNT: '2',
+      VH_NEWS_RELAY_REST_TRANSPORT_RETRY_BACKOFF_MS: '0',
+    });
+    const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const run = async (responses: readonly ('ok' | 'deadline' | '503' | 'invalid')[]) => {
+        let postIndex = 0;
+        const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.method === 'GET') {
+            return new Response(JSON.stringify({ ok: false }), { status: 404 });
+          }
+          expect(init?.method).toBe('POST');
+          const response = responses[postIndex++]!;
+          if (response === 'deadline') {
+            const error = new Error('This operation was aborted');
+            error.name = 'AbortError';
+            throw error;
+          }
+          if (response === '503') {
+            return new Response('relay-backpressure', { status: 503 });
+          }
+          return new Response(JSON.stringify({
+            ok: response === 'ok',
+            story_id: response === 'ok' ? STORY.story_id : 'wrong-story',
+          }), { status: 200 });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const result = await writeNewsLatestIndexEntry(client, STORY.story_id, STORY.cluster_window_end, STORY)
+          .then(() => null, (error: unknown) => error);
+        expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3);
+        return result;
+      };
+
+      const partial = await run(['ok', 'deadline', 'deadline']);
+      expect(partial).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(partial)).toBe(false);
+
+      const mixed = await run(['deadline', '503', 'invalid']);
+      expect(mixed).toBeInstanceOf(Error);
+      expect(isRelayRestAvailabilityTotalFailureError(mixed)).toBe(false);
+
+      const backpressure = await run(['503', '503', '503']);
+      expect(backpressure).toBeInstanceOf(Error);
+      expect((backpressure as Error).message).toContain('relay-backpressure');
+      expect(isRelayRestAvailabilityTotalFailureError(backpressure)).toBe(false);
+
+      await expect((async () => {
+        const outcome = await run(['ok', 'ok', 'deadline']);
+        if (outcome) throw outcome;
+      })()).resolves.toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
       restoreEnv();
@@ -1370,7 +2021,8 @@ describe('newsAdapters', () => {
   it('resolves relay REST quorum edge cases without posting', () => {
     expect(() => newsAdapterInternal.resolveNewsRelayRestWriteQuorum(0))
       .toThrow('Relay REST news write quorum requires at least one resolved endpoint');
-    expect(newsAdapterInternal.relayRestEndpointLabel('not a url')).toBe('invalid-relay-endpoint');
+    expect(newsAdapterInternal.relayRestEndpointLabel('https://private-relay.example.test', 0)).toBe('relay-1');
+    expect(newsAdapterInternal.relayRestEndpointLabel('https://different-private-relay.example.test', 1)).toBe('relay-2');
 
     const restoreZeroConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_MIN_SUCCESS: '0',
@@ -1536,7 +2188,7 @@ describe('newsAdapters', () => {
         writeClass: 'news-story',
         validate: (payload) => payload.ok === true,
       })).rejects.toThrow(
-        'VH_RELAY_DAEMON_TOKEN or VH_NEWS_RELAY_REST_WRITE_TOKENS[https://gun-b.example.test] is required for relay REST news writes',
+        'Relay daemon token is required for relay REST news write target relay-2',
       );
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -1605,7 +2257,7 @@ describe('newsAdapters', () => {
     }
   });
 
-  it('writeNewsRecordViaRelayRest records thrown fetch failures in the fail-closed error', async () => {
+  it('writeNewsRecordViaRelayRest classifies unexpected thrown failures without leaking raw error text', async () => {
     const restoreEnv = withProcessEnv({ VH_RELAY_DAEMON_TOKEN: 'relay-token-redacted' });
     const restoreRuntimeConfig = withGunClientRuntimeConfig({
       VH_NEWS_RELAY_REST_WRITE_REQUIRE_ALL: 'false',
@@ -1620,23 +2272,28 @@ describe('newsAdapters', () => {
         throw new Error('relay offline');
       }));
 
-      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+      const errorFailure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
         client,
         path: '/vh/news/story',
         record: { story_id: STORY.story_id },
         writeClass: 'news-story',
         validate: () => true,
-      })).rejects.toThrow('relay offline');
+      }).then(() => null, (error: unknown) => error);
+      expect(errorFailure).toBeInstanceOf(Error);
+      expect((errorFailure as Error).message).toContain('relay-1:validation_failure:validation_failure');
+      expect((errorFailure as Error).message).not.toContain('relay offline');
       vi.stubGlobal('fetch', vi.fn(async () => {
         throw 'relay offline string';
       }));
-      await expect(newsAdapterInternal.writeNewsRecordViaRelayRest({
+      const stringFailure = await newsAdapterInternal.writeNewsRecordViaRelayRest({
         client,
         path: '/vh/news/story',
         record: { story_id: STORY.story_id },
         writeClass: 'news-story',
         validate: () => true,
-      })).rejects.toThrow('relay offline string');
+      }).then(() => null, (error: unknown) => error);
+      expect(stringFailure).toBeInstanceOf(Error);
+      expect((stringFailure as Error).message).not.toContain('relay offline string');
       expect(newsAdapterInternal.shouldRequireAllNewsRelayRestWrites()).toBe(false);
     } finally {
       vi.unstubAllGlobals();
