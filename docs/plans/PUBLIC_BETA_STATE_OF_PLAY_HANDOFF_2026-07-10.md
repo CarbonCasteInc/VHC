@@ -66,11 +66,12 @@ S1B has moved from design to reviewed repo implementation. Both isolated lanes
 were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
 
 - Runtime PR #761 is frozen at
-  `2562a7cc598ca34d2e16bd21adf6cd1b969c2fe9`, independently reviewed `GO`,
-  and 9/9 hosted CI checks pass. It implements concurrent bounded fanout, exact
-  signed-record readback for story/latest/hot/lifecycle, unresolved-only retry,
-  preserved `2/3` quorum, and exit `69` only for exhausted zero-confirmed
-  availability-total.
+  `2a7b010929368180399b4575f69d6285f01382ef`, independently reviewed `GO`
+  after mandatory correction/re-review, and 9/9 hosted CI checks pass. It
+  implements concurrent bounded fanout, closed exact signed-record readback for
+  story/latest/hot/lifecycle, generation-aware fresh-vertex settlement,
+  unresolved-only retry, preserved `2/3` quorum, and exit `69` only for
+  exhausted zero-confirmed availability-total.
 - Alert PR #760 is frozen at
   `c3cff10927cf4bc8e6f00e5cd6829920dd857e6f`, independently reviewed `GO`,
   and 9/9 hosted CI checks pass. It implements the closed v2 public projection,
@@ -80,8 +81,8 @@ were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
   ingest and incident-contract code. Historical v1 underscore blockers and
   current v2 colon blockers for `public_feed`, `relay_liveness`,
   `relay_snapshot`, and `watch_closure` now resolve to the same incident keys.
-- Combined local validation passes 181 gun-client tests, 23 focused daemon
-  write/coverage tests, 24 daemon/exit tests, 54 AI-runtime tests, 54 relay
+- Combined local validation passes 187 gun-client tests, 23 focused daemon
+  write/coverage tests, 24 daemon/exit tests, 54 AI-runtime tests, 60 relay
   integration tests, 55 alert tests, 6 publisher-liveness tests, 29 pager tests,
   61 incident-response tests plus its 28-file contract, both focused
   typechecks, pager build, docs governance, and `git diff --check`.
@@ -89,9 +90,10 @@ were based on #759 head `a2899ad2f32b0b09d55dfcd1f468e6eb0bc907ef`:
 This is repo evidence only. The first distinct G2 cross-lane review at
 `ddae488e` correctly returned `NO-GO`: a present conflicting exact relay row
 could collapse to retry-eligible 404, and durable producer fixtures were
-v1-only. The v2 fixture/replay correction is green; the relay-boundary P1 is
-back with the Runtime owner for all-four-route coverage, same-reviewer follow-up,
-and subsequent G2 review. Integration remains unpushed. No A6 update, service
+v1-only. Both corrections are now integrated at `cb03c44c`; the Runtime lane's
+same reviewer returned final `GO` at `2a7b0109`, and the v1/v2 replay is green.
+The corrected combined head still requires the same G2 reviewer's subsequent
+review, hosted CI, and merge. Integration remains unpushed. No A6 update, service
 action, relay action, Gmail/provider mutation, alert-channel change, or recovery
 was performed. S1A/S1B remain red and every S2+ launch slice remains blocked.
 

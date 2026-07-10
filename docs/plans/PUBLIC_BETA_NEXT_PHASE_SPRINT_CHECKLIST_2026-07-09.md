@@ -920,15 +920,17 @@ git diff --check
 
 ### Repo Execution Record - 2026-07-10
 
-- G1 Runtime: PR #761, base `a2899ad2`, frozen head `2562a7cc`, independent
-  review `GO`, hosted CI 9/9.
+- G1 Runtime: PR #761, base `a2899ad2`, frozen head `2a7b0109`, independent
+  same-reviewer final `GO`, hosted CI 9/9. The corrected lane closes all four
+  exact-readback contracts, including closed StoryBundle projection, bounded
+  fresh-vertex reconciliation, and generation-plus-fingerprint settlement.
 - G1 Alert: PR #760, base `a2899ad2`, frozen head `c3cff109`, independent
   review `GO` after six correction/re-review cycles, hosted CI 9/9.
 - Combined shared seam: one dependency-free pager family normalizer is consumed
   by both alert ingest and the incident contract; historical v1 underscore and
   current v2 colon forms preserve the four public-feed incident families.
-- Combined local evidence: gun client 181, daemon write/coverage 23, daemon/exit
-  24, AI runtime 54, relay integration 54, alert 55, publisher liveness 6,
+- Combined local evidence: gun client 187, daemon write/coverage 23, daemon/exit
+  24, AI runtime 54, relay integration 60, alert 55, publisher liveness 6,
   pager 29, incident response 61 plus 28 required files; focused typechecks,
   pager build, docs governance, and `git diff --check` pass.
 - Authority used: repo-only plus read-only incident evidence. No A6/service,
@@ -942,10 +944,12 @@ git diff --check
 - First G2 cross review at `ddae488e` returned `NO-GO`: P1 present conflicting
   latest/hot/lifecycle rows were hidden as retry-eligible 404s at the real relay
   boundary; P2 the durable producer-fixture set was v1-only despite the
-  dual-version claim. The v2 fixture/replay is now added and green. The P1 is
-  assigned back to the Runtime owner for all-four-route adversarial coverage,
-  same Runtime reviewer follow-up, and subsequent review by the same G2
-  cross-lane reviewer. Integration remains unpushed and unmergeable until then.
+  dual-version claim. Both corrections are now integrated at `cb03c44c`: the v2
+  fixture/replay is green, and Runtime head `2a7b0109` passed all-four-route
+  adversarial coverage plus mandatory same-reviewer follow-up with no remaining
+  finding. The corrected combined worktree has also passed the full local
+  matrix and strict diff coverage. Integration remains unpushed and unmergeable
+  until hosted CI and subsequent review by the same G2 cross-lane reviewer.
 
 ### Review And Merge Gate
 
