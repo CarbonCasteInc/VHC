@@ -8,6 +8,7 @@ const PACKAGE_PATH = 'package.json';
 const CLOSEOUT_PATH = 'docs/ops/public-beta-launch-readiness-closeout.md';
 const CANON_PATH = 'docs/CANON_MAP.md';
 const STATUS_PATH = 'docs/foundational/STATUS.md';
+const OPERATIONAL_STATE_PATH = 'docs/ops/public-beta-operational-state.md';
 const RECOVERY_PACKET_PATH = 'docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md';
 const DEPLOY_PACKET_SCRIPT_PATH = 'tools/scripts/emit-a6-public-beta-deploy-packet.sh';
 const EXPORT_SCRIPT_PATH = 'tools/scripts/export-public-beta-image-artifacts.sh';
@@ -27,6 +28,7 @@ const packageJson = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8'));
 const closeout = readFileSync(CLOSEOUT_PATH, 'utf8');
 const canon = readFileSync(CANON_PATH, 'utf8');
 const status = readFileSync(STATUS_PATH, 'utf8');
+const operationalState = readFileSync(OPERATIONAL_STATE_PATH, 'utf8');
 const recoveryPacket = readFileSync(RECOVERY_PACKET_PATH, 'utf8');
 const deployPacketScript = readFileSync(DEPLOY_PACKET_SCRIPT_PATH, 'utf8');
 const exportScript = readFileSync(EXPORT_SCRIPT_PATH, 'utf8');
@@ -58,7 +60,9 @@ const EXPECTED_RECOVERY_TESTS = [
 const EXPECTED_RECOVERY_SCRIPT = `corepack pnpm@9.7.1 --filter @vh/gun-client... build && node --test --test-concurrency=1 ${EXPECTED_RECOVERY_TESTS.join(' ')}`;
 
 function assertIncludes(text, needle, label) {
-  assert.ok(text.includes(needle), `${label}: missing ${JSON.stringify(needle)}`);
+  const normalizedText = text.replace(/\s+/g, ' ');
+  const normalizedNeedle = needle.replace(/\s+/g, ' ');
+  assert.ok(normalizedText.includes(normalizedNeedle), `${label}: missing ${JSON.stringify(needle)}`);
 }
 
 test('next-phase sprint pins authority, target URLs, provider set, and support mailbox', () => {
@@ -72,9 +76,20 @@ test('next-phase sprint pins authority, target URLs, provider set, and support m
     'Deferred provider: X',
     'US and Canada',
     'first tranche: at most 100 testers',
-    '500, 1000, then open only after green evidence plus Lou',
+    '500, 1000, then open intake only',
   ]) {
     assertIncludes(checklist, token, `authority/target token ${token}`);
+  }
+});
+
+test('S12 preserves the exact tranche observation windows', () => {
+  for (const token of [
+    'Expand to 500 testers only after 24 hours of green evidence',
+    'Expand to 1000 testers only after another 24 hours of green evidence',
+    'Open intake requires the prior tranche, release evidence, alert/support loops',
+    'separate Lou approval',
+  ]) {
+    assertIncludes(checklist, token, `S12 tranche token ${token}`);
   }
 });
 
@@ -106,11 +121,10 @@ test('next-phase sprint is an executable delegation and review prompt', () => {
     'You are the orchestration agent responsible for executing this checklist',
     'One implementation lane equals one subagent, one branch, one isolated',
     'If isolated worktrees/clones are unavailable, run lanes sequentially',
-    'G1 Lane Ownership',
+    'Isolation And Review Protocol',
+    'Delegation Waves',
     'codex/s1b-relay-availability-total',
     'codex/s1b-alert-fingerprint-mime',
-    'Subagent Assignment Contract',
-    'Review And Subsequent-Review Protocol',
     'The same reviewer performs a subsequent review',
     'cross-lane reviewer',
     'WAITING_FOR_LOU',
@@ -130,7 +144,9 @@ test('S1B pins the real daemon exit consumer and readback inventory', () => {
     '`services/news-aggregator/src/daemon.ts`',
     '`infra/relay/server.js`',
     '`packages/e2e/src/live/relay-server.vitest.mjs`',
-    '`/vh/news/story`, `/vh/news/latest-index`, `/vh/news/hot-index`, and',
+    '`/vh/news/story`',
+    '`/vh/news/latest-index`',
+    '`/vh/news/hot-index`',
     '`/vh/news/synthesis-lifecycle`',
     'bounded `story_id` GET branches',
     'complete stored signed record without scanning an aggregate root',
@@ -138,46 +154,49 @@ test('S1B pins the real daemon exit consumer and readback inventory', () => {
     'exec vitest run packages/ai-engine/src/newsRuntime.test.ts',
     '--filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts',
     'S1B cannot exit',
-    'Lou-approved and passes all immediate',
+    'T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2',
   ]) {
     assertIncludes(checklist, token, `S1B implementation token ${token}`);
   }
 });
 
-test('G3 fails closed on the immutable relay image and restart-authority contradiction', () => {
+test('G4 fails closed on the closed first attempt and immutable relay contract', () => {
   for (const token of [
-    '`NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`',
-    '`NO-GO`',
+    '`NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`',
+    '`remote_staging_unexpected_content`',
+    'No staging change',
+    'fresh private-staging load/supervision envelope',
+    'independent review',
+    'new exact Lou binding',
     '`infra/relay/server.js`',
     'immutable image',
-    'public-beta compose mounts',
-    'only `/data`',
-    '`vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`',
-    'all-four exact missing-key probes',
+    'compose mounts only `/data`',
+    'A passes and receives independent evidence acceptance before B; B before C',
     'Keep `tools/scripts/vhc-packet-executor.mjs` unchanged',
-    'Define parked as exactly `failed/failed`, `Result=exit-code`,',
-    'fresh live inspect differs from that captured prestate',
-    'again after verification before GO',
-    'all pre-mutation refusals outside rollback',
+    'publisher is exactly parked',
+    'live/captured env, mount, port, user, memory, restart, and semantic network',
+    'pre-mutation refusals stay outside rollback',
     'only a set mutation-started latch can enter rollback',
     'non-symlink `0700` private work',
-    'absent watchdog-trip row as semantic zero only with exactly one valid uptime',
+    'semantic zero only with exactly one valid uptime',
     'empty/random, malformed, duplicate, or nonzero telemetry',
-    'hostile/unexpected exact-readback bodies private',
-    'export manifest\'s full immutable `sha256:` relay',
+    'hostile/unexpected exact-readback bodies remain private',
     'array of exactly three',
     'semantic network attachment prestate',
-    'runtime endpoint ids',
     'current A6 `host`/`host` topology',
     'exact `--network host`',
     '`systemctl --user list-jobs --no-legend --no-pager`',
     'captured three-snapshot SHA baseline',
   ]) {
-    assertIncludes(checklist, token, `G3 checklist token ${token}`);
+    assertIncludes(checklist, token, `G4 checklist token ${token}`);
   }
   for (const token of [
-    'Status: `final_revision_image_packet_and_review_pending`',
-    'Decision: `NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`',
+    'Status: `attempt_001_closed_private_staging_rebind_required`',
+    'Decision: `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`',
+    '`3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`',
+    '`remote_staging_unexpected_content`',
+    'performed no staging change, transfer, image load',
+    'new exact Lou binding',
     'COPY server.js /app/server.js',
     'bind-mounts only `/data`',
     '--relay-only',
@@ -283,7 +302,7 @@ test('next-phase sprint includes concrete auth, A6, evidence, and rehearsal chec
     'newly reviewed exact-revision recovery-controller sequence',
     'catchup:public-synthesis',
     'release_commit_verified: true',
-    '3-browser convergence is proven on non-voting browsers',
+    '3-browser convergence is proven on non-voting',
   ]) {
     assertIncludes(checklist, token, `technical checklist token ${token}`);
   }
@@ -292,13 +311,13 @@ test('next-phase sprint includes concrete auth, A6, evidence, and rehearsal chec
 test('next-phase sprint preserves secret and claim boundaries', () => {
   for (const token of [
     'No Codex live execution/autonomy is enabled',
-    'No pager cutover is part of this sprint',
-    'No relay action outside Lou\'s exact independently reviewed serial A/B/C',
+    'No pager cutover',
+    'No relay action outside Lou\'s exact independently reviewed',
     'Social sign-in is account continuity and profile recovery only',
     'It is not LUMA Silver',
     'verified-human',
     'one-human-one-vote',
-    'No raw secret is copied into chat, docs, PRs, GitHub issues, release artifacts',
+    'No raw secret is copied into chat, docs, PRs, GitHub issues',
     'support path receives private data in a public issue',
     'Lou says stop',
   ]) {
@@ -308,11 +327,11 @@ test('next-phase sprint preserves secret and claim boundaries', () => {
 
 test('next-phase sprint treats mailbox monitor criticals as mutation blockers', () => {
   for (const token of [
-    'Monitor `status: pass` means the mailbox monitor ran and classified mail; it is not release clearance.',
+    'monitor execution health, not release',
     '`newCriticalCount > 0`',
     'the release is blocked even when `status: pass`',
     '`newCriticalCount == 0`',
-    'read-only repo/A6 readback before mutation',
+    'read-only repo/A6 comparison before mutation',
     'MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN',
     'READ_ONLY_INCIDENT_TRIAGE_ONLY',
     'PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION',
@@ -321,6 +340,7 @@ test('next-phase sprint treats mailbox monitor criticals as mutation blockers', 
     'LOU_RETAINS_INCIDENT_ROLLBACK_AUTHORITY',
     'recommendedNextAction',
     'public_feed_alert_fail',
+    'public_feed_freshness_monitor_workflow_failed',
     'public_feed_freshness_workflow_failed',
     'public_feed_freshness_workflow_cancelled',
     'pager_deadman_workflow_failed',
@@ -331,12 +351,43 @@ test('next-phase sprint treats mailbox monitor criticals as mutation blockers', 
   }
 });
 
+test('current operational docs bind the closed attempt and reviewed artifact tuple', () => {
+  for (const token of [
+    '`NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`',
+    '`3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`',
+    '`sha256:cb44eb9e94c1716311efc0d80c672d2b031018e6fc94bfcb7b23d96d20cee763`',
+    '`b69e298ceec1d6074cf18ba3c81775f64a5e77a7776dd7a946e1a7fc78e1513d`',
+    '`f4c83bb7853716da5b90a9424645168ab26e46b358f151d9eac56f2dcc407101`',
+    '`2185ca8aafc67c6752b869c66e945b7e39971e09f259b2df152c13c23097cf4f`',
+    '`remote_staging_unexpected_content`',
+    'Zero-Mutation Result',
+    'private, current-user-owned, non-symlink, mode-`0700`',
+    'Obtain a new exact Lou binding',
+  ]) {
+    assertIncludes(operationalState, token, `operational-state evidence ${token}`);
+  }
+
+  for (const [label, text] of [
+    ['operational state', operationalState],
+    ['handoff', handoff],
+    ['checklist', checklist],
+    ['recovery packet', recoveryPacket],
+  ]) {
+    assertIncludes(text, 'NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE', `${label} current decision`);
+    assertIncludes(text, 'remote_staging_unexpected_content', `${label} attempt-001 reason`);
+    assert.ok(!text.includes('NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW'), `${label}: stale pre-tuple decision remains`);
+    assert.ok(!text.includes('final_revision_image_packet_and_review_pending'), `${label}: stale pre-tuple status remains`);
+  }
+});
+
 test('next-phase sprint guard is wired into package, closeout, canon map, and status', () => {
   assert.equal(packageJson.scripts?.['check:public-beta-next-phase-sprint'], EXPECTED_SCRIPT);
   assertIncludes(closeout, 'pnpm check:public-beta-next-phase-sprint', 'closeout command');
   assertIncludes(closeout, CHECKLIST_PATH, 'closeout checklist path');
   assertIncludes(canon, CHECKLIST_PATH, 'canon checklist path');
   assertIncludes(status, CHECKLIST_PATH, 'status checklist path');
+  assertIncludes(canon, OPERATIONAL_STATE_PATH, 'operational-state canon path');
+  assertIncludes(status, OPERATIONAL_STATE_PATH, 'status operational-state path');
 });
 
 test('shared S1 recovery control plane is an unconditional hosted-CI gate', () => {
@@ -367,7 +418,6 @@ test('shared S1 recovery control plane is an unconditional hosted-CI gate', () =
 test('active S1 operator docs require the exact reviewed recovery controller sequence', () => {
   for (const [label, text] of [
     ['runbook', runbook],
-    ['handoff', handoff],
     ['checklist', checklist],
   ]) {
     let previousIndex = -1;
@@ -381,7 +431,7 @@ test('active S1 operator docs require the exact reviewed recovery controller seq
       'news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV"',
     ]) {
       assertIncludes(text, token, `${label} canonical recovery token ${token}`);
-      const tokenIndex = text.indexOf(token);
+      const tokenIndex = text.indexOf(token, previousIndex + 1);
       assert.ok(tokenIndex > previousIndex, `${label}: recovery sequence is out of order at ${token}`);
       previousIndex = tokenIndex;
     }
@@ -423,7 +473,7 @@ test('final tuple and honest soak boundary are durable across launch-control sur
     'relay order `A -> B -> C`',
     'reviewed loopback relay origins',
   ]) {
-    assertIncludes(checklist, token, `final tuple binding ${token}`);
+    assertIncludes(recoveryPacket, token, `final tuple binding ${token}`);
   }
 
   for (const [label, text] of [
@@ -437,16 +487,21 @@ test('final tuple and honest soak boundary are durable across launch-control sur
   assert.ok(!/S1 has no active critical incident, or Lou has classified the incident and\s+explicitly authorized this slice to proceed\./.test(checklist), 'S2 must not retain incident-authorization shortcut');
 
   for (const token of [
-    'Shared-integration parent base: `main@297d1bb4bd7654e713953930d61f55ca930df50e`',
-    'The merge commit containing this integration becomes',
-    'publisher recovery before C, independent relay-evidence acceptance, and a',
-    'separate later Lou confirmation for the exact revision',
-    'human authority or immediate readback cannot',
+    'Current S1 revision: `3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`',
+    '`NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`',
+    'Original Lou binding',
+    'Attempt 001 closed',
+    'No transfer or `docker load`',
+    'new exact Lou binding',
+    'T0+48h and mailbox clearance are mandatory first',
   ]) {
-    assertIncludes(handoff, token, `handoff exact authority transition ${token}`);
+    assertIncludes(handoff, token, `handoff current authority state ${token}`);
   }
   for (const forbidden of [
+    'Shared-integration parent base: `main@297d1bb4',
     'Current merged repo base: `main@297d1bb4',
+    'NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW',
+    'final_revision_image_packet_and_review_pending',
     'latest local artifact at handoff',
     'Current incremental monitor readout:',
     'publisher restart only if required by the approved release/update/canary path',
@@ -455,12 +510,12 @@ test('final tuple and honest soak boundary are durable across launch-control sur
   ]) {
     assert.ok(!handoff.includes(forbidden), `handoff stale authority shortcut remains: ${forbidden}`);
   }
-  for (const [label, text] of [
-    ['handoff', handoff],
-    ['checklist', checklist],
+  for (const [label, text, gateBoundary] of [
+    ['handoff', handoff, 'before every gate'],
+    ['checklist', checklist, 'Before every gate'],
   ]) {
     assertIncludes(text, 'moving', `${label}: moving mailbox alias boundary`);
-    assertIncludes(text, 'before every gate', `${label}: mailbox refresh boundary`);
+    assertIncludes(text, gateBoundary, `${label}: mailbox refresh boundary`);
     assertIncludes(text, 'incident history', `${label}: dated mailbox evidence boundary`);
   }
   assert.ok(!checklist.includes('Current incremental monitor readout:'), 'checklist must not present a dated mailbox count as current');

@@ -2,8 +2,8 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
+> Last Reviewed: 2026-07-11
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
 
 ## Purpose
 
@@ -18,112 +18,77 @@ startup fails closed.
 
 ## Current Launch State
 
-Phase 5 Scope A launched on A6 on 2026-06-24. The launch closeout is
-`docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`, and the first
-extended post-#687 StoryCluster stability bake is
-`docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`.
+The current top-level decision is
+`NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`. The authoritative, compact
+evidence record is `docs/ops/public-beta-operational-state.md`; re-read it and
+the moving evidence named there before any live gate.
 
-The last passing state on 2026-07-06 was fresh after Slice 0 alert enablement
-and the post-Slice-0 stale-feed recovery, but it was not
-unattended-distribution-ready or stability-proven. Outage #2 and its recovery
-evidence are recorded in
-`docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`. Outage #3
-parked the publisher on 2026-07-04 under pre-#706 behavior after a total
-transport/DNS failure to all three relay REST write endpoints. The Slice 0
-alert session then proved the interim email channel and enabled the alert/watch
-closure timers. The first real alert after enablement reported a real stale-feed
-condition: the publisher was active/running but StoryCluster timed out before
-raw relay writes. PR #723 bounded that production path, A6 was updated to
-`main@47ba218d`, and the normal post-fix tick restored freshness. That is now a
-historical passing snapshot, not current-live evidence.
+Repository-side S1 remediation is merged at
+`3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`, and its exact executable tuple
+received independent GO review. Supervised load attempt 001 nevertheless
+stopped safely with exit `78` during read-only remote prestate because the
+reviewed staging base was shared and contained unrelated entries
+(`remote_staging_unexpected_content`). It made zero remote, Docker, relay,
+publisher, service, checkout, alert, or data mutation.
 
-The 2026-07-10 read-only S1A refresh supersedes that snapshot. A6 is at deployed
-commit `347d2018`; `vh-news-aggregator.service` is parked `failed/failed` with
-`ExecMainStatus=78` after
-`relay_rest_story_timeout_total_0_of_3_exit_78`. Relay readiness is `3/3`, but
-relay snapshots are `0/3` current and public freshness/watch closure fail. The
-S1B availability-total and alert-contract changes in this runbook are repo-only
-until a merged remediation commit is deployed through an independently
-reviewed packet with Lou's explicit incident approval.
+Therefore:
 
-Intended-live configuration contract (not a statement that current health is
-green):
+- S1A/S1B remain red;
+- relay replacement A/B/C has not started;
+- publisher recovery has not started;
+- no recovery T0, T0+24h, or T0+48h evidence exists;
+- S2 and later launch work remain blocked; and
+- a second attempt requires a new private staging envelope, regenerated
+  affected artifacts and hashes, independent subsequent review, and a new exact
+  Lou binding.
+
+Do not chmod, clean, reuse, or hand patch the rejected staging base. Do not
+infer live health from a historical passing snapshot. The original incident
+classification and preserved pre-attempt readback remain useful diagnosis, but
+current service state must be refreshed read-only at the next authorized gate.
+
+Intended healthy configuration contract (not a current-health claim):
 
 - `vh-news-aggregator.service` is expected to be active/running, enabled, and
   not restart-churning.
 - `vh-storycluster-engine.service` is expected to be active/running.
-- The last passing A6 checkout was `main@47ba218d`; the current read-only
-  checkout is `347d2018`. Neither proves the newer S1B code is deployed.
-- Current relays run `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64` with
-  Docker `on-failure:5`, 2304 MB memory ceilings, relay resource watchdogs,
-  bounded latest-index/story-body caches, #691 graph diagnostics, and #692/#703
+- Publisher checkout and relay image must bind to the independently reviewed
+  final revision; a tag or moving branch name is insufficient.
+- Relays retain Docker `on-failure:5`, 2304 MB memory ceilings, resource
+  watchdogs, bounded latest-index/story-body caches, graph diagnostics, and
   early heap capture.
-- Current public origin still runs
-  `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`; do not claim a fresh
-  origin/PWA deploy from the 2026-07-06 publisher recovery.
 - Raw story, latest-index, hot-index, and pending synthesis-lifecycle writes use
   relay REST quorum with required success count 2.
-- Accepted bundle synthesis, replay synthesis, topic synthesis, storyline writes,
-  and stale storyline cleanup are disabled for the launched raw Scope A profile.
-- Raw publication runs with `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2`
-  after #693.
+- Accepted bundle synthesis, replay synthesis, topic synthesis, storyline
+  writes, and stale storyline cleanup stay disabled for the raw Scope A profile.
+- Raw publication uses `VH_NEWS_RUNTIME_RAW_BUNDLE_WRITE_CONCURRENCY=2`.
 - First post-reset ingest is capped by
-  `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24` after #708.
-  The 2026-07-06 normal post-fix recovery tick completed at
-  `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
-  `normalized_item_count=23`, `selected_bundle_count=8`, `raw_wrote_count=8`,
-  and `raw_write_failed_count=0`.
-- Product-feed repair is deferred until after the first completed runtime tick
-  and then paced through dedicated non-fatal maintenance lanes.
-- Relay verify/refresh body maintenance is disabled for the launch profile;
-  re-enabling it requires a separate attended soak and updated evidence.
-- Publisher liveness, relay liveness, relay snapshot freshness, watch-closure,
-  and public-feed alert timers are intended to stay enabled during live
+  `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24`.
+- Product-feed repair waits for the first completed runtime tick and then uses
+  paced, non-fatal maintenance lanes.
+- Relay verify/refresh body maintenance stays disabled unless a separate
+  attended soak and updated evidence authorize it.
+- Publisher liveness, relay liveness, relay snapshot freshness, watch closure,
+  public-feed alert, and hourly soak-archive timers remain enabled during live
   operation.
-- The interim public-feed alert email channel is configured in host-private env
-  and has sent both failure and recovery state changes. The active A6 alert path
-  is still email, not the custom pager/PWA. Missing or invalid required watch
-  inputs remain critical fail-closed prechecks; relay liveness failure and
-  publisher park classes are critical; snapshot freshness failure, stale watch
-  outputs, watch-closure regression, restart churn, and default heap-limit
-  provenance page as warnings through the same deduped alert channel.
-- The hourly Scope A soak archive timer is intended to stay enabled during the
-  post-#701 off-graph relay-memory diagnostic window so each hour preserves
-  publisher liveness, relay liveness, relay snapshot freshness, public feed
-  freshness, and graph/heap diagnostics.
-- The StoryCluster rerank truncation class that interrupted launch is fixed at
-  source by #687 and had zero new artifacts / zero degeneracy warnings during
-  the first seven-plus-hour production bake.
-- The per-relay heap watchdog ceilings are staggered by #694:
-  relay-a `850000000`, relay-b `1000000000`, relay-c `1150000000`. Do not remove
-  the stagger while all three public-news relay votes remain co-located on A6.
+- The interim alert path remains email, not the custom pager/PWA. Required
+  precheck, liveness, snapshot, watch, restart-churn, and heap-provenance classes
+  retain fail-closed severity and dedupe semantics.
+- Per-relay heap watchdog ceilings remain staggered: relay-a `850000000`,
+  relay-b `1000000000`, relay-c `1150000000`.
 
-The historical 2026-07-06 launch state proved raw-fresh, v4-signed,
-product-visible cards with
-pending lifecycle rows, bounded first-tick recovery from a parked publisher, and
-working interim email alert delivery. Exit-69 restartability for the
-availability-total class is configured and regression-tested, but it is not
-yet live-proven by an observed 69-to-restart cycle on A6. The post-#687 bake still
-proves the known StoryCluster rerank truncation failure no longer interrupts the
-launched raw path. PR #723 proves the observed StoryCluster production-timeout
-regression has a bounded hot path under the normal first-tick budget. This state
-does not prove unattended operation, current 48-hour sustained operation after
-the 2026-07-06 clean-window reset, retention/heap boundedness, accepted
-synthesis, frame tables, storyline overlays, topic synthesis, full public-beta
-readiness, mesh `release_ready`, production app canary readiness, or
-legal/commercial approval.
+Historical passing windows demonstrate that the raw path can produce v4-signed,
+product-visible cards with pending lifecycle rows and interim email alert
+delivery. They do not prove current health, unattended operation, the required
+post-recovery 48-hour window, retention/heap boundedness, accepted synthesis,
+frame tables, storyline overlays, topic synthesis, full public-beta readiness,
+mesh `release_ready`, production app canary readiness, or legal/commercial
+approval.
 
-Current proof window:
-
-- the window beginning `2026-07-06T22:44:08.567Z` was interrupted and cannot
-  support a current release claim;
-- the active engineering trigger is the classified exit-78 incident, not a
-  future heap-capture pair;
-- a new 24/48-hour recovery window may begin only after S1B is merged, its
-  recovery packet is independently reviewed, Lou authorizes the incident
-  action, and immediate publisher/public/relay readbacks pass;
-- no A6 update, service action, alert-channel change, or downstream launch work
-  is authorized by this runbook revision.
+The next proof window may begin only after the private-staging load gate, serial
+A/B/C replacement and review, separate publisher authority, the exact controller
+sequence below, and passing immediate readback. Immediate recovery establishes
+T0; only the required passing T0+48h closure can unblock S2.
 
 ## A6 Host Setup Closures
 
@@ -366,11 +331,15 @@ though the individual liveness watches overwrite their `latest.json` files.
 
 Phase 5 Scope A watch-closure packet timer:
 
+The two window values below are templates, not the interrupted 2026-07-06
+window. During S1 recovery, do not edit them manually; the reviewed controller
+sequence and `update-phase5-scope-a-watch-t0.mjs` own the exact T0 transition.
+
 ```bash
 mkdir -p ~/.config/vhc
 cat > ~/.config/vhc/phase5-scope-a-watch-closure.env <<'EOF'
-VH_PHASE5_SCOPE_A_WATCH_START_AT=2026-07-06T22:44:08.567Z
-VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=2026-07-06T22:44:08.567Z
+VH_PHASE5_SCOPE_A_WATCH_START_AT=<reviewed-current-window-start>
+VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=<reviewed-current-clean-window-start>
 VH_RELAY_WATCHDOG_MAX_HEAP_USED_BYTES=1100000000
 VH_RELAY_A_WATCHDOG_MAX_HEAP_USED_BYTES=850000000
 VH_RELAY_B_WATCHDOG_MAX_HEAP_USED_BYTES=1000000000
@@ -862,7 +831,8 @@ runtime-write block. The startup deferral and the paced repair lanes solve
 different windows: deferral removes the startup write collision, while pacing
 protects steady-state repair runs from becoming a maintenance burst.
 
-Current Phase 5 Scope A is raw-fresh, v4-signed, product-visible news cards.
+The healthy Phase 5 Scope A contract is raw-fresh, v4-signed, product-visible
+news cards; this is an acceptance contract, not a current-live claim.
 Raw bundle publication and the publish-time pending lifecycle row
 (`synthesis_pending` / `frame_table_pending`) are critical and fail-closed
 because they ride the relay REST write-through path with the configured 2-of-3

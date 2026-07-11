@@ -1,5 +1,9 @@
 # MVP Public Beta Release Candidate Packet
 
+> Document Role: Historical evidence report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-launch-readiness-closeout.md`
+
 Date: 2026-05-12
 Created at: 2026-05-12T22:49:14Z
 Branch: `coord/mvp-public-beta-rc-packet-v1`

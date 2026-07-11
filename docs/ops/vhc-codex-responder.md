@@ -2,8 +2,8 @@
 
 > Status: Draft / Dry-Run-Only Live Boundary
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
+> Last Reviewed: 2026-07-11
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
 
 ## Role
 
@@ -17,13 +17,12 @@ work:
 - draft operator packets;
 - never execute live A6 mutation from the issue.
 
-The responder tooling exists in repo after #722, but live A6
-execution/autonomy is not enabled. A real alert is active: S1A classified
-`relay_rest_story_timeout_total_0_of_3_exit_78`, and the publisher remains
-parked exit `78`. Repo-only S1B implementation and review may proceed; A6
-update, service action, alert-channel change, and downstream launch work may
-not. The next live boundary is an independently reviewed recovery packet built
-from the merged S1B commit and Lou's explicit incident approval.
+The responder tooling exists in repo, but live A6 execution/autonomy is not
+enabled. S1A classified `relay_rest_story_timeout_total_0_of_3_exit_78`, and the
+S1B remediation is merged and reviewed. Supervised load attempt 001 stopped
+before mutation at `remote_staging_unexpected_content`; it did not refresh or
+recover A6. The current `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE` decision
+and exact next gate are owned by `docs/ops/public-beta-operational-state.md`.
 
 ## First Checks
 

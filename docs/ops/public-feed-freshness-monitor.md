@@ -2,8 +2,8 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+> Last Reviewed: 2026-07-11
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
 
 ## Purpose
 
@@ -135,25 +135,20 @@ The service unit includes `TimeoutStartSec=180`, which bounds a hung
 freshness/publisher probe without making normal 15-second HTTP timeouts race the
 systemd start deadline.
 
-Current read-only A6 state as of the 2026-07-10 S1A refresh:
+Current incident context is owned by
+`docs/ops/public-beta-operational-state.md`. Its latest preserved pre-attempt
+readback classified the publisher at exit `78` after
+`relay_rest_story_timeout_total_0_of_3_exit_78`, with relays ready but snapshots
+and public freshness stale. Supervised load attempt 001 later stopped before
+mutation at `remote_staging_unexpected_content`; it did not refresh A6 service
+state or deploy the merged alert/runtime changes.
 
-- `~/.config/vhc/public-feed-alert.env` is configured with a host-private email
-  channel;
-- `vh-public-feed-alert-watch.timer` is enabled and active;
-- `vh-phase5-scope-a-watch-closure.timer` is enabled and active;
-- `vh-news-aggregator.service` is parked `failed/failed` at
-  `ExecMainStatus=78` after `relay_rest_story_timeout_total_0_of_3_exit_78`;
-- relay liveness is `3/3` pass, but relay snapshots are `0/3` current and public
-  freshness/watch closure fail;
-- the failure transition was already delivered and the unchanged incident is
-  suppressed rather than re-sent;
-- the active live alert path is still interim email, not the custom
-  pager/PWA.
-
-The v2/v3 producer and availability-total runtime changes described above are
-repo remediation, not proof of deployment on A6. Do not rerun test-fire,
-restart services, deploy these changes, or change the alert channel without the
-reviewed recovery packet and Lou's explicit incident approval.
+The active alert path was last proven as interim email, not the custom pager/PWA.
+Treat that as dated evidence until refreshed. Do not infer current service,
+timer, channel, or dedupe state from this runbook; re-read the moving mailbox and
+A6 evidence at the next exact gate. Do not test-fire, restart, deploy, or change
+the alert channel without the reviewed recovery envelope and Lou's explicit
+authority.
 
 Operator enablement or channel reconfiguration, after explicit approval.
 

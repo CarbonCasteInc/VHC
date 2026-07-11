@@ -1,11 +1,15 @@
 # MVP Production-Grade Distribution Readiness
 
+> Document Role: Historical evidence report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-launch-readiness-closeout.md`
+
 Date: 2026-05-14
 Updated at: 2026-05-20T15:29:19Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Base commit: `bb120a2e376784475202d59552f4b04531ee798b`
 Commit-sensitive evidence is rerun from the final PR head after this documentation update.
-Launch control packet: `docs/reports/mvp-public-beta-launch-control-2026-05-13.md`
+Launch control packet: `docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-public-beta-launch-control-2026-05-13.md`
 Node: `v20.20.2`
 pnpm: `9.7.1`
 

@@ -1,5 +1,9 @@
 # Open PR Triage - 2026-07-02
 
+> Document Role: Historical PR triage report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Triage Only
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-05
@@ -7,7 +11,7 @@
 
 > 2026-07-06 addendum: this triage remains historical PR bookkeeping. Current
 > Scope A state has advanced through #722/#723 and is recorded in
-> `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`.
+> `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`.
 > Alert delivery is no longer pending; the interim email alert path is enabled.
 
 This note re-triages old open PRs without resuming their branches. It is

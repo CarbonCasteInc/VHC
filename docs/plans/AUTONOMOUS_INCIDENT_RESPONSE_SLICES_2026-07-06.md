@@ -5,7 +5,14 @@
 > Last Reviewed: 2026-07-10 (v1/v2 producer compatibility plus availability-total terminology; original six-lens adversarial review: security trust-chain,
 > iOS/push platform, external API grounding, repo grounding, operational
 > failure modes, scope/sequencing — all findings incorporated below)
-> Depends On: docs/ops/public-feed-freshness-monitor.md, docs/ops/news-aggregator-production-service.md, docs/plans/DISTRIBUTION_READINESS_GOAL_2026-07-05.md, docs/plans/DISTRIBUTION_READINESS_SLICES_2026-07-05.md
+> Depends On: docs/ops/public-feed-freshness-monitor.md, docs/ops/news-aggregator-production-service.md, docs/ops/public-beta-operational-state.md
+
+> Operational state notice: dated live-state sections below are historical
+> planning evidence. Current public-beta truth and the active gate are in
+> `docs/ops/public-beta-operational-state.md`.
+
+The local-only distribution-readiness goal/slices files are preserved outside
+this branch and are not tracked dependencies of this plan.
 
 ## Target System
 
@@ -92,7 +99,7 @@ contract is `vh-public-feed-alert-watch-v2` with v3 dedupe state; the pager
 continues to ingest historical v1 and current v2 payloads and preserves the
 same incident-family key across that transition.
 
-## Post-Merge Current State (2026-07-06)
+## Historical Post-Merge State (2026-07-06)
 
 - PR #722 is merged on `main`. The pager service, GitHub incident bridge,
   iPhone PWA shell, Codex triage worker, reviewer worker, packet verifier,

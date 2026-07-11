@@ -9,8 +9,12 @@
 > Live A6 readback basis: operator read-only readback 2026-07-08, host at
 > `347d2018` (#744), services green, freshness monitor pass
 > Target surface: Venn News Web PWA initial controlled tester release
+> Operational state notice: this outline is a dated execution baseline retained
+> for guard coverage. Current sequence and live gate are in
+> `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` and
+> `docs/ops/public-beta-operational-state.md`.
 > Depends On: `docs/foundational/STATUS.md`,
-> `docs/reports/state-of-play-docs-alignment-audit-2026-07-08.md`,
+> `docs/ops/public-beta-operational-state.md`,
 > `docs/reports/functioning-mvp-lane-repo-closeout-2026-07-07.md`,
 > `docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md`,
 > `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`,
@@ -76,7 +80,7 @@ Claim boundaries:
 - custom pager/PWA incident response and Codex live execution are not part of
   the tester-release claim.
 
-## Current State Grounding
+## Historical State Grounding (2026-07-08)
 
 Repository and GitHub state at this alignment point:
 
@@ -327,7 +331,7 @@ and release-window recovery, not a generic StoryCluster correctness failure.
 - No `remove` or new `watch` source contaminates the release window.
 - The source-health artifact records the policy decision and artifact path.
 
-## Lane 2 - A6 Current-Main Readback And Accepted-Synthesis Canary
+## Lane 2 - A6 Readback And Accepted-Synthesis Canary (Historical Plan)
 
 ### Goal
 
@@ -345,7 +349,7 @@ explicitly scope the release away from unproven live accepted synthesis.
 ### Read-only A6 readback
 
 A first read-only readback was performed 2026-07-08 ~22:05 EDT and is recorded
-in Current State Grounding: A6 at `347d2018`, both services active, both
+in the historical state grounding: A6 at `347d2018`, both services active, both
 timers firing, freshness monitor pass. Re-run the readback immediately before
 any maintenance packet, because this state goes stale:
 

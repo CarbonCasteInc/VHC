@@ -1,5 +1,9 @@
 # Phase 5 Scope A 24h/48h Watch Closure Packet
 
+> Document Role: Historical watch packet (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: In-Progress Evidence Packet
 > Generated: 2026-06-28T14:09:30Z
 > Evidence: `docs/reports/evidence/phase5-scope-a-watch-closure-2026-06-28.json`

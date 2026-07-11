@@ -45,6 +45,7 @@ const requiredMvpGateIds = [
   'public_feed_analysis_frame_reliability',
   'public_feed_composition_freshness',
   'public_feed_lifecycle_accountability',
+  'public_feed_fresh_propagation',
   'story_identity_growth',
   'public_feed_pagination_refresh',
   'stance_aggregate_decay_public_mesh',
@@ -56,6 +57,10 @@ const requiredMvpGateIds = [
   'report_intake_admin_action',
   'operator_trust_gate',
   'public_beta_compliance',
+  'luma_forbidden_claims',
+  'luma_production_profile',
+  'luma_telemetry_redaction',
+  'luma_mvp_production_readiness',
   'public_beta_launch_closeout',
 ];
 

@@ -1,9 +1,13 @@
 # Phase 5 Scope A Recovery Current State - 2026-07-02
 
+> Document Role: Historical recovery report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Recovery Evidence
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-02
-> Depends On: docs/ops/news-aggregator-production-service.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/public-beta-image-deploy.md, docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md, docs/reports/phase5-scope-a-stability-bake-2026-06-28.md
+> Depends On: docs/ops/news-aggregator-production-service.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/public-beta-image-deploy.md, docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-launch-closeout-2026-06-24.md, docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-stability-bake-2026-06-28.md
 
 ## Scope
 

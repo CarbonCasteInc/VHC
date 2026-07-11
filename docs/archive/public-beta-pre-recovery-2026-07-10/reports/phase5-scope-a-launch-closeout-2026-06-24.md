@@ -1,12 +1,16 @@
 # Phase 5 Scope A Launch Closeout - 2026-06-24
 
+> Document Role: Historical launch report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Launched
 > Owner: VHC Launch Ops
 > Commit: `b3da27a09f683b7933f169bdd77c03f101681663`
 > Depends On: `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-beta-image-deploy.md`, `docs/ops/public-feed-freshness-monitor.md`
 
 Post-launch stability addendum: the first extended post-#687 bake is recorded
-in `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`. That addendum
+in `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-stability-bake-2026-06-28.md`. That addendum
 does not change the original launch scope; it records the later StoryCluster
 rerank truncation fix and the first seven-plus-hour clean production window.
 

@@ -2,8 +2,8 @@
 
 > Status: Operational Design / Repo Capability
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
+> Last Reviewed: 2026-07-11
+> Depends On: docs/ops/public-beta-operational-state.md, docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
 
 ## Plain-Language Model
 
@@ -52,18 +52,20 @@ normalizer keeps `public_feed`, `relay_liveness`, `relay_snapshot`, and
 current colon blocker forms. The pager's own `vhc-incident-v1` record schema is
 a separate contract and is unchanged.
 
-The live A6 alert path is still the Slice 0 interim email channel, not the
-custom pager/PWA. The 2026-07-10 S1A readback classifies an active
-`relay_rest_story_timeout_total_0_of_3_exit_78` incident: the publisher is
-parked exit `78`, relay snapshots/public freshness/watch closure fail, and the
-repo-side S1B remediation is not deployed.
+The last proven live A6 alert path was the Slice 0 interim email channel, not the
+custom pager/PWA. S1A classified
+`relay_rest_story_timeout_total_0_of_3_exit_78`; S1B remediation is now merged
+and reviewed, but supervised load attempt 001 stopped before mutation at
+`remote_staging_unexpected_content`. Current service/timer state must be
+refreshed read-only; the current decision and exact next gate are owned by
+`docs/ops/public-beta-operational-state.md`.
 
 Current boundaries:
 
-- `vh-public-feed-alert-watch.timer` is enabled on A6.
-- `vh-phase5-scope-a-watch-closure.timer` is enabled on A6.
-- Email delivery is configured in host-private env and has sent failure and
-  recovery state changes.
+- The last preserved readback saw the alert/watch and watch-closure timers
+  enabled; this is dated evidence, not a current assertion.
+- Email delivery was configured in host-private env and had sent failure and
+  recovery state changes; re-prove it before a launch claim.
 - The custom pager should be deployed only through its separate reviewed
   packet; email fallback stays on permanently.
 - Codex may investigate, write tests, open PRs, and draft operator packets from
@@ -80,10 +82,10 @@ alert proved that the channel was paging a real condition, and the recovery
 transition after #723 was also delivered.
 
 For a new host or channel reconfiguration, repeat the Block-A/Block-B procedure
-from `docs/ops/public-feed-freshness-monitor.md`. During the active exit-78
-incident, do not edit host alert env, disable timers, rerun test-fire, update
-A6, or restart the publisher without the dedicated independently reviewed
-recovery packet and Lou's explicit approval.
+from `docs/ops/public-feed-freshness-monitor.md`. During S1 recovery, do not edit
+host alert env, disable timers, rerun test-fire, update A6, or restart the
+publisher outside the exact independently reviewed envelope and Lou's explicit
+authority.
 
 ## Pager Deployment Inputs
 

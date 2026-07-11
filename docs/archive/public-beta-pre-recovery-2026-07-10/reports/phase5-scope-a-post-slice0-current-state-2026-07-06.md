@@ -1,5 +1,9 @@
 # Phase 5 Scope A Post-Slice-0 Current State - 2026-07-06
 
+> Document Role: Historical operational snapshot (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Evidence-Accrual Phase
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-06

@@ -11,13 +11,22 @@ const authoritativeRoots = [
 ];
 
 const nonAuthoritativeRoots = [
+  path.join(repoRoot, 'docs', 'reports'),
   path.join(repoRoot, 'docs', 'plans'),
   path.join(repoRoot, 'docs', 'sprints'),
+  path.join(repoRoot, 'docs', 'archive'),
 ];
+
+const archiveRoot = path.join(repoRoot, 'docs', 'archive');
+const archiveMarkerSkiplist = new Set([
+  'docs/archive/README.md',
+]);
 
 const requiredMetadataKeys = ['Status', 'Owner', 'Last Reviewed', 'Depends On'];
 const authorityPhraseAllowlist = new Set([
   'docs/plans/TEMP_DOCS_AUDIT_REFERENCE_2026-03-03.md',
+  'docs/archive/public-beta-pre-recovery-2026-07-10/STATUS.md',
+  'docs/reports/evidence/storycluster/program/2026-03-05T1715Z/EVIDENCE_PACKET.md',
 ]);
 
 const linkCheckSkiplist = new Set([
@@ -177,15 +186,37 @@ function checkAuthorityLanguage(files) {
   return issues;
 }
 
+function checkArchiveMarkers(files) {
+  const issues = [];
+  for (const file of files) {
+    const rel = toRepoRelative(file);
+    if (archiveMarkerSkiplist.has(rel)) continue;
+
+    const headerWindow = readFileSync(file, 'utf8').split('\n').slice(0, 24).join('\n');
+    for (const [label, pattern] of [
+      ['Document Role: Historical', /^> Document Role:\s*Historical\S*[^\n]*$/m],
+      ['Archived', /^> Archived:\s*\S+[^\n]*$/m],
+      ['Superseded By', /^> Superseded By:\s*\S+[^\n]*$/m],
+    ]) {
+      if (!pattern.test(headerWindow)) {
+        issues.push(`${rel}: archived document requires a nonempty ${label} field in its first 24 lines`);
+      }
+    }
+  }
+  return issues;
+}
+
 function main() {
   const allDocsFiles = walkMarkdownFiles(docsRoot).sort();
   const authoritativeFiles = authoritativeRoots.flatMap((dir) => walkMarkdownFiles(dir)).sort();
   const nonAuthoritativeFiles = nonAuthoritativeRoots.flatMap((dir) => walkMarkdownFiles(dir)).sort();
+  const archiveFiles = walkMarkdownFiles(archiveRoot).sort();
 
   const issues = [
     ...checkRequiredMetadata(authoritativeFiles),
     ...checkInternalLinks(allDocsFiles),
     ...checkAuthorityLanguage(nonAuthoritativeFiles),
+    ...checkArchiveMarkers(archiveFiles),
   ];
 
   if (issues.length > 0) {

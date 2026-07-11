@@ -2,7 +2,7 @@
 
 > Status: `no_go_pending_operator_decisions_and_live_evidence`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
+> Last Reviewed: 2026-07-11
 > Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
@@ -10,6 +10,7 @@
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`,
+> `docs/ops/public-beta-operational-state.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`
 
 This packet is the Lane 0 launch note for the current release-readiness sprint.
@@ -22,23 +23,21 @@ release evidence packet.
 
 `no_go_pending_operator_decisions_and_live_evidence`
 
-This packet was introduced at `main@84360f64` after #751. That commit is a
-launch-control documentation basis, not the intended release commit.
-Source-health release evidence has recovered in the latest local packet, and
-StoryCluster production-readiness now surfaces the headline-soak blocker as the
-secret-safe class `storycluster_openai_invalid_api_key`. The human authority and
-target-envelope decisions are now recorded: Lou is the sole human release
-authority, Codex is the technical executor, and the intended launch is a public
-beta for US/Canada testers. The release evidence pipeline remains blocked. A
-public tester wave must not start until each live release blocker is cleared, the
-remaining evidence fields below are filled, and a release packet passes on the
-intended release commit.
+Lou is the sole human release authority, Codex is the technical executor, and
+the intended launch remains a public beta for US/Canada testers.
+The release evidence pipeline remains blocked. A public tester wave must not start until
+each live release blocker is cleared, the remaining evidence fields below are
+filled, and a release packet passes on the intended release commit.
 
-The S1 recovery implementation chain is merged through #767 at
-`main@297d1bb4`, but that is only the shared-integration base. The final
-revision/image/capture/packet tuple does not exist until the shared integration
-gate is reviewed and merged. Immediate recovery and T0+24h evidence cannot
-clear S1 or launch work; T0+48h is mandatory.
+The S1 recovery implementation is merged through PR #769 at
+`3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`. The exact image and executable
+tuple received independent review and the original exact Lou binding.
+Supervised load attempt 001 then stopped at read-only prestate because its
+remote staging base was shared mode `0775` with unrelated entries. No live
+mutation occurred. The original attempt cannot be retried; a fresh private
+staging envelope, independent review, and new exact binding are required.
+Immediate recovery and T0+24h cannot clear S1 or launch work; T0+48h remains
+mandatory.
 
 ## Release Envelope
 
@@ -54,7 +53,7 @@ clear S1 or launch work; T0+48h is mandatory.
 | Support intake | Public GitHub issue form plus tester-visible contact email `carboncasteit@gmail.com` |
 | Private escalation path | `carboncasteit@gmail.com`; required for sensitive support, legal/copyright, abuse/safety, account/access, and deletion/correction cases |
 | Intended release commit | `TBD(release-owner)`; must be the commit used by the passing release evidence packet |
-| S1 recovery final revision | `TBD(shared-integration-merge)`; exact full commit must bind publisher checkout, relay image, capture, and packet |
+| S1 recovery final revision | `3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`; exact full commit binds publisher checkout, relay image, capture, and packet; a later merge invalidates the tuple unless rebuilt |
 | A6 deployed commit | Last read-only orchestration refresh: `347d20187d164699a35dbd8d76c299570011b1a1` at `2026-07-10T15:48:16Z`; must be refreshed before any mutation or current-live claim |
 | Auth-callback host | `https://auth.venn.carboncaste.io`; must be outside A6 |
 | Advertised sign-in providers | Apple and Google for first public beta; X is excluded/hidden until a later live provider packet rehearses it |
@@ -90,20 +89,22 @@ release gates.
 
 ## Live-Action Authority Ledger
 
-Lou has authorized the existing A6 SSH path for read-only capture and approved
-#763's serial A/B/C incident boundary. That boundary does not bind a future
-unknown tuple: relay A remains blocked until independent `GO` and Lou
-confirmation bind the exact final revision/image/capture/packet tuple. The
-publisher remains a separate not-yet-authorized mutation; after C and independent
-relay-evidence acceptance, Lou must separately confirm attended publisher
-recovery authority for the exact same revision.
+Lou authorized the existing A6 SSH path for read-only capture and approved
+#763's serial A/B/C incident boundary. Lou also confirmed the original exact
+revision/image/capture/packet tuple, but attempt 001 closed that execution path on
+exit `78` before mutation. The boundary remains; the changed private-staging
+envelope requires independent review and a new exact confirmation before load or
+relay A. The publisher remains a separate not-yet-authorized mutation; after C
+and independent relay-evidence acceptance, Lou must separately confirm attended
+publisher recovery authority for the exact same revision.
 
 Authority state by action:
 
 1. read-only A6 capture through the existing SSH path: authorized;
 2. scoped serial relay replacement in order `A -> B -> C`: boundary approved,
-   but not executable until the exact tuple is reviewed and Lou confirms it;
-   keep the publisher parked and roll back only the current relay;
+   but not executable until the new private-staging/load envelope is reviewed,
+   exactly confirmed, and the immutable image is loaded; keep the publisher
+   parked and roll back only the current relay;
 3. exact-revision publisher park/preflight/start/verify/T0/finalize: pending a
    separate Lou confirmation after C and independent relay-evidence acceptance;
 4. update A6 to a later intended release commit: blocked until S1 T0+48h closure;
@@ -167,7 +168,8 @@ Do not claim any of the following from this release packet:
 
 | Evidence | Current state | Launch implication |
 | --- | --- | --- |
-| Packet introduction basis | `main@84360f64` after #751 | Documentation/control basis only; the intended release commit is still `TBD` |
+| Packet introduction basis | Current operational decision, intended public-beta envelope, authority ledger, and claim boundaries | Context only; never substitutes for live evidence |
+| Current S1 operational state | `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`; see `docs/ops/public-beta-operational-state.md` | Preserve attempt 001; no tester wave or downstream launch work |
 | Source health | Latest local source-health release evidence `pass` after the pruned source surface | Must be regenerated on the intended release commit |
 | StoryCluster production-readiness | `blocked`; headline-soak diagnosis is `storycluster_openai_invalid_api_key` with action `repair_storycluster_openai_credential_or_endpoint` | Operator must repair live credential/endpoint and rerun the gate |
 | Release evidence pipeline | `blocked` | No tester wave |
@@ -176,10 +178,10 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
-| Failure-mailbox monitor | The first 2026-07-10 run's 85 criticals are historical. The last orchestration snapshot at `2026-07-10T15:02:20.895Z` had 2 current criticals and 1 warning; S1A remains `relay_rest_story_timeout_total_0_of_3_exit_78`. S1B repo remediation is not deployed or recovery-proven. | Treat as active incident gate; only the exact reviewed S1 recovery is eligible, and no launch-enablement work resumes before T0+48h closure |
-| Final S1 recovery tuple | `TBD(final-tuple-reviewer)` | Must bind final revision, publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins |
-| Serial A/B/C relay replacement | `TBD(A6-operator)` | All three stages pass with publisher parked and no rollback or untouched-relay mutation |
-| Immediate publisher recovery | `TBD(A6-operator)` | Required but never sufficient for S1 green |
+| Failure-mailbox monitor | Moving artifact; the latest audit snapshot (`2026-07-11T05:02:14.679Z`) had 1 critical: `public_feed_alert_fail`. Counts are incident history once a newer artifact exists. | Re-read before every gate; no launch-enablement work resumes before T0+48h closure and no unresolved feed critical |
+| Final S1 recovery tuple | `3c8907f0` binds publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins; original exact binding closed on attempt-001 exit `78` | Regenerate/review/rebind the affected private-staging load envelope before attempt 002 |
+| Serial A/B/C relay replacement | `TBD(A6-operator)`; not started because image load did not start | All three stages pass with publisher parked and no rollback or untouched-relay mutation |
+| Immediate publisher recovery | `TBD(A6-operator)`; not authorized or started | Required but never sufficient for S1 green |
 | S1 T0+24h evidence | `TBD(watch-operator)` | Intermediate evidence only; cannot unblock S2 or launch work |
 | S1 T0+48h closure | `TBD(watch-operator)` | Passing final closure is mandatory before S2 or launch enablement |
 

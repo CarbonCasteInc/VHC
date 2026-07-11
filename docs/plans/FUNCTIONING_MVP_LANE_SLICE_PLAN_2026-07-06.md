@@ -5,7 +5,11 @@
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Last Reviewed: 2026-07-08
 > Target: Venn News Web PWA initial release MVP
-> Depends On: `docs/foundational/STATUS.md`, `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`, `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-civic-sentiment.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-civic-action-kit-v0.md`, `docs/specs/spec-linked-socials-v0.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/vhc-incident-response.md`, `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+> Depends On: `docs/foundational/STATUS.md`, `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/plans/AUTONOMOUS_INCIDENT_RESPONSE_SLICES_2026-07-06.md`, `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-civic-sentiment.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-civic-action-kit-v0.md`, `docs/specs/spec-linked-socials-v0.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/vhc-incident-response.md`, `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+
+> Operational state notice: this file preserves the merged MVP implementation
+> plan. Its dated A6/proof-window section is historical; use
+> `docs/ops/public-beta-operational-state.md` for the active gate.
 
 ## Executive Decision
 
@@ -90,7 +94,7 @@ accurate, but found and verified these gaps, all closed in this v3:
   list extended to cover Season-0 surfaces that ship in the same PWA without
   being release claims.
 
-## Current State Of Play
+## Historical State Of Play
 
 As of the original 2026-07-06 plan:
 
@@ -306,7 +310,7 @@ product lanes advance off-host. The MVP cannot ship on a stale or silent feed.
 
 ### Grounded Surfaces
 
-- `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+- `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
 - `docs/ops/news-aggregator-production-service.md`
 - `docs/ops/public-feed-freshness-monitor.md`
 - `tools/scripts/public-feed-alert-watch.mjs`

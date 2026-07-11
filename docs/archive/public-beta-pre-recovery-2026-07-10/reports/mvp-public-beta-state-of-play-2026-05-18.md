@@ -1,5 +1,9 @@
 # MVP Public Beta State Of Play
 
+> Document Role: Historical evidence report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 Date: 2026-05-18
 Updated at: 2026-05-20T15:29:19Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`

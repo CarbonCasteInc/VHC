@@ -9,7 +9,7 @@ When documents disagree, use this precedence order:
 3. Architecture contract: `docs/foundational/System_Architecture.md`
 4. Implementation reality and drift: `docs/foundational/STATUS.md`
 5. Operational runbooks: `docs/ops/*.md`
-6. Plans and sprints (non-authoritative execution artifacts): `docs/plans/*.md`, `docs/sprints/**/*.md`
+6. Reports, plans, and sprints (non-authoritative evidence/execution artifacts): `docs/reports/*.md`, `docs/plans/*.md`, `docs/sprints/**/*.md`
 
 Clarification:
 - For behavior/data contract conflicts, `docs/specs/*.md` wins over architecture prose.
@@ -20,7 +20,7 @@ Domain ownership for canonical docs is maintained in `docs/CANON_MAP.md`.
 ## Normative Language Policy
 
 - Authoritative docs (`docs/foundational`, `docs/specs`, `docs/ops`) may define normative contract language.
-- Non-authoritative docs (`docs/plans`, `docs/sprints`) must not declare themselves as a source of truth.
+- Non-authoritative docs (`docs/reports`, `docs/plans`, `docs/sprints`) must not declare themselves as a source of truth.
 - Plans and sprint docs may reference canonical docs, but canonical behavior must be specified in owners from `docs/CANON_MAP.md`.
 
 ## Required Metadata (Authoritative Docs)
@@ -39,8 +39,11 @@ CI enforces this via docs governance checks.
 - `docs/foundational` — product intent, architecture, status, foundational contracts.
 - `docs/specs` — normative protocol/data/behavior specs.
 - `docs/ops` — local and operational runbooks.
+- `docs/reports` — date/revision-bounded evidence; never present-tense authority.
 - `docs/plans` — implementation plans and temporary analysis artifacts.
 - `docs/sprints` — active and historical sprint execution records.
+- `docs/archive` — explicitly historical snapshots retained for audit; never
+  current implementation or execution authority.
 
 ## Core Entry Points
 
@@ -52,6 +55,25 @@ CI enforces this via docs governance checks.
 6. `docs/specs/topic-synthesis-v2.md`
 7. `docs/specs/spec-news-aggregator-v0.md`
 8. `docs/specs/spec-civic-sentiment.md`
+
+## Start Here Now — Public Beta
+
+For current public-beta work, read only this chain before following deeper
+links:
+
+1. `docs/foundational/STATUS.md` — current implementation and drift.
+2. `docs/ops/public-beta-operational-state.md` — current live decision and next
+   eligible gate.
+3. `docs/ops/news-aggregator-production-service.md` — authoritative publisher
+   procedure and abort/rollback rules.
+4. `docs/ops/public-beta-launch-readiness-closeout.md` — stable release-evidence
+   and claim boundary.
+5. `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` — active
+   non-authoritative execution sequence.
+
+Historical pre-attempt status, closeout, handoff, and checklist snapshots are
+indexed at `docs/archive/public-beta-pre-recovery-2026-07-10/README.md`. They are
+not current operational truth.
 
 ## Local Development and Operations
 
@@ -67,13 +89,13 @@ CI enforces this via docs governance checks.
 
 ## Current Scope A Status Pointer
 
-For the live public-news Scope A state, read these together:
+For the live public-news Scope A state, read:
 
 - `docs/foundational/STATUS.md`
-- `docs/reports/state-of-play-docs-alignment-audit-2026-07-08.md`
-- `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
-- `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`
-- `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`
-- `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`
+- `docs/ops/public-beta-operational-state.md`
 - `docs/ops/news-aggregator-production-service.md`
-- `docs/ops/storycluster-production-service.md`
+- `docs/ops/public-feed-freshness-monitor.md`
+- `docs/ops/public-beta-launch-readiness-closeout.md`
+
+Dated reports remain valid only for their stated evidence windows. Do not infer
+current service state from a historical launch, recovery, or stability report.
