@@ -6,7 +6,7 @@
 > Current main: `eb53af67dc46764e4d8afe1c5f932c771fe5a4c8`
 > Depends On: `docs/plans/FUNCTIONING_MVP_LANE_SLICE_PLAN_2026-07-06.md`,
 >   `docs/ops/public-beta-launch-readiness-closeout.md`,
->   `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
+>   `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
 
 ## Verdict
 

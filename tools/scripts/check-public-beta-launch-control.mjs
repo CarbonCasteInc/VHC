@@ -12,7 +12,7 @@ const allowedStatuses = new Set([
 ]);
 
 const requiredDependsOn = [
-  'docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md',
+  'docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md',
   'docs/ops/BETA_SESSION_RUNSHEET.md',
   'docs/ops/account-provider-callback-boundary.md',
   'docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md',
@@ -65,6 +65,7 @@ const requiredEvidenceRows = [
   'A6 accepted synthesis',
   'Auth callback',
   'Manual rehearsal',
+  'Canonical pager/dead-man',
   'Failure-mailbox monitor',
   'Final S1 recovery tuple',
   'Serial A/B/C relay replacement',
@@ -73,11 +74,33 @@ const requiredEvidenceRows = [
   'S1 T0+48h closure',
 ];
 
+const requiredGoEvidenceRows = [
+  ['Current S1 operational state', /^`closed`; final S1 clearance `pass`$/, /^S1 closed; downstream launch work is eligible$/],
+  ['Source health', /^`pass` on release commit$/, /^Verified and bound to the release commit$/],
+  ['StoryCluster production-readiness', /^`release_ready`$/, /^Fresh release-ready report recorded$/],
+  ['Release evidence pipeline', /^`pass`; `release_commit_verified: true`; blockers `\[\]`$/, /^Passing artifact verified and bound to the release commit$/],
+  ['MVP release gates', /^`pass`$/, /^Passed on the release commit$/],
+  ['LUMA MVP readiness', /^`pass`$/, /^Passing report bound to the release commit$/],
+  ['A6 accepted synthesis', /^`pass`$/, /^Live canary passed$/],
+  ['Auth callback', /^`pass`$/, /^Deployment and provider return legs passed$/],
+  ['Manual rehearsal', /^`pass`$/, /^Three-browser and privacy rehearsal passed$/],
+  ['Canonical pager/dead-man', /^`pass`; live proof recorded$/, /^Signed-alert and external dead-man evidence recorded$/],
+  ['Failure-mailbox monitor', /^`pass`; `newCriticalCount == 0`$/, /^Final monitor clear with zero unresolved public-feed criticals$/],
+  ['Final S1 recovery tuple', /^independent `GO`; .+$/, /^Independent review GO bound to the final tuple$/],
+  ['Serial A/B/C relay replacement', /^`pass`$/, /^All relays passed without rollback$/],
+  ['Immediate publisher recovery', /^`pass`$/, /^Passed; interim evidence retained$/],
+  ['S1 T0+24h evidence', /^`pass`; intermediate only$/, /^Passed; intermediate evidence retained$/],
+  ['S1 T0+48h closure', /^`pass`$/, /^Passed; S2 eligible$/],
+];
+
+const forbiddenGoEvidenceState = /\b(?:blocked|fail(?:ed)?|pending|TBD|NO_GO|not|attempt[- ]?00[12])\b|exit\s+78/i;
+const forbiddenGoImplication = /\b(?:blocked|fail(?:ed)?|pending|TBD|NO_GO|not|no\s+tester\s+wave|repair|required|regenerate(?:\/review\/rebind)?|cannot\s+unblock)\b|attempt[- ]?00[12]|exit\s+78/i;
+
 const requiredGoRules = [
   'every owner/contact row above is filled',
   'the release commit is pinned',
   'A6 is read back or updated at the commit required by the release envelope',
-  'StoryCluster production-readiness is no longer blocked',
+  'fresh StoryCluster production-readiness report has `status: release_ready`',
   'accepted-current synthesis is live-proven',
   'the auth-callback boundary is deployed outside A6',
   'release evidence is regenerated and passing on the release commit',
@@ -85,6 +108,10 @@ const requiredGoRules = [
   'tester copy contains only the allowed claims',
   'the latest failure-mailbox monitor has no unresolved critical items',
   'the S1 T0+48h closure packet passes',
+  'literal `this_record_commit`',
+  'canonical pager path proves signed alert receipt',
+  'external dead-man health',
+  'Codex executor remains dry-run',
 ];
 
 const requiredRecoveryBoundaries = [
@@ -145,6 +172,17 @@ function extractStatus(content) {
 
 function hasPlaceholder(content) {
   return /\bTBD\([^)]+\)/.test(content);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function tableCell(content, rowLabel, columnIndex) {
+  const row = content.match(new RegExp(`^\\|\\s*${escapeRegExp(rowLabel)}\\s*\\|[^\\n]+$`, 'm'))?.[0];
+  if (!row) return null;
+  const cells = row.split('|').slice(1, -1).map((cell) => cell.trim());
+  return cells[columnIndex] ?? null;
 }
 
 export function validatePublicBetaLaunchControl(content, options = {}) {
@@ -237,12 +275,29 @@ export function validatePublicBetaLaunchControl(content, options = {}) {
       [/\bTBD\([^)]+\)/, 'TBD blanks'],
       [/\brelease blocker\b/, 'release blocker rows'],
       [/release evidence\s+pipeline remains blocked/i, 'blocked release evidence text'],
-      [/No tester wave/, 'No tester wave launch implication'],
+      [/no tester wave/i, 'No tester wave launch implication'],
       [/no_go_pending_operator_decisions_and_live_evidence/, 'no-go status text'],
     ];
     for (const [regex, description] of goForbidden) {
       if (regex.test(content)) {
         issues.push(`${relPath}: go packet must not retain ${description}`);
+      }
+    }
+
+    for (const [rowLabel, requiredState, requiredImplication] of requiredGoEvidenceRows) {
+      const currentState = tableCell(content, rowLabel, 1);
+      const implication = tableCell(content, rowLabel, 2);
+      if (currentState === null) {
+        issues.push(`${relPath}: go packet is missing ${rowLabel} evidence state`);
+        continue;
+      }
+      if (forbiddenGoEvidenceState.test(currentState) || !requiredState.test(currentState)) {
+        issues.push(`${relPath}: go packet ${rowLabel} evidence remains adverse: ${currentState}`);
+      }
+      if (implication === null) {
+        issues.push(`${relPath}: go packet is missing ${rowLabel} launch implication`);
+      } else if (forbiddenGoImplication.test(implication) || !requiredImplication.test(implication)) {
+        issues.push(`${relPath}: go packet ${rowLabel} launch implication contradicts GO: ${implication}`);
       }
     }
   }

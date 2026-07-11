@@ -19,14 +19,59 @@ function replaceStatus(content, status) {
     .replace(/## Current Decision\s*\n\s*`[^`]+`/m, `## Current Decision\n\n\`${status}\``);
 }
 
+function replaceEvidenceState(content, rowLabel, state) {
+  const escaped = rowLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^(\\|\\s*${escaped}\\s*\\|)\\s*[^|]*(\\|[^\\n]+)$`, 'm');
+  assert.match(content, pattern, `${rowLabel}: fixture row missing`);
+  return content.replace(pattern, `$1 ${state} $2`);
+}
+
+function replaceEvidenceImplication(content, rowLabel, implication) {
+  const lines = content.split('\n');
+  const rowIndex = lines.findIndex((line) => line.startsWith(`| ${rowLabel} |`));
+  assert.notEqual(rowIndex, -1, `${rowLabel}: fixture row missing`);
+  const cells = lines[rowIndex].split('|').slice(1, -1).map((cell) => cell.trim());
+  cells[2] = implication;
+  lines[rowIndex] = `| ${cells.join(' | ')} |`;
+  return lines.join('\n');
+}
+
+const goEvidenceStates = [
+  ['Current S1 operational state', '`closed`; final S1 clearance `pass`', 'S1 closed; downstream launch work is eligible'],
+  ['Source health', '`pass` on release commit', 'Verified and bound to the release commit'],
+  ['StoryCluster production-readiness', '`release_ready`', 'Fresh release-ready report recorded'],
+  ['Release evidence pipeline', '`pass`; `release_commit_verified: true`; blockers `[]`', 'Passing artifact verified and bound to the release commit'],
+  ['MVP release gates', '`pass`', 'Passed on the release commit'],
+  ['LUMA MVP readiness', '`pass`', 'Passing report bound to the release commit'],
+  ['A6 accepted synthesis', '`pass`', 'Live canary passed'],
+  ['Auth callback', '`pass`', 'Deployment and provider return legs passed'],
+  ['Manual rehearsal', '`pass`', 'Three-browser and privacy rehearsal passed'],
+  ['Canonical pager/dead-man', '`pass`; live proof recorded', 'Signed-alert and external dead-man evidence recorded'],
+  ['Failure-mailbox monitor', '`pass`; `newCriticalCount == 0`', 'Final monitor clear with zero unresolved public-feed criticals'],
+  [
+    'Final S1 recovery tuple',
+    'independent `GO`; publisher checkout; relay OCI revision; full immutable relay image ID; manifest/tar hashes; packet SHA-256; capture SHA-256; reviewer identity; relay order `A -> B -> C`; reviewed loopback relay origins',
+    'Independent review GO bound to the final tuple',
+  ],
+  ['Serial A/B/C relay replacement', '`pass`', 'All relays passed without rollback'],
+  ['Immediate publisher recovery', '`pass`', 'Passed; interim evidence retained'],
+  ['S1 T0+24h evidence', '`pass`; intermediate only', 'Passed; intermediate evidence retained'],
+  ['S1 T0+48h closure', '`pass`', 'Passed; S2 eligible'],
+];
+
 function goReadyPacket() {
-  return replaceStatus(currentPacket, 'go_for_public_beta_ramp')
+  let packet = replaceStatus(currentPacket, 'go_for_public_beta_ramp')
     .replace(/`TBD\([^)]+\)`/g, '`recorded`')
     .replace(/TBD\([^)]+\)/g, 'recorded')
     .replace(/\brelease blocker\b/g, 'recorded')
     .replace(/release evidence\s+pipeline remains blocked/gi, 'release evidence pipeline is passing')
     .replace(/No tester wave/g, 'Tester wave may proceed')
     .replace(/no_go_pending_operator_decisions_and_live_evidence/g, 'go_for_public_beta_ramp');
+  for (const [rowLabel, state, implication] of goEvidenceStates) {
+    packet = replaceEvidenceState(packet, rowLabel, state);
+    packet = replaceEvidenceImplication(packet, rowLabel, implication);
+  }
+  return packet;
 }
 
 test('current launch-control packet is a valid explicit no-go packet', () => {
@@ -67,6 +112,54 @@ test('go packet cannot retain no-go placeholders or blocker language', () => {
 
 test('go packet passes after operator fields and evidence language are filled', () => {
   assert.deepEqual(issuesFor(goReadyPacket()), []);
+});
+
+test('go packet rejects every required evidence row when its state regresses', () => {
+  const baseline = goReadyPacket();
+  for (const [rowLabel] of goEvidenceStates) {
+    const packet = replaceEvidenceState(baseline, rowLabel, '`blocked`; live proof not recorded');
+    const issues = issuesFor(packet).join('\n');
+    assert.match(issues, new RegExp(`${rowLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} evidence`));
+  }
+});
+
+test('go packet rejects negated success states and stale row implications', () => {
+  const baseline = goReadyPacket();
+  for (const [rowLabel] of goEvidenceStates) {
+    const negated = replaceEvidenceState(baseline, rowLabel, 'not pass; not release_ready');
+    assert.match(issuesFor(negated).join('\n'), new RegExp(rowLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+    const stale = replaceEvidenceImplication(
+      baseline,
+      rowLabel,
+      'Preserve attempt 001; no tester wave; must repair and regenerate before attempt 002',
+    );
+    assert.match(issuesFor(stale).join('\n'), new RegExp(`${rowLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} launch implication`));
+  }
+});
+
+test('go packet rejects positive implication tokens embedded in contradictions', () => {
+  const baseline = goReadyPacket();
+  for (const [rowLabel, implication] of [
+    ['MVP release gates', 'Not passed; distribution remains prohibited'],
+    ['Current S1 operational state', 'S1 not closed; downstream launch work is eligible'],
+    ['StoryCluster production-readiness', 'Release-ready token recorded, but credential repair is still required'],
+  ]) {
+    const packet = replaceEvidenceImplication(baseline, rowLabel, implication);
+    assert.match(issuesFor(packet).join('\n'), new RegExp(`${rowLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} launch implication`));
+  }
+});
+
+test('go release evidence requires pass, release-commit verification, and zero blockers', () => {
+  const baseline = goReadyPacket();
+  for (const state of [
+    '`pass`; blockers `[]`',
+    '`pass`; `release_commit_verified: true`',
+    '`blocked`; `release_commit_verified: true`; blockers `[]`',
+  ]) {
+    const packet = replaceEvidenceState(baseline, 'Release evidence pipeline', state);
+    assert.match(issuesFor(packet).join('\n'), /Release evidence pipeline evidence/);
+  }
 });
 
 test('required owner rows are pinned', () => {
@@ -136,4 +229,14 @@ test('downstream Go Rule rejects incident-classification and authority shortcuts
   const issues = issuesFor(packet).join('\n');
   assert.match(issues, /must not use Lou authorization alternative/);
   assert.match(issues, /must not use classified-incident authorization alternative/);
+});
+
+test('Go Rule requires StoryCluster release-ready, canonical pager proof, and nonrecursive C binding', () => {
+  const goRule = currentPacket.match(/## Go Rule\n([\s\S]*?)$/)?.[1] ?? '';
+  assert.match(goRule, /StoryCluster production-readiness report has `status:\s+release_ready`/);
+  assert.match(goRule, /canonical pager path proves signed alert receipt/);
+  assert.match(goRule, /external dead-man health/);
+  assert.match(goRule, /Codex executor remains dry-run/);
+  assert.match(goRule, /literal `this_record_commit`/);
+  assert.match(goRule, /hosted binding evidence resolves the\s+actual C SHA/);
 });

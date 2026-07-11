@@ -2,8 +2,8 @@
 
 > Status: `blocked_pending_release_evidence_rehearsal_and_live_fields`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> Last Reviewed: 2026-07-11
+> Depends On: `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`,
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
@@ -38,7 +38,8 @@ with secret-safe evidence and the final go checklist passes.
 | Field | Current value | Required before invite |
 | --- | --- | --- |
 | Release profile | `public-beta-ramp` | First invite tranche capped at 100 testers; expand to 500/1000/open only after green evidence plus Lou approval. |
-| Release commit | `TBD(release-owner)` | Exact commit with passing release evidence packet. |
+| Release commit | `TBD(release-owner)` | Product release commit R: exact deployed product commit with passing live and release evidence. |
+| Control-record commit C | `TBD(release-owner)` | Blocked state stays TBD. Final GO stores literal `this_record_commit`; unchanged guards resolve Git HEAD and emit the actual C SHA in hosted binding evidence. |
 | S1 recovery closure | `TBD(watch-operator)` | Exact final tuple plus serial A/B/C, immediate recovery, T0+24h intermediate, and passing T0+48h closure evidence. |
 | Web PWA target URL | `https://venn.carboncaste.io` | Must serve release-commit assets. |
 | Auth-callback target URL | `https://auth.venn.carboncaste.io` | Must be outside A6 and health-checked. |
@@ -46,7 +47,7 @@ with secret-safe evidence and the final go checklist passes.
 | A6 service state | `TBD(A6-operator)` | Freshness, relay liveness, relay snapshot, watch closure, and alert email path pass. |
 | Accepted synthesis status | `TBD(A6-operator)` | Required if tester copy claims summaries, framing tables, or voting on accepted-current stories. |
 | Source-health status | `TBD(source-health-owner)` | Release evidence `pass` on the release commit. |
-| StoryCluster production-readiness | `TBD(source-health-owner)` | Headline-soak credential/endpoint blocker cleared if live headline readiness is claimed. |
+| StoryCluster production-readiness | `TBD(source-health-owner)` | Fresh report must be `release_ready` with no blocker. |
 | Providers enabled | `apple google`; `x` hidden/excluded | Only providers that passed live rehearsal may appear in UI/copy and `VITE_AUTH_CALLBACK_PROVIDERS`. |
 | Release evidence packet | `TBD(release-evidence-owner)` | `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json` status `pass`, `release_commit_verified: true`, blockers `[]`. |
 | MVP release gates | `TBD(release-evidence-owner)` | `check:mvp-release-gates` pass. |
@@ -55,6 +56,7 @@ with secret-safe evidence and the final go checklist passes.
 | Manual rehearsal | `TBD(session-operator)` | `docs/ops/BETA_SESSION_RUNSHEET.md` three-browser and privacy checks pass. |
 | Incident owner | Lou | Named person watching email alerts and session telemetry during the wave. |
 | Alert-channel owner | Lou; `carboncasteit@gmail.com` | Confirm alert email reachability before invite. |
+| Pager/dead-man status | `TBD(pager-operator)` | Signed alert, durable issue, positive subscription/heartbeat, push/email fallback, acknowledgement/repeat, and external dead-man pass; executor remains dry-run. |
 | Rollback owner | Lou authorizes; Codex prepares/executes approved steps | Named authority has read the rollback section and can execute it. |
 | Private support/escalation contact | `carboncasteit@gmail.com` | Non-public channel for sensitive support handoffs. |
 | External release approval | Lou: `not_required_for_public_beta` | Lou has recorded that legal/commercial approval is not required before public beta testing. |
@@ -70,7 +72,7 @@ or private user details.
 | Release evidence pipeline | `pass` | `TBD` |
 | LUMA MVP readiness | `pass` | `TBD` |
 | Source health | `pass` | `TBD` |
-| StoryCluster production-readiness | `release_ready` or claim narrowed away | `TBD` |
+| StoryCluster production-readiness | `release_ready` | `TBD` |
 | MVP release gates | `pass` | `TBD` |
 | MVP closeout | `pass` | `TBD` |
 | Public beta launch closeout | `pass` | `TBD` |
@@ -83,6 +85,7 @@ or private user details.
 | Three-browser rehearsal | pass | `TBD` |
 | Privacy spot-check | no leak | `TBD` |
 | Alert delivery | confirmed reachable | `TBD` |
+| Canonical pager and external dead-man | `pass` | `TBD`; bind signed-alert receipt, durable incident, subscription, heartbeat, push/email, acknowledgement, and dead-man artifacts |
 | Final S1 recovery tuple | independent `GO` | `TBD`; bind final revision, publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins |
 | Serial A/B/C relay replacement | `pass` | `TBD` |
 | Immediate publisher recovery | `pass` but interim | `TBD` |
@@ -93,6 +96,27 @@ or private user details.
 Recovery boundaries: `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`;
 `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`; `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`;
 `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`.
+
+### GO record format
+
+Changing only the status is invalid. In final GO:
+
+- every envelope value is current and exact: release profile/URLs, R, literal
+  `this_record_commit`, A6 commit, Apple+Google with X hidden, named Lou-owned
+  incident/alert/rollback paths, support contact, and external-approval
+  disposition;
+- every evidence-bearing envelope value includes its positive status and an
+  immutable `sha256:<64-hex>` binding;
+- every evidence cell records `` `status: <expected>`; `sha256:<64-hex>`;
+  `<artifact-path>` ``. An immutable
+  `https://github.com/CarbonCasteInc/VHC/actions/runs/<run-id>` URL or exact
+  `commit:<40-hex>` may replace the SHA-256 binding where the artifact is owned
+  by that immutable surface;
+- expected evidence status is `pass` except StoryCluster=`release_ready`, final
+  S1 tuple=`GO`, immediate publisher=`pass_interim`, and T0+24h=
+  `pass_intermediate`; the mailbox also records `newCriticalCount == 0`;
+- no blank, generic `recorded`, negated success, adverse status, or mutable
+  `failure.json`-style reference is acceptable.
 
 ## Final Go Checklist
 
@@ -122,15 +146,23 @@ All checks must be true before changing the status to
     telemetry, or support-artifact leak.
 11. Source health has release evidence `pass` and no active remove/watch
     contamination in the release window.
-12. One incident owner is actively watching alert email and session telemetry.
-13. The rollback owner has read the rollback sequence below.
-14. External release approval is recorded, or `not_required` is recorded with
+12. StoryCluster production readiness is `release_ready` with no blocker.
+13. The canonical pager path proves signed alert receipt, durable state,
+    positive subscription and heartbeat, push/email fallback,
+    acknowledgement/repeat behavior, and external dead-man health; Codex
+    executor state remains dry-run.
+14. One incident owner is actively watching pager/email alerts and session telemetry.
+15. The rollback owner has read the rollback sequence below.
+16. External release approval is recorded, or `not_required` is recorded with
     rationale.
-15. The latest failure-mailbox monitor has `newCriticalCount == 0` and no
+17. The latest failure-mailbox monitor has `newCriticalCount == 0` and no
     unresolved public-feed critical; preserve the final read-only repo/A6 readback.
-16. The S1 T0+48h closure artifact passes for the exact final recovery tuple;
+18. The S1 T0+48h closure artifact passes for the exact final recovery tuple;
     incident classification or human authority cannot substitute for elapsed
     evidence.
+19. In final GO state, `Control-record commit C` is exactly
+    `this_record_commit`; unchanged transition guards resolve Git HEAD, enforce
+    the control-record-only diff from R, and emit the external binding artifact.
 
 ## Tester Invite Copy
 
@@ -295,12 +327,11 @@ Final disposition:
 
 ## Current Status
 
-This packet remains blocked because the release commit, live evidence, deployed
-auth/provider proof, A6/origin readbacks, and manual rehearsal fields are not
-filled yet. The next valid actions are the operator-owned items already listed
-in `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`: repair the
-headline-soak credential/endpoint, complete A6 accepted-synthesis canary
-preconditions and execution if the release claims accepted summaries/tables,
-deploy the auth boundary outside A6, rehearse advertised providers, regenerate
-release evidence on the release commit, and run the manual three-browser
-rehearsal.
+This packet remains blocked first by S1: the private-staging attempt-002
+envelope, serial A/B/C evidence, separate publisher recovery, evidence-producer
+proof, and passing T0+48h closure do not exist. After S1, follow
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md` through
+StoryCluster release readiness, auth/provider preflight, PWA deployment, full
+provider rehearsal, accepted-synthesis canary, evidence on R, user rehearsal,
+and the control-record-only commit C. No later step may consume stale or
+fixture-only evidence.

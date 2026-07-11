@@ -1,9 +1,13 @@
 # Phase 5 Scope A Driver Verdict - 2026-07-03
 
+> Document Role: Historical diagnostic report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Off-Graph Heap Driver Likely - Early Capture Missing
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-03
-> Depends On: docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md, docs/ops/news-aggregator-production-service.md
+> Depends On: docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-recovery-current-state-2026-07-02.md, docs/ops/news-aggregator-production-service.md
 
 ## Scope
 

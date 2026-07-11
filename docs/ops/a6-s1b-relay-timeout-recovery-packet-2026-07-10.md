@@ -1,16 +1,17 @@
 # A6 S1B Relay-Timeout Recovery Packet - 2026-07-10
 
-> Status: `final_revision_image_packet_and_review_pending`
+> Status: `attempt_001_closed_private_staging_rebind_required`
 > Owner: VHC Ops + VHC Core Engineering
-> Last Reviewed: 2026-07-10
+> Last Reviewed: 2026-07-11
 > Depends On: `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/news-aggregator-production-service.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/plans/PUBLIC_BETA_STATE_OF_PLAY_HANDOFF_2026-07-10.md`
-> Decision: `NO-GO_PENDING_FINAL_REVISION_IMAGE_PACKET_AND_REVIEW`
+> Decision: `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`
 > Human incident, restart, and rollback authority: Lou
 > Repo preparation owner: VHC Core Engineering
-> Live actions performed by this document/branch: none
+> Live mutations performed by this document/branch: none
+> Read-only live action: supervised attempt 001 remote-prestate check only
 > Incident class: `relay_rest_story_timeout_total_0_of_3_exit_78`
 
 ## Decision Summary
@@ -29,27 +30,34 @@ The A6 relay runtime is image-bound:
 - no source-code bind mount can make a checkout update change the running HTTP
   route surface.
 
-Therefore the reviewed relay route change cannot become live without replacing
-the relay image and recreating the relay containers. Lou approved PR #763 and
-the attended A/B/C restart boundary on 2026-07-10. That resolves the authority
-contradiction, but it does not waive exact-packet review. Review of the first
-candidate packet returned `NO-GO` for inspect-scope, network-prestate, and
-immutable-image binding gaps. PR #764 corrected those tooling defects and
-merged; #765-#767 then closed the publisher diagnostic, control-plane, and
-liveness seams. Merged tooling is not a final packet. The shared integration
-gate starts from `main@297d1bb4`; only its eventual reviewed merge may be frozen
-as `FINAL_REV` and used to build the image, capture fresh A6 prestate, and
-generate the inert packet.
+Therefore the exact-readback route change requires a reviewed relay image and
+serial relay recreation. PRs #763-#769 closed the authority, packet, runtime,
+publisher-control, liveness, integration, and final live-gate findings.
 
-No relay, origin, publisher, service, timer, Gmail/provider, pager, alert
-channel, or production state was changed. No live packet was generated or run.
-S1A/S1B are not recovered or green.
+`FINAL_REV` is frozen at
+`3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`. The exact `linux/amd64` image,
+capture, executable packet, validation, and execution binding received
+independent same-reviewer `GO` with P0/P1/P2 zero. Lou bound that original tuple
+for private staging/load and attended serial A/B/C only.
 
-The final review record must bind the publisher checkout, relay OCI revision,
+Supervised load attempt 001 then exited `78` during read-only remote prestate
+because `/tmp/vhc-public-beta-images` was shared mode `0775` with three unrelated
+sibling directories (`remote_staging_unexpected_content`). It performed no
+staging change, transfer, image load,
+relay, publisher, service, retry, chmod, cleanup, alternate-path, or hand-patch
+mutation.
+
+The original attempt is closed and must not be retried. A fresh private-staging
+load/supervision envelope, independent subsequent review, and new exact Lou
+binding are required before any second attempt. S1A/S1B are not recovered or
+green.
+
+Every new review record must bind the publisher checkout, relay OCI revision,
 full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture
 SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback
-relay origins. Any later commit, rebuild, recapture, origin change, or packet
-regeneration invalidates the prior review and Lou tuple confirmation.
+relay origins. Any later commit, rebuild, recapture, origin change,
+staging-binding change, or packet regeneration invalidates the affected prior
+review and exact tuple confirmation.
 
 Durable boundaries:
 
@@ -58,15 +66,18 @@ Durable boundaries:
 - `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`
 - `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`
 
-## Recorded Boundary Approval And Remaining Gate
+## Recorded Boundary Approval And Current Gate
 
-Lou's recorded approval permits one attended replacement of only
+Lou's recorded boundary approval permits one attended replacement of only
 `vhc-relay-a`, then `vhc-relay-b`, then `vhc-relay-c`, with serial rollback and
 stop authority preserved. It does not authorize origin or publisher mutation,
 relay data changes, quorum/timeout changes, provider work, pager cutover,
-monitor enablement, or a live-green claim. The remaining gate is technical:
-the corrected exact packet, capture hash, merged revision, and immutable image
-id must receive independent `GO` before the approved action starts.
+monitor enablement, or a live-green claim.
+
+The original exact execution binding stopped on exit `78` and cannot be stretched
+to a different staging path. The current gate is a new private-staging
+load/supervision envelope, independent review, and new exact Lou binding. Only
+after successful image load may relay A become eligible.
 
 ## Repo-Only Preparation That Is Complete
 
@@ -89,17 +100,15 @@ The generator is not packet review or execution authority. Its default output
 contains only read-only checks plus secret-safe env/snapshot capture
 instructions.
 
-## Preparation Inputs
+## Preparation Inputs For The Next Attempt
 
-Do not collect live inputs until the shared integration is reviewed and merged
-and its full merge SHA is frozen as `FINAL_REV`. After that freeze, the artifact
-author may build the exact local image and use the already authorized A6
-read-only path to capture fresh secret-safe inputs and generate the inert packet.
-Those inputs are what the independent exact-tuple reviewer must review, so their
-collection necessarily precedes packet `GO`. Read-only capture and inert packet
-generation authorize no container, service, timer, env, or other live mutation.
-No relay removal may begin until the resulting exact tuple receives independent
-`GO` and Lou confirms that exact tuple for relay A.
+`FINAL_REV` and the immutable image already exist, but the load/supervision
+envelope must be regenerated around a private, current-user-owned, non-symlink,
+mode-`0700`, non-shared staging root. Recompute every affected hash, require
+independent subsequent review, and obtain a new exact binding. Read-only capture
+and packet generation authorize no container, service, timer, environment, or
+other live mutation. No transfer/load or relay removal may begin until the new
+envelope passes review and exact confirmation.
 
 Required inputs are:
 
@@ -236,12 +245,13 @@ new exact head and packet hash.
 
 ## Recorded Lou Approval Gate
 
-Lou explicitly approved #763 and instructed the attended A/B/C restart on
-2026-07-10. That approval covers the boundary and automatic current-relay serial
-rollback, with the publisher parked. It remains conditioned on independent `GO`
-for the corrected exact packet. Any change to relay count/order, origin or
-publisher scope, data/quorum/timeouts, or rollback semantics invalidates the
-recorded approval and returns to `WAITING_FOR_LOU`.
+Lou explicitly approved #763 and the attended A/B/C boundary on 2026-07-10. The
+boundary and current-relay-only rollback semantics remain the policy envelope,
+with the publisher parked. The original exact tuple binding is closed by attempt
+001's exit `78`; a new staging/load envelope requires independent review and a
+new exact Lou binding. Any change to relay count/order, origin or publisher
+scope, data/quorum/timeouts, or rollback semantics also returns to
+`WAITING_FOR_LOU`.
 
 ## Approved Rolling Contract
 

@@ -2,968 +2,238 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-10
-> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
-
-
-**Last Updated:** 2026-07-10
-**Version:** 0.9.16 (S1 recovery control/liveness implementation merged; shared integration and live evidence pending)
-**Assessment:** Controlled public-beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. Shared-integration parent `main@297d1bb4` contains #759, #763, #764, #765, #766, and #767: release control, exact relay-packet correction, runtime diagnostic boundary, publisher recovery authority/control, and exact liveness classification. The executable orchestration contract remains `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`. `297d1bb4` is only the shared-integration parent, not the final live recovery revision. This shared CI/docs branch must pass review and hosted CI; the merge commit containing it becomes `FINAL_REV` and binds the publisher checkout, relay OCI revision and immutable image ID, fresh A6 capture, inert packet, reviewer, A/B/C order, and loopback origins. Lou is the sole human release/incident/rollback authority; Codex is the technical executor for repo work, release evidence, and separately authorized live sessions. The intended public-beta target is `https://venn.carboncaste.io` in the US/Canada with support/failure mail at `carboncasteit@gmail.com`, auth boundary `https://auth.venn.carboncaste.io`, Apple and Google as the first advertised providers, and X hidden until a later rehearsal packet. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces. S1A classified the active public-feed incident as `relay_rest_story_timeout_total_0_of_3_exit_78`; the last read-only A6 state retained the publisher parked `failed/failed` at exit `78`. S1B repo remediation preserves `2/3` quorum and now includes bounded fanout, four-route signed readback, exit-69-only automatic restart authority, exact attended recovery control, secret-safe alerts, and exact liveness classification. This is repo implementation evidence, not an A6 deployment or recovery claim. S1A/S1B remain **NO-GO** until the final tuple is reviewed and bound, serial A/B/C and separate publisher recovery pass, T0+24h intermediate evidence is preserved, and T0+48h closure passes. Immediate recovery is not S1 green; authority cannot waive elapsed evidence. S2 and all launch-enablement work remain blocked.
-
-> ⚠️ **This document reflects actual implementation status, not target architecture.**
-> For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
-> Scope rule: this file is the current-state/delta ledger for active engineering decisions; canonical behavior contracts remain in `docs/specs/*.md`.
-
----
-
-## Quick Summary
-
-| Layer | Status | Production-Ready |
-|-------|--------|------------------|
-| **LUMA (Identity)** | 🟢 Public-beta MVP layer hardened: beta-local AssuranceEnvelope, stable device compartments, sign-in session compartment, signed-write envelopes, centralized action policy, public namespace guards, M1.B identity controls/UI, M1.C/M1.D profile and forbidden-claim gates, M1.E telemetry source-discipline gate, VaultV2 old-bundle write preservation, and full migrated system-writer read-class reject-unmarked coverage | ⚠️ Public-beta only; no production-attestation/Silver; full §21.4 recorded product replay and `<TrustClaim>` deferred |
-| **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline end-to-end; live profile defaults to relay-backed analysis, local-first remains target-state default | ❌ No |
-| **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
-| **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
-| **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
-| **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
-| **News Aggregator** | 🔴 Live A6 publisher is parked exit `78` after `relay_rest_story_timeout_total_0_of_3_exit_78`; relay liveness passes but snapshots/public freshness/watch closure do not. Repo-side S1B inherited from parent `main@297d1bb4` implements concurrent bounded fanout, exact four-route signed readback, preserved `2/3` quorum, private exact-revision recovery authority/control, and exact secret-safe liveness/alert classification. | ❌ This shared integration merge, final tuple review, serial A/B/C, separate publisher recovery, T0+24h intermediate, and passing T0+48h closure remain required before S1A/S1B or downstream launch work can be green |
-| **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
-| **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
-| **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
-| **Public Beta Compliance** | 🟢 Web PWA policy routes, footer links, public support/contact GitHub Issue Form, minimum private escalation protocol, and deterministic compliance gate | ⚠️ Partial |
-
----
-
-## Active Program — Production Hardening
-
-Current policy state:
-- Phase 5 Scope A raw public-news rollout is intended-live on A6 under the capped
-  raw-only profile recorded in
-  `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`. The
-  2026-06-28 stability bake in
-  `docs/reports/phase5-scope-a-stability-bake-2026-06-28.md` remains the
-  historical proof that #687 closed the known StoryCluster rerank truncation
-  class for the launched raw path.
-- Outage #2 is recorded in
-  `docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`: the
-  publisher fail-closed at `2026-06-29T15:50:53Z` after correlated relay trips
-  broke 2-of-3 critical write quorum, remained parked by design, and was
-  recovered on 2026-07-02 after #691-#694. This was a safety success and an
-  availability failure; it resets sustained-operation evidence.
-- Outage #3 parked the publisher on 2026-07-04 under pre-#706 semantics after a
-  total relay transport/DNS failure to all three REST write endpoints. #706 now
-  treats the zero-success all-transport class as retryable in-process and
-  restartable through exit `69`; #707 makes that exit class visible to the alert
-  watch; #708 bounds the first post-reset StoryCluster ingest workload.
-- The last passing deployed Scope A evidence after Slice 0 and the
-  post-Slice-0 stale-feed recovery is historical, not current-live truth:
-  `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`
-  records A6 at `main@47ba218d`, the normal post-fix publisher tick completed
-  at `2026-07-06T22:44:08.567Z` with `ingested_item_count=24`,
-  `selected_bundle_count=8`, `raw_wrote_count=8`, and
-  `raw_write_failed_count=0`, and publisher/freshness/relay/snapshot/alert
-  readbacks passing. Newer repo commits after that proof are not automatically
-  live on A6.
-- The 2026-07-10 read-only S1A refresh supersedes that passing snapshot for
-  current incident posture: A6 is deployed at `347d2018`, the publisher is
-  parked exit `78`, snapshots/public freshness/watch closure fail, and the
-  incident is `relay_rest_story_timeout_total_0_of_3_exit_78`. The S1B repo
-  implementation is not deployed; no service or relay mutation was performed.
-- Current repo-side Functioning MVP state is materially newer than the live A6
-  raw-feed state:
-  - #728 accepted-current synthesis detail and votability gating;
-  - #730 stance/vote admission, persistence, projection, and aggregate
-    engagement hardening;
-  - #729/#734 account provider callback boundary, sign-in shell, identity-vault
-    session compartment, and account-to-LUMA binding;
-  - #732 constituency proof/district/office aggregate mapping;
-  - #737 MVP vote and identity readiness hardening;
-  - #738 deferred hardening across mesh-read authentication, vote queue,
-    auth-callback form_post routing, redaction, vault salvage, and system-writer
-    signing/validation guardrails;
-  - #741/#742/#745 close the follow-up issues #740/#739/#743 by extending
-    reject-unmarked mode to every migrated system-writer read class, preserving
-    newer VaultV2 data on old-bundle writes, and using non-validating
-    durability readback for civic representative snapshot writes.
-  - #756/#757 add the deterministic launch-control and first-wave distribution
-    packet gates that keep release approval, operator ownership, provider
-    rehearsal, manual rehearsal, rollback, alert ownership, and tester-copy
-    claims explicit before any dev-small wave.
-  - #758 aligns release-readiness state after the distribution packet and adds
-    the operator-packet guard for the remaining secret-bearing/live-action
-    packets.
-  - #759 adds the beta-session runsheet guard for Lane 7 manual rehearsal and
-    records Lou's public-beta authority decisions: public-beta ramp, US/Canada,
-    Apple/Google first providers, X hidden, `https://auth.venn.carboncaste.io`
-    auth boundary, `carboncasteit@gmail.com` support/failure mailbox, Codex as
-    technical executor, and Lou as final release/incident/rollback authority.
-- Current consolidated evidence posture:
-  - latest release pipeline artifact:
-    `.tmp/release-evidence-pipeline/latest/release-evidence-pipeline-report.json`;
-  - latest artifact commit: `1a83434b0d33278369791891ba9212fcc6b859f6`, not
-    the post-#748 source-health evidence base;
-  - pipeline status: `blocked`;
-  - `check:luma:mvp-production-readiness`: `pass` in that packet;
-  - blocking release-gate classes in the stale packet: source-health release
-    evidence before the `ap-topnews` source-surface fix plus public
-    accepted-synthesis/feed gates that require operator-owned A6
-    enablement/evidence refresh;
-  - post-#748 source-health evidence on 2026-07-09 now passes with 24 keep
-    sources after pruning `ap-topnews`; the consolidated packet still needs a
-    fresh run on the intended release commit;
-  - post-#748 StoryCluster production-readiness evidence on 2026-07-09 has
-    correctness and source-health passing, but remains blocked by
-    `headline_soak_release_evidence_failed` because the real local
-    StoryCluster/OpenAI path rejected its credential (`invalid_api_key`,
-    redacted in artifacts);
-  - therefore a public-beta release claim still requires a fresh clean evidence
-    packet on the intended release commit.
-- The interim email alert channel is configured in host-private env and has
-  delivered both failure and recovery state changes. The
-  `vh-public-feed-alert-watch.timer` and
-  `vh-phase5-scope-a-watch-closure.timer` are enabled and active. Treat a new
-  alert email as an incident; otherwise do not mutate live A6 while the feed
-  remains fresh.
-- #691 graph scan metrics are enabled for the current A6 climb, #692/#703 early
-  heap capture is enabled, #693 uses raw write concurrency `2` and fresh-bundle
-  priority, and #694 staggers relay heap watchdog ceilings at `850000000`,
-  `1000000000`, and `1150000000`.
-- The current read-only driver verdict is
-  `docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`: graph
-  `userValueBytes` do not track heap growth, tombstones remain `0`, and total
-  graph soul scale is too small to explain the slope. Treat the driver as
-  off-graph until a secret-safe early-capture retainer summary says otherwise.
-- Broader production/beta claims remain blocked until the relevant downstream
-  gates pass; do not promote Scope A raw-feed proof or outage recovery into
-  accepted synthesis, full product, mesh release, native, identity-assurance, or
-  host-failure-tolerance claims.
-- Transitional proof shims are dev/staging only and must be removed before ship.
-- Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
-- Canary rollout requires quantitative SLO gates and validated rollback drills.
-- StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; after the Phase 5 Scope A launch, remaining blockers are overlap-ready source breadth, accepted synthesis/storyline enrichment, and broader release evidence beyond the raw feed.
-- Blocking feed-release evidence now comes from fixture-backed daemon-first gates:
-  - `pnpm test:storycluster:correctness`
-  - `pnpm test:storycluster:gates`
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
-- Primary StoryCluster correctness proof is now explicit and deterministic:
-  - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
-  - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
-  - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
-- Release/readiness reviewers should treat that deterministic corpus plus the daemon-first semantic gate as the authoritative correctness gate.
-- Unified production-readiness now requires one explicit combined rule:
-  - StoryCluster correctness must pass via `pnpm check:storycluster:correctness`;
-  - source-health release evidence must remain fresh, cover the complete configured recent run window, and pass via `pnpm check:news-sources:health`; `warn` is an adjudication state, not consolidated release-green evidence;
-  - headline-soak trend evidence must remain fresh and pass via `pnpm report:storycluster:production-readiness`.
-- The combined production-readiness decision surface is:
-  - command: `pnpm check:storycluster:production-readiness`
-  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
-  - release-ready status: `release_ready`
-  - non-ready statuses: `review_required`, `blocked`
-  - refresh headline-soak input with `pnpm collect:storycluster:headline-soak` before a production claim when the latest soak trend is missing or stale.
-- Evidence-bearing StoryCluster/feed checks must now be labeled as one of:
-  - `CI-enforced`: automated merge gates that run only when scoped change detection says the lane is relevant;
-  - `manual release discipline`: commands that must be run by the release owner before a production claim;
-  - `telemetry / review only`: evidence that informs release posture but does not block merge by itself.
-- Production-grade feed claims now depend more on source-readability discipline than on additional StoryCluster corpus growth:
-  - only onboarded readable, accessible, extraction-safe sources count toward the feed promise;
-  - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
-- Phase 5 Scope A historical launch evidence:
-  - closeout report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`;
-  - stability bake report: `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-stability-bake-2026-06-28.md`;
-  - launched commit: `b3da27a09f683b7933f169bdd77c03f101681663`;
-  - StoryCluster stability-fix commit: `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - launch profile: synthesis disabled, replay disabled, storylines disabled,
-    raw cap `8`, raw concurrency `1`, repair sample `8`, repair interval
-    `86400000`, prune disabled, relay min-success `2`;
-  - attended soak result: 8 tick summaries, 0 aborts, 0 fail-closes, 0
-    readback-500s, 0 relay backpressure-503s, 0 watchdog trips, and relay
-    restarts `0/0/0`;
-  - public feed state: `record_count=20`, all `pending_synthesis`, no accepted
-    synthesis available.
-- Phase 5 Scope A historical post-Slice-0 recovery evidence (superseded for
-  current incident posture by the 2026-07-10 S1A readback):
-  - recovery state report:
-    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-recovery-current-state-2026-07-02.md`;
-  - then-current driver verdict:
-    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md`;
-  - then-current MVP readiness state report:
-    `/Users/bldt/Desktop/VHC/VHC/docs/reports/mvp-readiness-state-of-play-2026-07-03.md`;
-  - post-Slice-0 report:
-    `/Users/bldt/Desktop/VHC/VHC/docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`;
-  - A6-deployed repo commit for this live readback:
-    `47ba218d` (`Merge pull request #723 from CarbonCasteInc/coord/storycluster-production-timeout-2026-07-06`);
-  - relay image at that readback: `vhc-public-beta-relay:20260704-main-vdc16bd41-amd64`;
-  - origin image at that readback: `vhc-public-beta-origin:20260614-main-v1b735eb4-amd64`;
-  - live raw profile at that readback: synthesis disabled, replay disabled, storylines
-    disabled, raw cap `8`, raw concurrency `2`, repair sample `8`, repair
-    interval `86400000`, prune disabled, relay min-success `2`;
-  - deployed relay diagnostics at the recovery image: graph scan enabled on A6,
-    early heap capture staggered at `a=500000000,700000000`;
-    `b=520000000,720000000`; `c=540000000,740000000`, and watchdog heap
-    ceilings `850000000` / `1000000000` / `1150000000`;
-  - post-2026-07-06 recovery checks: publisher active/running, StoryCluster
-    active/running, public freshness `pass`, relay liveness `pass`, relay
-    snapshot freshness `pass`, alert watch `pass`, watch-closure input `pass`,
-    normal production tick `completed`, `raw_wrote_count=8`,
-    `raw_write_failed_count=0`;
-  - alert status: interim email channel configured in host-private env,
-    test-fire/recovery delivery `sent`, alert timer enabled, watch-closure
-    timer enabled;
-  - the clean window beginning `2026-07-06T22:44:08.567Z` was interrupted by
-    the current exit-78 incident and cannot serve as present release evidence;
-  - current gate: merge and independently review the shared integration, freeze
-    `FINAL_REV`, build and independently review its exact image/capture/packet
-    tuple, bind Lou's scoped authority, then execute serial A/B/C and separate
-    controller-only publisher recovery; immediate and T0+24h evidence are
-    interim, while T0+48h is mandatory before S2;
-  - explicit non-gate: do not start retention, publisher-clear, eviction,
-    relay compaction, pager cutover, or any downstream launch-enablement work
-    while S1A/S1B remain red.
-- Phase 5 Scope A post-#687 StoryCluster stability evidence:
-  - #684 made pre-publication StoryCluster failures non-fatal skipped ticks;
-  - #685 captured bounded OpenAI rerank artifacts and proved recurring
-    `finish_reason=length` truncation;
-  - #687 prevents the rerank overproduction class with strict fixed-key object
-    output, preserves prior deterministic scores on recoverable rerank failure,
-    keeps adjudication fallback gate-safe, and returns 5xx for internal
-    StoryCluster stage/model failures;
-  - as of the 2026-06-28 bake check, the deployed system had 42 clean
-    post-overlap ticks, `nonfatal_prewrite_failure_count=0` on the latest tick,
-    336/336 raw writes, zero new OpenAI failure artifacts, zero rerank
-    degeneracy warnings, and a passing hourly archive sample.
-- Web PWA public-beta support/compliance minimums are implemented and gated:
-  - route surface: `/compliance`, `/beta`, `/privacy`, `/terms`, `/moderation`, `/support`, `/data-deletion`, `/telemetry`, `/copyright`;
-  - support/contact path: VHC public beta GitHub Issue Form linked from `/support`;
-  - private escalation protocol: deletion/correction, copyright/attribution, abuse/safety, and account/access cases stay as public-safe issue stubs while private details move to a non-public beta contact channel or counsel path outside GitHub;
-  - trusted operator gate: `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `/admin/reports`, and Gun adapter guards require an allowlisted trusted beta operator capability record before reviewed reports, synthesis corrections, or comment moderation records are written;
-  - focused gate: `pnpm check:public-beta-compliance`;
-  - MVP report gates: `operator_trust_gate` and `public_beta_compliance` inside `pnpm check:mvp-release-gates`;
-  - this is not legal approval, a private support inbox, full RBAC/admin membership management, automated escalation/SLA handling, or a full trust-and-safety operations console.
-- Web PWA public-beta launch closeout is implemented as an explicit evidence map:
-  - closeout doc: `docs/ops/public-beta-launch-readiness-closeout.md`;
-  - launch-control packet: `docs/ops/public-beta-launch-control-2026-07-09.md`;
-  - first-wave distribution packet: `docs/ops/public-beta-distribution-packet-2026-07-09.md`;
-  - focused gates: `pnpm check:public-beta-launch-control`, `pnpm check:public-beta-distribution-packet`, `pnpm check:release-readiness-operator-packets`, `pnpm check:beta-session-runsheet`, and `pnpm check:public-beta-launch-closeout`;
-  - MVP report gates: `public_feed_analysis_frame_reliability`, `public_feed_composition_freshness`, `public_feed_lifecycle_accountability`, `story_identity_growth`, `public_feed_pagination_refresh`, `stance_aggregate_decay_public_mesh`, and `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
-  - consolidated truth packet: `pnpm check:mvp-closeout`, writing `.tmp/mvp-closeout/latest/mvp-closeout-report.json`;
-  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:mvp-closeout`, `pnpm check:public-beta-launch-control`, `pnpm check:public-beta-distribution-packet`, `pnpm check:release-readiness-operator-packets`, `pnpm check:beta-session-runsheet`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
-  - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
-- LUMA public-beta MVP readiness is now an explicit deterministic gate:
-  - focused gate: `pnpm check:luma:mvp-production-readiness`;
-  - report: `/Users/bldt/Desktop/VHC/VHC/.tmp/luma-mvp-production-readiness/latest/luma-mvp-production-readiness-report.json`;
-  - MVP report gate: `luma_mvp_production_readiness` inside `pnpm check:mvp-release-gates`;
-  - latest packet status: `pass` on `1a83434b0d33278369791891ba9212fcc6b859f6`;
-  - post-packet hardening through #738, #741, #742, and #745 strengthens the
-    same boundary but does not replace the need to rerun the release packet on
-    current `main`;
-  - success boundary: LUMA public-beta is MVP-production-ready as a fail-closed beta-local identity and signed-write layer;
-  - excluded claims: production-attestation/Silver, verified-human, one-human-one-vote, Sybil resistance, cryptographic residency, public WSS mesh `release_ready`, and full production app readiness.
-- LUMA hardening through #695-#701 adds diagnostics-only docs alignment,
-  forbidden-claim and production-profile gates, M1.B identity controls/UI, and
-  M1.E telemetry source-discipline/fixture replay. The full `§21.4` recorded
-  product replay remains deferred until real product emit sites and a real
-  capture/regeneration path exist; `<TrustClaim>` remains deferred behind that
-  evidence.
-- Full-product local engagement validation is now a named service-backed lane:
-  - stack command: `pnpm live:stack:up:analysis-stub`;
-  - test command: `pnpm test:live:five-user-engagement`;
-  - coverage: five beta-local identities in isolated browser contexts; at least two singleton stories and two bundled stories; accepted `TopicSynthesisV2` detail with non-empty frame/reframe rows; point-level stance writes with mesh write confirmation and aggregate readback; Eye/Lightbulb feed metrics; deterministic `news-story:*` discussion threads; chained comments/replies that remain visible across users and reloads;
-  - scope: release-like manual QA against the production-shaped local stack. It supplements the deterministic report gates above and does not replace `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, or live headline production-readiness evidence.
-- Source-readiness evidence is now a concrete runtime/ops surface on `main`:
-  - `pnpm report:news-sources:admission`
-  - `pnpm report:news-sources:health`
-  - `pnpm scout:news-sources:candidates`
-  - stable latest artifact path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
-  - stable latest scout path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
-  - daemon starter-surface resolution is the authoritative keep/watch/remove enforcement path;
-  - web/server surfaces can autoload the latest health artifact for diagnostics and optional browser-runtime bootstrap flows.
-- `main` currently carries a complete-window source-health keep surface and the latest source-health runtime policy is green only when the configured release evidence window passes:
-  - latest artifact: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
-  - `readinessStatus: ready`
-  - `releaseEvidence.status: pass`
-  - `recentWindowRunCount` must meet `thresholds.releaseEvidenceWindowRunCount`
-  - `warn` is an adjudication state, not consolidated release-green evidence
-- UI / UX product work and periodic soak measurement are now explicitly separated:
-  - UI lanes build against the current published feed contract;
-  - soak lanes validate the production pipeline behind that contract on merged `main`;
-  - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`.
-- UI lane current state:
-  - the app shell no longer requires a primary `VENN` / `HERMES` / `AGORA` mode switcher for feed use;
-  - the unified feed is the home surface;
-  - HERMES Forum cards are discovered through the `Topics` filter and card discussion affordances, while direct forum routes remain available for deep links/internal flows;
-  - governance/elevation controls are expected through card/user flows rather than a separate primary feed tab;
-  - `For You` is first-use orientation only;
-  - collapsed news cards are compact and place available story media beside the headline/title, with extra source images kept for expanded detail.
-- Story bundler release claims now have an explicit operational scorecard:
-  - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
-- Merge-time CI through #758 was green on `main`, and #759's beta-session
-  runsheet guard is covered by focused local checks plus PR CI, but a public-beta
-  release claim still requires a fresh release packet on the intended release
-  commit:
-  - `pnpm check:mvp-release-gates`
-  - `pnpm check:mvp-closeout`
-  - `pnpm check:public-beta-launch-control`
-  - `pnpm check:public-beta-distribution-packet`
-  - `pnpm check:release-readiness-operator-packets`
-  - `pnpm check:beta-session-runsheet`
-  - `pnpm check:public-beta-launch-closeout`
-  - `pnpm check:launch-content-snapshot`
-  - `pnpm check:public-beta-compliance`
-  - `pnpm docs:check`
-  - lint/dependency checks and touched package typechecks.
-  Existing StoryCluster production-readiness artifacts remain evidence inputs,
-  not a blanket release-ready claim.
-- The latest complete post-fix public soak that produced an audit attachment
-  remains historical usable telemetry, but the density was thin:
-  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774695043848/semantic-soak-summary.json`
-  - visible stories: `4`
-  - auditable stories: `1`
-  - sampled stories: `1`
-  - audited pairs: `1`
-- The latest headline-soak trend execution on the 2026-07-09 source-health
-  lane is still not promotable:
-  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1783601906259/semantic-soak-summary.json`
-  - `readinessStatus: not_ready`
-  - classification: `artifact_missing: 3`
-  - root blocker observed in runtime logs: the real StoryCluster/OpenAI path
-    rejected the configured local credential (`invalid_api_key`, redacted in
-    artifacts), so no semantic audit attachments were produced.
-- Background source scouting is now part of the operating model:
-  - the checked-in scout command ranks overlap-heavy candidates;
-  - the active Codex automation keeps that admission lane moving without auto-merging source changes.
-- Canonical feed publication is singleton-first and source-growth friendly:
-  - a single readable article may publish as a valid feed story;
-  - later same-incident / same-developing-episode coverage should attach under stable story identity as sources grow.
-- The retained-mesh identity prerequisite is now materially improved on `main`:
-  - adjacent-run continuity moved from near-zero retention to high repeated-evidence retention after stable identity anchoring;
-  - the active unresolved question is now timing/attachment over hours, not sequence-driven identity churn across adjacent runs.
-- Feed/discovery/storyline changes are not considered distribution-ready on unit coverage alone:
-  - every such lane must run at least one relevant Playwright/browser validation command and record the exact command and result in its evidence note.
-- Public-feed daemon semantic runs remain smoke/soak only:
-  - `pnpm test:storycluster:smoke`
-  - these runs are evidence-bearing secondary distribution telemetry, but live public-feed bundle scarcity is not currently stable enough to be the primary clustering proof or sole semantic blocker.
-  - soak artifacts now include a machine-readable promotion assessment plus explicit references to the authoritative correctness-gate inputs, so release evidence can distinguish blocking correctness proof from non-blocking public-supply telemetry.
-  - the scheduled headline-soak trend is still telemetry/review evidence, but the unified production-readiness rule now requires its latest trend artifact to remain fresh and pass over the recent run window.
-- Beta distribution posture is now explicit:
-  - the integrated VENN/HERMES/AGORA application may be distributed in constrained beta on current `main`;
-  - live raw public-news headlines are live under the Phase 5 Scope A profile;
-  - live corroborated/accepted-synthesis headline claims remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
-  - public-beta policy/support minimums are gated by `pnpm check:public-beta-compliance` and represented in the MVP gate report;
-  - public-beta launch control is gated by `pnpm check:public-beta-launch-control` and recorded in `docs/ops/public-beta-launch-control-2026-07-09.md`;
-  - public-beta first-wave distribution is gated by `pnpm check:public-beta-distribution-packet` and recorded in `docs/ops/public-beta-distribution-packet-2026-07-09.md`;
-  - release-readiness operator packets are gated by `pnpm check:release-readiness-operator-packets` and record the current StoryCluster credential repair, accepted-synthesis canary, and auth-callback/provider boundaries;
-  - beta-session runsheet rehearsal requirements are gated by `pnpm check:beta-session-runsheet` and recorded in `docs/ops/BETA_SESSION_RUNSHEET.md`;
-  - public-beta launch closeout is gated by `pnpm check:public-beta-launch-closeout` and recorded in `docs/ops/public-beta-launch-readiness-closeout.md`;
-  - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
-- Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
-
-## StoryCluster Program Snapshot (reviewed 2026-07-03)
-
-Current truth for the news bundler and feed hardening lane:
-
-- Phase 5 Scope A is recovered and intended-live on A6 after outages #2 and #3:
-  - raw publication is capped at 8 bundles per tick with raw write concurrency 2;
-  - first post-reset ingest is capped by
-    `VH_NEWS_RUNTIME_FIRST_TICK_MAX_INGESTED_ITEMS_TOTAL=24`;
-  - raw story, latest-index, hot-index, and pending lifecycle writes use relay
-    REST 2-of-3 quorum;
-  - accepted synthesis, topic synthesis, and storyline overlays are outside the
-    launched path and remain post-launch enrichment;
-  - publisher liveness, relay liveness, relay snapshot freshness, watch
-    closure, and public-feed alert timers are operating monitors for the
-    intended-live service;
-  - alert delivery is live through the interim host-local email path; the
-    custom pager/PWA path exists in repo after #722 but is not deployed as the
-    active alert channel yet;
-  - the current stability question is off-graph relay heap behavior: #691
-    graph metrics are the negative control, and #692/#703 early heap capture
-    must produce a post-recovery 500 MB -> 700 MB secret-safe summary pair
-    before any retainer fix is selected.
-- The StoryCluster rerank truncation track is closed for the launched Scope A
-  raw path as of the 2026-06-28 stability bake:
-  - #687 first deployed the durable rerank fix at
-    `baf1dd5f41958473c93db04e4d6007e4df7b074f`;
-  - the repo includes #748 (`0a85b2f8`), with #691-#708 diagnostics,
-    publisher-priority, relay-stagger, total-transport restartability, alert
-    classification, first-tick ingest-cap, #722 incident-response/pager
-    primitives, #723 StoryCluster timeout bounding, #744 watch-closure baseline
-    repair, LUMA/MVP hardening through #738, #741, #742, and #745, and
-    driver-verdict changes layered on top;
-  - rerank output uses strict fixed-key object structured output instead of an
-    array/max-items shape;
-  - recoverable rerank output failures omit supplemental rerank results so the
-    deterministic prior score remains gate-feeding state;
-  - exactly-identical nontrivial rerank chunks degrade gate-safely and emit a
-    warning instead of silently becoming quality evidence;
-  - the first extended bake recorded zero new failure artifacts and zero
-    degeneracy warnings.
-- StoryCluster is no longer treated as a generic topic clusterer; the active program is `EventCluster`-first and precision-biased.
-- Canonical bundle membership is limited to same-incident / same-developing-episode coverage.
-- Canonical source projection is publisher-normalized:
-  - `primary_sources` = one canonical source per publisher
-  - `secondary_assets` = same-publisher derivatives such as video clips
-- `created_at` is immutable by `story_id`; `cluster_window_end` is the latest-activity source of truth.
-- `Latest` is activity-based and `Hot` remains deterministic/config-versioned.
-- Public feed freshness now has an explicit through-line test from validated article-automation / publisher-canary snapshots into the unified feed:
-  - singleton and aggregate story composition is preserved for the headline-card source strip;
-  - older stories are revealed by scroll pagination;
-  - newer clusters from a later snapshot appear after refresh without changing feed mode.
-- Generated story analyses now persist explicit bundle identity metadata:
-  - `bundle_revision`
-  - sorted `source_article_ids`
-  - source count and cluster window
-  - latest-analysis reuse is exact-revision only, so regenerated bundles do not overwrite or silently reuse stale analysis records.
-- Generated article and bundle analyses must emit non-empty frame/reframe rows:
-  - bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when source bias is sparse;
-  - frame/reframe rows must instead become terse debate-style issue-side claims and counterclaims grounded in public/political/stakeholder disagreements around the summarized issue.
-- Publish-time story synthesis is fact-first:
-  - readable canonical primary sources are full-text extracted and analyzed before bundle synthesis;
-  - source-level key facts, quote evidence, and bias justifications persist on the hidden candidate/audit record;
-  - accepted story detail renders only the fact summary and frame/reframe rows by default.
-- The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
-- The deterministic fixture corpus now covers multilingual same-incident, recap-vs-incident, and commentary contamination pressure in addition to the earlier same-event / false-merge traps.
-- StoryCluster release evidence now exposes two distinct replay identity signals:
-  - `replay_continuity`
-    - `continuous`: scenarios that never drop out of emitted bundles and must preserve `persistence_rate`
-    - `reappearance`: scenarios that intentionally disappear and return and must preserve `reappearance_rate`
-  - `replay_topology_pressure`
-    - counts replay scenarios where merge/split lineage is observed
-    - tracks total merge lineage, split lineage, and repeated correction-cycle scenarios separately from continuity
-- The active deterministic replay corpus now includes explicit topology-pressure scenarios, so:
-  - zero `replay_topology_pressure.total_split_pair_activation_count` is now a replay-coverage regression
-  - repeated-cycle scenarios are expected to appear in release evidence, not just isolated lifecycle tests
-- Release reviewers should not collapse these into one number:
-  - low overall `persistence_rate` is expected in gap-return scenarios and must be read together with `reappearance_rate`
-  - correction-cycle counts measure topology repair pressure, not semantic bundle precision by themselves
-- `StorylineGroup` is now a first-class published runtime contract and read model:
-  - StoryCluster publishes `storylines` alongside canonical bundles;
-  - the daemon and Gun client hydrate storyline artifacts separately from canonical event bundles;
-  - the web store consumes `storyline_id` for ranking/diversification, related-coverage presentation, and focused storyline state;
-  - canonical source basis and bias-table basis remain event-bundle-only.
-- `main` now includes:
-  - storyline publication and store hydration;
-  - storyline-aware ranking/diversification;
-  - minimal related-coverage presentation separated from canonical sources;
-  - route/search-param deep-link hydration for focused storyline state;
-  - explicit shell `Back` / `Clear storyline` semantics;
-  - archive-parent diversification and archive-child deep-link state.
-- `main` now also includes richer public semantic-soak evidence:
-  - machine-readable density/trend summaries;
-  - explicit promotion-readiness assessment with blocking reasons;
-  - denser diagnostic artifacts for insufficient-bundle public runs.
-- The correctness-gate sufficiency lane is complete and in force on `main`.
-- The current active post-launch work is source-surface density growth,
-  off-graph relay-memory diagnosis, sustained monitor operation, and
-  release-evidence accumulation beyond raw Scope A:
-  - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
-  - require the daemon-first semantic gate as the served-stack confirmation of that proof;
-  - keep public semantic runs smoke-only unless they independently earn promotion beyond telemetry;
-  - make source breadth growth, scout-ranked candidate promotion, and public overlap density explicit release-readiness work.
-- `main` now also includes source-program operationalization:
-  - machine-readable source-admission evidence;
-  - machine-readable source-health decisions with keep/watch/remove runtime policy;
-  - machine-readable source-candidate scouting with promotable/blocked/rejected outcomes;
-  - stable latest source-health artifact publication;
-  - stable latest source-scout artifact publication;
-  - web/server autoload of the latest source-health artifact for diagnostics/bootstrap surfaces;
-  - runtime summaries that surface the applied report source plus removed/watchlisted sources.
-- Storyline/discovery work is now expected to carry browser-driven verification, not only unit coverage:
-  - local feed opens create history entries;
-  - focused storyline panels distinguish `Back` from `Clear storyline`;
-  - route-driven storyline focus keeps only the clear action;
-  - archive-parent and archive-child navigation restore focused storyline state across route transitions.
-- Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
-
-### StoryCluster Next Steps (Active)
-
-0. Protect the live raw Scope A posture:
-   - keep raw publication, pending lifecycle, and relay REST quorum evidence
-     separate from accepted synthesis or storyline enrichment claims;
-   - treat monitor regressions, relay watchdog trips, readback 500s, fail-closed
-     publisher stops, and stale latest-index snapshots as live-operation
-     incidents, not launch-soak curiosities;
-   - treat the current post-#701 driver verdict as off-graph-likely until a
-     secret-safe early-capture retainer summary supersedes it;
-   - after S1A/S1B recovery and its new clean window, resume waiting for the
-     first post-recovery early-capture summary pair
-     (`a=500000000,700000000`; `b=520000000,720000000`;
-     `c=540000000,740000000`) before selecting a retainer fix; the threshold
-     retune is already on `main`;
-   - keep the `2026-07-03T13:04Z` all-relay restart cause as an operator-owned
-     investigation item before trusting future threshold math;
-   - keep A6 public-feed alerting enabled through the interim email channel;
-     the active exit-78 alert is an incident, and no live service change is
-     authorized without the reviewed S1B packet and Lou's approval;
-   - do not re-enable accepted synthesis, topic synthesis, storyline writes,
-     verify/refresh, higher raw caps, or pruning without a separate attended
-     soak and an updated runbook entry.
-1. Keep the deterministic corpus/replay gate and daemon-first semantic gate explicit in release/readiness artifacts:
-   - primary correctness proof must name the authoritative corpus, replay, and served semantic-gate inputs;
-   - public semantic soak must remain labeled as secondary distribution telemetry.
-2. Treat source-program maturity as the main distribution-readiness blocker:
-   - production-grade feed claims apply only to onboarded readable, accessible, extraction-safe sources;
-   - source onboarding/removal, paywall/truncation rejection, source-health review, and runtime-policy enforcement must follow `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
-3. Keep singleton-first publication and later bundle growth explicit in release evidence:
-   - single-source stories remain valid feed entries;
-   - later same-incident / same-developing-episode coverage must attach without identity churn as source coverage grows.
-4. Production-readiness next steps:
-   - produce a fresh MVP release packet on the intended release commit before
-     any public-beta readiness claim;
-   - keep the unified production-readiness report fresh and treat stale or
-     failing headline-soak evidence as a blocker for production-grade live
-     headline claims until the trend actually recovers;
-   - keep scheduled headline-soak collection running on the fresh, contribution-ranked public smoke surface so new density evidence replaces the older red trend window;
-   - expand admitted readable source breadth only through the scout/admission/health pipeline, not generic feed growth;
-   - use scout-ranked overlap-heavy candidates as the primary source-growth queue;
-   - keep source-health and scout artifacts attached to release/session evidence so source-surface changes remain reviewable.
-5. Keep Playwright/browser validation a standard release discipline for feed/discovery/storyline/vote changes:
-   - record exact browser commands run;
-   - treat fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof;
-   - treat public semantic smoke as non-blocking evidence.
-6. Continue improving public semantic-soak density and trend interpretation until public-feed evidence is strong enough to promote beyond smoke-only status, without treating public scarcity as a substitute for source-health review.
-
----
-
-## Post-Merge Stability Gate Hardening (PR #345, merged 2026-02-24)
-
-Merged on `main` via `coord/postmerge-convergence-stability-gate`:
-- Tunable live nav timeout (`VH_LIVE_NAV_TIMEOUT_MS`, default 90s) for live matrix navigation calls.
-- Two-phase strict gate in `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`:
-  - Phase 1 readiness = budget-capped candidate discovery and vote-capability probing.
-  - Phase 2 convergence = locked/frozen candidate set only.
-- Explicit setup scarcity verdict (`blocked_setup_scarcity`) with preflight reject-reason diagnostics.
-- Stability runner (`packages/e2e/src/live/live-matrix-stability-gate.mjs`) now records scarcity separately (`scarcityCount`).
-- Phase-2 per-topic feed reload removal (feed nav once/page before loop) to reduce strict-run wall-clock overhead.
-
-Operational interpretation:
-- Live strict failures are now classified as either setup-readiness scarcity or functional convergence failure.
-- Setup scarcity indicates environment readiness issues (feed/analysis/vote-capable topic availability), not silent harness timeout.
-
----
-
-## Finishing-Touch Sprint Closeout (2026-02-18)
-
-All three finishing-touch lanes have landed on `main`:
-
-- **#298** `coord/finishing-l2-model-picker` — merged at `2026-02-18T11:23:59Z`
-- **#299** `coord/finishing-l1-relay-compat` — merged at `2026-02-18T11:30:23Z` (`a5713e3`)
-- **#300** `team-d/l3-dev-invite-vote-persistence` — merged at `2026-02-18T11:49:59Z` (`5dbcc747061ebe2e7c937cab06683d2c830899b1`)
-
-Closeout evidence from lane reports confirms: clean worktree ritual, `<=350 LOC` per touched source file, and full changed-file coverage for the finishing-touch slices.
-
----
-
-## Wave 2 Landed Capabilities (2026-02-13)
-
-Wave 2 delivered the following features across 3 workstreams and 36 PRs to `integration/wave-2`, merged to `main` via Policy 15 sync PRs (#218, #221).
-
-### W2-Alpha — Comment-Driven Re-synthesis (PRs #192, #197, #199, #202)
-- `CommentTracker` module: per-topic verified comment counting with epoch-aware state (`commentTracker.ts`)
-- `DigestBuilder`: rolling `TopicDigestInput` construction from comment activity (`digestBuilder.ts` — W2A-2)
-- Re-synthesis trigger wiring: comment count threshold → epoch scheduler trigger, forum comment integration (`resynthesisWiring.ts`)
-- Full test coverage on all touched modules
-
-### W2-Beta Stage 1 — Reply-to-Article + Docs MVP (PRs #190, #198, #201)
-- `ForumPost` and `HermesDocs` Zod schemas + `docsAdapters` for Gun mesh sync
-- 240-character reply cap enforcement in `CommentComposer`
-- "Convert to Article" CTA when reply exceeds cap
-- `hermesDocs` Zustand store with CRUD, flag-gated via `VITE_HERMES_DOCS_ENABLED`
-- `ArticleEditor` (draft/edit) and `ArticleViewer` (read) components
-- `ArticleFeedCard` integrated into discovery feed under `ARTICLE` feed kind
-
-### W2-Beta Stage 2 — Collaborative Docs Foundation (PRs #214, #217, #219, #220)
-- `@vh/crdt` package: Yjs provider, `AwarenessAdapter`, dedup module for CRDT sync
-- Document key management: `deriveDocumentKey`, `shareDocumentKey`, `receiveDocumentKey`, `encryptDocContent`, `decryptDocContent` (`docsKeyManagement.ts`)
-- `CollabEditor` component: TipTap + Yjs binding, lazy-loaded (229 LOC)
-- `PresenceBar` component: collaborator cursor/presence indicators via AwarenessAdapter (66 LOC)
-- `ShareModal` component: collaborator add/remove, role selection, trust threshold checks (261 LOC)
-- `hermesDocsCollab` store: collab runtime state, auto-save (5s encrypted), offline pending indicator
-- `hermesDocsAccess` store: pure access control functions (`getAccessLevel`, `canEdit`, `canView`, `canShare`, `canDelete`)
-- Document key localStorage persistence (`vh_docs_keys:<nullifier>`)
-- Feature flags: `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED` gate collab runtime
-- E2E bypass: `VITE_E2E_MODE=true` → `MockGunYjsProvider` (no Yjs/Gun init)
-- 204 new tests, 100% line+branch coverage on all touched modules
-
-> **Note:** `CollabEditor` is wired into the active `ArticleEditor` path via lazy-load + `useEditorMode` hook (Wave 3). Flag-gated by `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED`.
-
-### W2-Gamma Phase 1 — Linked-Social Substrate (PR #207)
-- Schema convergence: `LinkedSocialAccount` and `SocialNotification` with strict Zod validation
-- Vault token substrate: `OAuthTokenRecord` with vault-only storage enforcement
-- Notification ingestion pipeline with sanitization
-
-### W2-Gamma Phase 2 — Elevation Artifacts + Budget Gates (PR #209)
-- Elevation schema tightening with Zod validation
-- Artifact generators: `BriefDoc`, `ProposalScaffold`, `TalkingPoints`
-- `civic_actions/day` budget gate enforcement (budget key #7 of 8 now active)
-- Trust threshold checks for elevation nominations
-
-### W2-Gamma Phase 3 — Social Feed Wiring (PR #211)
-- `SocialNotificationCard` real-data rendering (replaces mock)
-- `socialFeedAdapter`: notification → feed item mapping with dismiss/seen state
-- Feed integration: social notifications in `Social` surface and `All` feed
-
-### Wave 2 Governance Infrastructure (20 coord/* PRs)
-- CE dual-review contracts codified and enforced for all execution dispatches
-- Ownership map expanded for all 3 workstreams (glob patterns per Policy 2)
-- Wave 2 delta contract: 16 binding policies defined and enforced
-- Policy 4 exception documented (serialized merge fallback)
-- Policy 14 repo migration parity verified post-transfer
-- Policy 15 periodic sync enforced (PRs #218, #221)
-- Context rotation guard enforced (Policy 13)
-
----
-
-## Wave 2 Deferred Items (CEO Decision 2026-02-13)
-
-The following items were explicitly deferred to Wave 3 by CEO decision:
-
-| Item | Reason | Carryover Doc |
-|------|--------|---------------|
-| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needed spec work at W2 close; additive to landed foundation | Feed-card rendering support landed; live publication remains partial |
-| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | Tracked in current STATUS backlog |
-| CollabEditor runtime wiring | Foundation built and tested; ArticleEditor wiring deferred at W2 close | Completed in Wave 3; see Docs status below |
-
----
-
-## Feature Flags
-
-| Flag | Purpose | Default | Wave |
-|------|---------|---------|------|
-| `VITE_FEED_V2_ENABLED` | Retired; discovery feed shell is permanently mounted | n/a | 1 |
-| `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` | 1 |
-| `VITE_NEWS_BRIDGE_ENABLED` | Gates news store → discovery feed bridge bootstrap | `false` | 1 |
-| `VITE_SYNTHESIS_BRIDGE_ENABLED` | Gates synthesis store → discovery feed bridge bootstrap | `false` | 1 |
-| `VITE_NEWS_RUNTIME_ENABLED` | Gates ai-engine news runtime bootstrap in app init | `false` | 1 |
-| `VITE_NEWS_FEED_SOURCES` | JSON override for runtime feed source list | empty (`[]`) | 1 |
-| `VITE_NEWS_TOPIC_MAPPING` | JSON override for runtime topic mapping | empty (defaults to `topic-news`) | 1 |
-| `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
-| `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
-| `VITE_VH_ANALYSIS_PIPELINE` | Enables relay-backed analysis path (`/api/analyze`) | `true` in live profiles | Post-4 |
-| `VITE_REMOTE_ENGINE_URL` | Direct remote engine endpoint (deprecated path) | empty | 1 |
-| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5-nano` | 1 |
-| `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
-| `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
-| `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
-| `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
-| `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
-| `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
-| `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
-
-Code-level defaults remain conservative (`false`/empty) unless explicitly noted.
-Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay + runtime feed stack).
-
----
-
-## Product Direction Deltas (A-G)
-
-| Direction Delta | Target (Ship Snapshot) | Current Implementation |
-|---|---|---|
-| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | ✅ Types, candidate gatherer, quorum engine, epoch scheduler, store, Gun adapters (Wave 1) + re-synthesis triggers, comment tracking, digest builder (Wave 2 Alpha) |
-| B. Unified feed | Feed mixes `News`, `Topics`, `Linked-Social Notifications`, `Articles`, and `Action Receipts` (`All` only) | ✅ Discovery feed shell with all five source surfaces, compact one-feed chrome, source-strip cards, first-use orientation, and real social notification wiring |
-| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt feed-card rendering support landed, live publication remains partial |
-| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
-| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟢 Full foundation plus flag-gated ArticleEditor runtime wiring: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control |
-| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Per-user Eye/Lightbulb decay persists locally and projects topic engagement summaries to mesh; the five-user engagement lane now verifies cross-user read/stance metrics and discussion visibility through the local mesh; budget guards (8/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
-| G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
-
----
-
-## Test & Coverage Truth
-
-**Gate verification snapshot date:** 2026-02-15 (historical baseline)
-**Branch snapshot:** `main` at `df0f787` (historical reference; rerun gates on current branch before release)
-
-### Live strict matrix lane (post-merge)
-
-- Canonical single-run strict: `pnpm --filter @vh/e2e test:live:matrix:strict`
-- Canonical multi-run strict stability gate: `pnpm --filter @vh/e2e test:live:matrix:strict:stability`
-- Strict gate now emits setup-scarcity vs convergence outcomes explicitly via `live-bias-vote-convergence-summary`.
-
-| Gate | Result | Detail |
-|------|--------|--------|
-| `pnpm typecheck` | ✅ PASS | All workspace projects |
-| `pnpm lint` | ✅ PASS | All workspace projects |
-| `pnpm test` | ✅ PASS | 2557+ tests (49 new in Wave 4, including coverage gap fixes) |
-| `pnpm test:e2e` | ✅ PASS | E2E tests passed (CI run 22024258084) |
-| `pnpm bundle:check` | ✅ PASS | Under 1 MiB limit |
-| `pnpm deps:check` | ✅ PASS | Zero circular dependencies |
-| Feature-flag variants | ✅ PASS | All ON/OFF combinations pass |
-
-**Coverage:** 100% line+branch on all Wave 4 modules (diff-aware gate, 483/483 branches on merge PR #253).
-
----
-
-## Sprint Completion Status
-
-| Sprint | Status | Key Outcomes |
-|--------|--------|-------------|
-| **Sprint 0** (Foundation) | ✅ Complete | Monorepo, CLI, CI, core packages |
-| **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; Sepolia deployed; attestation hardened but not production-grade |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, relay-backed live default, local engine retained as non-default path |
-| **Sprint 3** (Communication) | ✅ Complete | E2EE messaging, forum with stance-threading, XP integration |
-| **Sprint 3.5** (UI Refinement) | ✅ Complete | Stance-based threading, design unification |
-| **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors; budget denial UX |
-| **Wave 1** (V2 Features) | ✅ Complete | Synthesis pipeline/store, news aggregator/store, discovery feed/cards, delegation runtime, bridge/attestor wiring |
-| **Wave 2** (Integration Features) | ✅ Complete | Re-synthesis triggers, collaborative docs foundation, elevation artifacts, linked-social substrate, social feed wiring |
-| **Wave 3** (CAK + Collab + LUMA Spec) | ✅ Complete | CAK Phase 3 UI, collab editor wiring, feature flags, budget boundary, synthesis feed, LUMA identity spec v0.2 (13 PRs: #229–#242) |
-| **Wave 4** (LUMA Identity Hardening) | ✅ Complete | Trust constants consolidation, session lifecycle, constituency proof verification — all flag-gated (8 PRs: #243–#250) |
-
----
-
-## Detailed Status by Subsystem
-
-### LUMA (Identity Layer)
-
-**Status:** 🟡 **Hardened (Flag-Gated)** — Trust constants, session lifecycle, constituency proof verification
-
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Trust constants | ✅ Centralized | `packages/data-model/src/constants/trust.ts` — TRUST_MINIMUM (0.5), TRUST_ELEVATED (0.7) |
-| Session lifecycle | ✅ Feature-flagged | `packages/types/src/session-lifecycle.ts` — expiry, near-expiry, migration (`VITE_SESSION_LIFECYCLE_ENABLED`) |
-| Constituency proof verification | ✅ Feature-flagged | `packages/types/src/constituency-verification.ts` — nullifier/district/freshness checks (`VITE_CONSTITUENCY_PROOF_REAL`) |
-| Identity lifecycle controls | ✅ Active (no flag) | `useIdentity.ts` — `signOut()` preserves device-bound compartments; `resetIdentity()` rotates them; `revokeSession()` is a deprecated shim |
-| Wallet binding lifecycle | ✅ Active (no flag) | `identity-vault` + `useWallet.ts` — vault-only binding record, preserved on Sign Out, cleared on Reset Identity, re-bind prompt surfaced |
-| Multi-device identity linking | ⏸️ Deferred | `useIdentity.ts` — `linkDevice()`, `startLinkSession()`, and `completeLinkSession()` fail closed; no fake linked-device state is written |
-| Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code (Season 0 deferred §9.2) |
-| VIO liveness detection | ❌ Not implemented | No sensor fusion code (Season 0 deferred §9.2) |
-| Trust score calculation | ⚠️ Hardened stub | `main.rs` — structured validation, rate limiting; no real chain validation |
-| Nullifier derivation | ⚠️ Device-bound | SHA256(device_key + salt) |
-| Identity storage | ✅ Encrypted vault | `identity-vault` package (IndexedDB) |
-| Sybil resistance | ❌ Not implemented | No uniqueness checking (Season 0 deferred §9.2) |
-
-**⚠️ WARNING:** Current identity layer provides hardened stubs with feature-gated enforcement. Both flags default to `false`. Real sybil defense requires TEE + VIO (post-Season 0).
-
----
-
-### Agentic Familiars (Delegation)
-
-**Status:** 🟡 **Store + Hooks + UI Landed** — Full runtime orchestration pending
-
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Delegation store (grants/revocation) | ✅ Landed | `store/delegation/index.ts` |
-| Persistence (safeStorage) | ✅ Landed | `store/delegation/persistence.ts` |
-| `useFamiliar` hook | ✅ Landed | `store/delegation/useFamiliar.test.ts` |
-| FamiliarControlPanel UI | ✅ Landed | `components/hermes/FamiliarControlPanel.tsx` |
-| Delegation utility functions | ✅ Landed | `packages/types/src/delegation-utils.ts` |
-| Budget enforcement (8/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares, civic_actions, moderation/day |
-| Full familiar orchestration | ❌ Not implemented | No autonomous agent loop |
-
----
-
-### GWC (Economics Layer)
-
-**Status:** 🟡 **Contracts Implemented, Sepolia Deployed**
-
-| Feature | Contract | Tests | Deployed |
-|---------|----------|-------|----------|
-| RVU Token (ERC-20) | ✅ `RVU.sol` | ✅ | ⚠️ Localhost + Sepolia |
-| UBE Distribution | ✅ `UBE.sol` | ✅ | ❌ Not deployed |
-| Quadratic Funding | ✅ `QuadraticFunding.sol` | ✅ | ❌ Not deployed |
-| Median Oracle | ✅ `MedianOracle.sol` | ✅ | ⚠️ Localhost + Sepolia |
-| Faucet | ✅ `Faucet.sol` | ✅ | ❌ Not deployed |
-
----
-
-### VENN (Canonical Analysis Layer)
-
-**Status:** 🟡 **Pipeline End-to-End, V2 Synthesis + Re-synthesis Landed**
-
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Analysis pipeline (v1) | ✅ End-to-end | `pipeline.ts` |
-| `LocalMlEngine` (WebLLM) | ✅ Default in non-E2E | `localMlEngine.ts` |
-| `RemoteApiEngine` (opt-in) | ✅ Wired | `remoteApiEngine.ts` |
-| Synthesis types (v2) | ✅ Landed | `synthesisTypes.ts` |
-| Candidate gatherer | ✅ Landed | `candidateGatherer.ts` |
-| Quorum engine | ✅ Landed | `quorum.ts` |
-| Epoch scheduler | ✅ Landed | `epochScheduler.ts` |
-| Synthesis store | ✅ Landed | `store/synthesis/` |
-| Gun synthesis adapters | ✅ Landed | `synthesisAdapters.ts` |
-| Comment tracker (W2) | ✅ Landed | `commentTracker.ts` |
-| Digest builder (W2) | ✅ Landed | `digestBuilder.ts` |
-| Re-synthesis triggers (W2) | ✅ Landed | `resynthesisWiring.ts` |
-
----
-
-### HERMES (Communication Layer)
-
-#### Messaging — 🟢 Implemented
-
-| Feature | Status |
-|---------|--------|
-| E2EE encryption (SEA) | ✅ |
-| Gun sync | ✅ |
-| Topology guard | ✅ |
-| XP integration | ✅ |
-
-#### Forum — 🟢 Implemented + Reply Cap + Article CTA
-
-| Feature | Status |
-|---------|--------|
-| Threaded comments (stance-based) | ✅ |
-| 240-char reply cap enforcement | ✅ (Wave 2) |
-| Convert-to-Article CTA | ✅ (Wave 2) |
-| `topicId`/`sourceUrl`/`urlHash`/`isHeadline` | ✅ |
-| Feed↔Forum integration | ✅ |
-| Proposal extension on threads | ✅ |
-
-#### Docs — 🟢 Foundation Complete, Runtime Wiring Flag-Gated
-
-| Feature | Status |
-|---------|--------|
-| hermesDocs store (CRUD) | ✅ (Wave 2 S1) |
-| ArticleEditor + ArticleViewer | ✅ (Wave 2 S1) |
-| ArticleFeedCard in discovery feed | ✅ (Wave 2 S1) |
-| CRDT/Yjs provider + dedup | ✅ (Wave 2 S2) |
-| Document key management (E2EE) | ✅ (Wave 2 S2) |
-| CollabEditor (TipTap + Yjs) | ✅ Foundation (Wave 2 S2) |
-| PresenceBar (awareness) | ✅ Foundation (Wave 2 S2) |
-| ShareModal (access control) | ✅ Foundation (Wave 2 S2) |
-| hermesDocsCollab store | ✅ Foundation (Wave 2 S2) |
-| hermesDocsAccess functions | ✅ Foundation (Wave 2 S2) |
-| CollabEditor wired into ArticleEditor | ✅ Wave 3, flag-gated by `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED` |
-
-#### Bridge (Civic Action Kit) — 🟡 Elevation Landed
-
-| Feature | Status |
-|---------|--------|
-| Attestation verifier (hardened) | ✅ |
-| Elevation artifact generators | ✅ (Wave 2) |
-| civic_actions/day budget gate | ✅ (Wave 2) |
-| Trust threshold for nominations | ✅ (Wave 2) |
-| Receipt-in-feed | 🟡 Feed-card rendering support landed; live publication remains partial |
-| Representative directory | ❌ Wave 3 |
-| Native intents | ❌ Wave 3 |
-
-#### Linked-Social — 🟡 Substrate + Feed Cards Landed
-
-| Feature | Status |
-|---------|--------|
-| LinkedSocialAccount schema | ✅ (Wave 2) |
-| SocialNotification schema | ✅ (Wave 2) |
-| Vault token substrate | ✅ (Wave 2) |
-| Notification ingestion | ✅ (Wave 2) |
-| SocialNotificationCard (real data) | ✅ (Wave 2) |
-| socialFeedAdapter | ✅ (Wave 2) |
-| OAuth connection flow | ❌ Not implemented |
-
----
-
-### News Aggregator
-
-**Status:** 🟡 **Implemented, with active StoryCluster hardening**
-
-| Feature | Implementation |
-|---------|----------------|
-| RSS/Atom ingest | ✅ `packages/ai-engine/src/newsIngest.ts` |
-| HTML normalization and source dedupe | ✅ `packages/ai-engine/src/newsNormalize.ts` |
-| Daemon-first StoryCluster production path | ✅ `services/news-aggregator/src/daemon.ts`, `packages/ai-engine/src/clusterEngine.ts` |
-| Stable `story_id` + canonical news `topic_id` contract | ✅ `services/storycluster-engine/src/remoteContract.ts`, `packages/gun-client/src/newsAdapters.ts` |
-| Publisher-normalized canonical source projection | ✅ `services/storycluster-engine/src/bundleProjection.ts` |
-| `StorylineGroup` publication | ✅ `services/news-aggregator/src/daemon.ts`, `packages/gun-client/src/storylineAdapters.ts` |
-| Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
-| Public semantic soak | 🟡 Non-blocking smoke only |
-
----
-
-### Discovery Feed
-
-**Status:** 🟢 **Implemented, with release-gated daemon-first validation**
-
-| Feature | Implementation |
-|---------|----------------|
-| Feed shell + filter chips | ✅ `FeedShell.tsx` |
-| Sort controls | ✅ `SortControls.tsx` |
-| Compact feed chrome + first-use orientation | ✅ `components/feed/FeedShellChrome.tsx` |
-| Primary mode nav retired from app chrome | ✅ `routes/index.tsx` |
-| Latest by activity (`cluster_window_end`) | ✅ `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/storeHelpers.ts` |
-| Deterministic hotness wiring | ✅ `packages/gun-client/src/newsAdapters.ts` |
-| TopicCard / NewsCard | ✅ Wave 1 |
-| Compact NewsCard side media + source strip + engagement counts | ✅ `components/feed/NewsCardFront.tsx`, `components/feed/SourceBadgeRow.tsx`, `components/feed/FeedEngagement.tsx` |
-| Mesh-backed Eye/Lightbulb topic engagement counters | ✅ `hooks/useSentimentState.ts`, `hooks/useFeedEngagementMetrics.ts`, `packages/gun-client/src/topicEngagementAdapters.ts` |
-| Rolling bundler snapshot -> feed freshness path | ✅ `store/newsSnapshotBootstrap.ts`, `components/feed/FeedShell.lazyLoading.test.tsx` |
-| Bundle-identity analysis persistence | ✅ `components/feed/useAnalysisMesh.ts`, `packages/gun-client/src/analysisAdapters.ts`, `packages/data-model/src/schemas/hermes/sentiment.ts` |
-| SocialNotificationCard (real data) | ✅ Wave 2 |
-| ArticleFeedCard | ✅ Wave 2 |
-| Discovery store + ranking | ✅ `store/discovery/` |
-| Storyline focus shell + archive presentation | ✅ `components/feed/FeedShell.tsx`, `components/feed/StorylineFocusPanel.tsx` |
-| Fixture-backed integrity gate | ✅ `packages/e2e/src/live/daemon-first-feed-integrity.live.spec.ts` |
-| Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
-| Public semantic soak | 🟡 Evidence-bearing smoke only |
-
----
-
-## Security Considerations
-
-### Current Risks
-
-| Risk | Severity | Status |
-|------|----------|--------|
-| No sybil defense | 🔴 High | Open |
-| Trust scores spoofable | 🔴 High | Open (hardened stubs, not production) |
-| First-to-file poisoning (v1) | 🟡 Medium | Open (v2 quorum landed, runtime pending) |
-
-### Mitigations in Place
-
-- ✅ Identity stored in encrypted IndexedDB vault
-- ✅ Topology guard prevents unauthorized Gun writes
-- ✅ Encryption required for sensitive mesh paths
-- ✅ XP ledger is local-only
-- ✅ Participation governors enforce rate limits (8/8 budget keys active)
-- ✅ TOCTOU hardening on concurrent budget operations
-- ✅ Attestation verifier has structured validation and rate limiting
-- ✅ AI engine default is truthful (LocalMlEngine in non-E2E)
-- ✅ Document keys derived per-document, never stored on mesh (Wave 2)
-- ✅ OAuth tokens vault-only, never on public paths (Wave 2)
-
----
-
-## Deployment Status
-
-| Environment | Status | Artifacts |
-|-------------|--------|-----------|
-| Localhost (Anvil) | ✅ Working | `deployments/localhost.json` |
-| Sepolia Testnet | ✅ Deployed | `deployments/sepolia.json` |
-| Base Sepolia | ❌ Not deployed | Script exists |
-| Mainnet | ❌ Not planned | — |
-
----
-
-## Next Work (Post-Wave 4)
-
-Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integration branches (`integration/wave-3`, `integration/wave-4`) are ancestors of `main`.
-
-### Feed Parity Slices (Post-Wave 4)
-- **FE-1** (provider model): merged
-- **FE-2** (bias table): merged
-- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable v2 is now always-on in production wiring
-- **FE-4** (removal polish): merged
-
-Remaining backlog:
-1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
-2. ~~**Remaining budget key**~~ — `moderation/day` enforcement landed (PR #259, all 8/8 active)
-3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
-
-Post-Season 0 (deferred per spec §9.2):
-- TEE/VIO hardware binding
-- Deferred: real Sybil resistance
-- BioKey, DBA, ZK-SNARK proofs
-- Gold/Platinum trust tiers
-
----
+> Last Reviewed: 2026-07-11
+> Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md, docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/ops/public-beta-operational-state.md
+
+**Version:** 0.9.17
+
+## How To Read This File
+
+This file records current implementation and drift. It does not redefine product
+intent, behavior specs, architecture, or live operator evidence.
+
+Use the documentation precedence in `docs/README.md`:
+
+1. product intent and season scope;
+2. normative specs;
+3. architecture;
+4. this implementation ledger;
+5. operational runbooks;
+6. non-authoritative plans and historical execution records.
+
+Current public-beta operational truth lives in
+`docs/ops/public-beta-operational-state.md`. Historical status detail through the
+first supervised recovery attempt is preserved under
+`docs/archive/public-beta-pre-recovery-2026-07-10/`.
+
+## Executive Status
+
+TRINITY's repository-side Functioning MVP is materially implemented, but the
+Venn News public beta is not launch-ready.
+
+The unclosed public-feed incident is classified as
+`relay_rest_story_timeout_total_0_of_3_exit_78`. Repository remediation is
+merged through `main@3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`, including
+concurrent bounded relay fanout, exact signed readback for all four critical
+publication routes, preserved `2/3` quorum, bounded exit-69 availability-total
+handling, secret-safe alert dedupe, and reviewed recovery control.
+
+The exact relay image and executable tuple received independent review and the
+original scoped Lou binding. Supervised load attempt 001 then correctly stopped
+at read-only prestate because the reviewed remote staging base was shared mode
+`0775` with unrelated entries. No image transfer/load, relay, publisher, service,
+provider, pager, monitor, Gmail, or other live mutation occurred.
+
+Current decision: `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`.
+
+A fresh private-staging load/supervision envelope, independent review, and new
+exact binding are required before another attempt. A/B/C, separate publisher
+recovery, immediate evidence, T0+24h, and T0+48h remain incomplete. S1A/S1B are
+red, S2 is blocked, and all later launch-enablement work is ineligible.
+
+## Product Scope Remains Unchanged
+
+The foundational vision remains the local-first TRINITY civic operating system:
+LUMA identity/trust, VENN/HERMES information/discourse/docs/action, and GWC
+economic/governance rails.
+
+The current launch envelope is intentionally narrower: a Venn News Web PWA that
+supports a usable feed, clustered story identity, accepted-current synthesis,
+frame/reframe point stance, deterministic story discussion, persistent personal
+state, and aggregate-only public signal.
+
+The public beta does not claim production-attestation/Silver or verified-human identity.
+It does not claim one-human-one-vote, Sybil resistance, or cryptographic residency.
+It does not claim public WSS mesh `release_ready`, full production-app readiness,
+native App Store readiness, a private support SLA, or pager-backed 24/7 operations.
+
+## Current Layer Summary
+
+| Layer | Repository capability | Live/release posture |
+| --- | --- | --- |
+| LUMA | Public-beta beta-local identity, AssuranceEnvelope, stable device/session compartments, signed-write policy, namespace guards, and forbidden-claim gates are implemented. | Public-beta only; production attestation/Silver remains deferred. |
+| GWC | Core contracts and Sepolia deployment exist. | Partial; XP-first product posture remains current. |
+| VENN analysis | End-to-end analysis and accepted `TopicSynthesisV2` contracts exist. | Live accepted-synthesis evidence remains blocked behind S1/S2 and the later canary. |
+| HERMES messaging | E2EE messaging is implemented. | Partial production hardening remains. |
+| HERMES forum | Threads, votes, deterministic news-story threads, moderation/report paths, and 240-character reply cap are implemented. | Manual release rehearsal remains. |
+| HERMES docs | Collaborative editor foundation is wired and flag-gated. | Not a public-beta launch claim. |
+| Civic Action Kit | UI, trust/XP/budget gates, local receipts, and feed-card support exist. | Outside the Venn News MVP launch path. |
+| News Aggregator | Repo remediation and exact recovery controls are merged. | Live red: attempt 001 stopped before load; publisher recovery and 48-hour proof have not started. |
+| Discovery feed | Compact unified feed, preference/ranking behavior, storylines, deep links, fixture gates, and browser coverage exist. | Current public semantic/live gates remain blocked. |
+| Delegation runtime | Store, hooks, scoped grants, controls, and budget keys exist. | High-impact actions remain human-approved. |
+| Linked social | Substrate, notification ingestion, and feed cards exist. | Broader OAuth/social ingestion is deferred. |
+| Public beta compliance | Policy routes, public support intake, minimum private escalation protocol, and trusted beta operator guards exist. | This is not legal approval or live release clearance. |
+
+## Active Public-Beta Program
+
+### S0-S1 Repository Work
+
+The S1 recovery implementation chain is merged through PRs #759-#769. The
+reviewed final S1 recovery revision is `3c8907f0`.
+
+Implemented invariants include:
+
+- raw story, latest-index, hot-index, and synthesis-lifecycle writes retain
+  `2/3` relay quorum;
+- timeout means unacknowledged, not provably unpublished;
+- readback verifies the exact signed record before retry;
+- only fully unacknowledged availability-total exhaustion reaches restartable
+  exit `69`;
+- HTTP errors, backpressure, conflicts, validation failures, partial quorum,
+  tampering, and unknown states remain fail-closed at exit `78`;
+- alert fingerprints use semantic state rather than volatile age/window values;
+- email and evidence remain readable and secret-safe;
+- relay replacement is serial A then B then C, with current-relay-only rollback;
+- publisher recovery is a separate attended authority gate.
+
+Repo completion is not deployment or recovery proof.
+
+### Current Live Gate
+
+`docs/ops/public-beta-operational-state.md` is the current owner for live state.
+At this review:
+
+- `FINAL_REV` and the original exact tuple are reviewed;
+- load supervision attempt 001 exited `78` before mutation;
+- the original fixed staging base is not eligible for retry;
+- a new private staging envelope and new exact binding are required;
+- relay A has not started;
+- publisher T0 does not exist;
+- the dated mailbox snapshot observed during this audit contained a public-feed
+  critical and must be refreshed before every gate.
+
+Durable gate rules:
+
+- `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`
+- `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`
+- `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`
+- `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`
+
+### S2-S12
+
+After S1 closes honestly:
+
+1. S2 repairs StoryCluster access and closes any resulting product-evidence
+   blocker until fresh production readiness is `release_ready`.
+2. S3 deploys the auth boundary and durable nonce store.
+3. S4/S5 register Apple and Google and pass boundary health/start-leg preflight;
+   X stays hidden.
+4. S6/S7 deploy and read back the PWA origin and eventual release commit, then
+   complete both providers' full return-leg/PWA rehearsals.
+5. S8 proves accepted synthesis through a live canary.
+6. S9 regenerates release evidence on the intended release commit.
+7. S10 completes three-browser persistence, convergence, and privacy rehearsal.
+8. S11 records Lou's distribution decision for the first tranche of at most 100
+   testers.
+9. S12 monitors each tranche before any expansion.
+
+The active outcome and dependency map is
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`. Its executable
+companion remains
+`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`, guarded by
+`pnpm check:public-beta-next-phase-sprint`.
+
+## Release Evidence State
+
+Existing evidence packets predate the current S1 revision and must not be reused
+as release proof. A future release claim requires fresh evidence on the intended
+release commit, including:
+
+- source health and StoryCluster correctness;
+- public feed analysis/frame reliability;
+- mixed composition and lifecycle accountability across configured peers;
+- fresh RSS-to-product propagation;
+- pagination/refresh and point-stance convergence;
+- LUMA public-beta readiness;
+- bounded Mesh/app claims;
+- launch control, distribution, operator packets, compliance, docs, and the
+  beta-session runsheet.
+
+Current command surfaces include:
+
+- `pnpm check:public-beta-s1-recovery-control-plane`
+- `pnpm check:public-beta-launch-control`
+- `pnpm check:public-beta-distribution-packet`
+- `pnpm check:public-beta-launch-closeout`
+- `pnpm check:public-beta-next-phase-sprint`
+- `pnpm check:beta-session-runsheet`
+- `pnpm check:mvp-release-gates`
+- `pnpm check:mvp-closeout`
+- `pnpm check:public-beta-compliance`
+- `pnpm docs:check`
+
+The public-beta launch closeout is
+`docs/ops/public-beta-launch-readiness-closeout.md`.
+
+## Guarded Identity And Privacy Invariants
+
+These concise rows are intentionally retained because release and LUMA guards
+consume them:
+
+| Surface | Current invariant |
+| --- | --- |
+| Identity lifecycle | `signOut()` preserves device-bound compartments; `resetIdentity()` rotates them. `revokeSession()` is a deprecated compatibility shim. |
+| Multi-device identity linking | Deferred and disabled; app stubs fail closed; no fake linked-device state is written. |
+| Wallet binding lifecycle | Sign-out preserves the non-custodial wallet binding; reset clears it; no private key or signer is persisted. |
+| Public mesh secrecy | OAuth tokens, private keys, raw identity/proof/contact data, and local vote intent are forbidden from public namespaces and committed evidence. |
+| Support | Public issues remain public-safe stubs; sensitive details use the minimum private escalation protocol outside the public issue. |
+| Human authority | Lou owns release, incident, rollback, provider-account, and tester-wave decisions; technical execution never broadens that authority. |
+
+## Active Risks And Drift
+
+| Risk | Current handling |
+| --- | --- |
+| Stale or contradictory docs | Current state has one stable owner; prior status/checklist/handoff/closeout snapshots are archived. |
+| Shared A6 staging base | Hard stop; replace with a reviewed private per-run root, never chmod/reuse/clean the shared tree. |
+| Publisher remains parked | No inference from relay readiness; complete separate controller recovery and elapsed evidence. |
+| StoryCluster credential/endpoint | S2 remains blocked until S1 T0+48h closure. |
+| Single-host relay topology | `2/3` protects logical write integrity, not A6 host-failure tolerance. Do not claim independent failure domains. |
+| Relay memory driver | Historical verdict remains off-graph-likely; no retention/compaction/eviction action is authorized without new evidence. |
+| Release packet drift | Regenerate on the eventual release commit; fixture-only and stale artifacts never substitute for live proof. |
+
+## Immediate Next Work
+
+1. Preserve attempt 001 unchanged.
+2. Generate and review a private-staging load/supervision envelope.
+3. Obtain a new exact binding.
+4. Resume at image load, not relay A.
+5. Complete A/review/B/review/C/review.
+6. Obtain separate publisher authority and run controller recovery.
+7. Preserve immediate, T0+24h, and passing T0+48h evidence.
+8. Mark S1A/S1B green and unblock S2 only after the final gate passes.
+
+Do not merge a later commit into the tuple-sensitive recovery line unless the
+team explicitly accepts rebuilding and re-reviewing the revision-bound tuple.
 
 ## References
 
-### Architecture & Specs
-- `System_Architecture.md` — Target architecture
-- `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
-- `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
-- `docs/specs/spec-hermes-forum-v0.md` — Forum spec
-- `docs/specs/spec-linked-socials-v0.md` — Linked-social spec
-- `docs/specs/spec-civic-action-kit-v0.md` — Civic Action Kit spec
-- `docs/specs/topic-synthesis-v2.md` — Synthesis V2 spec
+- `docs/foundational/trinity_project_brief.md`
+- `docs/foundational/TRINITY_Season0_SoT.md`
+- `docs/foundational/System_Architecture.md`
+- `docs/specs/spec-news-aggregator-v0.md`
+- `docs/ops/public-beta-operational-state.md`
+- `docs/ops/news-aggregator-production-service.md`
+- `docs/ops/public-beta-launch-readiness-closeout.md`
+- `docs/ops/public-beta-launch-control-2026-07-09.md`
+- `docs/ops/public-beta-distribution-packet-2026-07-09.md`
+- `docs/ops/BETA_SESSION_RUNSHEET.md`

@@ -1,9 +1,13 @@
 # Phase 5 Scope A Stability Bake - 2026-06-28
 
+> Document Role: Historical stability report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-operational-state.md`
+
 > Status: Stability Evidence
 > Owner: VHC Launch Ops
 > Commit: `baf1dd5f41958473c93db04e4d6007e4df7b074f`
-> Depends On: `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/storycluster-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`
+> Depends On: `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-launch-closeout-2026-06-24.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/storycluster-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`
 
 ## Verdict
 

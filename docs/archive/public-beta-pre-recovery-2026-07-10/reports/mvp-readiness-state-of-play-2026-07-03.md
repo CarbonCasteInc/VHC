@@ -1,12 +1,16 @@
 # MVP Readiness State Of Play - 2026-07-03
 
+> Document Role: Historical readiness report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/foundational/STATUS.md`
+
 > Status: Readiness Review And Docs Alignment Audit
 > Owner: VHC Core Engineering
 > Last Reviewed: 2026-07-03
-> Depends On: docs/foundational/STATUS.md, docs/ops/public-beta-launch-readiness-closeout.md, docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md
+> Depends On: docs/foundational/STATUS.md, docs/ops/public-beta-launch-readiness-closeout.md, docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-driver-verdict-2026-07-02.md
 
 > 2026-07-06 addendum: this report is historical. Current Scope A state is
-> `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`:
+> `docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`:
 > Slice 0 interim email alerting is enabled, #723 recovered the post-Slice-0
 > stale-feed incident, A6 is on `main@47ba218d`, and the system is now waiting
 > for either a new alert or the first post-recovery 500 MB -> 700 MB
@@ -47,7 +51,7 @@ The critical distinction is lane separation:
 ### Scope A
 
 The post-outage driver verdict in
-`docs/reports/phase5-scope-a-driver-verdict-2026-07-02.md` rejects graph live
+`docs/archive/public-beta-pre-recovery-2026-07-10/reports/phase5-scope-a-driver-verdict-2026-07-02.md` rejects graph live
 bytes as the heap driver: relay heap rose at about `11 MiB/h` while graph live
 bytes rose at about `0.008 MiB/h`, with tombstoned souls at `0` and total graph
 souls too small to explain the heap slope.

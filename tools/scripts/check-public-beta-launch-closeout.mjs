@@ -16,6 +16,7 @@ const files = {
   compliance: 'docs/ops/public-beta-compliance-minimums.md',
   betaRunbook: 'docs/ops/BETA_SESSION_RUNSHEET.md',
   nextPhaseSprint: 'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md',
+  mvpSprint: 'docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md',
   distributionPacket: 'docs/ops/public-beta-distribution-packet-2026-07-09.md',
   mvpReleaseGates: 'packages/e2e/src/mvp-release-gates.mjs',
   launchContentSnapshot: 'packages/e2e/src/launch-content-snapshot.mjs',
@@ -28,8 +29,9 @@ const requiredScripts = {
   'check:mvp-closeout': 'node ./packages/e2e/src/mvp-closeout.mjs --check',
   'check:launch-content-snapshot': 'node ./packages/e2e/src/launch-content-snapshot.mjs',
   'check:public-beta-compliance': 'node ./tools/scripts/check-public-beta-compliance.mjs',
+  'check:vhc-incident-response': 'node --check services/vhc-pager/src/alert-family.mjs && node --check services/vhc-pager/src/incident-contract.mjs && node --check services/vhc-pager/src/pager-core.mjs && node --check services/vhc-pager/src/github-bridge.mjs && node --check services/vhc-pager/src/web-push.mjs && node --check services/vhc-pager/src/worker.mjs && node --test services/vhc-pager/src/*.test.mjs ./tools/scripts/validate-public-feed-alert-pager-output.test.mjs ./tools/scripts/vhc-incident-triage-worker.test.mjs ./tools/scripts/vhc-incident-reviewer.test.mjs ./tools/scripts/vhc-operator-packet-verify.test.mjs ./tools/scripts/vhc-incident-readback-verifier.test.mjs ./tools/scripts/vhc-pager-deadman.test.mjs ./tools/scripts/vhc-packet-executor.test.mjs && node ./tools/scripts/check-vhc-incident-response.mjs',
   'check:public-beta-next-phase-sprint': 'node --test ./tools/scripts/public-beta-next-phase-sprint.test.mjs',
-  'check:public-beta-distribution-packet': 'node --test ./tools/scripts/public-beta-distribution-packet.test.mjs',
+  'check:public-beta-distribution-packet': 'node ./tools/scripts/check-public-beta-distribution-packet.mjs && node --test ./tools/scripts/public-beta-distribution-packet.test.mjs',
   'check:beta-session-runsheet': 'node --test ./tools/scripts/beta-session-runsheet.test.mjs',
   'check:public-beta-launch-control': 'node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
@@ -45,6 +47,7 @@ const requiredMvpGateIds = [
   'public_feed_analysis_frame_reliability',
   'public_feed_composition_freshness',
   'public_feed_lifecycle_accountability',
+  'public_feed_fresh_propagation',
   'story_identity_growth',
   'public_feed_pagination_refresh',
   'stance_aggregate_decay_public_mesh',
@@ -56,6 +59,10 @@ const requiredMvpGateIds = [
   'report_intake_admin_action',
   'operator_trust_gate',
   'public_beta_compliance',
+  'luma_forbidden_claims',
+  'luma_production_profile',
+  'luma_telemetry_redaction',
+  'luma_mvp_production_readiness',
   'public_beta_launch_closeout',
 ];
 
@@ -84,6 +91,7 @@ const requiredEvidenceNeedles = [
   'pnpm check:mvp-closeout',
   'pnpm check:launch-content-snapshot',
   'pnpm check:public-beta-compliance',
+  'pnpm check:vhc-incident-response',
   'pnpm check:public-beta-next-phase-sprint',
   'pnpm docs:check',
   'FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT',
@@ -97,6 +105,7 @@ const requiredEvidenceNeedles = [
   'docs/ops/public-beta-launch-readiness-closeout.md',
   LAUNCH_CONTROL_PATH,
   'docs/ops/public-beta-distribution-packet-2026-07-09.md',
+  'docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md',
   'docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md',
   'docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md',
   'docs/ops/a6-accepted-synthesis-canary-packet-2026-07-09.md',
@@ -153,6 +162,7 @@ const status = readRepoFile(files.status);
 const compliance = readRepoFile(files.compliance);
 const betaRunbook = readRepoFile(files.betaRunbook);
 const nextPhaseSprint = readRepoFile(files.nextPhaseSprint);
+const mvpSprint = readRepoFile(files.mvpSprint);
 const mvpReleaseGates = readRepoFile(files.mvpReleaseGates);
 const launchContentSnapshot = readRepoFile(files.launchContentSnapshot);
 const publicBetaCompliance = readRepoFile(files.publicBetaCompliance);
@@ -207,15 +217,17 @@ requireIncludes(
 );
 requireIncludes(files.distributionPacket, distributionPacket, 'go_for_public_beta_distribution', 'distribution go status');
 requireIncludes(files.distributionPacket, distributionPacket, 'Rollback is claim-first', 'distribution rollback boundary');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S12 - Post-Launch Watch, Incident Loop, And Tranche Expansion', 'next-phase tranche expansion slice');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'first public-beta tranche is capped at 100 testers', 'next-phase first tranche cap');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S1A - Monitor-Critical Public-Feed Incident Readback Gate', 'next-phase mailbox critical incident gate');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, '| G9 | First-tranche watch and later 500/1000/open decisions |', 'next-phase tranche expansion wave');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'First distribution is at most 100 US/Canada testers', 'next-phase first tranche cap');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'S1 Recovery Exception And Final Clearance', 'next-phase mailbox critical incident gate');
 requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN', 'next-phase monitor pass boundary');
 requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'READ_ONLY_INCIDENT_TRIAGE_ONLY', 'next-phase read-only incident triage state');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount > 0', 'next-phase mailbox critical blocker');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'public_feed_alert_fail', 'next-phase public feed alert failure blocker');
-requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'pager_deadman_workflow_failed', 'next-phase pager dead-man warning blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'UNBOUND_PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION', 'next-phase public feed alert failure blocker');
+requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'BOUND_S1_INCIDENT_REQUIRES_EXACT_HASH_COUNT_AND_AUTHORITY', 'next-phase bound incident exception');
 requireIncludes(files.nextPhaseSprint, nextPhaseSprint, 'newCriticalCount == 0', 'next-phase mailbox clear requirement');
+requireIncludes(files.mvpSprint, mvpSprint, '100 -> 500 requires 24 hours', 'MVP sprint 500 tranche window');
+requireIncludes(files.mvpSprint, mvpSprint, '500 -> 1000 requires another 24 hours', 'MVP sprint 1000 tranche window');
+requireIncludes(files.mvpSprint, mvpSprint, 'external pager dead-man pass', 'MVP sprint canonical pager gate');
 
 requireRegex(
   files.closeout,

@@ -6,7 +6,7 @@ const RUNSHEET_PATH = 'docs/ops/BETA_SESSION_RUNSHEET.md';
 const CLOSEOUT_PATH = 'docs/ops/public-beta-launch-readiness-closeout.md';
 const COMPLIANCE_PATH = 'docs/ops/public-beta-compliance-minimums.md';
 const STATUS_PATH = 'docs/foundational/STATUS.md';
-const SPRINT_PATH = 'docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md';
+const SPRINT_PATH = 'docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md';
 
 const EXPECTED_SCRIPT = 'node --test ./tools/scripts/beta-session-runsheet.test.mjs';
 

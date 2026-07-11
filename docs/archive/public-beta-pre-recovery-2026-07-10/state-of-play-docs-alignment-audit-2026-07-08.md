@@ -1,5 +1,8 @@
 # State Of Play And Docs Alignment Audit - 2026-07-08
 
+> Document Role: Historical documentation audit (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/reports/public-beta-docs-alignment-audit-2026-07-11.md`
 > Status: Current-state documentation audit
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Reviewed Against: `main@eb53af67dc46764e4d8afe1c5f932c771fe5a4c8`
@@ -140,4 +143,4 @@ No current doc should claim:
 - `docs/plans/LUMA_SERVICE_V0_ROADMAP_2026-05-02.md`
 - `docs/ops/account-provider-callback-boundary.md`
 - `docs/CANON_MAP.md`
-- `docs/reports/state-of-play-docs-alignment-audit-2026-07-08.md`
+- `docs/archive/public-beta-pre-recovery-2026-07-10/state-of-play-docs-alignment-audit-2026-07-08.md`

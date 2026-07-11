@@ -1,11 +1,15 @@
 # MVP Public Beta Launch Control Packet
 
+> Document Role: Historical evidence report (non-authoritative)
+> Archived: 2026-07-11
+> Superseded By: `docs/ops/public-beta-launch-control-2026-07-09.md`
+
 Date: 2026-05-13
 Updated at: 2026-05-20T15:29:19Z
 Branch: `coord/mvp-production-grade-distribution-ready-v1`
 Release-control base commit: `bb120a2e376784475202d59552f4b04531ee798b`
-Production-grade readiness packet: `docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
-State of Play summary: `docs/reports/mvp-public-beta-state-of-play-2026-05-18.md`
+Production-grade readiness packet: `docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-production-grade-distribution-readiness-2026-05-14.md`
+State of Play summary: `docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-public-beta-state-of-play-2026-05-18.md`
 Node: `v20.20.2`
 pnpm: `9.7.1`
 

@@ -9,8 +9,8 @@
   "node": "v20.20.2",
   "pnpm": "9.7.1",
   "repo_dirty_during_engineering_evidence": false,
-  "production_grade_readiness_packet_path": "docs/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
-  "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md",
+  "production_grade_readiness_packet_path": "docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-production-grade-distribution-readiness-2026-05-14.md",
+  "state_of_play_path": "docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-public-beta-state-of-play-2026-05-18.md",
   "final_status": "go_for_public_beta_launch",
   "status_reason": "StoryCluster is release_ready, public Web PWA feed smoke passes, Mesh production readiness is release_ready with real public WSS proof against gun-a/b/c.carboncaste.io, production app canary passes with real downstream observations, public analysis health is reachable with upstream reachable, and operator approval/ownership fields are recorded. The proof excludes nested gun-a/b/c.venn.carboncaste.io because Cloudflare Free Universal SSL does not cover those names.",
   "release_env": {

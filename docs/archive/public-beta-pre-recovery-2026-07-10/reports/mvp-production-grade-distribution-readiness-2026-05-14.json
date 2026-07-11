@@ -10,8 +10,8 @@
   "included_superseded_commit": "de1c1eb4457a77d1a1e664c1b24d162c6f520478",
   "node": "v20.20.2",
   "pnpm": "9.7.1",
-  "state_of_play_path": "docs/reports/mvp-public-beta-state-of-play-2026-05-18.md",
-  "launch_control_path": "docs/reports/mvp-public-beta-launch-control-2026-05-13.md",
+  "state_of_play_path": "docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-public-beta-state-of-play-2026-05-18.md",
+  "launch_control_path": "docs/archive/public-beta-pre-recovery-2026-07-10/reports/mvp-public-beta-launch-control-2026-05-13.md",
   "final_status": "go_for_public_beta_launch",
   "status_reason": "The real public deployment is reachable through Cloudflare Tunnel, analysis health is remote and reachable, StoryCluster is release_ready, the deployed public feed browser smoke passes, Mesh is release_ready with real public WSS proof against gun-a/b/c.carboncaste.io, and the production app canary passes with real downstream observations.",
   "release_shaped_stack": {

@@ -5,7 +5,7 @@
 > Last Reviewed: 2026-07-09
 > Depends On: `docs/ops/storycluster-production-service.md`,
 > `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`,
-> `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`
 
 This packet clears exactly one current release-readiness blocker class:
@@ -259,6 +259,11 @@ longer reports `storycluster_openai_invalid_api_key`. The broader
 production-readiness gate may still block on real product evidence such as
 sample fill rate, audited pair density, or source supply; those are separate
 release-readiness blockers, not credential repair failures.
+
+For MVP milestone M2, this packet's narrow credential repair is necessary but
+not sufficient: any newly exposed product-evidence blocker remains red and must
+be closed by a focused lane until fresh production readiness is
+`release_ready`.
 
 ## Exit Criteria
 
