@@ -178,6 +178,11 @@ S1 completion does not mean launch readiness. S2 through S12 still cover:
 The public beta remains `NO-GO` until the launch control packet, distribution
 packet, closeout gates, manual evidence, and Lou's final decision are complete.
 
+The active non-authoritative outcome/dependency map is
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`; the compact
+orchestration companion is
+`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`.
+
 ## Update Rule
 
 Update this document when the top-level operational decision changes. Preserve

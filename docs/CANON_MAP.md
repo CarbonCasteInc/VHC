@@ -12,13 +12,13 @@ Precedence is defined in `docs/README.md`.
 | Season scope and rollout framing | `docs/foundational/TRINITY_Season0_SoT.md` | VHC Product + Architecture | `docs/foundational/STATUS.md` | 2026-07-11 |
 | Architecture contracts and defaults | `docs/foundational/System_Architecture.md` | VHC Core Architecture | `docs/foundational/ARCHITECTURE_LOCK.md` | 2026-04-16 |
 | Implementation reality and drift | `docs/foundational/STATUS.md` | VHC Core Engineering | `docs/foundational/System_Architecture.md`, `docs/ops/public-beta-operational-state.md` | 2026-07-11 |
-| Public-beta current operational decision and active gate | `docs/ops/public-beta-operational-state.md` | VHC Launch Ops + VHC Core Engineering | `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` | 2026-07-11 |
+| Public-beta current operational decision and active gate | `docs/ops/public-beta-operational-state.md` | VHC Launch Ops + VHC Core Engineering | `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-beta-launch-readiness-closeout.md`, `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`, `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` | 2026-07-11 |
 | Phase 5 Scope A live publisher and StoryCluster operations | `docs/ops/news-aggregator-production-service.md` | VHC Ops | `docs/ops/public-beta-operational-state.md`, `docs/ops/storycluster-production-service.md`, `docs/ops/public-feed-freshness-monitor.md`, `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`, `docs/specs/spec-news-aggregator-v0.md`, `docs/specs/spec-vhc-incident-response.md` | 2026-07-11 |
 | News source admission, background scouting, source-health policy, and readable-source ops | `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` | VHC Ops + Core Engineering | `docs/specs/spec-news-aggregator-v0.md`, `docs/foundational/STATUS.md`, `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md` | 2026-03-20 |
 | UI / UX lane separation, soak measurement boundaries, and retained-feed integration sequencing | `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md` | VHC Core Engineering | `docs/foundational/STATUS.md`, `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/specs/spec-news-aggregator-v0.md` | 2026-03-23 |
 | Story bundler production-readiness scorecard and gate thresholds | `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` | VHC Core Engineering | `docs/specs/spec-news-aggregator-v0.md`, `docs/foundational/STATUS.md`, `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md` | 2026-03-25 |
 | Public beta policy, support/contact, private escalation protocol, telemetry consent, UGC/moderation, deletion, and copyright boundaries | `docs/ops/public-beta-compliance-minimums.md` | VHC Launch Ops | `docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/specs/spec-hermes-forum-v0.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `.github/ISSUE_TEMPLATE/public-beta-support.yml` | 2026-04-26 |
-| Public beta launch closeout and claim boundary | `docs/ops/public-beta-launch-readiness-closeout.md` | VHC Launch Ops | `docs/ops/public-beta-operational-state.md`, `docs/ops/public-beta-launch-control-2026-07-09.md`, `docs/ops/public-beta-distribution-packet-2026-07-09.md`, `docs/ops/public-beta-compliance-minimums.md`, `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`, `docs/launch/public-beta-copy.md` | 2026-07-11 |
+| Public beta launch closeout and claim boundary | `docs/ops/public-beta-launch-readiness-closeout.md` | VHC Launch Ops | `docs/ops/public-beta-operational-state.md`, `docs/ops/public-beta-launch-control-2026-07-09.md`, `docs/ops/public-beta-distribution-packet-2026-07-09.md`, `docs/ops/public-beta-compliance-minimums.md`, `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`, `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`, `docs/launch/public-beta-copy.md` | 2026-07-11 |
 | Analysis and synthesis object contract | `docs/specs/topic-synthesis-v2.md` | VHC Spec Owners | `docs/foundational/AI_ENGINE_CONTRACT.md`, `docs/specs/canonical-analysis-v2.md`, `docs/specs/canonical-analysis-v1.md` | 2026-03-03 |
 | Data topology and privacy boundaries | `docs/specs/spec-data-topology-privacy-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md`, `docs/ops/public-beta-compliance-minimums.md`, `docs/specs/spec-hermes-forum-v0.md`, `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-mesh-production-readiness.md` | 2026-05-04 |
 | Identity, trust, and constituency semantics | `docs/specs/spec-identity-trust-constituency.md` | VHC Spec Owners | `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/System_Architecture.md` | 2026-05-02 |
@@ -35,6 +35,16 @@ Precedence is defined in `docs/README.md`.
 | Local manual + strict runtime ops | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md` | VHC Ops | `docs/ops/AUTOMATION_STACK_RUNBOOK.md`, `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`, `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md`, `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/analysis-backend-3001.md`, `docs/ops/news-aggregator-production-service.md`, `docs/ops/public-beta-image-deploy.md` | 2026-06-14 |
 | Persistent automation stack and validated feed snapshot through-line | `docs/ops/AUTOMATION_STACK_RUNBOOK.md` | VHC Ops + Core Engineering | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`, `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md`, `docs/specs/spec-news-aggregator-v0.md` | 2026-04-16 |
 | Beta-session operator procedure and pre-session feed readiness review | `docs/ops/BETA_SESSION_RUNSHEET.md` | VHC Ops | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/foundational/STATUS.md`, `docs/ops/public-beta-compliance-minimums.md` | 2026-04-26 |
+
+## Active Execution Artifacts
+
+The current non-authoritative public-beta program map is
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`. Its executable
+delegation and operator-gate companion is
+`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`.
+
+Neither file owns product, specification, architecture, implementation, live
+state, runbook, or release-claim semantics. The canonical owners above win.
 
 ## Update Rule
 

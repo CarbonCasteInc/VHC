@@ -1,517 +1,235 @@
-# Public Beta Next-Phase Orchestration Prompt And Sprint Checklist
+# Public Beta Next-Phase Orchestration Checklist
 
-> Status: Active execution checklist
-> Compatibility Path: retained from 2026-07-09; operationally refreshed 2026-07-11
+> Document Role: Non-authoritative executable companion
+> Status: Active compatibility path
 > Human authority: Lou
 > Technical executor: Codex
-> First advertised providers: Apple and Google
-> Deferred provider: X
+> Active sprint: `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`
 > Current operational owner: `docs/ops/public-beta-operational-state.md`
+> Release closeout owner: `docs/ops/public-beta-launch-readiness-closeout.md`
 
-The archived pre-attempt checklist is at
-`docs/archive/public-beta-pre-recovery-2026-07-10/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`.
-It preserves completed G0-G3 history and stale transition prose for audit only.
+The exact pre-MVP-completion checklist is archived at
+`docs/archive/public-beta-pre-mvp-completion-2026-07-11/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`.
+It is historical only.
+
+This compact companion defines how the orchestration agent delegates, reviews,
+records, stops, and advances the active sprint. It deliberately does not copy
+moving incident state, artifact hashes, operator commands, product contracts,
+or the 24 release gates. Follow their owning documents.
 
 ## Orchestration-Agent Action Prompt
 
-You are the orchestration agent responsible for executing this checklist through
-delegated implementation, independent review, integration, and evidence
-collection. This is a binding execution checklist derived from canonical product,
-specification, status, and operations owners; it does not override them.
+You are the technical orchestration agent for
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`.
 
-Move the controlled public beta through the remaining G4 and S1-S12 gates
-without weakening release evidence, `2/3` quorum, fail-closed behavior, privacy,
-secret handling, incident authority, or elapsed-time requirements.
+Drive the controlled Venn News Web PWA from the current eligible gate through
+working MVP and controlled distribution by delegating bounded lanes,
+independently reviewing every result, preserving fail-closed behavior, and
+stopping whenever exact evidence or authority is missing.
 
-Do not merely summarize. Verify current repo, mailbox, and read-only A6 truth;
-delegate bounded non-live work; inspect actual diffs and artifacts; return
-defects to the owning lane; require subsequent review; and stop whenever a gate
-is not green.
+Do not merely summarize. Refresh repo/PR/mailbox/read-only A6 truth, identify
+the single next eligible gate, dispatch only work that its prerequisites allow,
+inspect actual diffs and artifacts, return defects to the owning lane, require
+subsequent review after corrections, and record one explicit decision.
 
-## Current Truth
+## Precedence And Reading Order
 
-Repository and artifact state:
+Before acting, read:
 
-- PRs #759-#769 are merged.
-- S1 recovery `FINAL_REV` is
-  `3c8907f056ee5e482ddd5cec55ea2b32d6d04c5e`.
-- The exact `linux/amd64` relay image, capture, executable packet, and execution
-  binding received independent same-reviewer `GO` with P0/P1/P2 zero.
-- Lou bound the original exact tuple for private staging, transfer, checksum,
-  image load, immutable verification, serial A then B then C, and
-  current-relay-only rollback.
-- Publisher, checkout, origin, data, quorum, timeout, recipient, provider, pager,
-  and monitor changes were excluded.
-- Supervised load attempt 001 exited `78` at read-only prestate with
-  `remote_staging_unexpected_content`.
-- No staging change, `scp`, `docker load`, relay, publisher, service, retry,
-  chmod, cleanup, alternate path, or hand patch occurred.
-- Current decision is `NO_GO_STOP_REPORT_REMOTE_STAGING_BASE_UNSAFE`.
-- A fresh private-staging load/supervision envelope, independent review, and new
-  exact Lou binding are required before another attempt.
-- S1A/S1B remain red; S2+ remains blocked.
+1. `docs/foundational/STATUS.md`;
+2. `docs/ops/public-beta-operational-state.md`;
+3. `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`;
+4. the runbook or reviewed packet named by the active lane;
+5. `docs/ops/public-beta-launch-readiness-closeout.md` when evaluating a
+   working-MVP or distribution claim.
 
-Read `docs/ops/public-beta-operational-state.md` before acting. Its dated mailbox
-snapshot is incident history once a newer moving artifact exists.
+Operational state decides which gate is eligible. The sprint defines milestone
+outcomes and dependencies. Runbooks/packets own exact commands and rollback.
+Closeout owns evidence and claims. This file owns only orchestration mechanics.
 
-Fixed public-beta envelope:
-
-- public origin: `https://venn.carboncaste.io`;
-- auth boundary: `https://auth.venn.carboncaste.io`;
-- private support mailbox: `carboncasteit@gmail.com`;
-- first advertised providers: Apple and Google; X remains hidden;
-- initial markets: US and Canada;
-- first tranche: at most 100 testers; later 500, 1000, then open intake only
-  after green evidence plus a separate Lou decision.
-
-## Start From Live Truth
+## Start From Current Truth
 
 Before every gate:
 
-1. Run `git fetch origin --prune` and resolve the exact current branch, SHA, PR,
-   review, and hosted-check state. Remote truth overrides stale prose.
-2. Preserve unrelated user changes. The local-only files
-   `DISTRIBUTION_READINESS_GOAL_2026-07-05.md` and
-   `DISTRIBUTION_READINESS_SLICES_2026-07-05.md` must not be staged, deleted, or
-   copied into a lane.
-3. Read the moving `.tmp/vhc-failure-mailbox-monitor/latest.json`, record its
-   timestamp/hash/counts, and preserve dedupe state.
-4. Treat monitor `status: pass` as monitor execution health, not release
-   clearance.
-5. Run the required read-only repo/A6 comparison before mutation. Do not infer
-   publisher/feed health from relay `/readyz` alone.
-6. Append secret-safe decisions to
+1. Run `git fetch origin --prune` and record exact base/head SHA, PR state,
+   reviews, and hosted checks.
+2. Preserve unrelated user changes and local-only distribution documents.
+3. Read and hash the moving failure-mailbox artifact; monitor `pass` means the
+   monitor ran, not that release is green.
+4. Perform the gate's required read-only A6 comparison before mutation.
+5. Compare every revision, image, packet, evidence, owner, and authority field
+   with the reviewed envelope.
+6. Append a secret-safe entry to
    `.tmp/public-beta-orchestration/<run-id>/ledger.json`.
-7. Stop if evidence differs from the exact reviewed/bound state.
+7. Stop on drift. Never substitute stale or fixture-only evidence.
 
 ## Authority Model
 
-Lou alone owns live incident, restart, rollback, release, provider-account,
-external-approval, and tester-wave decisions. A merged PR or green test never
-creates live authority.
+Lou alone owns live incident, restart, rollback, provider-account, Cloudflare,
+pager, release, external-approval, and tester-wave decisions. A green test,
+review, merge, or prepared packet never creates live authority.
 
 Codex owns repo integration, evidence adjudication, and the single technical
-driver role for an exact separately authorized live session.
+driver role only inside an exact separately approved live session.
 
-Subagents may prepare packets, inspect files/artifacts, run local tests, and
-review evidence. They may not mutate A6, production services, relay state,
-Gmail, DNS, Cloudflare, Apple, Google, tester distribution, pager configuration,
-or production data.
+Subagents may inspect, implement repo changes, run local tests, prepare packets,
+and review evidence. They may not mutate A6, relays, publisher, Gmail, DNS,
+Cloudflare, Apple, Google, pager, tester distribution, or production data.
 
-No Codex live execution/autonomy is enabled. No pager cutover is part of this
-sprint. No relay action outside Lou's exact independently reviewed serial A/B/C
-is eligible.
-
-No raw secret is copied into chat, docs, PRs, GitHub issues, release artifacts,
-or terminal transcripts. Do not persist provider error bodies, relay tokens,
-host-private environment values, story bodies, identity proof material, or
-private support details.
+No raw secret, provider response, relay token, private environment value,
+identity/proof material, private support data, or hostile response body enters
+chat, docs, PRs, issues, logs, or committed evidence.
 
 ## Isolation And Review Protocol
 
-- One implementation lane equals one subagent, one branch, one isolated
-  worktree or clone, and one focused PR.
-- If isolated worktrees/clones are unavailable, run lanes sequentially.
-- Never run parallel implementation agents in one worktree.
-- An implementer may not review its own lane.
-- The same reviewer performs a subsequent review after every correction.
-- A cross-lane reviewer is distinct from implementers and lane reviewers.
-- An implementer's `GO` is never self-approving.
+- One repo lane equals one agent, one isolated branch/worktree, one focused PR,
+  and declared file ownership.
+- If isolated worktrees are unavailable, run implementation lanes sequentially.
+- Never run parallel implementers in one worktree.
+- Implementers never review or approve their own lane.
+- The same independent reviewer returns after every correction.
+- A distinct cross-lane reviewer adjudicates aggregate relay and release
+  evidence.
+- Live lanes use one authorized driver and an independent evidence reviewer;
+  subagents receive no live authority.
+- The A/B/C relay reviewer remains consistent across all three relays and is
+  distinct from the driver.
 - A command that exits zero while running zero matching tests is `NO-GO`.
-- Subagents return structured completion reports with branch, base/head SHA,
-  files changed, tests, risks, authority used, blockers, and recommended gate.
+- Prepared, reviewed, authorized, executed, immediate-green, and elapsed-green
+  are separate states.
 
-Recommended historical lane names remain:
+## Gate Decisions
 
-- `codex/s1b-relay-availability-total`
-- `codex/s1b-alert-fingerprint-mime`
+Record exactly one:
 
-Use the repository-accepted branch prefix when ownership policy requires a
-different prefix.
-
-## Orchestrator Decisions
-
-Record exactly one decision at every gate:
-
-- `GO`: all exact prerequisites and evidence pass;
-- `NO-GO`: a product, safety, review, CI, privacy, or live-readback condition
+- `GO`: exact prerequisites, tests, review, evidence, and authority pass;
+- `NO-GO`: a product, safety, CI, evidence, privacy, or live-readback condition
   failed;
-- `WAITING_FOR_LOU`: exact human authority, login, MFA, rollback, provider,
-  release, or tester-wave decision is required;
-- `BLOCKED_EXTERNAL`: a required host, connector, provider, or network surface
-  remains unavailable after bounded retries.
+- `WAITING_FOR_LOU`: exact login, MFA, live, rollback, release, pager, provider,
+  or tester-wave authority is required;
+- `BLOCKED_EXTERNAL`: a required host/provider/network surface remains
+  unavailable after bounded attempts.
 
-On `NO-GO`, stop downstream dispatch and preserve evidence. On
-`WAITING_FOR_LOU`, continue only explicitly unrelated repo work. On
-`BLOCKED_EXTERNAL`, never substitute fixture or stale evidence for live proof.
+On `NO-GO`, preserve evidence and dispatch nothing downstream. On
+`WAITING_FOR_LOU`, continue only unrelated branch-local preparation. On
+`BLOCKED_EXTERNAL`, never replace live evidence with fixtures.
 
 ## Delegation Waves
 
-| Wave | Work | Current state / GO gate |
+| Wave | Active sprint work | Advance rule |
 | --- | --- | --- |
-| G0 | Repo, PR, CI, mailbox, read-only A6 truth | Complete historically; revalidate moving truth before each gate. |
-| G1 | S1B Runtime and Alert lanes | Complete, independently reviewed, merged. |
-| G2 | Cross-lane integration | Complete, reviewed, merged. |
-| G3 | Recovery tooling, exact tuple, review, original binding | Complete for the original tuple. |
-| G4 | Private staging, load, A/B/C, publisher recovery, 24/48-hour evidence | Active `NO-GO`; attempt 001 stopped before mutation. |
-| G5 | S2 StoryCluster repair, then S3 auth boundary | Blocked until S1 T0+48h closure. |
-| G6 | S4 Apple and S5 Google | Blocked; provider sessions require Lou-supervised login/MFA. |
-| G7 | S6 origin, S7 release update, S8 synthesis canary | Blocked; strictly sequential. |
-| G8 | S9 evidence, S10 rehearsal, S11 distribution | Blocked; strictly sequential. |
-| G9 | S12 monitored ramp | Blocked; every tranche needs green evidence and separate approval. |
+| G4 | M0/M1 private staging, load, relay A/review, relay B/review, relay C/aggregate-review, publisher, producers, T0+24h/T0+48h | Only passing S1 T0+48h and cleared final mailbox unlock S2. |
+| G5 | M2 StoryCluster; branch-local control fixes; S3 auth boundary | StoryCluster must be `release_ready`; repo fixes merge only after Freeze A. |
+| G6 | Apple/Google registration and start-leg preflight | Both configured/start-leg checks pass; X stays hidden. |
+| G7 | Freeze R, PWA/A6 deploy, full provider return legs, accepted-synthesis canary | Strictly sequential; every result binds R. |
+| G8 | Release evidence, deployed three-browser rehearsal, local five-user/accessibility/offline proof, pager, control record C, first distribution | Working MVP precedes pager/distribution; Lou separately authorizes C and testers. |
+| G9 | First-tranche watch and later 500/1000/open decisions | Each expansion needs its own green window and Lou decision. |
 
-## Sprint Sequence
+Use the lane IDs, artifacts, review roles, and exit criteria in the active
+sprint's "Lane And Evidence Matrix." Do not invent a parallel numbering system.
 
-```text
-S0  Repo/PR baseline and release commit candidate
-S1  Failure-mailbox monitor and incident intake loop
-S1A Monitor-critical public-feed incident readback gate
-S1B Durable relay-timeout and alert-dedupe remediation
-S2  StoryCluster headline-soak credential/endpoint repair
-S3  Auth boundary infrastructure on Cloudflare
-S4  Apple provider registration and rehearsal
-S5  Google provider registration and rehearsal
-S6  PWA origin image rebuild with auth env/CSP
-S7  A6 release-commit update and live readback
-S8  Accepted-synthesis canary
-S9  Release evidence regeneration
-S10 Manual 3-browser account/vote/privacy rehearsal
-S11 Distribution packet finalization and first public-beta tranche
-S12 Post-launch watch, incident loop, and tranche expansion
-```
+## S1 Recovery Exception And Final Clearance
 
-S0/G0-G3 implementation history is complete and archived. G4 is the current
-active gate. S2-S12 remain ordered and cannot consume a stale or fixture-only
-pass from an earlier gate.
-
-## S1 - Failure-Mailbox Monitor And Incident Intake Loop
-
-The moving monitor may classify:
-
-- `public_feed_alert_fail`;
-- `public_feed_freshness_monitor_workflow_failed`;
-- historical aliases `public_feed_freshness_workflow_failed` and
-  `public_feed_freshness_workflow_cancelled`;
-- `pager_deadman_workflow_failed`.
-
-If `newCriticalCount > 0`, the release is blocked even when `status: pass`.
-Before launch, `newCriticalCount == 0`, the S1 T0+48h packet passes, and no
-unresolved public-feed critical remains. The pager dead-man workflow must be
-green before launch or tranche expansion.
+An exact known S1 incident may proceed only when its mailbox hash/count,
+classification, recovery tuple, reviewer decision, and Lou authority are all
+bound. Any new, changed, unbound, or unclassified critical stops mutation.
 
 Guard tokens:
 
 - `MAILBOX_PASS_IS_MONITOR_HEALTH_NOT_RELEASE_GREEN`
 - `READ_ONLY_INCIDENT_TRIAGE_ONLY`
-- `PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION`
+- `UNBOUND_PUBLIC_FEED_ALERT_FAIL_BLOCKS_MUTATION`
+- `BOUND_S1_INCIDENT_REQUIRES_EXACT_HASH_COUNT_AND_AUTHORITY`
 - `A6_READBACK_BEFORE_ANY_MUTATION`
-- `NO_STORYCLUSTER_AUTH_DEPLOY_UNTIL_INCIDENT_CLASSIFIED`
-- `LOU_RETAINS_INCIDENT_ROLLBACK_AUTHORITY`
-
-Monitor `recommendedNextAction` remains incident escalation input. The monitor
-does not send, delete, archive, or label email.
-
-## S1A - Monitor-Critical Public-Feed Incident Readback Gate
-
-Current classified incident:
-
-`relay_rest_story_timeout_total_0_of_3_exit_78`
-
-The triggering raw `/vh/news/story` publication received `0/3` validated relay
-acknowledgements where `2/3` are required. The deployed path waited on three
-sequential ten-second deadlines. Relay readiness remained healthy, but the
-publisher parked at exit `78`; latest-index, snapshots, and freshness then went
-stale. Volatile alert window values also created duplicate incident messages.
-
-This classification explains the remediation. It is not restart authority and
-does not prove unchanged current A6 state.
-
-Exit only after current publisher, feed freshness, relay liveness, snapshot,
-watch closure, and mailbox evidence satisfy the S1B immediate and elapsed gates.
-
-## S1B - Durable Relay-Timeout And Alert-Dedupe Remediation
-
-### Repo Capability - Complete
-
-The Runtime lane owns the real daemon exit consumer:
-
-- `services/news-aggregator/src/daemonWriteLane.ts`
-- `services/news-aggregator/src/daemonCli.ts`
-- `services/news-aggregator/src/daemon.ts`
-- `packages/gun-client/src/newsAdapters.ts`
-- `infra/relay/server.js`
-- `packages/e2e/src/live/relay-server.vitest.mjs`
-
-The merged implementation preserves these invariants:
-
-- concurrent bounded fanout waits for all outcomes to settle deterministically;
-- timeout is unacknowledged, not provably unpublished;
-- every retry reuses the exact serialized and signed record;
-- endpoint-local exact readback covers `/vh/news/story`,
-  `/vh/news/latest-index`, `/vh/news/hot-index`, and
-  `/vh/news/synthesis-lifecycle`;
-- bounded `story_id` GET branches return the complete stored signed record
-  without scanning an aggregate root;
-- `2/3` unique validated acknowledgements pass; `0/3` and `1/3` never pass;
-- only fully unacknowledged availability-total exhaustion maps to exit `69`;
-- partial/HTTP/backpressure/conflict/validation/tamper/unknown failures stay
-  fail-closed at exit `78`;
-- semantic alert fingerprints exclude volatile ages, window decimals, archive
-  counts, counters, timestamps, and generated-at values;
-- failure and recovery mail is readable and secret-safe.
-
-Focused command inventory:
-
-```bash
-corepack pnpm@9.7.1 --filter @vh/gun-client test -- newsAdapters.test.ts
-corepack pnpm@9.7.1 --filter @vh/news-aggregator test -- daemonWriteLane.test.ts daemon.coverage.test.ts
-corepack pnpm@9.7.1 --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --config ./vitest.config.ts
-corepack pnpm@9.7.1 exec vitest run packages/ai-engine/src/newsRuntime.test.ts
-corepack pnpm@9.7.1 check:public-feed:alert-watch
-corepack pnpm@9.7.1 check:public-beta-s1-recovery-control-plane
-```
-
-### G4 Current Gate - Private Staging And Load
-
-The original attempt is closed. Before attempt 002 is eligible:
-
-- preserve attempt 001 and its hashes unchanged;
-- select a private current-user-owned, non-symlink, mode-`0700`, non-shared
-  staging root;
-- regenerate all affected load/supervision artifacts;
-- require independent subsequent review;
-- obtain a new exact Lou binding;
-- refresh moving mailbox and read-only A6 prestate;
-- stop on any unbound drift or secret-bearing output.
-
-Do not reuse, chmod, clean, or hand patch `/tmp/vhc-public-beta-images`.
-
-The load stage may only stage, transfer, verify checksums, run `docker load`, and
-verify the exact immutable image. It does not replace a relay or start the
-publisher.
-
-### G4 Relay Replacement
-
-`infra/relay/server.js` is copied into an immutable relay image; public-beta
-compose mounts only `/data`. The exact-readback routes therefore require serial
-container replacement.
-
-The authoritative detail is
-`docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`. Required summary:
-
-- image revision, architecture, mutable-ref resolution, and full immutable image
-  ID match the reviewed tuple;
-- inspect input is an array of exactly three canonical relays;
-- live/captured env, mount, port, user, memory, restart, and semantic network
-  attachment prestate match;
-- current A6 `host`/`host` topology and exact `--network host` intent are bound;
-- publisher is exactly parked;
-- `systemctl --user list-jobs --no-legend --no-pager` succeeds and is empty;
-- current relay's captured three-snapshot SHA baseline is rechecked immediately
-  before mutation;
-- pre-mutation refusals stay outside rollback; only a set mutation-started latch
-  can enter rollback;
-- evidence paths are current-user-owned non-symlink `0700` private work;
-- absent watchdog-trip row is semantic zero only with exactly one valid uptime
-  and RSS producer row; empty/random, malformed, duplicate, or nonzero telemetry
-  fails closed;
-- hostile/unexpected exact-readback bodies remain private;
-- A passes and receives independent evidence acceptance before B; B before C;
-- rollback recreates only the current relay and normalizes failure to exit `78`;
-- C reports rolling replacement complete with the publisher still parked.
-
-Keep `tools/scripts/vhc-packet-executor.mjs` unchanged. It does not execute this
-rolling action.
-
-### G4 Publisher Recovery
-
-Publisher recovery requires accepted C evidence and separate attended authority.
-Use the newly reviewed exact-revision recovery-controller sequence:
-
-```bash
-FINAL_REV=<full-40-hex-reviewed-s1-recovery-revision>
-./tools/scripts/install-news-aggregator-production-service.sh --expected-revision "$FINAL_REV"
-./tools/scripts/news-aggregator-publisher-recovery-control.sh park --expected-revision "$FINAL_REV" --approve-park
-./tools/scripts/news-aggregator-publisher-recovery-control.sh preflight --expected-revision "$FINAL_REV" --output-file "$PREFLIGHT" --approve-preflight
-./tools/scripts/news-aggregator-publisher-recovery-control.sh start --expected-revision "$FINAL_REV" --relay-recovery-evidence "$RELAY_EVIDENCE" --relay-recovery-expected-sha256 "$RELAY_EVIDENCE_SHA256" --preflight-artifact "$PREFLIGHT" --mailbox-artifact "$MAILBOX" --mailbox-expected-sha256 "$MAILBOX_SHA256" --mailbox-expected-critical-count "$MAILBOX_CRITICAL_COUNT" --start-control-output "$START_CONTROL" --approve-attended-start
-./tools/scripts/news-aggregator-publisher-recovery-control.sh verify --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --current-run-file "$CURRENT_RUN" --runtime-diagnostics-file "$RUNTIME_DIAGNOSTICS" --output-file "$READBACK" --relay-origin "$RELAY_A_ORIGIN" --relay-origin "$RELAY_B_ORIGIN" --relay-origin "$RELAY_C_ORIGIN" --approve-verification-and-abort
-node ./tools/scripts/update-phase5-scope-a-watch-t0.mjs --file "$WATCH_ENV" --new-t0 "$READBACK_GENERATED_AT" --expected-start "$OLD_WATCH_START" --expected-clean-start "$OLD_CLEAN_START"
-./tools/scripts/news-aggregator-publisher-recovery-control.sh finalize --expected-revision "$FINAL_REV" --start-control-artifact "$START_CONTROL" --readback-artifact "$READBACK" --watch-env-file "$WATCH_ENV" --first-alert-file "$FIRST_ALERT" --second-alert-file "$SECOND_ALERT" --mailbox-artifact "$FINAL_MAILBOX" --finalization-output "$FINALIZATION" --approve-finalization-and-abort
-```
-
-Immediate readback requires active/running publisher state, two clean completed
-ticks, successful raw writes, exact four-route readback, advancing latest-index
-and relay snapshots, green relay liveness, bounded timeout classification, and
-one readable recovery transition.
-
-Preserve hourly evidence. No new publisher failure, exit-69 start-limit park,
-exit 75/78, watchdog trip, stale feed, stale snapshot, or duplicate unchanged
-incident transition is allowed.
-
-S1B cannot exit green from repo work or immediate recovery alone.
-
-Durable boundaries:
-
 - `FINAL_MAIN_REVISION_BINDS_RELAY_IMAGE_AND_PUBLISHER_CHECKOUT`
 - `IMMEDIATE_RECOVERY_IS_NOT_S1_GREEN`
 - `T0_PLUS_24H_IS_INTERMEDIATE_ONLY`
 - `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2`
 
-## S2 - StoryCluster Headline-Soak Credential/Endpoint Repair
+Final S1 clearance still requires passing T0+48h plus a moving mailbox with
+`newCriticalCount == 0` and no unresolved public-feed critical.
 
-Required input:
+## Dispatch Rules
 
-- S1A/S1B have a passing T0+48h closure packet;
-- moving mailbox has no unresolved public-feed critical;
-- ledger records `T0_PLUS_48H_REQUIRED_TO_UNBLOCK_S2: pass`;
-- Lou provides the secret-bearing access window.
-
-Inspect only redacted env names, file owner/mode/hash, health booleans, and stable
-reason codes. Repair the credential/endpoint in the correct secret store; never
-print or paste it.
-
-```bash
-corepack pnpm@9.7.1 collect:storycluster:headline-soak
-corepack pnpm@9.7.1 check:storycluster:production-readiness
-```
-
-Exit when the report no longer blocks on
-`headline_soak_release_evidence_failed`, or when any remaining blocker is
-product evidence rather than invalid credentials/missing endpoint.
-
-## S3 - Auth Boundary Infrastructure On Cloudflare
-
-Deploy `https://auth.venn.carboncaste.io` outside A6 with durable nonce storage,
-secret-safe health, and exact allowed origin:
-
-```text
-VH_AUTH_ALLOWED_ORIGINS=https://venn.carboncaste.io
-VH_AUTH_PWA_ORIGIN=https://venn.carboncaste.io
-```
-
-Requires Lou-supervised login/MFA. Health must prove `durableStore: true` without
-exposing secrets.
-
-## S4 - Apple Provider Registration And Rehearsal
-
-Register Sign in with Apple with return URI
-`https://auth.venn.carboncaste.io/auth/apple/return`. Preserve provider ids and
-key material only in the boundary secret store. Exit when Apple health, start
-leg, return leg, cancel/error handling, and PWA rehearsal pass secret-safely.
-
-## S5 - Google Provider Registration And Rehearsal
-
-Register the Google web client with redirect
-`https://venn.carboncaste.io/auth/callback`. Google redirects to the PWA callback,
-not directly to the worker. Exit when `providersConfigured.apple == true`,
-`providersConfigured.google == true`, both full rehearsals pass, and X is hidden.
-
-Social sign-in is account continuity and profile recovery only. It is not LUMA
-Silver, verified-human identity, or one-human-one-vote.
-
-## S6 - PWA Origin Image Rebuild With Auth Env/CSP
-
-Build the eventual release image with:
-
-```text
-VITE_AUTH_CALLBACK_BASE_URL=https://auth.venn.carboncaste.io
-VITE_AUTH_CALLBACK_PROVIDERS=apple google
-```
-
-CSP must allow the auth boundary. X must remain absent.
-
-## S7 - A6 Release-Commit Update And Live Readback
-
-Use the existing A6 SSH path only after S1-S6 prerequisites and exact authority.
-Update to the intended release commit through the reviewed packet, then verify
-services, images, revision, origin, auth environment, relays, publisher, and
-public routes. Record every action and rollback boundary.
-
-## S8 - Accepted-Synthesis Canary
-
-Run the dedicated operator packet. Prove one current accepted `TopicSynthesisV2`
-with nonempty facts/frames and stable point IDs, current lifecycle/source-set
-binding, public relay/PWA readback, and no raw-feed regression.
-
-The expected catch-up command surface includes `catchup:public-synthesis`.
-
-## S9 - Release Evidence Regeneration
-
-Regenerate on the intended release commit. The final report must record
-`release_commit_verified: true` and pass release gates, closeout, compliance,
-docs, launch control, distribution, operator packets, and relevant build/type
-checks. Fixture-only evidence never substitutes for live proof.
-
-## S10 - Manual 3-Browser Account/Vote/Privacy Rehearsal
-
-Use three isolated browser identities. Prove Apple/Google account continuity,
-beta-local LUMA binding, point-stance persistence, reload behavior, cross-client
-aggregate convergence, deterministic thread persistence, and privacy boundaries.
-
-The release record must state that 3-browser convergence is proven on non-voting
-browsers rather than accepting local echo.
-
-## S11 - Distribution Packet Finalization And First Public-Beta Tranche
-
-The first public-beta tranche is capped at 100 testers. Distribution remains
-blocked until every prior gate, owner, support/private-handoff path, alert path,
-rollback, rehearsal, and final decision field is complete. Claim-first rollback
-removes or narrows unsupported copy before technical rollback.
-
-## S12 - Post-Launch Watch, Incident Loop, And Tranche Expansion
-
-Monitor feed freshness, relay liveness/snapshots, publisher liveness, auth,
-provider health, support intake, privacy, and product gates. Stop on any incident
-condition. Expand to 500 testers only after 24 hours of green evidence and a
-separate Lou approval. Expand to 1000 testers only after another 24 hours of
-green evidence and a separate Lou approval. Open intake requires the prior
-tranche, release evidence, alert/support loops, and incident/rollback process to
-remain green plus a separate Lou approval. Silence or optimism is never
-evidence.
-
-## Final Release-Readiness Checklist
-
-The public beta is not ready until:
-
-- S1 T0+48h closure passes with no unresolved public-feed critical;
-- pager dead-man path is green;
-- StoryCluster production readiness is no longer credential/endpoint blocked;
-- auth boundary and durable nonce store are deployed;
-- Apple and Google pass; X is hidden;
-- PWA origin and A6 match the intended release commit;
-- accepted-synthesis canary passes for every claimed analysis/stance surface;
-- release evidence, MVP gates, closeout, compliance, docs, operator packets, and
-  runsheet guards pass;
-- manual three-browser and privacy rehearsals pass;
-- tester copy is claim-safe;
-- Lou records the final go.
+1. Dispatch only the single next eligible live lane.
+2. Safe branch-local preparation may run in parallel only where the sprint
+   explicitly permits it.
+3. No main merge occurs during Freeze A.
+4. No S2 live repair starts before S1 final clearance.
+5. Producer proof and any separately authorized enablement occur before T0.
+6. StoryCluster remains red until fresh production readiness is
+   `release_ready`.
+7. Apple/Google configured-health and start-leg preflight precede PWA build;
+   full return-leg/PWA rehearsal follows deployment.
+8. Transition-aware blocked/GO guards merge before product release commit R.
+9. Product/live evidence and deployed proof bind R.
+10. Final control-record commit C stores literal `this_record_commit`; unchanged
+    guards resolve Git HEAD, enforce the control-record-only diff from R, and
+    emit the actual C SHA in hosted binding evidence.
+11. Working MVP precedes canonical pager deployment and tester distribution.
+12. Canonical pager proof keeps Codex execution dry-run.
+13. First distribution is at most 100 US/Canada testers.
 
 ## Stop Conditions
 
-Stop immediately and preserve evidence on:
+Stop and preserve evidence on:
 
-- any public-feed critical or `newCriticalCount > 0`;
-- `recommendedNextAction` requiring incident treatment;
-- publisher park/failure, stale feed/snapshot, relay liveness/watch-closure
-  regression, watchdog/OOM, unexpected user job, or tuple drift;
-- StoryCluster credential/endpoint failure;
-- missing Apple/Google health while visible;
-- token, subject, verifier, private profile, raw proof, nullifier, address,
-  wallet, district hash, Merkle root, or provider error leakage;
-- PWA CSP/auth failure;
-- canary, release evidence, MVP, closeout, docs, compliance, or rehearsal failure;
-- support path receives private data in a public issue;
+- any new/unbound critical, tuple/revision/image drift, unexpected user job, or
+  authority mismatch;
+- exit `78`, rollback, publisher park/failure, restart drift, stale feed or
+  snapshot, relay/watchdog/OOM failure, or evidence gap;
+- producer coverage that cannot include the proposed T0;
+- StoryCluster, auth/provider, CSP, PWA, canary, release gate, offline,
+  accessibility, privacy, pager, rehearsal, support, or hosted-CI failure;
+- any secret/private material in a public or committed surface;
+- any unsupported claim in tester copy;
 - Lou says stop.
 
-## Human-Readable Next Move
+Never retry or hand patch after an exit `78`. Never continue past a rollback.
+Never enable an evidence producer, provider, pager, service, relay, or tester
+wave outside its exact authority.
 
-1. Preserve attempt 001.
-2. Generate and independently review the private-staging load/supervision
-   envelope.
-3. Obtain the new exact binding.
-4. Refresh moving mailbox and read-only A6 truth.
-5. Load and verify the immutable image.
-6. Execute A/review/B/review/C/review with publisher parked.
-7. Obtain separate publisher authority and run controller recovery.
-8. Preserve immediate, T0+24h, and passing T0+48h evidence.
-9. Unblock S2 only after the honest final gate.
+## Completion Report
+
+Every subagent/driver returns:
+
+```text
+lane_id:
+decision: GO | NO-GO | WAITING_FOR_LOU | BLOCKED_EXTERNAL
+base_sha:
+head_sha:
+release_sha_R:
+files_or_live_surfaces_owned:
+tests_and_matching_test_counts:
+evidence_paths_and_sha256:
+authority_requested:
+authority_used:
+live_mutation_performed:
+rollback_performed:
+reviewer:
+review_round:
+p0_count:
+p1_count:
+p2_count:
+remaining_risks:
+next_eligible_gate:
+```
+
+The orchestrator verifies the report against actual diffs, commands, artifacts,
+reviews, and live evidence before recording its own decision.
+
+## Immediate Dispatch
+
+Read `docs/ops/public-beta-operational-state.md` and dispatch only its next
+eligible gate. At the 2026-07-11 planning boundary, the durable sequence is:
+
+1. preserve the closed first attempt;
+2. prepare/review/rebind private staging;
+3. load, then relay A/review, relay B/review, and relay C/aggregate-review with
+   publisher parked;
+4. obtain separate publisher and evidence-producer authority;
+5. establish valid T0, preserve T0+24h, and pass T0+48h;
+6. unblock M2 only after honest final clearance;
+7. follow M2 -> M3 -> M4 -> M5 without stale evidence or gate skipping.
+
+The operational owner overrides this dated dispatch summary when state changes.

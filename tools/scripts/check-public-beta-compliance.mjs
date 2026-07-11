@@ -102,7 +102,7 @@ const supportIssueTemplate = readRepoFile(files.supportIssueTemplate);
 if (packageJson.scripts?.['check:public-beta-compliance'] !== 'node ./tools/scripts/check-public-beta-compliance.mjs') {
   issues.push('package.json: missing check:public-beta-compliance script');
 }
-if (packageJson.scripts?.['check:public-beta-distribution-packet'] !== 'node --test ./tools/scripts/public-beta-distribution-packet.test.mjs') {
+if (packageJson.scripts?.['check:public-beta-distribution-packet'] !== 'node ./tools/scripts/check-public-beta-distribution-packet.mjs && node --test ./tools/scripts/public-beta-distribution-packet.test.mjs') {
   issues.push('package.json: missing check:public-beta-distribution-packet script');
 }
 if (packageJson.scripts?.['check:release-readiness-operator-packets'] !== 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs') {

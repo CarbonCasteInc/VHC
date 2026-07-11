@@ -62,10 +62,10 @@ supports a usable feed, clustered story identity, accepted-current synthesis,
 frame/reframe point stance, deterministic story discussion, persistent personal
 state, and aggregate-only public signal.
 
-The public beta does not claim production-attestation/Silver, verified-human
-identity, one-human-one-vote, Sybil resistance, cryptographic residency, public
-WSS mesh `release_ready`, full production-app readiness, native App Store
-readiness, a private support SLA, or pager-backed 24/7 operations.
+The public beta does not claim production-attestation/Silver or verified-human identity.
+It does not claim one-human-one-vote, Sybil resistance, or cryptographic residency.
+It does not claim public WSS mesh `release_ready`, full production-app readiness,
+native App Store readiness, a private support SLA, or pager-backed 24/7 operations.
 
 ## Current Layer Summary
 
@@ -133,10 +133,13 @@ Durable gate rules:
 
 After S1 closes honestly:
 
-1. S2 repairs StoryCluster headline-soak credential/endpoint evidence.
+1. S2 repairs StoryCluster access and closes any resulting product-evidence
+   blocker until fresh production readiness is `release_ready`.
 2. S3 deploys the auth boundary and durable nonce store.
-3. S4/S5 register and rehearse Apple and Google; X stays hidden.
-4. S6/S7 deploy and read back the PWA origin and eventual release commit.
+3. S4/S5 register Apple and Google and pass boundary health/start-leg preflight;
+   X stays hidden.
+4. S6/S7 deploy and read back the PWA origin and eventual release commit, then
+   complete both providers' full return-leg/PWA rehearsals.
 5. S8 proves accepted synthesis through a live canary.
 6. S9 regenerates release evidence on the intended release commit.
 7. S10 completes three-browser persistence, convergence, and privacy rehearsal.
@@ -144,8 +147,10 @@ After S1 closes honestly:
    testers.
 9. S12 monitors each tranche before any expansion.
 
-The executable release sequence is guarded by
-`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` and
+The active outcome and dependency map is
+`docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`. Its executable
+companion remains
+`docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`, guarded by
 `pnpm check:public-beta-next-phase-sprint`.
 
 ## Release Evidence State

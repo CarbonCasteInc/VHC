@@ -3,7 +3,7 @@
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-11
-> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md, docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md, docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md, docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md
 
 ## Current Verdict
 
@@ -41,8 +41,11 @@ current clearance.
 
 ## Required Release Evidence Packet
 
-Every result must be generated on the intended release commit. Fixture-only,
-stale, partial, or differently stamped artifacts do not satisfy a live gate.
+Every product/live result must be generated on the intended product release
+commit R. Fixture-only, stale, partial, or differently stamped artifacts do not
+satisfy a live gate. A later control-record-only commit C may bind Lou's final
+decision to R; transition-aware guards must already exist on R, and C cannot
+contain guard/runtime/product changes or substitute for evidence generated on R.
 
 | Evidence | Command | Required result or artifact |
 | --- | --- | --- |
@@ -57,6 +60,7 @@ stale, partial, or differently stamped artifacts do not satisfy a live gate.
 | Consolidated MVP closeout | `pnpm check:mvp-closeout` | `.tmp/mvp-closeout/latest/mvp-closeout-report.json` with bounded allowed/forbidden claims. |
 | Curated fallback QA | `pnpm check:launch-content-snapshot` | `.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json` passes; this is not live-ingestion proof. |
 | Public-beta compliance | `pnpm check:public-beta-compliance` | Policy/support/private-handoff surfaces pass. |
+| Incident-response/pager repo gate | `pnpm check:vhc-incident-response` | Pager contract and dead-man implementation pass; separate live deployment, subscription, test-fire, acknowledgement, heartbeat, and external dead-man evidence remain mandatory. |
 | Documentation governance | `pnpm docs:check` | Pass with current links and authority boundaries. |
 | Full release regeneration | `pnpm check:mvp-release-evidence` | Fresh release-evidence pipeline stamped to the intended release commit. |
 
@@ -65,6 +69,7 @@ Required control documents:
 - `docs/ops/public-beta-launch-readiness-closeout.md`
 - `docs/ops/public-beta-launch-control-2026-07-09.md`
 - `docs/ops/public-beta-distribution-packet-2026-07-09.md`
+- `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`
 - `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`
 - `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`
 - `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`
@@ -139,8 +144,10 @@ is true. `post_beta_follow_up` means useful work outside the minimum beta claim.
 | `external_release_approval_not_recorded` | ship_blocker | Record any required external legal/commercial disposition; the repo cannot create it. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | `check:storycluster:production-readiness` must resolve `release_ready` for production-grade live headline copy. |
 | `scope_a_sustained_stability_claim_without_retainer_evidence` | ship_blocker | Do not claim host-failure tolerance or memory boundedness from recovery alone. |
-| `public_feed_alert_delivery_channel_missing` | ship_blocker | Unattended watch requires a working owner-reachable delivery channel and green dead-man path. |
-| `full_product_engagement_claim_without_live_lane` | ship_blocker | Run the release-like five-user lane or remove the claim. |
+| `public_feed_alert_delivery_channel_missing` | ship_blocker | Controlled distribution requires the canonical signed-alert, durable pager, active subscription/heartbeat, push/email fallback, acknowledgement, and external dead-man path. |
+| `full_product_engagement_claim_without_live_lane` | ship_blocker | Run the production-shaped local five-user lane plus deployed three-browser rehearsal, or remove the full-loop claim. |
+| `offline_mesh_unreachable_behavior_unproven` | ship_blocker | Prove visibly pending local intent, no false aggregate success, reconnect replay, and bounded honest failure. |
+| `minimum_accessibility_unproven` | ship_blocker | Prove keyboard/focus, stance labels and pressed state, screen-reader distinction, and reduced-motion-safe behavior. |
 | `public_feed_analysis_frame_reliability_missing_or_failing` | ship_blocker | No launch with unreadable stories, stale/current-lifecycle mismatch, missing current accepted/terminal state, frame rows, or point IDs. |
 | `public_feed_composition_or_lifecycle_missing_or_failing` | ship_blocker | No launch with stale/singleton-only or metadata-incomplete feed, hidden eligible stories, or missing peer parity. |
 | `public_feed_fresh_propagation_missing_or_failing` | ship_blocker | Current RSS must progress through ingest, StoryCluster, publication, relay readback, and PWA render. |
@@ -170,8 +177,7 @@ Disallowed without additional proof:
 - legal approval complete;
 - 48-hour stability before a passing current closure packet;
 - production-grade live headline freshness;
-- verified-human, one-human-one-vote, Sybil-resistant, residency, or LUMA Silver
-  claims;
+- disallowed verified-human, one-human-one-vote, Sybil-resistant, residency, or LUMA Silver claims;
 - public WSS mesh `release_ready`;
 - full production-app readiness;
 - independent host-failure tolerance from three co-located relay votes;

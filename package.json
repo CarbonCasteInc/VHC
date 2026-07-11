@@ -66,7 +66,7 @@
     "check:public-beta-compliance": "node ./tools/scripts/check-public-beta-compliance.mjs",
     "check:public-beta-s1-recovery-control-plane": "corepack pnpm@9.7.1 --filter @vh/gun-client... build && node --test --test-concurrency=1 ./tools/scripts/news-aggregator-publisher-automatic-restart-authority.test.mjs ./tools/scripts/news-aggregator-publisher-recovery-control.test.mjs ./tools/scripts/news-aggregator-publisher-recovery-guard.test.mjs ./tools/scripts/start-news-aggregator-daemon-production.test.mjs ./tools/scripts/systemd-service-installers.test.mjs ./tools/scripts/verify-news-aggregator-publisher-recovery.test.mjs ./tools/scripts/news-aggregator-publisher-liveness-watch.test.mjs ./tools/scripts/news-relay-liveness-watch.test.mjs ./tools/scripts/public-feed-alert-watch.test.mjs ./tools/scripts/phase5-scope-a-watch-closure-packet.test.mjs ./tools/scripts/public-beta-image-deploy.test.mjs",
     "check:public-beta-next-phase-sprint": "node --test ./tools/scripts/public-beta-next-phase-sprint.test.mjs",
-    "check:public-beta-distribution-packet": "node --test ./tools/scripts/public-beta-distribution-packet.test.mjs",
+    "check:public-beta-distribution-packet": "node ./tools/scripts/check-public-beta-distribution-packet.mjs && node --test ./tools/scripts/public-beta-distribution-packet.test.mjs",
     "check:beta-session-runsheet": "node --test ./tools/scripts/beta-session-runsheet.test.mjs",
     "check:public-beta-launch-control": "node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs",
     "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",

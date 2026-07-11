@@ -7,7 +7,7 @@
 > `docs/ops/public-feed-freshness-monitor.md`,
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/storycluster-headline-soak-credential-repair-2026-07-09.md`,
-> `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`
 
 This is the dedicated A6 canary packet for proving at least one live public

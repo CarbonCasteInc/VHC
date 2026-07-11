@@ -2,13 +2,13 @@
 
 > Status: `operator_packet_pending`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-09
+> Last Reviewed: 2026-07-11
 > Depends On: `docs/ops/account-provider-callback-boundary.md`,
 > `services/auth-callback/README.md`,
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`,
-> `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`
+> `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`
 
 This packet turns the repo auth-callback capability into a live
 tester-rehearsal surface. It covers the external auth boundary deployment,
@@ -19,6 +19,20 @@ It is not a release approval and does not authorize A6 mutation by itself. The
 auth-callback service must run outside A6. Any PWA origin image rebuild or A6
 origin redeploy required to bake `VITE_*` values must use
 `docs/ops/public-beta-image-deploy.md` or a dedicated A6 operator packet.
+
+## Sequencing Boundary
+
+Provider work has two evidence phases:
+
+1. after the auth boundary is deployed, register Apple/Google and pass
+   configured-health plus start-leg preflight;
+2. after the release PWA is rebuilt and deployed, run the full return-leg,
+   account-to-LUMA, reload, sign-out/reconnect, second-browser, and privacy
+   rehearsal below.
+
+Start-leg preflight makes the PWA build eligible. It does not make a provider
+release-ready. Full live rehearsal cannot precede the deployed PWA from which
+the user starts sign-in.
 
 ## Current Blocker
 

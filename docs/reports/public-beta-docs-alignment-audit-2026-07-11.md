@@ -55,7 +55,7 @@ state.
 | Runbooks mixed healthy configuration, historical recovery, and current state. | Historical green evidence could be mistaken for live health. | Healthy contracts remain in runbooks; moving truth routes to the operational-state owner. |
 | Status and closeout had grown into long incident histories. | Onboarding required reconstructing chronology before finding the active gate. | Replaced them with lean implementation and release-claim ledgers; archived the full pre-attempt snapshots. |
 | Dated reports used “current” in their titles or prose. | Search results could outrank current control documents. | Added `docs/reports/README.md`, archived the superseded 2026-07-08 audit, and made the docs index explicit about evidence windows. |
-| Guard tests pinned superseded prose and revision `297d1bb4`. | Documentation could not be simplified without preserving stale claims. | Guards now normalize prose whitespace and assert the exact current revision, hashes, attempt reason, zero-mutation boundary, and next gate. |
+| Guard tests pinned superseded prose and revision `297d1bb4`. | Documentation could not be simplified without preserving stale claims. | Guards now require the operational-state owner link and durable safety boundaries without copying moving revision, hash, mailbox, decision, or next-gate values into planning documents. |
 | The archive had no automated historical marker rule. | Archived text could silently regain operational authority. | Docs governance now requires `Document Role: Historical`, `Archived:`, and `Superseded By:` markers. |
 
 ## Current Reading Path
@@ -67,9 +67,12 @@ New agents and developers should read, in order:
 3. `docs/foundational/System_Architecture.md` - target contracts;
 4. `docs/foundational/STATUS.md` - implementation and drift;
 5. `docs/ops/public-beta-operational-state.md` - current decision and next gate;
-6. `docs/ops/news-aggregator-production-service.md` - exact publisher procedure;
-7. `docs/ops/public-beta-launch-readiness-closeout.md` - release evidence and claim boundary;
-8. `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` - non-authoritative execution sequence.
+6. `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md` - active
+   working-MVP outcome and dependency map;
+7. `docs/ops/news-aggregator-production-service.md` - exact publisher procedure;
+8. `docs/ops/public-beta-launch-readiness-closeout.md` - release evidence and claim boundary;
+9. `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` - executable
+   non-authoritative delegation and operator-gate companion.
 
 Use `docs/CANON_MAP.md` for domain ownership. Use `docs/archive/` only to
 reconstruct prior decisions.
@@ -123,7 +126,8 @@ Documentation alignment does not make S1 green. The immediate sequence remains:
 3. obtain independent subsequent review and a new exact Lou binding;
 4. refresh moving mailbox and read-only A6 prestate;
 5. load and immutably verify the image;
-6. execute A/review, B/review, C/review with the publisher parked;
+6. execute relay A/review, relay B/review, and relay C/aggregate-review with the
+   publisher parked;
 7. obtain separate publisher authority and run the controller sequence;
 8. preserve immediate, T0+24h, and passing T0+48h evidence;
 9. unblock S2 only after the final S1 gate passes.
@@ -134,24 +138,48 @@ unless Lou explicitly accepts rebuilding/reviewing the affected tuple.
 
 ## Validation Record
 
-All commands passed in the isolated audit worktree:
+The current combined alignment and MVP-sprint package passed these commands in
+the isolated worktree:
 
 | Command | Result |
 | --- | --- |
 | `corepack pnpm@9.7.1 install --frozen-lockfile` | lockfile-exact install passed |
-| `corepack pnpm@9.7.1 docs:check` | 169 Markdown files passed governance/link/authority/archive checks |
-| `corepack pnpm@9.7.1 check:public-beta-next-phase-sprint` | 14/14 guards passed |
-| `corepack pnpm@9.7.1 check:public-beta-launch-control` | packet validation plus 11/11 tests passed |
-| `corepack pnpm@9.7.1 check:public-beta-launch-closeout` | 24 MVP gates, 11 launch-content items, and 12 command surfaces passed |
+| `corepack pnpm@9.7.1 docs:check` | 175 Markdown files passed governance/link/authority/archive checks |
+| `corepack pnpm@9.7.1 check:public-beta-next-phase-sprint` | 12/12 outcome, sequencing, ownership, routing, and archive guards passed |
+| `corepack pnpm@9.7.1 check:public-beta-launch-control` | blocked-packet validation plus 16/16 transition and adverse-state tests passed |
+| `corepack pnpm@9.7.1 check:public-beta-launch-closeout` | 24 MVP gates, 11 launch-content items, and 13 command surfaces passed |
 | `corepack pnpm@9.7.1 check:beta-session-runsheet` | 6/6 tests passed |
 | `corepack pnpm@9.7.1 check:public-beta-compliance` | policy/support/private-escalation checks passed |
 | `corepack pnpm@9.7.1 check:luma-identity-lifecycle` | passed |
 | `corepack pnpm@9.7.1 check:luma-multidevice-stubs` | fail-closed stubs passed |
 | `corepack pnpm@9.7.1 check:luma-wallet-binding` | passed |
-| `corepack pnpm@9.7.1 check:public-beta-distribution-packet` | 7/7 tests passed |
+| release-claim-boundary validation from `check:luma:mvp-production-readiness` | passed; the full harness remains live-evidence/clean-worktree gated |
+| `corepack pnpm@9.7.1 check:public-beta-distribution-packet` | blocked-packet validation plus 15/15 transition, exact-envelope, and immutable-evidence tests passed |
 | `corepack pnpm@9.7.1 check:release-readiness-operator-packets` | 4/4 tests passed |
-| `corepack pnpm@9.7.1 check:public-beta-s1-recovery-control-plane` | build plus 225/225 tests passed |
+| `corepack pnpm@9.7.1 check:vhc-incident-response` | 61/61 tests plus the 28-file contract checker passed |
+| focused feed accessibility Vitest run | 82/82 tests passed |
+| `corepack pnpm@9.7.1 check:public-beta-s1-recovery-control-plane` with compact test reporter | dependency build plus the full control-plane suite passed |
 | `git diff --check` | passed |
 
 The host used Node `v23.10.0`; the repository declares `>=20 <23`, so pnpm
 emitted an engine warning. No test failed or skipped because of that warning.
+
+## Post-Audit Hosted Validation Note
+
+Draft PR #770 later passed hosted Quality Guard but failed Test & Build at
+224/225 S1 recovery-control tests. The failing race test uses a one-second
+finalization wait; the controller starts that deadline before private staging
+preparation, so an unlucky second boundary can leave zero commit attempts and
+no raced final artifact. Repeated local execution reproduced the timing
+failure. The production default is longer, but the deadline semantic and test
+must be permanently corrected before the eventual product release commit.
+
+This hosted result does not change the audit's documentation findings or the
+zero-live-mutation record. It does mean PR #770 is not merge-ready, independently
+of the revision-bound rule that already keeps it draft until S1 closure.
+
+The later MVP completion sprint moved the full 2026-07-08 outline,
+post-attempt-001 checklist, and detailed handoff into
+`docs/archive/public-beta-pre-mvp-completion-2026-07-11/`; their original paths
+are now compact routers. Current onboarding therefore has one operational owner,
+one active outcome sprint, and one compact orchestration companion.

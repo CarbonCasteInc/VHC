@@ -484,6 +484,26 @@ MAILBOX_CRITICAL_COUNT=$(node -e 'const v=require(process.argv[1]);process.stdou
   --relay-origin "$RELAY_C_ORIGIN" \
   --approve-verification-and-abort
 
+# Separate evidence-producer gate. These checks are read-only. Do not enable,
+# start, or restart a missing unit under publisher authority.
+for timer in \
+  vh-relay-snapshot-freshness-watch.timer \
+  vh-news-aggregator-liveness-watch.timer \
+  vh-news-relay-liveness-watch.timer \
+  vh-phase5-scope-a-soak-archive.timer \
+  vh-phase5-scope-a-watch-closure.timer \
+  vh-public-feed-alert-watch.timer
+do
+  test "$(systemctl --user is-enabled "$timer")" = enabled
+  test "$(systemctl --user show "$timer" --property=ActiveState --value)" = active
+done
+
+# Independently review the latest producer artifacts and the scheduled external
+# public-feed monitor/dead-man evidence. Each must be fresh, valid, and
+# secret-safe. Relay-liveness enablement can restart one eligible relay, so any
+# missing/disabled producer requires a separate reviewed authority packet.
+# Do not set T0 until this gate passes. If producer coverage cannot include the
+# proposed readback timestamp, stop and later reset T0 atomically; never backfill.
 NEW_T0=$(node -e 'const v=require(process.argv[1]);process.stdout.write(v.generatedAt)' "$READBACK")
 OLD_START=$(sed -n 's/^VH_PHASE5_SCOPE_A_WATCH_START_AT=//p' "$WATCH_ENV")
 OLD_CLEAN_START=$(sed -n 's/^VH_PHASE5_SCOPE_A_WATCH_CLEAN_START_AT=//p' "$WATCH_ENV")

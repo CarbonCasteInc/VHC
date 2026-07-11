@@ -3,7 +3,7 @@
 > Status: `no_go_pending_operator_decisions_and_live_evidence`
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-11
-> Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> Depends On: `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
 > `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`,
@@ -13,7 +13,7 @@
 > `docs/ops/public-beta-operational-state.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`
 
-This packet is the Lane 0 launch note for the current release-readiness sprint.
+This packet is the launch-control note for the active MVP completion sprint.
 It records the intended release envelope, target URLs, claim boundaries,
 rollback contacts, human authority, and Codex execution permissions that must be
 filled before a tester wave can be invited. It is not a release approval or a
@@ -178,6 +178,7 @@ Do not claim any of the following from this release packet:
 | A6 accepted synthesis | Repo-capable, not yet proven live on A6 | Canary required if release claims summaries/framing-table voting |
 | Auth callback | Repo capability exists; deployment/provider setup pending; Lane 4/5 packet now covers deployment, provider allowlist, CSP, start-leg smoke, secret scan, and live rehearsal | Required before advertising sign-in providers |
 | Manual rehearsal | Not yet run against deployed target | Required before tester invites |
+| Canonical pager/dead-man | Repo capability exists; live signed-alert, durable state, subscription, push/email, acknowledgement, heartbeat, and external dead-man proof are not recorded | Separate reviewed deployment/test-fire packet required before distribution; Codex executor stays dry-run |
 | Failure-mailbox monitor | Moving artifact; the latest audit snapshot (`2026-07-11T05:02:14.679Z`) had 1 critical: `public_feed_alert_fail`. Counts are incident history once a newer artifact exists. | Re-read before every gate; no launch-enablement work resumes before T0+48h closure and no unresolved feed critical |
 | Final S1 recovery tuple | `3c8907f0` binds publisher checkout, relay OCI revision, full immutable relay image ID, manifest/tar hashes, packet SHA-256, capture SHA-256, reviewer identity, relay order `A -> B -> C`, and reviewed loopback relay origins; original exact binding closed on attempt-001 exit `78` | Regenerate/review/rebind the affected private-staging load envelope before attempt 002 |
 | Serial A/B/C relay replacement | `TBD(A6-operator)`; not started because image load did not start | All three stages pass with publisher parked and no rollback or untouched-relay mutation |
@@ -218,6 +219,18 @@ During the scoped S1 action, rollback may touch only the current relay. Outside
 the exact reviewed tuple, do not restart relays unless a new focused operator
 maintenance packet is independently reviewed and authorized.
 
+## GO Transition Record
+
+Changing only the status is invalid. In GO state, replace every moving evidence
+row from `Current S1 operational state` through `S1 T0+48h closure` with its
+fresh positive state and a positive closure implication. Use exact state tokens:
+`closed` plus final `pass` for S1, `release_ready` for StoryCluster, `pass` for
+passing gates/canaries/rehearsals, independent `GO` plus every immutable binding
+for the final tuple, and `newCriticalCount == 0` for the final mailbox. The
+release-evidence row also records `release_commit_verified: true` and blockers
+`[]`. Do not retain attempt-001/002, exit-78, repair, regenerate/rebind, blocked,
+pending, or no-tester-wave instructions in a GO evidence row.
+
 ## Go Rule
 
 Change this packet to `go_for_public_beta_ramp` only after all of these are
@@ -227,8 +240,8 @@ true:
    `not_required` rationale where applicable;
 2. the release commit is pinned;
 3. A6 is read back or updated at the commit required by the release envelope;
-4. StoryCluster production-readiness is no longer blocked by the headline-soak
-   credential/endpoint failure;
+4. the fresh StoryCluster production-readiness report has `status: release_ready`
+   with no remaining blocker;
 5. accepted-current synthesis is live-proven if tester copy claims summaries,
    framing table, or voting;
 6. the auth-callback boundary is deployed outside A6 and every advertised
@@ -240,3 +253,12 @@ true:
    proven in the release packet.
 10. the latest failure-mailbox monitor has no unresolved critical items;
 11. the S1 T0+48h closure packet passes for the exact final recovery tuple.
+12. product/live evidence binds product release commit R, transition-aware
+    guards already exist on R, and any later final decision is recorded only in
+    control-record-only commit C using literal `this_record_commit`, with no
+    guard, runtime, or product change; hosted binding evidence resolves the
+    actual C SHA.
+13. the canonical pager path proves signed alert receipt, durable incident
+    state, positive subscription and heartbeat, push/email fallback,
+    acknowledgement/repeat behavior, and external dead-man health while the
+    Codex executor remains dry-run.

@@ -64,16 +64,23 @@ links:
 1. `docs/foundational/STATUS.md` — current implementation and drift.
 2. `docs/ops/public-beta-operational-state.md` — current live decision and next
    eligible gate.
-3. `docs/ops/news-aggregator-production-service.md` — authoritative publisher
+3. `docs/sprints/PUBLIC_BETA_MVP_COMPLETION_SPRINT_2026-07-11.md` — active
+   non-authoritative outcome, dependency, and working-MVP map.
+4. `docs/ops/news-aggregator-production-service.md` — authoritative publisher
    procedure and abort/rollback rules.
-4. `docs/ops/public-beta-launch-readiness-closeout.md` — stable release-evidence
+5. `docs/ops/public-beta-launch-readiness-closeout.md` — stable release-evidence
    and claim boundary.
-5. `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` — active
-   non-authoritative execution sequence.
+6. `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` —
+   executable delegation, review, and operator-gate companion.
 
 Historical pre-attempt status, closeout, handoff, and checklist snapshots are
 indexed at `docs/archive/public-beta-pre-recovery-2026-07-10/README.md`. They are
 not current operational truth.
+
+The superseded full release-readiness outline, post-attempt checklist, and
+detailed handoff are indexed at
+`docs/archive/public-beta-pre-mvp-completion-2026-07-11/README.md`; their active
+paths are compact routers only.
 
 ## Local Development and Operations
 
