@@ -236,6 +236,39 @@ test('runbook owns the complete publisher sequence and producer gate before T0',
   assertIncludes(content.runbook, 'requires a separate reviewed authority packet', 'producer enablement authority');
 });
 
+test('active sprint closes staging and S1 evidence-integrity gaps', () => {
+  for (const token of [
+    'previously absent staging leaf directly below the verified current user\'s home',
+    'do not use `mkdir -p`',
+    'Bind the canonical parent path, UID/GID, device/inode',
+    'relay packet\'s separate remote work directory',
+    'A clean parent check cannot bless',
+    'reassert both immediately before the first authorized staging mutation',
+    'Reuse only the hash-verified frozen image/tar',
+    'reject any third directory entry',
+    'After binding and immediately before execution, refresh the moving mailbox',
+    'immutable S1-checkpoint envelope',
+    'Current committed timer-state checks and mutable closure aliases do not prove',
+    'designate a new recovery baseline',
+    'Enabled or active timers alone are not evidence',
+    'Repeated copies of one stale passing file are failures',
+    'Missing optional counters, journal totals, diagnostics, or degeneracy warnings',
+    'never change T0 alone',
+    'generate a new immutable publisher readback',
+    'park and establish a fresh publisher recovery boundary',
+    'at least 900 seconds apart',
+    'rather than citing mutable `latest` or `verdict` paths',
+    'One sample cannot satisfy an elapsed window',
+    'explicit maximum inter-sample gap',
+    '`newCriticalCount == 0` means only that the monitor found no new critical',
+    'typed, hashed, independently reviewed S1-clearance artifact',
+    'An untyped ledger token is not clearance',
+    '`S1A: green`, `S1B: green`, and `S2: unblocked`',
+  ]) {
+    assertIncludes(content.sprint, token, `S1 evidence integrity ${token}`);
+  }
+});
+
 test('immutable relay packet and executor boundary remain fail-closed', () => {
   for (const token of [
     'COPY server.js /app/server.js',

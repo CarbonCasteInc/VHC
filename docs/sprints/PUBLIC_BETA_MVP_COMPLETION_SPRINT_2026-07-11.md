@@ -193,16 +193,16 @@ collapsing prepared, reviewed, authorized, executed, or elapsed-green states.
 
 | Lane | Driver | Independent acceptance | Required durable output | Live authority |
 | --- | --- | --- | --- | --- |
-| `G4-PREP` | Packet-preparation agent | Same packet reviewer after every correction | New private-staging envelope, index, validation, and attempt ID | None |
+| `G4-PREP` | Packet-preparation agent | Same packet reviewer after every correction | New private-staging envelope, immutable S1-checkpoint envelope, index, validation, and attempt ID | None |
 | `G4-REVIEW-BIND` | Orchestrator | Packet reviewer GO, then exact Lou confirmation | Review ledger plus new execution binding | Lou confirmation only |
 | `G4-LOAD` | One technical driver | Load-evidence reviewer | Transfer/checksum/load/immutable-image evidence | Exact staging/load authority |
 | `G4-RELAY-A` | Same technical driver | Relay evidence reviewer | Private A evidence with next-relay decision | Exact A authority |
 | `G4-RELAY-B` | Same technical driver | Same relay reviewer | Private B evidence with next-relay decision | Exact B authority after A GO |
 | `G4-RELAY-C` | Same technical driver | Same reviewer plus distinct aggregate reviewer | `vh-a6-s1b-relay-recovery-evidence-v1` | Exact relay C authority after relay B GO |
 | `G4-PUBLISHER` | One technical driver | Publisher-evidence reviewer | Preflight, start-control, readback, alerts, mailbox, finalization | Separate Lou publisher authority |
-| `G4-EVIDENCE-PRODUCERS` | One technical driver | Watch/evidence reviewer | Fresh producer-state and first-sample inventory | Separate authority for any enablement |
-| `G4-SOAK` | Watch operator | Closure reviewer | Immediate, T0+24h, and passing T0+48h packets | Read-only collection unless incident authority is granted |
-| `G5-CONTROL-FIXES` | Focused repo agents | Lane reviewers plus cross-lane review | Finalization fix and transition-aware blocked/GO guards | None; no Freeze-A merge |
+| `G4-EVIDENCE-PRODUCERS` | One technical driver | Watch/evidence reviewer | Fresh, schema-valid, revision-bound producer state and first-sample inventory | Separate authority for any enablement |
+| `G4-SOAK` | Watch operator | Closure reviewer | Immutable immediate, T0+24h, T0+48h, and S1-clearance manifests | Read-only collection unless incident authority is granted |
+| `G5-CONTROL-FIXES` | Focused repo agents | Lane reviewers plus cross-lane review | Finalization, producer-freshness, checkpoint-binding, mailbox-clearance, and transition-aware blocked/GO fixes | None; no Freeze-A merge |
 | `G5-STORYCLUSTER` | StoryCluster operator/agent | StoryCluster reviewer | `.tmp/storycluster-production-readiness/latest/production-readiness-report.json` | Lou secret/A6 window |
 | `G5-AUTH` | Auth deployment driver | Auth/security reviewer | Secret-safe boundary health and durable-store evidence | Lou Cloudflare login/MFA |
 | `G6-APPLE` | Provider driver | Provider/security reviewer | Apple configured-health and start-leg preflight | Lou Apple account/MFA |
@@ -227,25 +227,57 @@ revision or erasing attempt 001.
 ### Work
 
 1. Preserve attempt 001 and its evidence index byte-for-byte.
-2. Select a current-user-owned, non-symlink, non-shared, mode-`0700` staging
-   root. Never reuse, clean, or chmod `/tmp/vhc-public-beta-images`.
-3. Refresh the moving mailbox and all read-only A6 prestate.
-4. Regenerate every load/supervision artifact and index affected by the new
-   staging path.
-5. Require independent subsequent review of the exact regenerated envelope.
-6. Obtain a new exact Lou binding for the reviewed tuple and attempt ID.
-7. Separately classify the PR #770 finalization failure. Prepare a permanent
+2. Bind one exact, previously absent staging leaf directly below the verified
+   current user's home. The home must be current-user-owned, non-symlink, and
+   not group- or other-writable. Create the leaf once with mode `0700`; do not
+   use `mkdir -p`, `chmod` an existing path, reuse content, or touch
+   `/tmp/vhc-public-beta-images`. Bind the canonical parent path, UID/GID,
+   device/inode, directory type, and absent child name; after creation, prove
+   the new leaf is the same inode, empty, non-symlink, and mode `0700`.
+3. Refresh the moving mailbox and all read-only A6 prestate while preparing the
+   envelope. Bind the verified parent identity and absent child state, and
+   reassert both immediately before the first authorized staging mutation.
+4. Apply equivalent fail-closed preflight to the relay packet's separate remote
+   work directory and every expected child. A clean parent check cannot bless
+   a stale, pre-existing, replaced, or symlinked child.
+5. Reuse only the hash-verified frozen image/tar. Regenerate every
+   load/supervision artifact and index affected by the staging path; do not
+   describe this as an image rebuild.
+   Transfer only the exact reviewed tar and checksum filenames as regular,
+   current-user-owned mode-`0600` files; bind sizes and hashes and reject any
+   third directory entry before checksum and `docker load`.
+6. Require independent subsequent review of the exact regenerated envelope.
+7. Obtain a new exact Lou binding for the reviewed tuple and attempt ID.
+8. After binding and immediately before execution, refresh the moving mailbox
+   and read-only A6 state again. Any drift closes the attempt; the earlier
+   capture cannot authorize mutation.
+9. Prepare and review an attempt-specific immutable S1-checkpoint envelope.
+   It must define capture, transfer, freezing, hashing, and review for immediate,
+   T0+24h, T0+48h, and final clearance; bind the final revision, relay recovery,
+   publisher start/readback/finalization, producer progress, and resolved
+   mailbox state; and refuse mutable `latest` files as final evidence.
+   Current committed timer-state checks and mutable closure aliases do not prove
+   this contract by themselves. If the reviewed envelope cannot close the gaps
+   without a repository/runtime change, stop, designate a new recovery baseline,
+   rebuild the revision-bound image, and repeat tuple review and authority.
+10. Separately classify the PR #770 finalization failure. Prepare a permanent
    fix so a positive wait budget guarantees at least one finalization attempt,
-   but do not merge it during Freeze A.
+   plus permanent producer/checkpoint/clearance guards, but do not merge them
+   during Freeze A.
 
 ### GO
 
 - the private staging path and permissions pass all preconditions;
+- the exact home parent and absent leaf prestate remain unchanged immediately
+  before the single authorized creation;
 - exact hashes and artifact relationships are internally consistent;
 - reviewer P0/P1/P2 counts are zero;
 - Lou's confirmation matches the reviewed bytes exactly;
 - no newer or unbound critical, tuple drift, user job, or secret-bearing output
-  exists.
+  exists; and
+- the reviewed checkpoint envelope can make every later S1 claim immutable and
+  revision-bound without relying on a mutable alias or an unreviewed manual
+  copy.
 
 Any exit `78` closes the attempt. Do not retry, hand patch, chmod, clean, or
 select an alternate path outside a fresh review/binding cycle.
@@ -272,16 +304,19 @@ relay C -> independent evidence plus aggregate acceptance
 
 The publisher stays parked. Each relay must prove immutable image, environment,
 mounts, host-network intent, snapshots, health, readiness, OOM/watchdog state,
-empty user-job boundary, and exact signed readback for story, latest-index,
-hot-index, and synthesis-lifecycle routes.
+empty user-job boundary, and the four endpoint-local exact missing-key
+contracts: story exact, latest-index `story_id`, hot-index `story_id`, and
+synthesis-lifecycle exact. Signed four-route publication readback belongs to
+the later publisher verification lane.
 
 A rollback recreates only the current relay from its captured old image and
 stops. A rollback leaves S1 red and requires a fresh tuple.
 
 ### G4-PUBLISHER
 
-Accepted relay-C evidence does not grant publisher authority. Lou separately binds
-and executes the complete controller sequence owned only by
+Accepted relay-C evidence does not grant publisher authority. Lou separately
+authorizes the assigned technical driver to execute the complete controller
+sequence owned only by
 `docs/ops/news-aggregator-production-service.md`, including installation,
 park/preflight/start/verify, evidence-producer proof, atomic T0 update, and
 finalization. Do not copy or abbreviate that command sequence here.
@@ -289,19 +324,37 @@ finalization. Do not copy or abbreviate that command sequence here.
 Immediate readback requires two clean completed ticks, successful raw writes,
 all four signed routes across all three relays, advancing product indexes and
 snapshots, stable active/running service state, and one readable recovery
-transition.
+transition. Publisher finalization proves this immediate alert/mailbox chain;
+it is not the T0+48h closure artifact.
 
 ### G4-EVIDENCE-PRODUCERS
 
 Before accepting T0, prove fresh output from publisher liveness, relay
 liveness, relay snapshot, public-feed freshness, alert watch, hourly soak
-archive, and watch-closure producers.
+archive, and watch-closure producers. Enabled or active timers alone are not
+evidence. Each producer must have a schema-valid passing output whose
+`generatedAt` covers the immediate readback, whose revision/start-control
+relationship is explicit, and whose next scheduled sample advances. Repeated
+copies of one stale passing file are failures, not multiple green samples.
+Runtime diagnostics must be fresh, advancing within one run, and bound to the
+same revision/start-control. Missing optional counters, journal totals,
+diagnostics, or degeneracy warnings may not be silently treated as zero.
 
 This is a separate authority boundary. Enabling relay liveness can restart one
 eligible relay, so monitor enablement may not be smuggled into publisher
 authority. If any producer is disabled or misconfigured, stop for an exact
-reviewed authority packet. If producer coverage cannot include the immediate
-readback timestamp, atomically reset T0; never backfill a window.
+reviewed authority packet. If producer coverage cannot include the selected
+immediate readback timestamp, never change T0 alone. Obtain newly reviewed
+verification authority, generate a new immutable publisher readback, and set
+both watch timestamps exactly to that artifact's `generatedAt`. If that cannot
+finish within the bound start-control window, park and establish a fresh
+publisher recovery boundary. Never backfill a window.
+
+The reviewed S1-checkpoint envelope must also define how A6-local publisher,
+alert, and closure artifacts reach the private evidence store without assuming
+that the local failure mailbox exists on A6. The first recovery alert and the
+unchanged-suppression observation must be at least 900 seconds apart. No T0 is
+valid until the capture path, destination, hashes, and reviewer are fixed.
 
 ### G4-SOAK
 
@@ -312,7 +365,26 @@ readback timestamp, atomically reset T0; never backfill a window.
   projection, duplicate unchanged incident delivery, unresolved public-feed
   critical, or moving-mailbox critical.
 
-Only a passing T0+48h closure and cleared mailbox make S2 eligible.
+At each checkpoint, freeze a new append-only directory and hash index rather
+than citing mutable `latest` or `verdict` paths. The T0+48h manifest must bind
+the final revision, immutable relay evidence, publisher start-control,
+immediate readback, finalization, every producer/archive sample, and the prior
+checkpoint hashes.
+
+One sample cannot satisfy an elapsed window. Enforce bounded first-sample
+latency, the intended hourly cadence, and an explicit maximum inter-sample gap;
+any missing, duplicate-stale, malformed, or failed sample keeps the threshold
+red.
+
+`newCriticalCount == 0` means only that the monitor found no new critical. S1
+clearance separately requires the previously bound public-feed incident to be
+resolved or explicitly closed by its owning evidence, with no unresolved
+public-feed critical remaining. Record the result in a typed, hashed,
+independently reviewed S1-clearance artifact that names the exact S2 eligibility
+decision. An untyped ledger token is not clearance.
+
+Only that passing T0+48h closure, incident resolution, and cleared moving
+mailbox make S2 eligible.
 
 ## M2 - Make StoryCluster Release-Ready
 
@@ -320,6 +392,8 @@ Only a passing T0+48h closure and cleared mailbox make S2 eligible.
 
 - S1A/S1B have passing T0+48h closure;
 - the moving mailbox has no unresolved public-feed critical;
+- a typed, hashed, independently reviewed S1-clearance artifact explicitly
+  records `S1A: green`, `S1B: green`, and `S2: unblocked`; and
 - Lou provides the secret-bearing access window.
 
 ### Work And Evidence
@@ -369,9 +443,10 @@ rehearsal, which remains blocked on the deployed PWA.
 ### Release-Line Consolidation
 
 After S1 closure, merge the independently approved finalization timing fix,
-refreshed documentation, transition-aware launch/distribution guards, and any
-other required repo work. Require hosted CI green, then designate R and enter
-Freeze B.
+producer freshness/progress validation, immutable checkpoint and S1-clearance
+bindings, refreshed documentation, transition-aware launch/distribution
+guards, and any other required repo work. Require hosted CI green, then
+designate R and enter Freeze B.
 
 ### S6/S7 - PWA And A6
 
@@ -555,7 +630,9 @@ Do not during Freeze A:
 | Shared or drifting staging state | Exit `78`, preserve evidence, regenerate/review/rebind; never clean or patch around it. |
 | Finalization timer reaches loop too late | Permanently guarantee one attempt for a positive budget; stress the targeted race and full control plane before R. |
 | New or changed mailbox critical | Stop; classify and bind it before any recovery mutation. |
-| Evidence producers absent at T0 | Stop for separate authority; enable/verify safely or reset T0 atomically. |
+| Evidence producers absent or stale at T0 | Stop for separate authority; require schema-valid advancing output, enable/verify safely, or reset T0 atomically. |
+| Mutable soak aliases or unbound closure | Freeze append-only checkpoint manifests bound to the final revision and full recovery chain; an untyped token or mutable `latest` path cannot unblock S2. |
+| Mailbox reports zero new criticals while the known incident remains open | Keep S1 red until the bound incident is explicitly resolved and no unresolved public-feed critical remains. |
 | Provider rehearsal/deploy loop | Use S4a/S5a registration preflight, then S4b/S5b full rehearsal after S7. |
 | StoryCluster credential repair reveals product failure | Keep M2 red; open a focused lane until fresh production readiness is release-ready. |
 | Final GO changes the commit under evidence | Keep product evidence on R; use `this_record_commit` and a hosted binding artifact to record the actual control-record-only C. |
@@ -604,16 +681,19 @@ next eligible gate.
 ## Immediate Next Moves
 
 1. Keep main frozen at the reviewed S1 revision and PR #770 draft.
-2. Build the private-staging attempt-002 envelope, obtain independent review,
-   and secure the new exact Lou binding.
+2. Reuse the hash-verified frozen image/tar to build only the private-staging
+   attempt-002 load/supervision envelope, obtain independent review, and secure
+   the new exact Lou binding.
 3. Load and verify the immutable image; then execute relay A/review, relay
    B/review, relay C/aggregate-review with publisher parked.
-4. Obtain separate publisher and evidence-producer authority, recover the
-   publisher, and establish a valid T0.
-5. Preserve immediate, T0+24h, and passing T0+48h evidence; only then unblock
-   S2.
-6. In parallel branches, close the finalization timing defect and blocked/GO
-   control-record paradox so they are ready to merge after S1.
+4. Before publisher start, review and bind the immutable S1-checkpoint envelope;
+   then obtain separate publisher and evidence-producer authority, recover the
+   publisher, prove fresh advancing producers, and establish a valid T0.
+5. Freeze and review immediate, T0+24h, T0+48h, and typed S1-clearance
+   manifests; only resolved incident state plus final clearance unblocks S2.
+6. In parallel branches, permanently close the finalization timing,
+   producer-freshness, checkpoint-binding, mailbox-clearance, and blocked/GO
+   control-record gaps so they are ready to merge after S1.
 7. After S1, follow M2 -> M3 -> M4 -> M5 without stale evidence or gate
    skipping. M5 is the first honest working-product threshold.
 

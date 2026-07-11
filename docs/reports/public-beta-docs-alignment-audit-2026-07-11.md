@@ -57,6 +57,7 @@ state.
 | Dated reports used “current” in their titles or prose. | Search results could outrank current control documents. | Added `docs/reports/README.md`, archived the superseded 2026-07-08 audit, and made the docs index explicit about evidence windows. |
 | Guard tests pinned superseded prose and revision `297d1bb4`. | Documentation could not be simplified without preserving stale claims. | Guards now require the operational-state owner link and durable safety boundaries without copying moving revision, hash, mailbox, decision, or next-gate values into planning documents. |
 | The archive had no automated historical marker rule. | Archived text could silently regain operational authority. | Docs governance now requires `Document Role: Historical`, `Archived:`, and `Superseded By:` markers. |
+| The S1 plan could be read as treating active timers, mutable `latest` files, or zero newly observed criticals as sufficient soak clearance. | Stale samples or an unresolved known incident could incorrectly unblock S2. | The active sprint now requires fresh advancing producers, immutable checkpoint manifests, exact readback/T0 coupling, explicit incident resolution, and a typed independently reviewed S1-clearance artifact. |
 
 ## Current Reading Path
 
@@ -145,7 +146,7 @@ the isolated worktree:
 | --- | --- |
 | `corepack pnpm@9.7.1 install --frozen-lockfile` | lockfile-exact install passed |
 | `corepack pnpm@9.7.1 docs:check` | 175 Markdown files passed governance/link/authority/archive checks |
-| `corepack pnpm@9.7.1 check:public-beta-next-phase-sprint` | 12/12 outcome, sequencing, ownership, routing, and archive guards passed |
+| `corepack pnpm@9.7.1 check:public-beta-next-phase-sprint` | 13/13 outcome, sequencing, ownership, routing, evidence-integrity, and archive guards passed |
 | `corepack pnpm@9.7.1 check:public-beta-launch-control` | blocked-packet validation plus 16/16 transition and adverse-state tests passed |
 | `corepack pnpm@9.7.1 check:public-beta-launch-closeout` | 24 MVP gates, 11 launch-content items, and 13 command surfaces passed |
 | `corepack pnpm@9.7.1 check:beta-session-runsheet` | 6/6 tests passed |
@@ -177,6 +178,11 @@ must be permanently corrected before the eventual product release commit.
 This hosted result does not change the audit's documentation findings or the
 zero-live-mutation record. It does mean PR #770 is not merge-ready, independently
 of the revision-bound rule that already keeps it draft until S1 closure.
+
+At the later `b900c741` head, all 9/9 hosted checks passed. That successful run
+does not erase the independently reproduced deadline defect: the one-second
+case happened not to hit the unlucky boundary, so the permanent fix remains a
+pre-release blocker and the revision-bound Freeze-A rule still prevents merge.
 
 The later MVP completion sprint moved the full 2026-07-08 outline,
 post-attempt-001 checklist, and detailed handoff into
