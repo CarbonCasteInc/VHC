@@ -41,10 +41,18 @@ jobs:
         if: env.VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT == 'true'
         run: pnpm --filter @vh/storycluster-engine build
 
-      - name: Run Public Feed Freshness Monitor
+      - name: Build Public Feed Freshness Monitor dependencies
+        run: pnpm --filter @vh/gun-client... build
+
+      - name: Run Public Feed Freshness Monitor without OpenAI preflight
+        if: env.VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT != 'true'
+        run: node ./tools/scripts/public-feed-freshness-monitor.mjs
+
+      - name: Run Public Feed Freshness Monitor with OpenAI preflight
+        if: env.VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: pnpm check:public-feed:freshness-monitor
+        run: node ./tools/scripts/public-feed-freshness-monitor.mjs
 
       - name: Upload Freshness Monitor Artifacts
         if: always()
