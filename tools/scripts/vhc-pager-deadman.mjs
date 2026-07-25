@@ -165,6 +165,9 @@ export function validatePagerDeadmanResult(result, { expectedStatus = null } = {
       }
     }
   }
+  if (result.status === 'pass' && validatePagerHealth(result.health).length > 0) {
+    throw new Error('pass_health_invalid');
+  }
   return result;
 }
 
