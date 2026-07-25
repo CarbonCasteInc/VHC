@@ -20,6 +20,20 @@ function assertBoundedPublicResult(result) {
   return serialized;
 }
 
+function healthyProjectedResult() {
+  return {
+    schemaVersion: 'vhc-pager-deadman-v1',
+    status: 'pass',
+    blockers: [],
+    health: {
+      schemaVersion: 'vhc-pager-health-v1',
+      status: 'ok',
+      activeSubscriptions: 1,
+      heartbeat: { missing: false },
+    },
+  };
+}
+
 test('pager deadman passes on healthy pager with subscriptions', async () => {
   const result = await runPagerDeadman({
     healthUrl: 'https://pager.example.invalid/api/health',
@@ -202,6 +216,47 @@ test('validation mode accepts a strict failing artifact with exit zero and rejec
   }
 });
 
+test('passing validation requires an exact healthy public projection', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'vhc-pager-deadman-pass-validation-'));
+  try {
+    const valid = healthyProjectedResult();
+    assert.doesNotThrow(() => validatePagerDeadmanResult(valid, { expectedStatus: 'pass' }));
+
+    const invalidPasses = [
+      { ...valid, health: null },
+      { ...valid, health: { ...valid.health, schemaVersion: 'invalid' } },
+      { ...valid, health: { ...valid.health, status: 'invalid' } },
+      { ...valid, health: { ...valid.health, activeSubscriptions: 0 } },
+      { ...valid, health: { ...valid.health, heartbeat: { missing: true } } },
+    ];
+    for (const invalid of invalidPasses) {
+      assert.throws(
+        () => validatePagerDeadmanResult(invalid, { expectedStatus: 'pass' }),
+        /pass_health_invalid/,
+      );
+    }
+
+    const nullHealth = path.join(root, 'null-health.json');
+    const invalidHealth = path.join(root, 'invalid-health.json');
+    writeFileSync(nullHealth, JSON.stringify(invalidPasses[0]));
+    writeFileSync(invalidHealth, JSON.stringify(invalidPasses[2]));
+
+    for (const file of [nullHealth, invalidHealth]) {
+      let output = '';
+      let exitCode = null;
+      const rejected = await main(['--validate-result', file, '--expected-status', 'pass'], {
+        writeImpl: (text) => { output += text; },
+        setExitCode: (code) => { exitCode = code; },
+      });
+      assert.equal(exitCode, 1);
+      assert.deepEqual(rejected.blockers, ['pager_result_invalid']);
+      assert.deepEqual(JSON.parse(output), rejected);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('empty, malformed, oversized, extra-field, and status-mismatched results fail validation', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'vhc-pager-deadman-'));
   try {
@@ -220,17 +275,7 @@ test('empty, malformed, oversized, extra-field, and status-mismatched results fa
       health: null,
       secret: 'must-not-be-accepted',
     }));
-    writeFileSync(passing, JSON.stringify({
-      schemaVersion: 'vhc-pager-deadman-v1',
-      status: 'pass',
-      blockers: [],
-      health: {
-        schemaVersion: 'vhc-pager-health-v1',
-        status: 'ok',
-        activeSubscriptions: 1,
-        heartbeat: { missing: false },
-      },
-    }));
+    writeFileSync(passing, JSON.stringify(healthyProjectedResult()));
     assert.throws(() => readPagerDeadmanResult(empty));
     assert.throws(() => readPagerDeadmanResult(malformed));
     assert.throws(() => readPagerDeadmanResult(oversized));
