@@ -19,7 +19,6 @@ jobs:
     timeout-minutes: 20
     env:
       CI: true
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT: ${{ vars.VH_PUBLIC_FEED_FRESHNESS_CHECK_OPENAI_PREFLIGHT }}
       VH_PUBLIC_FEED_FRESHNESS_MAX_AGE_MS: ${{ vars.VH_PUBLIC_FEED_FRESHNESS_MAX_AGE_MS }}
       VH_PUBLIC_FEED_FRESHNESS_ORIGINS: ${{ vars.VH_PUBLIC_FEED_FRESHNESS_ORIGINS }}
@@ -43,6 +42,8 @@ jobs:
         run: pnpm --filter @vh/storycluster-engine build
 
       - name: Run Public Feed Freshness Monitor
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: pnpm check:public-feed:freshness-monitor
 
       - name: Upload Freshness Monitor Artifacts
