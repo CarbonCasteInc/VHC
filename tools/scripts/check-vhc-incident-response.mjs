@@ -92,17 +92,35 @@ export function checkVhcIncidentResponse() {
     );
   }
   if (existsSync('.github/workflows/vhc-pager-deadman.yml')) {
-    assertContains(
-      '.github/workflows/vhc-pager-deadman.yml',
-      /uses:\s*pnpm\/action-setup@v4/,
-      issues,
-      'missing pnpm setup action',
-    );
     assertNotContains(
       '.github/workflows/vhc-pager-deadman.yml',
-      /pnpm\/action-setup@v4[\s\S]{0,120}\bversion:/,
+      /\bpnpm\b/,
       issues,
-      'must infer pnpm from the integrity-qualified packageManager field',
+      'pager probe must not depend on pnpm or a dependency install',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /if-no-files-found:\s*error/,
+      issues,
+      'pager evidence upload must fail when its artifact is absent',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /Fail workflow on unhealthy pager[\s\S]{0,160}exit 1/,
+      issues,
+      'pager workflow must finish red when the probe is unhealthy',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /VH_PAGER_GITHUB_ISSUES_ENABLED == 'true'/,
+      issues,
+      'pager issue writes must require an owner-controlled repository variable',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /contains\("<\!-- vhc-pager-deadman:v1 -->"\)/,
+      issues,
+      'pager issue writes must deduplicate on the stable incident marker',
     );
   }
   return {

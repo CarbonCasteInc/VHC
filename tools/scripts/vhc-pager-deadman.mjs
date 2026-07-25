@@ -27,16 +27,32 @@ function validatePagerHealth(health) {
     return ['pager_health_shape_invalid'];
   }
   if (health.schemaVersion !== 'vhc-pager-health-v1') blockers.push('pager_health_schema_invalid');
-  if (health.status !== 'ok') blockers.push(`pager_health_status:${health.status ?? 'missing'}`);
+  if (health.status !== 'ok') blockers.push('pager_health_status_invalid');
   if (!Number.isInteger(health.activeSubscriptions) || health.activeSubscriptions <= 0) {
-    blockers.push(`pager_active_subscriptions_invalid:${health.activeSubscriptions ?? 'missing'}`);
+    blockers.push('pager_active_subscriptions_invalid');
   }
   if (!health.heartbeat || typeof health.heartbeat !== 'object') {
-    blockers.push('pager_heartbeat_missing:shape_missing');
+    blockers.push('pager_heartbeat_shape_invalid');
   } else if (health.heartbeat.missing !== false) {
-    blockers.push(`pager_heartbeat_missing:${health.heartbeat.reason ?? 'unknown'}`);
+    blockers.push('pager_heartbeat_missing');
   }
   return blockers;
+}
+
+function projectPublicHealth(health) {
+  if (!health || typeof health !== 'object') return null;
+  return {
+    schemaVersion: health.schemaVersion === 'vhc-pager-health-v1'
+      ? 'vhc-pager-health-v1'
+      : 'invalid',
+    status: health.status === 'ok' ? 'ok' : 'invalid',
+    activeSubscriptions: Number.isInteger(health.activeSubscriptions)
+      ? health.activeSubscriptions
+      : null,
+    heartbeat: health.heartbeat && typeof health.heartbeat === 'object'
+      ? { missing: typeof health.heartbeat.missing === 'boolean' ? health.heartbeat.missing : null }
+      : null,
+  };
 }
 
 export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = null, fetchImpl = fetch }) {
@@ -53,7 +69,9 @@ export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = 
         health = text ? JSON.parse(text) : {};
         if (!response.ok) blockers.push(`pager_health_http_${response.status}`);
       } catch (error) {
-        blockers.push(`pager_health_fetch_failed:${error instanceof Error ? error.name : 'unknown'}`);
+        blockers.push(error instanceof Error && error.name === 'AbortError'
+          ? 'pager_health_fetch_timeout'
+          : 'pager_health_fetch_failed');
       }
     }
   }
@@ -62,7 +80,7 @@ export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = 
     schemaVersion: 'vhc-pager-deadman-v1',
     status: blockers.length === 0 ? 'pass' : 'fail',
     blockers,
-    health,
+    health: projectPublicHealth(health),
   };
 }
 

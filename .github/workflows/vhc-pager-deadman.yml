@@ -7,20 +7,21 @@ on:
 
 permissions:
   contents: read
-  issues: write
+
+concurrency:
+  group: vhc-pager-deadman
+  cancel-in-progress: false
 
 jobs:
   check-pager:
     runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.deadman.outputs.status }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        # Version and integrity are inferred from package.json#packageManager.
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - name: Check pager health
         id: deadman
         env:
@@ -40,13 +41,58 @@ jobs:
         with:
           name: vhc-pager-deadman
           path: .tmp/vhc-pager-deadman/result.json
-      - name: Open pager dead-man issue
-        if: steps.deadman.outputs.status == 'fail'
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail workflow on unhealthy pager
+        if: always() && steps.deadman.outputs.status == 'fail'
+        run: exit 1
+
+  open-incident:
+    needs: check-pager
+    if: >-
+      always()
+      && needs.check-pager.outputs.status == 'fail'
+      && vars.VH_PAGER_GITHUB_ISSUES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Download dead-man evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: vhc-pager-deadman
+          path: .tmp/vhc-pager-deadman
+      - name: Open deduplicated pager dead-man issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          BODY="$(cat .tmp/vhc-pager-deadman/result.json)"
+          MARKER='<!-- vhc-pager-deadman:v1 -->'
+          {
+            echo "$MARKER"
+            echo
+            echo 'The dependency-free pager dead-man probe reported an unhealthy state.'
+            echo
+            echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '```json'
+            cat .tmp/vhc-pager-deadman/result.json
+            echo '```'
+          } > .tmp/vhc-pager-deadman/issue.md
+
+          EXISTING="$(
+            gh issue list \
+              --state open \
+              --limit 1000 \
+              --json number,body \
+              --jq 'map(select((.body // "") | contains("<!-- vhc-pager-deadman:v1 -->")))[0].number // ""'
+          )"
+          if [[ -n "$EXISTING" ]]; then
+            echo "Pager dead-man incident already open as #${EXISTING}; no duplicate created."
+            exit 0
+          fi
+
           gh issue create \
             --title "[A6 incident] pager dead-man failed" \
             --label incident \
@@ -54,4 +100,4 @@ jobs:
             --label public-feed \
             --label severity:critical \
             --label needs-codex-triage \
-            --body "$BODY"
+            --body-file .tmp/vhc-pager-deadman/issue.md

@@ -184,8 +184,15 @@ They are also not enabled by the current A6 operating posture.
 
 `.github/workflows/vhc-pager-deadman.yml` checks the pager health endpoint every
 30 minutes. It fails if the pager is unreachable, unhealthy, has zero active
-subscriptions, or reports a stale heartbeat. On failure it opens a GitHub
-incident issue so the pager cannot fail silently.
+subscriptions, or reports a stale heartbeat. The probe uses only Node built-ins,
+always uploads a bounded public-safe result, and finishes red after preserving
+that evidence.
+
+GitHub issue creation is disabled unless the owner-controlled repository
+variable `VH_PAGER_GITHUB_ISSUES_ENABLED` is exactly `true`. When enabled, the
+separate issue job has the narrow `issues: write` permission, projects only the
+public-safe result into the body, and suppresses a new issue while an open issue
+with the stable `vhc-pager-deadman:v1` marker already exists.
 
 ## Non-Goals
 
