@@ -39,6 +39,11 @@ function assertContains(file, pattern, issues, message) {
   if (!pattern.test(text)) issues.push(`${file}: ${message}`);
 }
 
+function assertNotContains(file, pattern, issues, message) {
+  const text = readFileSync(file, 'utf8');
+  if (pattern.test(text)) issues.push(`${file}: ${message}`);
+}
+
 export function checkVhcIncidentResponse() {
   const issues = [];
   for (const file of REQUIRED_FILES) {
@@ -84,6 +89,20 @@ export function checkVhcIncidentResponse() {
       /validateExitClassGuard/,
       issues,
       'missing exit 75 or 78 guard',
+    );
+  }
+  if (existsSync('.github/workflows/vhc-pager-deadman.yml')) {
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /uses:\s*pnpm\/action-setup@v4/,
+      issues,
+      'missing pnpm setup action',
+    );
+    assertNotContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /pnpm\/action-setup@v4[\s\S]{0,120}\bversion:/,
+      issues,
+      'must infer pnpm from the integrity-qualified packageManager field',
     );
   }
   return {
