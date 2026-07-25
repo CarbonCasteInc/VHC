@@ -27,13 +27,56 @@ jobs:
         env:
           VH_PAGER_HEALTH_URL: ${{ secrets.VH_PAGER_HEALTH_URL }}
         run: |
-          set -euo pipefail
-          mkdir -p .tmp/vhc-pager-deadman
-          if node tools/scripts/vhc-pager-deadman.mjs --health-url "$VH_PAGER_HEALTH_URL" > .tmp/vhc-pager-deadman/result.json; then
-            echo "status=pass" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+          RESULT_DIR='.tmp/vhc-pager-deadman'
+          RESULT_FILE="${RESULT_DIR}/result.json"
+          CANDIDATE_FILE="${RESULT_DIR}/candidate.json"
+          PAGER_RESULT_MAX_BYTES=4096
+          FALLBACK_RESULT='{"schemaVersion":"vhc-pager-deadman-v1","status":"fail","blockers":["pager_result_invalid"],"health":null}'
+
+          mkdir -p "${RESULT_DIR}"
+          printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+
+          probe_exit=1
+          if node tools/scripts/vhc-pager-deadman.mjs \
+            --health-url "${VH_PAGER_HEALTH_URL}" > "${CANDIDATE_FILE}"; then
+            probe_exit=0
           else
-            echo "status=fail" >> "$GITHUB_OUTPUT"
-            cat .tmp/vhc-pager-deadman/result.json
+            probe_exit=$?
+          fi
+
+          candidate_status='invalid'
+          if node tools/scripts/vhc-pager-deadman.mjs \
+            --validate-result "${CANDIDATE_FILE}" > /dev/null 2>&1; then
+            candidate_status="$(node -e '
+              const fs = require("node:fs");
+              const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              process.stdout.write(result.status);
+            ' "${CANDIDATE_FILE}")"
+          fi
+
+          status='fail'
+          if [[ "${probe_exit}" -eq 0 && "${candidate_status}" == 'pass' ]]; then
+            mv "${CANDIDATE_FILE}" "${RESULT_FILE}"
+            status='pass'
+          elif [[ "${probe_exit}" -ne 0 && "${candidate_status}" == 'fail' ]]; then
+            mv "${CANDIDATE_FILE}" "${RESULT_FILE}"
+          else
+            rm -f "${CANDIDATE_FILE}"
+            printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+          fi
+
+          result_bytes="$(wc -c < "${RESULT_FILE}")"
+          if [[ ! -s "${RESULT_FILE}" || "${result_bytes}" -gt "${PAGER_RESULT_MAX_BYTES}" ]] \
+            || ! node tools/scripts/vhc-pager-deadman.mjs \
+              --validate-result "${RESULT_FILE}" --expected-status "${status}" > /dev/null 2>&1; then
+            status='fail'
+            printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+          fi
+
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          if [[ "${status}" == 'fail' ]]; then
+            cat "${RESULT_FILE}"
           fi
       - name: Upload dead-man evidence
         if: always()
@@ -58,11 +101,17 @@ jobs:
       contents: read
       issues: write
     steps:
+      - uses: actions/checkout@v4
       - name: Download dead-man evidence
         uses: actions/download-artifact@v4
         with:
           name: vhc-pager-deadman
           path: .tmp/vhc-pager-deadman
+      - name: Validate dead-man evidence
+        run: >-
+          node tools/scripts/vhc-pager-deadman.mjs
+          --validate-result .tmp/vhc-pager-deadman/result.json
+          --expected-status fail > /dev/null
       - name: Open deduplicated pager dead-man issue
         env:
           GH_TOKEN: ${{ github.token }}
