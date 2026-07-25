@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 export const PAGER_DEADMAN_SCHEMA_VERSION = 'vhc-pager-deadman-v1';
 export const PAGER_DEADMAN_MAX_RESULT_BYTES = 4096;
+export const PAGER_DEADMAN_MAX_HEALTH_BYTES = 16384;
 
 const RESULT_KEYS = ['blockers', 'health', 'schemaVersion', 'status'];
 const HEALTH_KEYS = ['activeSubscriptions', 'heartbeat', 'schemaVersion', 'status'];
@@ -41,12 +42,82 @@ function parseArgs(argv) {
   return args;
 }
 
-function timedFetch(fetchImpl, url, timeoutMs) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  return Promise.resolve()
-    .then(() => fetchImpl(url, { signal: controller.signal }))
-    .finally(() => clearTimeout(timeout));
+class PagerDeadmanProbeError extends Error {
+  constructor(blocker) {
+    super(blocker);
+    this.blocker = blocker;
+  }
+}
+
+function raceWithAbort(promise, signal, blocker) {
+  if (signal.aborted) return Promise.reject(new PagerDeadmanProbeError(blocker));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(new PagerDeadmanProbeError(blocker));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readBoundedResponseText(response, signal, maxBytes) {
+  if (response?.body && typeof response.body.getReader === 'function') {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let totalBytes = 0;
+    try {
+      while (true) {
+        const { done, value } = await raceWithAbort(
+          reader.read(),
+          signal,
+          'pager_health_body_timeout',
+        );
+        if (done) break;
+        if (!(value instanceof Uint8Array)) {
+          throw new PagerDeadmanProbeError('pager_health_body_read_failed');
+        }
+        totalBytes += value.byteLength;
+        if (totalBytes > maxBytes) {
+          void reader.cancel().catch(() => {});
+          throw new PagerDeadmanProbeError('pager_health_body_too_large');
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // The public result is determined by the read/cancel operation above.
+      }
+    }
+    return Buffer.concat(chunks, totalBytes).toString('utf8');
+  }
+
+  if (!response || typeof response.text !== 'function') {
+    throw new PagerDeadmanProbeError('pager_health_body_read_failed');
+  }
+  const text = await raceWithAbort(
+    Promise.resolve().then(() => response.text()),
+    signal,
+    'pager_health_body_timeout',
+  );
+  if (typeof text !== 'string') {
+    throw new PagerDeadmanProbeError('pager_health_body_read_failed');
+  }
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw new PagerDeadmanProbeError('pager_health_body_too_large');
+  }
+  return text;
 }
 
 function isPlainObject(value) {
@@ -201,23 +272,34 @@ export async function runPagerDeadman({ healthUrl, timeoutMs = 15000, fixture = 
   } else {
     if (!healthUrl) blockers.push('health_url_missing');
     if (healthUrl) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       let response = null;
+      let stage = 'fetch';
       try {
-        response = await timedFetch(fetchImpl, healthUrl, timeoutMs);
+        response = await raceWithAbort(
+          Promise.resolve().then(() => fetchImpl(healthUrl, { signal: controller.signal })),
+          controller.signal,
+          'pager_health_fetch_timeout',
+        );
+        stage = 'body';
+        if (!response?.ok) blockers.push(normalizeHttpBlocker(response?.status));
+        const text = await readBoundedResponseText(
+          response,
+          controller.signal,
+          PAGER_DEADMAN_MAX_HEALTH_BYTES,
+        );
+        health = parseHealthText(text, blockers);
       } catch (error) {
-        blockers.push(error instanceof Error && error.name === 'AbortError'
-          ? 'pager_health_fetch_timeout'
-          : 'pager_health_fetch_failed');
-      }
-      if (response) {
-        if (!response.ok) blockers.push(normalizeHttpBlocker(response.status));
-        let text = '';
-        try {
-          text = await response.text();
-        } catch {
-          blockers.push('pager_health_body_read_failed');
+        if (error instanceof PagerDeadmanProbeError) {
+          blockers.push(error.blocker);
+        } else if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          blockers.push(stage === 'fetch' ? 'pager_health_fetch_timeout' : 'pager_health_body_timeout');
+        } else {
+          blockers.push(stage === 'fetch' ? 'pager_health_fetch_failed' : 'pager_health_body_read_failed');
         }
-        if (!blockers.includes('pager_health_body_read_failed')) health = parseHealthText(text, blockers);
+      } finally {
+        clearTimeout(timeout);
       }
     }
   }

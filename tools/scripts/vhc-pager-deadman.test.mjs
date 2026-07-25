@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ReadableStream } from 'node:stream/web';
 import test from 'node:test';
 import {
+  PAGER_DEADMAN_MAX_HEALTH_BYTES,
   PAGER_DEADMAN_MAX_RESULT_BYTES,
   main,
   readPagerDeadmanResult,
@@ -133,6 +135,42 @@ test('pager deadman classifies transport, timeout, body, and JSON failures witho
   for (const result of [transport, timeout, body, parse]) {
     assert.equal(result.status, 'fail');
     assert.doesNotMatch(assertBoundedPublicResult(result), new RegExp(secret));
+  }
+});
+
+test('pager deadman bounds stalled and oversized response bodies', async () => {
+  const startedAt = Date.now();
+  const stalled = await runPagerDeadman({
+    healthUrl: 'https://pager.example.invalid/api/health',
+    timeoutMs: 10,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => new Promise(() => {}),
+    }),
+  });
+  assert.ok(Date.now() - startedAt < 500);
+  assert.deepEqual(stalled.blockers, ['pager_health_body_timeout', 'pager_health_shape_invalid']);
+
+  const oversized = await runPagerDeadman({
+    healthUrl: 'https://pager.example.invalid/api/health',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(PAGER_DEADMAN_MAX_HEALTH_BYTES));
+          controller.enqueue(new Uint8Array(1));
+          controller.close();
+        },
+      }),
+    }),
+  });
+  assert.deepEqual(oversized.blockers, ['pager_health_body_too_large', 'pager_health_shape_invalid']);
+
+  for (const result of [stalled, oversized]) {
+    assert.equal(result.status, 'fail');
+    assertBoundedPublicResult(result);
   }
 });
 

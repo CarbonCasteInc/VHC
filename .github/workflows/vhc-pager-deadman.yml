@@ -15,6 +15,7 @@ concurrency:
 jobs:
   check-pager:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       status: ${{ steps.deadman.outputs.status }}
     steps:

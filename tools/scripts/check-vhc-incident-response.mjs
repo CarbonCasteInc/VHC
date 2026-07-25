@@ -106,6 +106,12 @@ export function checkVhcIncidentResponse() {
     );
     assertContains(
       '.github/workflows/vhc-pager-deadman.yml',
+      /check-pager:[\s\S]*?runs-on:\s*ubuntu-latest\s*\n\s*timeout-minutes:\s*5/,
+      issues,
+      'pager check job must retain a bounded outer runtime',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
       /open-incident:[\s\S]*?permissions:\s*\n\s*contents:\s*read\s*\n\s*issues:\s*write/,
       issues,
       'issue write permission must stay isolated to the owner-gated job',
@@ -133,6 +139,12 @@ export function checkVhcIncidentResponse() {
       /if-no-files-found:\s*error/,
       issues,
       'pager evidence upload must fail when its artifact is absent',
+    );
+    assertContains(
+      'tools/scripts/vhc-pager-deadman.mjs',
+      /PAGER_DEADMAN_MAX_HEALTH_BYTES[\s\S]*pager_health_body_timeout[\s\S]*pager_health_body_too_large/,
+      issues,
+      'pager health response body must remain deadline-bound and size-bounded',
     );
     assertContains(
       '.github/workflows/vhc-pager-deadman.yml',
