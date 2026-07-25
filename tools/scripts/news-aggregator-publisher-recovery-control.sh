@@ -724,7 +724,6 @@ if [[ "${COMMAND}" == "finalize" ]]; then
   if ! expected_nrestarts="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).nRestarts));' "${start_control_json}")"; then
     exit 78
   fi
-  deadline=$((SECONDS + FINALIZE_WAIT_SECONDS))
   if [[ "${FINALIZATION_OUTPUT}" != /* ]]; then
     echo "[vh:publisher-recovery] finalization output path must be absolute" >&2
     exit 78
@@ -741,7 +740,12 @@ if [[ "${COMMAND}" == "finalize" ]]; then
   finalization_staging_owned=true
   finalization_temp="${finalization_staging_dir}/artifact.json"
   finalization_passed=false
-  while [[ "${SECONDS}" -lt "${deadline}" ]]; do
+  # Start the bounded wait only after private staging is ready. Always make one
+  # commit attempt even if SECONDS advances at the deadline assignment seam.
+  deadline=$((SECONDS + FINALIZE_WAIT_SECONDS))
+  finalization_attempts=0
+  while [[ "${finalization_attempts}" -eq 0 || "${SECONDS}" -lt "${deadline}" ]]; do
+    finalization_attempts=$((finalization_attempts + 1))
     current_active="$(systemctl --user show "${SERVICE}" --property=ActiveState --value 2>/dev/null)"
     current_sub="$(systemctl --user show "${SERVICE}" --property=SubState --value 2>/dev/null)"
     current_nrestarts="$(systemctl --user show "${SERVICE}" --property=NRestarts --value 2>/dev/null)"
@@ -788,7 +792,9 @@ if [[ "${COMMAND}" == "finalize" ]]; then
     fi
     set +o noclobber
     rm -f "${finalization_temp}"
-    sleep 1
+    if [[ "${SECONDS}" -lt "${deadline}" ]]; then
+      sleep 1
+    fi
   done
   [[ -z "${finalization_temp}" ]] || rm -f "${finalization_temp}"
   if [[ "${finalization_passed}" != "true" ]]; then
