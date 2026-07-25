@@ -54,6 +54,7 @@ const EXPECTED_RECOVERY_TESTS = [
   './tools/scripts/public-feed-alert-watch.test.mjs',
   './tools/scripts/phase5-scope-a-watch-closure-packet.test.mjs',
   './tools/scripts/public-beta-image-deploy.test.mjs',
+  './tools/scripts/public-feed-freshness-workflow.test.mjs',
 ];
 const EXPECTED_RECOVERY_SCRIPT = `corepack pnpm@9.7.1 --filter @vh/gun-client... build && node --test --test-concurrency=1 ${EXPECTED_RECOVERY_TESTS.join(' ')}`;
 
