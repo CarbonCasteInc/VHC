@@ -52,7 +52,7 @@ function harness({
   gitMode = 'match', preflightBash = false, failStart = false,
   nodeMode = 'delegate', stopState = 'inactive', failTempCleanup = false,
   substituteAttendedPermit = false, signalAfterLink = false, failStagingReservation = false,
-  raceFinalArtifact = false,
+  raceFinalArtifact = false, finalizationStagingDelay = false,
 } = {}) {
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'vh-publisher-control-')));
   const bin = path.join(root, 'bin');
@@ -113,6 +113,12 @@ function harness({
       '#!/bin/bash',
       'printf "%s\\n" "${VH_TEST_PREEXISTING_STAGING:?}"',
       'exit 1',
+    ]);
+  } else if (finalizationStagingDelay) {
+    executable(path.join(bin, 'mktemp'), [
+      '#!/bin/bash',
+      'sleep 1.1',
+      'exec /usr/bin/mktemp "$@"',
     ]);
   }
 
@@ -255,6 +261,7 @@ function harness({
     signalAfterLink,
     failStagingReservation,
     raceFinalArtifact,
+    finalizationStagingDelay,
     preexistingStaging: path.join(root, 'preexisting-staging-directory'),
   };
 }
@@ -1213,6 +1220,24 @@ test('finalization commits new mode-0600 evidence only after the full readback/T
     assert.equal(statSync(output).mode & 0o777, 0o600);
     assert.equal(readFileSync(h.state, 'utf8').trim(), 'active');
     assert.equal(readFileSync(h.enabled, 'utf8').trim(), 'enabled');
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test('finalization wait starts after staging and guarantees a first commit attempt', () => {
+  const h = harness({ finalizationStagingDelay: true });
+  try {
+    writeFileSync(h.state, 'active\n');
+    writeFileSync(h.enabled, 'enabled\n');
+    writeFileSync(h.nrestarts, '0\n');
+    const files = writeFinalizationInputs(h);
+    const output = path.join(h.root, 'finalization-after-slow-staging.json');
+    const result = run(CONTROL, finalizationArgs(files, output), h);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(readFileSync(output, 'utf8')).status, 'pass');
+    assert.equal(statSync(output).mode & 0o777, 0o600);
+    assert.equal(readFileSync(h.state, 'utf8').trim(), 'active');
   } finally {
     rmSync(h.root, { recursive: true, force: true });
   }
