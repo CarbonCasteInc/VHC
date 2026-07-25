@@ -100,6 +100,36 @@ export function checkVhcIncidentResponse() {
     );
     assertContains(
       '.github/workflows/vhc-pager-deadman.yml',
+      /permissions:\s*\n\s*contents:\s*read\s*\n\s*\nconcurrency:/,
+      issues,
+      'top-level pager permissions must remain read-only',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /open-incident:[\s\S]*?permissions:\s*\n\s*contents:\s*read\s*\n\s*issues:\s*write/,
+      issues,
+      'issue write permission must stay isolated to the owner-gated job',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /FALLBACK_RESULT=.*pager_result_invalid[\s\S]*printf '%s\\n' "\$\{FALLBACK_RESULT\}" > "\$\{RESULT_FILE\}"[\s\S]*vhc-pager-deadman\.mjs/,
+      issues,
+      'pager workflow must pre-seed a strict fallback before invoking the probe',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /PAGER_RESULT_MAX_BYTES=4096[\s\S]*\[\[ ! -s "\$\{RESULT_FILE\}" \|\| "\$\{result_bytes\}" -gt "\$\{PAGER_RESULT_MAX_BYTES\}" \]\]/,
+      issues,
+      'pager evidence must be non-empty and bounded',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /--validate-result "\$\{CANDIDATE_FILE\}"[\s\S]*--validate-result "\$\{RESULT_FILE\}" --expected-status "\$\{status\}"/,
+      issues,
+      'candidate and sealed pager results must be strictly validated',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
       /if-no-files-found:\s*error/,
       issues,
       'pager evidence upload must fail when its artifact is absent',
@@ -115,6 +145,12 @@ export function checkVhcIncidentResponse() {
       /VH_PAGER_GITHUB_ISSUES_ENABLED == 'true'/,
       issues,
       'pager issue writes must require an owner-controlled repository variable',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /Validate dead-man evidence[\s\S]*--expected-status fail[\s\S]*Open deduplicated pager dead-man issue/,
+      issues,
+      'issue creation must validate a strict failing artifact first',
     );
     assertContains(
       '.github/workflows/vhc-pager-deadman.yml',
