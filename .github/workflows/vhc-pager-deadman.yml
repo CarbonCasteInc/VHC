@@ -75,7 +75,7 @@ jobs:
             printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
           fi
 
-          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          printf '%s\n' "status=${status}" >> "${GITHUB_OUTPUT}" || exit 1
           if [[ "${status}" == 'fail' ]]; then
             cat "${RESULT_FILE}"
           fi

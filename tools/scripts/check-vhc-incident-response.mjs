@@ -141,6 +141,12 @@ export function checkVhcIncidentResponse() {
       'pager evidence upload must fail when its artifact is absent',
     );
     assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /printf '%s\\n' "status=\$\{status\}" >> "\$\{GITHUB_OUTPUT\}" \|\| exit 1/,
+      issues,
+      'pager status publication must fail the probe step when GitHub output cannot be written',
+    );
+    assertContains(
       'tools/scripts/vhc-pager-deadman.mjs',
       /PAGER_DEADMAN_MAX_HEALTH_BYTES[\s\S]*pager_health_body_timeout[\s\S]*pager_health_body_too_large/,
       issues,

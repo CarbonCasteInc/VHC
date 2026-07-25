@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ReadableStream } from 'node:stream/web';
@@ -172,6 +172,15 @@ test('pager deadman bounds stalled and oversized response bodies', async () => {
     assert.equal(result.status, 'fail');
     assertBoundedPublicResult(result);
   }
+});
+
+test('pager workflow fails closed when GitHub output publication fails', () => {
+  const workflow = readFileSync('.github/workflows/vhc-pager-deadman.yml', 'utf8');
+  assert.match(
+    workflow,
+    /printf '%s\\n' "status=\$\{status\}" >> "\$\{GITHUB_OUTPUT\}" \|\| exit 1/,
+  );
+  assert.doesNotMatch(workflow, /echo "status=\$\{status\}" >> "\$\{GITHUB_OUTPUT\}"/);
 });
 
 test('pager deadman projects health to a bounded public-safe schema', async () => {
