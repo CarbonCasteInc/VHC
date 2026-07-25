@@ -2,7 +2,7 @@
 
 > Status: Operational Design / Repo Capability
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
+> Last Reviewed: 2026-07-25
 > Depends On: docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
 
 ## Plain-Language Model
@@ -184,8 +184,19 @@ They are also not enabled by the current A6 operating posture.
 
 `.github/workflows/vhc-pager-deadman.yml` checks the pager health endpoint every
 30 minutes. It fails if the pager is unreachable, unhealthy, has zero active
-subscriptions, or reports a stale heartbeat. On failure it opens a GitHub
-incident issue so the pager cannot fail silently.
+subscriptions, or reports a stale heartbeat. Once the check job and probe step
+start, the workflow pre-seeds a fail-closed result, keeps one deadline across
+response headers and body consumption, caps the health body before parsing,
+uploads the bounded public-safe result with `if: always()`, and finishes red
+after an unhealthy completed probe. A five-minute job timeout is the outer
+runner bound. Infrastructure failure before the job or artifact step starts can
+still prevent an upload; absence of evidence is never a pass.
+
+GitHub issue creation is disabled unless the owner-controlled repository
+variable `VH_PAGER_GITHUB_ISSUES_ENABLED` is exactly `true`. When enabled, the
+separate issue job has the narrow `issues: write` permission, projects only the
+public-safe result into the body, and suppresses a new issue while an open issue
+with the stable `vhc-pager-deadman:v1` marker already exists.
 
 ## Non-Goals
 

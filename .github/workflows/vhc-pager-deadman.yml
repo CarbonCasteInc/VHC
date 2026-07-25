@@ -7,33 +7,77 @@ on:
 
 permissions:
   contents: read
-  issues: write
+
+concurrency:
+  group: vhc-pager-deadman
+  cancel-in-progress: false
 
 jobs:
   check-pager:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      status: ${{ steps.deadman.outputs.status }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.7.1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - name: Check pager health
         id: deadman
         env:
           VH_PAGER_HEALTH_URL: ${{ secrets.VH_PAGER_HEALTH_URL }}
         run: |
-          set -euo pipefail
-          mkdir -p .tmp/vhc-pager-deadman
-          if node tools/scripts/vhc-pager-deadman.mjs --health-url "$VH_PAGER_HEALTH_URL" > .tmp/vhc-pager-deadman/result.json; then
-            echo "status=pass" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+          RESULT_DIR='.tmp/vhc-pager-deadman'
+          RESULT_FILE="${RESULT_DIR}/result.json"
+          CANDIDATE_FILE="${RESULT_DIR}/candidate.json"
+          PAGER_RESULT_MAX_BYTES=4096
+          FALLBACK_RESULT='{"schemaVersion":"vhc-pager-deadman-v1","status":"fail","blockers":["pager_result_invalid"],"health":null}'
+
+          mkdir -p "${RESULT_DIR}"
+          printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+
+          probe_exit=1
+          if node tools/scripts/vhc-pager-deadman.mjs \
+            --health-url "${VH_PAGER_HEALTH_URL}" > "${CANDIDATE_FILE}"; then
+            probe_exit=0
           else
-            echo "status=fail" >> "$GITHUB_OUTPUT"
-            cat .tmp/vhc-pager-deadman/result.json
+            probe_exit=$?
+          fi
+
+          candidate_status='invalid'
+          if node tools/scripts/vhc-pager-deadman.mjs \
+            --validate-result "${CANDIDATE_FILE}" > /dev/null 2>&1; then
+            candidate_status="$(node -e '
+              const fs = require("node:fs");
+              const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              process.stdout.write(result.status);
+            ' "${CANDIDATE_FILE}")"
+          fi
+
+          status='fail'
+          if [[ "${probe_exit}" -eq 0 && "${candidate_status}" == 'pass' ]]; then
+            mv "${CANDIDATE_FILE}" "${RESULT_FILE}"
+            status='pass'
+          elif [[ "${probe_exit}" -ne 0 && "${candidate_status}" == 'fail' ]]; then
+            mv "${CANDIDATE_FILE}" "${RESULT_FILE}"
+          else
+            rm -f "${CANDIDATE_FILE}"
+            printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+          fi
+
+          result_bytes="$(wc -c < "${RESULT_FILE}")"
+          if [[ ! -s "${RESULT_FILE}" || "${result_bytes}" -gt "${PAGER_RESULT_MAX_BYTES}" ]] \
+            || ! node tools/scripts/vhc-pager-deadman.mjs \
+              --validate-result "${RESULT_FILE}" --expected-status "${status}" > /dev/null 2>&1; then
+            status='fail'
+            printf '%s\n' "${FALLBACK_RESULT}" > "${RESULT_FILE}"
+          fi
+
+          printf '%s\n' "status=${status}" >> "${GITHUB_OUTPUT}" || exit 1
+          if [[ "${status}" == 'fail' ]]; then
+            cat "${RESULT_FILE}"
           fi
       - name: Upload dead-man evidence
         if: always()
@@ -41,13 +85,64 @@ jobs:
         with:
           name: vhc-pager-deadman
           path: .tmp/vhc-pager-deadman/result.json
-      - name: Open pager dead-man issue
-        if: steps.deadman.outputs.status == 'fail'
+          if-no-files-found: error
+          retention-days: 14
+      - name: Fail workflow on unhealthy pager
+        if: always() && steps.deadman.outputs.status == 'fail'
+        run: exit 1
+
+  open-incident:
+    needs: check-pager
+    if: >-
+      always()
+      && needs.check-pager.outputs.status == 'fail'
+      && vars.VH_PAGER_GITHUB_ISSUES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download dead-man evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: vhc-pager-deadman
+          path: .tmp/vhc-pager-deadman
+      - name: Validate dead-man evidence
+        run: >-
+          node tools/scripts/vhc-pager-deadman.mjs
+          --validate-result .tmp/vhc-pager-deadman/result.json
+          --expected-status fail > /dev/null
+      - name: Open deduplicated pager dead-man issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          BODY="$(cat .tmp/vhc-pager-deadman/result.json)"
+          MARKER='<!-- vhc-pager-deadman:v1 -->'
+          {
+            echo "$MARKER"
+            echo
+            echo 'The dependency-free pager dead-man probe reported an unhealthy state.'
+            echo
+            echo "Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '```json'
+            cat .tmp/vhc-pager-deadman/result.json
+            echo '```'
+          } > .tmp/vhc-pager-deadman/issue.md
+
+          EXISTING="$(
+            gh issue list \
+              --state open \
+              --limit 1000 \
+              --json number,body \
+              --jq 'map(select((.body // "") | contains("<!-- vhc-pager-deadman:v1 -->")))[0].number // ""'
+          )"
+          if [[ -n "$EXISTING" ]]; then
+            echo "Pager dead-man incident already open as #${EXISTING}; no duplicate created."
+            exit 0
+          fi
+
           gh issue create \
             --title "[A6 incident] pager dead-man failed" \
             --label incident \
@@ -55,4 +150,4 @@ jobs:
             --label public-feed \
             --label severity:critical \
             --label needs-codex-triage \
-            --body "$BODY"
+            --body-file .tmp/vhc-pager-deadman/issue.md

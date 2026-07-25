@@ -39,6 +39,11 @@ function assertContains(file, pattern, issues, message) {
   if (!pattern.test(text)) issues.push(`${file}: ${message}`);
 }
 
+function assertNotContains(file, pattern, issues, message) {
+  const text = readFileSync(file, 'utf8');
+  if (pattern.test(text)) issues.push(`${file}: ${message}`);
+}
+
 export function checkVhcIncidentResponse() {
   const issues = [];
   for (const file of REQUIRED_FILES) {
@@ -84,6 +89,92 @@ export function checkVhcIncidentResponse() {
       /validateExitClassGuard/,
       issues,
       'missing exit 75 or 78 guard',
+    );
+  }
+  if (existsSync('.github/workflows/vhc-pager-deadman.yml')) {
+    assertNotContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /\bpnpm\b/,
+      issues,
+      'pager probe must not depend on pnpm or a dependency install',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /permissions:\s*\n\s*contents:\s*read\s*\n\s*\nconcurrency:/,
+      issues,
+      'top-level pager permissions must remain read-only',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /check-pager:[\s\S]*?runs-on:\s*ubuntu-latest\s*\n\s*timeout-minutes:\s*5/,
+      issues,
+      'pager check job must retain a bounded outer runtime',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /open-incident:[\s\S]*?permissions:\s*\n\s*contents:\s*read\s*\n\s*issues:\s*write/,
+      issues,
+      'issue write permission must stay isolated to the owner-gated job',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /FALLBACK_RESULT=.*pager_result_invalid[\s\S]*printf '%s\\n' "\$\{FALLBACK_RESULT\}" > "\$\{RESULT_FILE\}"[\s\S]*vhc-pager-deadman\.mjs/,
+      issues,
+      'pager workflow must pre-seed a strict fallback before invoking the probe',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /PAGER_RESULT_MAX_BYTES=4096[\s\S]*\[\[ ! -s "\$\{RESULT_FILE\}" \|\| "\$\{result_bytes\}" -gt "\$\{PAGER_RESULT_MAX_BYTES\}" \]\]/,
+      issues,
+      'pager evidence must be non-empty and bounded',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /--validate-result "\$\{CANDIDATE_FILE\}"[\s\S]*--validate-result "\$\{RESULT_FILE\}" --expected-status "\$\{status\}"/,
+      issues,
+      'candidate and sealed pager results must be strictly validated',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /if-no-files-found:\s*error/,
+      issues,
+      'pager evidence upload must fail when its artifact is absent',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /printf '%s\\n' "status=\$\{status\}" >> "\$\{GITHUB_OUTPUT\}" \|\| exit 1/,
+      issues,
+      'pager status publication must fail the probe step when GitHub output cannot be written',
+    );
+    assertContains(
+      'tools/scripts/vhc-pager-deadman.mjs',
+      /PAGER_DEADMAN_MAX_HEALTH_BYTES[\s\S]*pager_health_body_timeout[\s\S]*pager_health_body_too_large/,
+      issues,
+      'pager health response body must remain deadline-bound and size-bounded',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /Fail workflow on unhealthy pager[\s\S]{0,160}exit 1/,
+      issues,
+      'pager workflow must finish red when the probe is unhealthy',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /VH_PAGER_GITHUB_ISSUES_ENABLED == 'true'/,
+      issues,
+      'pager issue writes must require an owner-controlled repository variable',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /Validate dead-man evidence[\s\S]*--expected-status fail[\s\S]*Open deduplicated pager dead-man issue/,
+      issues,
+      'issue creation must validate a strict failing artifact first',
+    );
+    assertContains(
+      '.github/workflows/vhc-pager-deadman.yml',
+      /contains\("<\!-- vhc-pager-deadman:v1 -->"\)/,
+      issues,
+      'pager issue writes must deduplicate on the stable incident marker',
     );
   }
   return {
