@@ -2,13 +2,19 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md, docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md, docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md
+> Last Reviewed: 2026-07-25
+> Depends On: docs/ops/public-beta-operational-state.md, docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md, docs/ops/public-beta-launch-control-2026-07-09.md, docs/ops/public-beta-distribution-packet-2026-07-09.md, docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md, docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md
 
 Version: 0.11
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
 Audit baseline: current public-beta closeout baseline plus the LUMA public-beta MVP readiness slice and consolidated MVP closeout packet.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
+
+Current-state override: engineering closeout remains blocked by
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`. The dated implementation evidence below
+does not authorize archive restoration, protocol continuation, protected
+installation, live recovery, S2 unblocking, distribution, or launch. Current
+operational truth is owned by `docs/ops/public-beta-operational-state.md`.
 
 2026-06-24 Scope A update: Phase 5 raw public-news Scope A is live under the
 controlled profile recorded in
@@ -281,6 +287,7 @@ Run these commands on the final public-beta release commit and preserve their ou
 | Beta session runsheet guard | `pnpm check:beta-session-runsheet` | `docs/ops/BETA_SESSION_RUNSHEET.md` plus `tools/scripts/beta-session-runsheet.test.mjs` | `pass`; daily gate, provider readiness, 3-browser convergence, privacy, account-to-LUMA binding, flip-switch, monitoring, rollback, and evidence-capture requirements remain pinned before manual rehearsal |
 | Next-phase sprint checklist guard | `pnpm check:public-beta-next-phase-sprint` | `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md` plus `tools/scripts/public-beta-next-phase-sprint.test.mjs` | `pass`; ordered slices, Lou/Codex authority model, Apple/Google first provider set, `auth.venn.carboncaste.io`, A6/update/canary permissions, secret boundaries, first-tranche cap, and post-launch ramp rules remain pinned |
 | Launch closeout audit | `pnpm check:public-beta-launch-closeout` | This document plus the static checker in `tools/scripts/check-public-beta-launch-closeout.mjs` | `pass`; includes the launch-control, distribution-packet, operator-packet, and beta-session runsheet checks above |
+| Current-state documentation freshness | `pnpm check:public-beta-docs-freshness` | `docs/ops/public-beta-operational-state.md` plus `tools/scripts/check-public-beta-docs-freshness.mjs` | `pass`; current verdict, custody decision, gate order, historical banners, canonical routing, and normal `docs:check` registration remain pinned |
 | MVP release gates | `pnpm check:mvp-release-gates` | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` | `overallStatus: pass` |
 | Public feed analysis/frame reliability | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm test:public-feed:browser-smoke` | `.tmp/release-evidence/public-feed-browser-smoke/latest/public-feed-browser-smoke-summary.json` plus `.tmp/analysis-frame-pipeline/<timestamp>/` consistency probes | `pass`; public top-N latest-index body 404 count is zero or inside an explicitly recorded repair/tombstone window; app-open feed population succeeds without a manual refresh click; at least one current accepted synthesis is visible by default with frame/reframe rows and point ids when relay lifecycle matches the current story/source-set revision; pending/terminal stories still render honest non-votable states |
 | Public feed composition/freshness | `VH_PUBLIC_FEED_APP_URL=https://venn.carboncaste.io VH_PUBLIC_FEED_GUN_PEER_URL=wss://gun-a.carboncaste.io/gun VH_PUBLIC_FEED_PUBLIC_RELAY_ORIGINS='["https://venn.carboncaste.io","https://gun-a.carboncaste.io","https://gun-b.carboncaste.io","https://gun-c.carboncaste.io"]' VH_PUBLIC_FEED_PUBLIC_WSS_PEERS='["wss://gun-a.carboncaste.io/gun","wss://gun-b.carboncaste.io/gun","wss://gun-c.carboncaste.io/gun"]' pnpm check:public-feed:composition-freshness` | `.tmp/release-evidence/public-feed-composition-freshness/latest/public-feed-composition-freshness-summary.json` | `pass`; public latest feed includes both singleton and multi-source/corroborated stories, reports composition/per-story public-state counts, verifies latest-index product metadata, verifies relay cursor pagination for older latest-index rows, independently verifies latest-index and sampled story-body readback on every configured public relay peer, and fails instead of `setup_scarcity` when source-health evidence proves corroborated supply exists but the deployed feed remains singleton-only |

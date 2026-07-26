@@ -1,6 +1,10 @@
 # State Of Play And Docs Alignment Audit - 2026-07-08
 
-> Status: Current-state documentation audit
+> Historical audit: superseded for current operational truth by
+> `docs/ops/public-beta-operational-state.md`. Its repository and evidence
+> claims remain a dated July 8 snapshot.
+>
+> Status: Historical documentation audit
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Reviewed Against: `main@eb53af67dc46764e4d8afe1c5f932c771fe5a4c8`
 

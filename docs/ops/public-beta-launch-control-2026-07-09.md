@@ -2,8 +2,9 @@
 
 > Status: `no_go_pending_operator_decisions_and_live_evidence`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> Last Reviewed: 2026-07-25
+> Depends On: `docs/ops/public-beta-operational-state.md`,
+> `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
 > `docs/ops/account-provider-callback-boundary.md`,
 > `docs/ops/auth-callback-provider-deployment-packet-2026-07-09.md`,
@@ -11,6 +12,11 @@
 > `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`
+
+Current-state override: the public-beta recovery is
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`. This July 9 packet remains blocked and
+cannot supply recovery, live-action, or distribution authority. See
+`docs/ops/public-beta-operational-state.md`.
 
 This packet is the Lane 0 launch note for the current release-readiness sprint.
 It records the intended release envelope, target URLs, claim boundaries,

@@ -1,5 +1,10 @@
 # Public Beta Next-Phase Orchestration Prompt And Sprint Checklist - 2026-07-09
 
+> Historical execution contract: current operational status and authority are
+> owned by `docs/ops/public-beta-operational-state.md`. The procedures below
+> remain evidence and gate context, but may not be executed while the owner
+> records `NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`.
+>
 > Status: Action prompt and technical execution checklist for the next release phase
 > Owner: VHC Core Engineering + VHC Launch Ops
 > Human authority: Lou

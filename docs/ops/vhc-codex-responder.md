@@ -2,8 +2,13 @@
 
 > Status: Draft / Dry-Run-Only Live Boundary
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
+> Last Reviewed: 2026-07-25
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/vhc-incident-response.md, docs/specs/spec-vhc-incident-response.md
+
+Current-state override: repository investigation and PR work remain allowed,
+but governed recovery is `NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`. The July 10
+incident readback below is historical; no July 25 live readback or A6 action
+was performed. See `docs/ops/public-beta-operational-state.md`.
 
 ## Role
 

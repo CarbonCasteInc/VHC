@@ -3,7 +3,7 @@
 > Status: Operational Design / Repo Capability
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-07-25
-> Depends On: docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
+> Depends On: docs/ops/public-beta-operational-state.md, docs/specs/spec-vhc-incident-response.md, docs/ops/public-feed-freshness-monitor.md
 
 ## Plain-Language Model
 
@@ -41,6 +41,13 @@ corepack pnpm@9.7.1 check:vhc-incident-response
 ```
 
 ## Current Operating Posture
+
+The public-beta operational owner currently records
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`. The repository contains the incident
+response and pager capability, including the merged #771 safety bounds, but
+the custom pager has not been deployed or test-fired by this correction
+sequence. No July 25 A6 mutation or current-live readback was performed. Route
+recovery decisions through `docs/ops/public-beta-operational-state.md`.
 
 PR #722 is merged on `main` and the repo contains the incident-response/pager
 implementation. The repo-side producer now emits

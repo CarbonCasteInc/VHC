@@ -1,5 +1,9 @@
 # Public Beta State Of Play Handoff - 2026-07-10
 
+> Historical snapshot: superseded for current operational truth by
+> `docs/ops/public-beta-operational-state.md`. Preserve this handoff as dated
+> evidence; it is not current recovery authority.
+>
 > Status: Onboarding handoff for the next release-readiness developer
 > Owner: VHC Launch Ops + VHC Core Engineering
 > Human authority: Lou
