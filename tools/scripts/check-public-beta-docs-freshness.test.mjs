@@ -69,3 +69,38 @@ test('freshness guard rejects removal from the normal docs check', () => {
   assert.equal(result.status, 'fail');
   assert.ok(result.issues.some((issue) => issue.includes('docs:check')));
 });
+
+for (const file of [
+  'docs/ops/vhc-incident-response.md',
+  'docs/ops/vhc-codex-responder.md',
+]) {
+  test(`freshness guard rejects a current-live recovery overclaim in ${file}`, () => {
+    const snapshot = loadSnapshot();
+    snapshot.set(
+      file,
+      `${snapshot.get(file)}\nCurrent live A6 state: recovery is complete and launch may proceed.\n`,
+    );
+    const result = evaluateSnapshot(snapshot);
+    assert.equal(result.status, 'fail');
+    assert.ok(
+      result.issues.some(
+        (issue) => issue.startsWith(`${file}:`) && issue.includes('current-live assertion'),
+      ),
+      result.issues.join('\n'),
+    );
+  });
+}
+
+test('freshness guard rejects an unbalanced historical live-snapshot block', () => {
+  const snapshot = loadSnapshot();
+  const file = 'docs/ops/vhc-incident-response.md';
+  snapshot.set(
+    file,
+    snapshot
+      .get(file)
+      .replace('<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_END -->', ''),
+  );
+  const result = evaluateSnapshot(snapshot);
+  assert.equal(result.status, 'fail');
+  assert.ok(result.issues.some((issue) => issue.includes('balanced historical live-snapshot')));
+});

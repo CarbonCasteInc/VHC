@@ -22,13 +22,25 @@ work:
 - draft operator packets;
 - never execute live A6 mutation from the issue.
 
-The responder tooling exists in repo after #722, but live A6
-execution/autonomy is not enabled. A real alert is active: S1A classified
-`relay_rest_story_timeout_total_0_of_3_exit_78`, and the publisher remains
-parked exit `78`. Repo-only S1B implementation and review may proceed; A6
-update, service action, alert-channel change, and downstream launch work may
-not. The next live boundary is an independently reviewed recovery packet built
-from the merged S1B commit and Lou's explicit incident approval.
+The responder tooling exists in repo after #722. Repository defaults keep live
+A6 execution/autonomy disabled.
+
+<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_START -->
+## Historical Incident Snapshot - 2026-07-10
+
+The July 10 readback classified a real alert as
+`relay_rest_story_timeout_total_0_of_3_exit_78`; the publisher was parked exit
+`78`. At that date, repo-only S1B implementation/review could proceed while A6
+update, service action, alert-channel change, and downstream launch work
+remained blocked.
+
+Those facts have not been revalidated as July 25 current-live state.
+<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_END -->
+
+The next valid boundary is the custody decision and independent review owned by
+`docs/ops/public-beta-operational-state.md`, followed in order by Gate P, Gate
+R, Gate I, and a fresh separately authorized Gate L packet. The July 10 packet
+or approval cannot supply that authority.
 
 ## First Checks
 
@@ -109,13 +121,14 @@ The verifier fails closed on:
 - automation kill switch.
 
 The shipped executor action is deliberately limited to
-`restart_publisher_exit69_only`. It cannot authorize the current exit-78
-recovery, and changing that guard is not part of S1B. The exit-78 recovery must
-use the dedicated attended packet and authority boundary described above.
+`restart_publisher_exit69_only`. It cannot authorize an exit-78 recovery, and
+changing that guard is not part of S1B. Any future exit-78 recovery must use
+the fresh dedicated attended packet and authority boundary described above.
 
 ## Pull Executor
 
-The executor is local to A6 and pull-based:
+The executor is designed to run locally on A6 and is pull-based; repository
+capability does not prove current deployment or enablement:
 
 ```bash
 node tools/scripts/vhc-packet-executor.mjs \

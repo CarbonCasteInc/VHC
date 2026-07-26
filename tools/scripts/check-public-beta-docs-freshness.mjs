@@ -43,6 +43,65 @@ function requireText(readText, file, needles, issues) {
   }
 }
 
+const HISTORICAL_LIVE_START = '<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_START -->';
+const HISTORICAL_LIVE_END = '<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_END -->';
+
+const FORBIDDEN_CURRENT_LIVE_PATTERNS = [
+  /\bcurrent live A6 state\b/i,
+  /\blive A6 alert path is\b/i,
+  /\bA real alert is active\b/i,
+  /\bpublisher (?:is|remains) parked\b/i,
+  /\b(?:timer is|timers are) enabled on A6\b/i,
+  /\bEmail delivery is configured\b/i,
+  /\bDuring the active exit-78 incident\b/i,
+  /\brecovery (?:is|has been) (?:complete|successful|green)\b/i,
+  /\blaunch may proceed\b/i,
+  /\blaunch (?:is|has been) (?:approved|green)\b/i,
+  /\bS1A\s*\/\s*S1B (?:are|is) green\b/i,
+  /\bS2 (?:is|has been) unblocked\b/i,
+  /\bS1A\s*=\s*GO\b/i,
+  /\bS1B\s*=\s*GO\b/i,
+  /\bS2\s*=\s*UNBLOCKED\b/i,
+];
+
+function countOccurrences(text, needle) {
+  return text.split(needle).length - 1;
+}
+
+function assertNoCurrentLiveOverclaim(readText, file, issues) {
+  let text;
+  try {
+    text = readText(file);
+  } catch {
+    return;
+  }
+
+  const startCount = countOccurrences(text, HISTORICAL_LIVE_START);
+  const endCount = countOccurrences(text, HISTORICAL_LIVE_END);
+  if (startCount !== 1 || endCount !== 1) {
+    issues.push(`${file}: must contain exactly one balanced historical live-snapshot block`);
+    return;
+  }
+
+  const start = text.indexOf(HISTORICAL_LIVE_START);
+  const end = text.indexOf(HISTORICAL_LIVE_END, start + HISTORICAL_LIVE_START.length);
+  if (end < start) {
+    issues.push(`${file}: historical live-snapshot block is not ordered`);
+    return;
+  }
+
+  const currentText =
+    text.slice(0, start) + text.slice(end + HISTORICAL_LIVE_END.length);
+  for (const pattern of FORBIDDEN_CURRENT_LIVE_PATTERNS) {
+    const match = currentText.match(pattern);
+    if (match) {
+      issues.push(
+        `${file}: unverified current-live assertion outside historical block ${JSON.stringify(match[0])}`,
+      );
+    }
+  }
+}
+
 export function evaluatePublicBetaDocsFreshness({
   readText = (file) => readFileSync(path.resolve(process.cwd(), file), 'utf8'),
   fileExists = (file) => existsSync(path.resolve(process.cwd(), file)),
@@ -166,9 +225,21 @@ export function evaluatePublicBetaDocsFreshness({
   requireText(
     readText,
     'docs/ops/vhc-codex-responder.md',
-    ['The July 10', 'incident readback below is historical'],
+    ['The July 10', 'incident readback below is historical', '## Historical Incident Snapshot - 2026-07-10'],
     issues,
   );
+  requireText(
+    readText,
+    'docs/ops/vhc-incident-response.md',
+    ['## Historical A6 Snapshot - 2026-07-10', 'These facts have not been revalidated as July 25 current-live state.'],
+    issues,
+  );
+  for (const file of [
+    'docs/ops/vhc-incident-response.md',
+    'docs/ops/vhc-codex-responder.md',
+  ]) {
+    assertNoCurrentLiveOverclaim(readText, file, issues);
+  }
 
   requireText(
     readText,

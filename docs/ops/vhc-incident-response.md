@@ -59,18 +59,29 @@ normalizer keeps `public_feed`, `relay_liveness`, `relay_snapshot`, and
 current colon blocker forms. The pager's own `vhc-incident-v1` record schema is
 a separate contract and is unchanged.
 
-The live A6 alert path is still the Slice 0 interim email channel, not the
-custom pager/PWA. The 2026-07-10 S1A readback classifies an active
-`relay_rest_story_timeout_total_0_of_3_exit_78` incident: the publisher is
-parked exit `78`, relay snapshots/public freshness/watch closure fail, and the
-repo-side S1B remediation is not deployed.
+<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_START -->
+## Historical A6 Snapshot - 2026-07-10
 
-Current boundaries:
+At the 2026-07-10 S1A readback, the A6 alert path used the Slice 0 interim
+email channel rather than the custom pager/PWA. That readback classified
+`relay_rest_story_timeout_total_0_of_3_exit_78`: the publisher was parked exit
+`78`, relay snapshots/public freshness/watch closure failed, and the repo-side
+S1B remediation had not been deployed.
 
-- `vh-public-feed-alert-watch.timer` is enabled on A6.
-- `vh-phase5-scope-a-watch-closure.timer` is enabled on A6.
-- Email delivery is configured in host-private env and has sent failure and
-  recovery state changes.
+The same dated evidence recorded:
+
+- `vh-public-feed-alert-watch.timer` enabled on A6;
+- `vh-phase5-scope-a-watch-closure.timer` enabled on A6;
+- email delivery configured in host-private env with failure and recovery
+  state-change receipts;
+- a test-fire reaching the phone and a later real stale-feed alert;
+- the recovery transition after #723 delivered through the interim channel.
+
+These facts have not been revalidated as July 25 current-live state.
+<!-- PUBLIC_BETA_HISTORICAL_LIVE_SNAPSHOT_END -->
+
+## Current Repository And Authority Boundaries
+
 - The custom pager should be deployed only through its separate reviewed
   packet; email fallback stays on permanently.
 - Codex may investigate, write tests, open PRs, and draft operator packets from
@@ -79,18 +90,11 @@ Current boundaries:
   later approved rollout explicitly enables it after the proof window and
   drills.
 
-## Slice 0: Interim Channel Complete
-
-Slice 0 is complete. The operator configured the email channel, confirmed a
-test-fire reached the phone, and enabled both timers. A later real stale-feed
-alert proved that the channel was paging a real condition, and the recovery
-transition after #723 was also delivered.
-
 For a new host or channel reconfiguration, repeat the Block-A/Block-B procedure
-from `docs/ops/public-feed-freshness-monitor.md`. During the active exit-78
-incident, do not edit host alert env, disable timers, rerun test-fire, update
-A6, or restart the publisher without the dedicated independently reviewed
-recovery packet and Lou's explicit approval.
+from `docs/ops/public-feed-freshness-monitor.md`. If a fresh readback proves an
+exit-78 incident, do not edit host alert env, disable timers, rerun test-fire,
+update A6, or restart the publisher without the newly generated independently
+reviewed recovery packet and Lou's exact current approval.
 
 ## Pager Deployment Inputs
 
@@ -170,10 +174,11 @@ automation still needs alerts.
 it refuses packets that fail verification and refuses publisher restarts for
 exit 75 or exit 78.
 
-The current exit-78 S1B recovery is therefore not a
+The exit-78 recovery class recorded on 2026-07-10 was not a
 `restart_publisher_exit69_only` executor action. It requires a dedicated
-attended packet generated from the merged remediation commit and explicit Lou
-authorization; this runbook does not grant that authority.
+attended packet generated only after the current custody and predecessor gates,
+plus explicit current Lou authorization; this runbook does not grant that
+authority.
 
 `VH_INCIDENT_TRUST_PHASE` is trusted local executor configuration. Packet JSON
 may document its intended phase, but the verifier does not use packet-controlled
@@ -185,7 +190,7 @@ The shipped user-systemd files are:
 - `infra/systemd/user/vh-vhc-packet-executor.timer`
 
 They are not enabled by this PR.
-They are also not enabled by the current A6 operating posture.
+No current A6 enablement is claimed; require a fresh readback before use.
 
 ## Pager Dead-Man
 
