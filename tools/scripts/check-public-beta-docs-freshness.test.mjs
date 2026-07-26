@@ -74,21 +74,26 @@ for (const file of [
   'docs/ops/vhc-incident-response.md',
   'docs/ops/vhc-codex-responder.md',
 ]) {
-  test(`freshness guard rejects a current-live recovery overclaim in ${file}`, () => {
-    const snapshot = loadSnapshot();
-    snapshot.set(
-      file,
-      `${snapshot.get(file)}\nCurrent live A6 state: recovery is complete and launch may proceed.\n`,
-    );
-    const result = evaluateSnapshot(snapshot);
-    assert.equal(result.status, 'fail');
-    assert.ok(
-      result.issues.some(
-        (issue) => issue.startsWith(`${file}:`) && issue.includes('current-live assertion'),
-      ),
-      result.issues.join('\n'),
-    );
-  });
+  for (const [label, claim] of [
+    [
+      'canonical wording',
+      'Current live A6 state: recovery is complete and launch may proceed.',
+    ],
+    ['common synonyms', 'Recovery has completed; launch can proceed.'],
+  ]) {
+    test(`freshness guard rejects a current-live recovery overclaim using ${label} in ${file}`, () => {
+      const snapshot = loadSnapshot();
+      snapshot.set(file, `${snapshot.get(file)}\n${claim}\n`);
+      const result = evaluateSnapshot(snapshot);
+      assert.equal(result.status, 'fail');
+      assert.ok(
+        result.issues.some(
+          (issue) => issue.startsWith(`${file}:`) && issue.includes('current-live assertion'),
+        ),
+        result.issues.join('\n'),
+      );
+    });
+  }
 }
 
 test('freshness guard rejects an unbalanced historical live-snapshot block', () => {
