@@ -2,8 +2,14 @@
 
 > Status: Operational Monitor
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+> Last Reviewed: 2026-07-25
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/public-beta-launch-readiness-closeout.md, docs/reports/mesh-readiness-state-of-play-2026-06-12.md
+
+Current-state override: the monitor capability remains repository truth, but
+dated A6 readbacks below are not current-live proof. Governed recovery is
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`; the July 25 safety correction did not
+dispatch this workflow or run a real-key preflight. See
+`docs/ops/public-beta-operational-state.md`.
 
 ## Purpose
 

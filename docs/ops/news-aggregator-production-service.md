@@ -2,8 +2,13 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-07-10
-> Depends On: docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
+> Last Reviewed: 2026-07-25
+> Depends On: docs/ops/public-beta-operational-state.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/public-feed-freshness-monitor.md, docs/ops/analysis-backend-3001.md, docs/ops/storycluster-production-service.md, docs/ops/public-beta-launch-readiness-closeout.md
+
+Current-state override: the July 10 A6 readback below is historical context,
+not confirmed-current live state. Governed recovery is
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`; no July 25 A6 readback or mutation was
+performed. See `docs/ops/public-beta-operational-state.md`.
 
 ## Purpose
 
@@ -16,7 +21,7 @@ an interval, keeps product-feed reconciliation and pending synthesis catch-up on
 their own intervals, and exits only when the process receives SIGINT/SIGTERM or
 startup fails closed.
 
-## Current Launch State
+## Dated Launch State
 
 Phase 5 Scope A launched on A6 on 2026-06-24. The launch closeout is
 `docs/reports/phase5-scope-a-launch-closeout-2026-06-24.md`, and the first

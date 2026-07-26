@@ -2,8 +2,9 @@
 
 > Status: `blocked_pending_release_evidence_rehearsal_and_live_fields`
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-07-10
-> Depends On: `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
+> Last Reviewed: 2026-07-25
+> Depends On: `docs/ops/public-beta-operational-state.md`,
+> `docs/plans/RELEASE_READINESS_SPRINT_OUTLINE_2026-07-08.md`,
 > `docs/ops/public-beta-launch-control-2026-07-09.md`,
 > `docs/ops/public-beta-launch-readiness-closeout.md`,
 > `docs/ops/BETA_SESSION_RUNSHEET.md`,
@@ -14,6 +15,11 @@
 > `docs/ops/a6-s1b-relay-timeout-recovery-packet-2026-07-10.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/launch/public-beta-copy.md`
+
+Current-state override: distribution remains blocked behind
+`NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`, the full recovery chain, S1A/S1B
+evidence, and explicit S2 unblocking. See
+`docs/ops/public-beta-operational-state.md`.
 
 This is the Lane 8 distribution packet for the first Venn News Web PWA public
 beta ramp. It is the artifact the session operator fills after the live release

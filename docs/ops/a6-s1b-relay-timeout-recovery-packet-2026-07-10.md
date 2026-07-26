@@ -2,8 +2,9 @@
 
 > Status: `final_revision_image_packet_and_review_pending`
 > Owner: VHC Ops + VHC Core Engineering
-> Last Reviewed: 2026-07-10
-> Depends On: `docs/ops/public-beta-image-deploy.md`,
+> Last Reviewed: 2026-07-25
+> Depends On: `docs/ops/public-beta-operational-state.md`,
+> `docs/ops/public-beta-image-deploy.md`,
 > `docs/ops/news-aggregator-production-service.md`,
 > `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`,
 > `docs/plans/PUBLIC_BETA_STATE_OF_PLAY_HANDOFF_2026-07-10.md`
@@ -12,6 +13,12 @@
 > Repo preparation owner: VHC Core Engineering
 > Live actions performed by this document/branch: none
 > Incident class: `relay_rest_story_timeout_total_0_of_3_exit_78`
+
+Current-state override: this packet is historical and remains non-executable.
+The active-authority chain is `NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`; any future
+live packet requires valid custody, Gate P/R/I completion, fresh A6 evidence,
+independent review, and a separate exact owner confirmation. See
+`docs/ops/public-beta-operational-state.md`.
 
 ## Decision Summary
 

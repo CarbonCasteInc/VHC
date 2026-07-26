@@ -33,8 +33,9 @@ const requiredScripts = {
   'check:beta-session-runsheet': 'node --test ./tools/scripts/beta-session-runsheet.test.mjs',
   'check:public-beta-launch-control': 'node ./tools/scripts/check-public-beta-launch-control.mjs && node --test ./tools/scripts/check-public-beta-launch-control.test.mjs',
   'check:public-beta-launch-closeout': 'node ./tools/scripts/check-public-beta-launch-closeout.mjs',
+  'check:public-beta-docs-freshness': 'node --test tools/scripts/check-public-beta-docs-freshness.test.mjs && node tools/scripts/check-public-beta-docs-freshness.mjs',
   'check:release-readiness-operator-packets': 'node --test ./tools/scripts/release-readiness-operator-packets.test.mjs',
-  'docs:check': 'node tools/scripts/check-docs-governance.mjs',
+  'docs:check': 'node tools/scripts/check-docs-governance.mjs && node tools/scripts/check-public-beta-docs-freshness.mjs',
 };
 
 const requiredMvpGateIds = [

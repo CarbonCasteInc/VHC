@@ -14,6 +14,10 @@ When documents disagree, use this precedence order:
 Clarification:
 - For behavior/data contract conflicts, `docs/specs/*.md` wins over architecture prose.
 - `STATUS.md` records current implementation state and drift; it does not redefine canonical behavior contracts.
+- For the current public-beta operational verdict, authority boundary, and
+  recovery ordering, `docs/ops/public-beta-operational-state.md` is the owner.
+  Dated plans, handoffs, audits, packets, and reports are historical when they
+  disagree with that owner.
 
 Domain ownership for canonical docs is maintained in `docs/CANON_MAP.md`.
 
@@ -53,6 +57,19 @@ CI enforces this via docs governance checks.
 7. `docs/specs/spec-news-aggregator-v0.md`
 8. `docs/specs/spec-civic-sentiment.md`
 
+## Start Here Now - Public Beta
+
+- Current operational truth:
+  `docs/ops/public-beta-operational-state.md`
+- Current non-authoritative execution queue:
+  `docs/sprints/PUBLIC_BETA_RECOVERY_BLOCKED_SPRINT_2026-07-25.md`
+- Implementation ledger:
+  `docs/foundational/STATUS.md`
+
+The July 8 state-of-play audit, July 9 launch/checklist packets, July 10
+handoff, and earlier Scope A reports remain valuable evidence. They are not
+current recovery authority.
+
 ## Local Development and Operations
 
 - `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
@@ -65,10 +82,12 @@ CI enforces this via docs governance checks.
 - `docs/ops/public-beta-compliance-minimums.md`
 - `docs/feature-flags.md`
 
-## Current Scope A Status Pointer
+## Historical Scope A Context
 
-For the live public-news Scope A state, read these together:
+For dated public-news Scope A evidence, read these together after the current
+operational owner above:
 
+- `docs/ops/public-beta-operational-state.md`
 - `docs/foundational/STATUS.md`
 - `docs/reports/state-of-play-docs-alignment-audit-2026-07-08.md`
 - `docs/reports/phase5-scope-a-post-slice0-current-state-2026-07-06.md`

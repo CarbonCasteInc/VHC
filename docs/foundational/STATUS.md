@@ -2,13 +2,21 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-07-10
-> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+> Last Reviewed: 2026-07-25
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/ops/public-beta-operational-state.md
 
 
-**Last Updated:** 2026-07-10
-**Version:** 0.9.16 (S1 recovery control/liveness implementation merged; shared integration and live evidence pending)
-**Assessment:** Controlled public-beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. Shared-integration parent `main@297d1bb4` contains #759, #763, #764, #765, #766, and #767: release control, exact relay-packet correction, runtime diagnostic boundary, publisher recovery authority/control, and exact liveness classification. The executable orchestration contract remains `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`. `297d1bb4` is only the shared-integration parent, not the final live recovery revision. This shared CI/docs branch must pass review and hosted CI; the merge commit containing it becomes `FINAL_REV` and binds the publisher checkout, relay OCI revision and immutable image ID, fresh A6 capture, inert packet, reviewer, A/B/C order, and loopback origins. Lou is the sole human release/incident/rollback authority; Codex is the technical executor for repo work, release evidence, and separately authorized live sessions. The intended public-beta target is `https://venn.carboncaste.io` in the US/Canada with support/failure mail at `carboncasteit@gmail.com`, auth boundary `https://auth.venn.carboncaste.io`, Apple and Google as the first advertised providers, and X hidden until a later rehearsal packet. The latest consolidated release-evidence packet is still from `main@1a83434b` and remains **blocked** by live/operator surfaces. S1A classified the active public-feed incident as `relay_rest_story_timeout_total_0_of_3_exit_78`; the last read-only A6 state retained the publisher parked `failed/failed` at exit `78`. S1B repo remediation preserves `2/3` quorum and now includes bounded fanout, four-route signed readback, exit-69-only automatic restart authority, exact attended recovery control, secret-safe alerts, and exact liveness classification. This is repo implementation evidence, not an A6 deployment or recovery claim. S1A/S1B remain **NO-GO** until the final tuple is reviewed and bound, serial A/B/C and separate publisher recovery pass, T0+24h intermediate evidence is preserved, and T0+48h closure passes. Immediate recovery is not S1 green; authority cannot waive elapsed evidence. S2 and all launch-enablement work remain blocked.
+**Last Updated:** 2026-07-25
+**Version:** 0.9.17 (current-state routing and repository safety corrections)
+**Current operational override:** `NO_GO_BLOCKED_EXTERNAL_LOST_CUSTODY`.
+Required active-authority originals are absent from their exact governed paths;
+disaster copies are non-authoritative. The next valid action is the owner
+decision `RESTORE_EXACT_OR_AUTHORIZE_FRESH_SUCCESSOR`, followed by fresh
+independent custody review. Gate P, Gate R, Gate I, Gate L, S1A/S1B evidence,
+S2 unblocking, and Gate M remain incomplete. No July 25 A6 mutation or live
+readback was performed. See `docs/ops/public-beta-operational-state.md`.
+
+**Dated implementation assessment (2026-07-10):** Controlled public-beta candidate with the repo-side Functioning MVP lanes implemented and the deferred hardening/follow-up sequence merged. Shared-integration parent `main@297d1bb4` contains #759, #763, #764, #765, #766, and #767: release control, exact relay-packet correction, runtime diagnostic boundary, publisher recovery authority/control, and exact liveness classification. The executable orchestration contract at that date was `docs/plans/PUBLIC_BETA_NEXT_PHASE_SPRINT_CHECKLIST_2026-07-09.md`. `297d1bb4` is only the shared-integration parent, not the final live recovery revision. Lou is the sole human release/incident/rollback authority; Codex is the technical executor for repo work, release evidence, and separately authorized live sessions. The intended public-beta target is `https://venn.carboncaste.io` in the US/Canada with support/failure mail at `carboncasteit@gmail.com`, auth boundary `https://auth.venn.carboncaste.io`, Apple and Google as the first advertised providers, and X hidden until a later rehearsal packet. The latest consolidated release-evidence packet in that assessment was from `main@1a83434b` and remained **blocked** by live/operator surfaces. S1A classified the incident as `relay_rest_story_timeout_total_0_of_3_exit_78`; that readback is historical context, not confirmed-current live truth. S1B repo remediation preserves `2/3` quorum and includes bounded fanout, four-route signed readback, exit-69-only automatic restart authority, exact attended recovery control, secret-safe alerts, and exact liveness classification. This is repo implementation evidence, not deployment or recovery proof. Immediate recovery is not S1 green; authority cannot waive elapsed evidence.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -16,7 +24,11 @@
 
 ---
 
-## Quick Summary
+## Quick Summary - Dated Implementation Snapshot
+
+The table and detailed history below preserve the July 10 implementation
+assessment. They do not override the July 25 operational verdict above or prove
+current live A6 state.
 
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
